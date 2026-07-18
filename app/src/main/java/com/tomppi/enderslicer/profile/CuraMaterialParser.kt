@@ -2,7 +2,6 @@ package com.tomppi.enderslicer.profile
 
 import org.w3c.dom.Element
 import java.io.ByteArrayInputStream
-import javax.xml.XMLConstants
 import javax.xml.parsers.DocumentBuilderFactory
 
 internal object CuraMaterialParser {
@@ -13,8 +12,8 @@ internal object CuraMaterialParser {
             runCatching { setFeature("http://xml.org/sax/features/external-general-entities", false) }
             runCatching { setFeature("http://xml.org/sax/features/external-parameter-entities", false) }
             runCatching { setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false) }
-            runCatching { setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "") }
-            runCatching { setAttribute(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "") }
+            runCatching { setAttribute("http://javax.xml.XMLConstants/property/accessExternalDTD", "") }
+            runCatching { setAttribute("http://javax.xml.XMLConstants/property/accessExternalSchema", "") }
         }
         val document = factory.newDocumentBuilder()
             .parse(ByteArrayInputStream(xml.toByteArray(Charsets.UTF_8)))
