@@ -61,8 +61,8 @@ class ReferenceProfileTest {
                 support_enable = True
                 support_type = everywhere
                 machine_start_gcode = G28
-                \tG29 L0
-                \tG29 A
+                ${'\t'}G29 L0
+                ${'\t'}G29 A
             """.trimIndent(),
             "Cura/Test_quality.inst.cfg" to "[general]\nname = Test_quality\n[values]\nsupport_enable = False\n",
             "Cura/E0.extruder.cfg" to """

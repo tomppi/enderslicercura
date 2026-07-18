@@ -22,22 +22,37 @@ jobs:
         run: |
           yes | sdkmanager --licenses >/dev/null
           sdkmanager \
-            "platforms;android-37" \
+            "platforms;android-36" \
             "build-tools;36.0.0" \
             "ndk;28.2.13676358" \
-            "cmake;3.31.6"
+            "cmake;3.22.1"
 
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.4.1'
 
       - name: Unit tests
-        run: gradle :app:testDebugUnitTest
+        run: |
+          set -o pipefail
+          gradle :app:testDebugUnitTest --stacktrace 2>&1 | tee unit-tests.log
 
       - name: Build debug APK
-        run: gradle :app:assembleDebug
+        run: |
+          set -o pipefail
+          gradle :app:assembleDebug --stacktrace 2>&1 | tee apk-build.log
 
-      - uses: actions/upload-artifact@v4
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
         with:
           name: EnderSlicer-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Upload build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EnderSlicer-build-logs
+          path: |
+            unit-tests.log
+            apk-build.log
+          if-no-files-found: ignore
