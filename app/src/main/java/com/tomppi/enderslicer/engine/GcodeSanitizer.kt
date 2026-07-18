@@ -8,6 +8,7 @@ object GcodeSanitizer {
         val layerCount: Int,
         val estimatedSeconds: Int?,
         val filamentMillimeters: Double,
+        val totalFilamentMillimeters: Double,
         val minX: Double?,
         val minY: Double?,
         val minZ: Double?,
@@ -33,7 +34,8 @@ object GcodeSanitizer {
         var lastElapsed: Double? = null
         var absoluteExtrusion = true
         var currentE = 0.0
-        var filament = 0.0
+        var modelFilament = 0.0
+        var totalFilament = 0.0
         var absolutePosition = true
         var x = 0.0
         var y = 0.0
@@ -118,8 +120,12 @@ object GcodeSanitizer {
                     currentE = nextE
                 }
 
+                if (currentLayer != null && positiveExtrusion > 0.0) {
+                    totalFilament += positiveExtrusion
+                }
+
                 if (inModelMesh && currentLayer != null && positiveExtrusion > 0.0) {
-                    filament += positiveExtrusion
+                    modelFilament += positiveExtrusion
                     minX = minX?.let { minOf(it, x) } ?: x
                     minY = minY?.let { minOf(it, y) } ?: y
                     minZ = minZ?.let { minOf(it, z) } ?: z
@@ -140,7 +146,7 @@ object GcodeSanitizer {
         val repaired = original.map { line ->
             when {
                 line.startsWith(";TIME:") && estimatedSeconds != null -> ";TIME:$estimatedSeconds"
-                line.startsWith(";Filament used:") -> ";Filament used: ${format(filament / 1000.0)}m"
+                line.startsWith(";Filament used:") -> ";Filament used: ${format(totalFilament / 1000.0)}m"
                 line.startsWith(";MINX:") && resolvedMinX != null -> ";MINX:${format(resolvedMinX)}"
                 line.startsWith(";MINY:") && resolvedMinY != null -> ";MINY:${format(resolvedMinY)}"
                 line.startsWith(";MINZ:") && resolvedMinZ != null -> ";MINZ:${format(resolvedMinZ)}"
@@ -161,7 +167,8 @@ object GcodeSanitizer {
         return Summary(
             layerCount = layerCount,
             estimatedSeconds = estimatedSeconds,
-            filamentMillimeters = filament,
+            filamentMillimeters = modelFilament,
+            totalFilamentMillimeters = totalFilament,
             minX = minX,
             minY = minY,
             minZ = minZ,
