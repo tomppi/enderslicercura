@@ -44,6 +44,7 @@ COMMON_ARGS=(
   -o '&:enable_benchmarks=False'
   -o '&:enable_extensive_warnings=False'
   -o '&:with_cura_resources=False'
+  -o 'boost/*:header_only=True'
   -o '*:shared=False'
 )
 
