@@ -7,4 +7,7 @@ build/
 **/build/
 .externalNativeBuild/
 .cxx/
+.build/
 third_party/CuraEngine/
+app/src/main/jniLibs/
+app/src/main/assets/cura/definitions/
