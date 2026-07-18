@@ -51,6 +51,7 @@ class CuraEngineCommandTest {
                 "coasting_volume" to "0.256",
                 "speed_print" to "120",
                 "material_standby_temperature" to "180",
+                "cool_min_temperature" to "0",
             ),
         )
         val command = CuraEngineCommand.build(
@@ -78,6 +79,7 @@ class CuraEngineCommandTest {
         assertTrue(command.contains("material_standby_temperature=180"))
         assertTrue(command.contains("material_initial_print_temperature=210"))
         assertTrue(command.contains("material_final_print_temperature=210"))
+        assertTrue(command.lastIndexOf("cool_min_temperature=210") > command.lastIndexOf("cool_min_temperature=0"))
         assertTrue(command.lastIndexOf("speed_print=200.0") > command.lastIndexOf("speed_print=120"))
         assertTrue(command.lastIndexOf("support_enable=true") > command.lastIndexOf("support_enable=false"))
 
