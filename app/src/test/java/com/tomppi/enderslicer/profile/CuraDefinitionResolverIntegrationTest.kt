@@ -75,22 +75,28 @@ class CuraDefinitionResolverIntegrationTest {
             ),
         )
 
-        assertTrue(resolved.expressionCount > 300)
-        assertTrue(resolved.passes > 1)
-        assertEquals("210", resolved.extruderValues["cool_min_temperature"])
-        assertEquals("0", resolved.extruderValues["cool_fan_speed_0"])
-        assertEquals("0.68", resolved.extruderValues["cool_fan_full_at_height"])
-        assertEquals("4", resolved.extruderValues["cool_fan_full_layer"])
-        assertEquals("0.88", resolved.extruderValues["top_bottom_thickness"])
-        assertEquals("5", resolved.extruderValues["top_layers"])
-        assertEquals("5", resolved.extruderValues["bottom_layers"])
-        assertEquals("2", resolved.extruderValues["wall_line_count"])
+        assertTrue("Expected hundreds of Cura expressions, got ${resolved.expressionCount}", resolved.expressionCount > 300)
+        assertTrue("Expected dependency resolution to require multiple passes, got ${resolved.passes}", resolved.passes > 1)
+        assertNumeric(resolved.extruderValues, "cool_min_temperature", 210.0)
+        assertNumeric(resolved.extruderValues, "cool_fan_speed_0", 0.0)
+        assertNumeric(resolved.extruderValues, "cool_fan_full_at_height", 0.68)
+        assertNumeric(resolved.extruderValues, "cool_fan_full_layer", 4.0)
+        assertNumeric(resolved.extruderValues, "top_bottom_thickness", 0.88)
+        assertNumeric(resolved.extruderValues, "top_layers", 5.0)
+        assertNumeric(resolved.extruderValues, "bottom_layers", 5.0)
+        assertNumeric(resolved.extruderValues, "wall_line_count", 2.0)
         assertEquals("cubic", resolved.extruderValues["infill_pattern"])
-        assertEquals("12", resolved.extruderValues["infill_line_distance"])
-        assertEquals("200", resolved.extruderValues["speed_infill"])
-        assertEquals("100", resolved.extruderValues["speed_topbottom"])
+        assertNumeric(resolved.extruderValues, "infill_line_distance", 12.0)
+        assertNumeric(resolved.extruderValues, "speed_infill", 200.0)
+        assertNumeric(resolved.extruderValues, "speed_topbottom", 100.0)
         assertFalse(resolved.globalValues.values.any { it.trim().startsWith("=") })
         assertFalse(resolved.extruderValues.values.any { it.trim().startsWith("=") })
+    }
+
+    private fun assertNumeric(values: Map<String, String>, key: String, expected: Double) {
+        val raw = values[key] ?: error("Missing resolved setting: $key")
+        val actual = raw.toDoubleOrNull() ?: error("Resolved setting is not numeric: $key=$raw")
+        assertEquals("Unexpected resolved value for $key", expected, actual, 1e-7)
     }
 
     private fun loadDefinitions(): Map<String, String> {
