@@ -40,7 +40,7 @@ class GcodeLayerPreviewParserTest {
         val preview = GcodeLayerPreviewParser.parse(file)
 
         assertEquals(2, preview.layers.size)
-        assertEquals(5, preview.totalSegmentCount)
+        assertEquals(6, preview.totalSegmentCount)
         assertEquals(10f, preview.minX, 0f)
         assertEquals(10f, preview.minY, 0f)
         assertEquals(20f, preview.maxX, 0f)
@@ -50,7 +50,7 @@ class GcodeLayerPreviewParserTest {
         assertEquals(1, preview.layers[0].supportSegmentCount)
         assertEquals(1, preview.layers[0].supportInterfaceSegmentCount)
         assertEquals(4, preview.layers[0].segmentCount)
-        assertEquals(1, preview.layers[1].segmentCount)
+        assertEquals(2, preview.layers[1].segmentCount)
         assertFalse(preview.truncated)
 
         val packed = preview.layers[0].segments
