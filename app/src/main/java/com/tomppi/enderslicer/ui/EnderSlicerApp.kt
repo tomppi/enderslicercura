@@ -36,6 +36,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -49,12 +50,30 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.tomppi.enderslicer.model.SlicerSettings
 import com.tomppi.enderslicer.viewer.ModelSurfaceView
 
+private enum class ViewerMode { MODEL, LAYERS }
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EnderSlicerApp(viewModel: MainViewModel = viewModel()) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     var menuExpanded by remember { mutableStateOf(false) }
     var settingsOpen by remember { mutableStateOf(false) }
+    var viewerMode by remember { mutableStateOf(ViewerMode.MODEL) }
+    var selectedLayerIndex by remember { mutableStateOf(0) }
+
+    LaunchedEffect(state.layerPreview) {
+        val preview = state.layerPreview
+        if (preview == null) {
+            viewerMode = ViewerMode.MODEL
+            selectedLayerIndex = 0
+        } else {
+            val firstSupport = preview.layers.indexOfFirst {
+                it.supportSegmentCount > 0 || it.supportInterfaceSegmentCount > 0
+            }
+            selectedLayerIndex = if (firstSupport >= 0) firstSupport else 0
+            viewerMode = ViewerMode.LAYERS
+        }
+    }
 
     val stlPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let(viewModel::importStl)
@@ -148,6 +167,10 @@ fun EnderSlicerApp(viewModel: MainViewModel = viewModel()) {
     ) { padding ->
         ViewerPanel(
             state = state,
+            viewerMode = viewerMode,
+            selectedLayerIndex = selectedLayerIndex,
+            onViewerMode = { viewerMode = it },
+            onLayerSelected = { selectedLayerIndex = it },
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding),
@@ -174,14 +197,28 @@ fun EnderSlicerApp(viewModel: MainViewModel = viewModel()) {
 @Composable
 private fun ViewerPanel(
     state: MainUiState,
+    viewerMode: ViewerMode,
+    selectedLayerIndex: Int,
+    onViewerMode: (ViewerMode) -> Unit,
+    onLayerSelected: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Box(modifier = modifier) {
-        AndroidView(
-            modifier = Modifier.fillMaxSize(),
-            factory = { context -> ModelSurfaceView(context, state.printer) },
-            update = { view -> view.setMesh(state.mesh) },
-        )
+        val preview = state.layerPreview
+        if (viewerMode == ViewerMode.LAYERS && preview != null) {
+            LayerPreviewView(
+                preview = preview,
+                selectedLayerIndex = selectedLayerIndex,
+                onLayerSelected = onLayerSelected,
+                modifier = Modifier.fillMaxSize(),
+            )
+        } else {
+            AndroidView(
+                modifier = Modifier.fillMaxSize(),
+                factory = { context -> ModelSurfaceView(context, state.printer) },
+                update = { view -> view.setMesh(state.mesh) },
+            )
+        }
 
         Card(
             modifier = Modifier
@@ -205,21 +242,47 @@ private fun ViewerPanel(
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
+                state.estimatedPrintSeconds?.let { seconds ->
+                    Text("Estimated print: ${formatEstimatedPrintTime(seconds)}", style = MaterialTheme.typography.bodySmall)
+                }
             }
         }
 
-        Card(
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .padding(12.dp)
-                .widthIn(max = 520.dp),
-        ) {
-            Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-                Text(state.statusMessage, style = MaterialTheme.typography.bodySmall)
-                Text(
-                    "Drag orbit · Pinch zoom · Two-finger pan · Double-tap reset",
-                    style = MaterialTheme.typography.labelSmall,
-                )
+        if (preview != null) {
+            Card(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(12.dp),
+            ) {
+                Row(
+                    modifier = Modifier.padding(6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    if (viewerMode == ViewerMode.MODEL) {
+                        Button(onClick = { onViewerMode(ViewerMode.MODEL) }) { Text("Model") }
+                        OutlinedButton(onClick = { onViewerMode(ViewerMode.LAYERS) }) { Text("Layers") }
+                    } else {
+                        OutlinedButton(onClick = { onViewerMode(ViewerMode.MODEL) }) { Text("Model") }
+                        Button(onClick = { onViewerMode(ViewerMode.LAYERS) }) { Text("Layers") }
+                    }
+                }
+            }
+        }
+
+        if (viewerMode == ViewerMode.MODEL) {
+            Card(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(12.dp)
+                    .widthIn(max = 520.dp),
+            ) {
+                Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                    Text(state.statusMessage, style = MaterialTheme.typography.bodySmall)
+                    Text(
+                        "Drag orbit · Pinch zoom · Two-finger pan · Double-tap reset",
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                }
             }
         }
     }
@@ -232,28 +295,40 @@ private fun ActionBar(
     onExportGcode: () -> Unit,
 ) {
     Surface(tonalElevation = 4.dp) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()
                 .padding(horizontal = 12.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
+            verticalArrangement = Arrangement.spacedBy(5.dp),
         ) {
-            if (state.isBusy) CircularProgressIndicator(modifier = Modifier.height(28.dp))
-            Button(
-                onClick = onSlice,
-                enabled = state.engineAvailable && state.modelPath != null && !state.isBusy,
-                modifier = Modifier.weight(1f),
-            ) {
-                Text(if (state.isBusy) "Working…" else "Slice")
+            state.estimatedPrintSeconds?.let { seconds ->
+                Text(
+                    "Estimated print time: ${formatEstimatedPrintTime(seconds)}",
+                    style = MaterialTheme.typography.titleSmall,
+                    modifier = Modifier.align(Alignment.CenterHorizontally),
+                )
             }
-            OutlinedButton(
-                onClick = onExportGcode,
-                enabled = state.gcodePath != null && !state.isBusy,
-                modifier = Modifier.weight(1f),
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text("Export G-code")
+                if (state.isBusy) CircularProgressIndicator(modifier = Modifier.height(28.dp))
+                Button(
+                    onClick = onSlice,
+                    enabled = state.engineAvailable && state.modelPath != null && !state.isBusy,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text(if (state.isBusy) "Working…" else "Slice")
+                }
+                OutlinedButton(
+                    onClick = onExportGcode,
+                    enabled = state.gcodePath != null && !state.isBusy,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("Export G-code")
+                }
             }
         }
     }
@@ -526,4 +601,16 @@ private fun source(state: MainUiState, key: String): String = when {
     state.settings.isOverridden(key) -> "App override"
     state.engineProfile != null -> "Imported Cura value"
     else -> "Built-in default"
+}
+
+private fun formatEstimatedPrintTime(totalSeconds: Int): String {
+    val seconds = totalSeconds.coerceAtLeast(0)
+    val days = seconds / 86_400
+    val hours = (seconds % 86_400) / 3_600
+    val minutes = (seconds % 3_600) / 60
+    return buildString {
+        if (days > 0) append("${days}d ")
+        if (hours > 0 || days > 0) append("${hours}h ")
+        append("${minutes}m")
+    }.trim()
 }
