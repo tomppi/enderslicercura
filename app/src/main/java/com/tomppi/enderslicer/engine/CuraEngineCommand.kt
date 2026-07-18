@@ -29,9 +29,12 @@ object CuraEngineCommand {
             "-m$threadCount",
             "-d",
             definitionsDirectory,
-            // Creality's machine overrides use both default_value and value.
-            // CuraEngine's CLI normally ignores a value when default_value is absent,
-            // so explicitly enable its non-default fallback while reading definitions.
+            // Cura's definition hierarchy contains two types of values that the
+            // command-line loader normally skips:
+            // 1. non-leaf/parent settings that also contain child settings;
+            // 2. overrides with value but no default_value.
+            // Read both so settings such as roofing_layer_count are available.
+            "--force-read-parent",
             "--force-read-nondefault",
             "-j",
             machineDefinition,
@@ -78,12 +81,13 @@ object CuraEngineCommand {
         setting("material_flow", settings.materialFlowPercent)
         setting("cool_fan_speed", settings.fanSpeedPercent)
 
-        // -j applies to the currently selected settings stack. Loading the machine
-        // definition only before -e0 leaves all limit_to_extruder settings (including
-        // roofing_layer_count) absent from extruder 0. Load the complete printer
-        // settings into that stack first, then overlay the Creality extruder train.
+        // -j applies to the currently selected settings stack. Load the complete
+        // printer hierarchy into extruder 0, then overlay the Creality extruder
+        // train. Parent settings must be retained here too because many
+        // limit_to_extruder values are non-leaf settings.
         command += listOf(
             "-e0",
+            "--force-read-parent",
             "--force-read-nondefault",
             "-j",
             machineDefinition,
