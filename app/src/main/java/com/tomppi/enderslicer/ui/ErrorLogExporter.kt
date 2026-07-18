@@ -7,7 +7,7 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -50,12 +50,12 @@ fun ErrorLogExporter(
         }
     }
 
-    ExtendedFloatingActionButton(
+    Button(
         onClick = { exporter.launch("enderslicer-error-log.txt") },
         modifier = modifier.navigationBarsPadding(),
-        text = { Text("Export error log") },
-        expanded = true,
-    )
+    ) {
+        Text("Export error log")
+    }
 }
 
 private fun writeDiagnosticReport(
