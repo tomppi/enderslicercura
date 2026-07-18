@@ -36,10 +36,10 @@ class CuraEngineRunner(private val context: Context) {
     fun isAvailable(): Boolean = executable.isFile && executable.length() > 0L
 
     fun status(): String = when {
-        !executable.exists() -> "CuraEngine 5.11 ARM64 is not packaged in this APK"
+        !executable.exists() -> "CuraEngine 5.11.0-beta.1 ARM64 is not packaged in this APK"
         !executable.isFile -> "CuraEngine package path is invalid"
         executable.length() == 0L -> "CuraEngine package is empty"
-        else -> "CuraEngine 5.11 ARM64 ready"
+        else -> "CuraEngine 5.11.0-beta.1 ARM64 ready"
     }
 
     fun slice(
@@ -52,15 +52,15 @@ class CuraEngineRunner(private val context: Context) {
     ): SliceResult {
         val workDirectory = File(context.cacheDir, "curaengine").apply { mkdirs() }
         val outputFile = File(workDirectory, "current.gcode")
-        val resolvedSettingsFile = File(workDirectory, "resolved-settings.json")
         val resolvedModelFile = File(workDirectory, "current.stl")
+        val resolvedSettingsFile = File(workDirectory, "resolved-settings.json")
         val logFile = File(context.filesDir, "logs/curaengine-last.log").apply {
             parentFile?.mkdirs()
         }
 
         outputFile.delete()
-        resolvedSettingsFile.delete()
         resolvedModelFile.delete()
+        resolvedSettingsFile.delete()
         logFile.writeText(
             buildString {
                 appendLine("EnderSlicer CuraEngine diagnostic log")
@@ -148,6 +148,7 @@ class CuraEngineRunner(private val context: Context) {
                         appendLine("Resolved infill pattern/distance: ${resolved.extruderValues["infill_pattern"]}/${resolved.extruderValues["infill_line_distance"]}")
                         appendLine("Resolved fan start/full layer: ${resolved.extruderValues["cool_fan_speed_0"]}/${resolved.extruderValues["cool_fan_full_layer"]}")
                         appendLine("Resolved nozzle temperatures: ${resolved.extruderValues["material_print_temperature_layer_0"]}/${resolved.extruderValues["material_print_temperature"]}/${resolved.extruderValues["cool_min_temperature"]}")
+                        appendLine("Resolved model placement: center_object=true via extruder.0 mesh parent; position=0/0/0")
                         appendLine("Resolved settings JSON: ${resolvedSettingsFile.length()} bytes")
                     } else {
                         appendLine("Settings transport: fallback command-line overrides")
@@ -292,7 +293,7 @@ class CuraEngineRunner(private val context: Context) {
             directory = destination,
             machineDefinition = File(destination, BUNDLED_MACHINE_DEFINITION),
             extruderDefinition = File(destination, BUNDLED_EXTRUDER_DEFINITION),
-            source = "bundled Cura 5.11 fallback",
+            source = "bundled Cura 5.11.0-beta.1 fallback",
         )
     }
 
