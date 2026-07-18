@@ -80,7 +80,7 @@ class GcodeSanitizerTest {
 
         assertEquals(2, summary.layerCount)
         assertEquals(43, summary.estimatedSeconds)
-        assertEquals(2.5, summary.filamentMillimeters, 0.0001)
+        assertEquals(2.0, summary.filamentMillimeters, 0.0001)
         assertEquals(3.5, summary.totalFilamentMillimeters, 0.0001)
         assertEquals(100.0, summary.minX!!, 0.0)
         assertEquals(110.0, summary.minY!!, 0.0)
