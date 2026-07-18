@@ -37,7 +37,7 @@ class GcodeSanitizerTest {
     }
 
     @Test
-    fun repairsHeaderAndAllowsShutdownOnFinalLayer() {
+    fun repairsHeaderExcludingStartPurgeAndAllowsFinalShutdown() {
         val file = temporaryGcode(
             """
             ;TIME:6666
@@ -70,9 +70,9 @@ class GcodeSanitizerTest {
 
         assertEquals(2, summary.layerCount)
         assertEquals(43, summary.estimatedSeconds)
-        assertEquals(32.0, summary.filamentMillimeters, 0.0001)
+        assertEquals(2.0, summary.filamentMillimeters, 0.0001)
         assertTrue(output.contains(";TIME:43"))
-        assertTrue(output.contains(";Filament used: 0.032m"))
+        assertTrue(output.contains(";Filament used: 0.002m"))
         assertTrue(output.contains(";MINX:100"))
         assertTrue(output.contains(";MAXY:130"))
     }
