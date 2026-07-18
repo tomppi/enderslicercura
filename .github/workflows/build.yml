@@ -48,13 +48,18 @@ jobs:
             conan-curaengine-5.11-android-arm64-v4-
             conan-curaengine-5.11-android-arm64-v3-
 
-      - name: Fetch pinned Cura definitions
+      - name: Fetch and validate pinned Cura definitions
         run: |
           chmod +x scripts/fetch-cura-resources.sh
           scripts/fetch-cura-resources.sh
-          test -s app/src/main/assets/cura/definitions/fdmprinter.def.json
-          test -s app/src/main/assets/cura/definitions/creality_base.def.json
-          test -s app/src/main/assets/cura/definitions/creality_ender3.def.json
+          for name in \
+            fdmprinter \
+            fdmextruder \
+            creality_base \
+            creality_base_extruder_0 \
+            creality_ender3; do
+            test -s "app/src/main/assets/cura/definitions/$name.def.json"
+          done
 
       - name: Build and package CuraEngine ARM64
         env:
@@ -80,12 +85,19 @@ jobs:
           gradle :app:assembleDebug --stacktrace 2>&1 | tee apk-build.log
           unzip -l app/build/outputs/apk/debug/app-debug.apk | tee apk-contents.log
           grep -q 'lib/arm64-v8a/libcuraengine_exec.so' apk-contents.log
-          grep -q 'assets/cura/definitions/fdmprinter.def.json' apk-contents.log
+          for name in \
+            fdmprinter \
+            fdmextruder \
+            creality_base \
+            creality_base_extruder_0 \
+            creality_ender3; do
+            grep -q "assets/cura/definitions/$name.def.json" apk-contents.log
+          done
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: EnderSlicer-0.2.1-dev-debug-apk
+          name: EnderSlicer-0.2.2-dev-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
 
       - name: Upload build logs
