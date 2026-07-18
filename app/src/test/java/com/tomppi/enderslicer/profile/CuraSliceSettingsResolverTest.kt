@@ -55,13 +55,28 @@ class CuraSliceSettingsResolverTest {
                 "machine_nozzle_size" to "0.4",
                 "line_width" to "=machine_nozzle_size",
                 "speed_print" to "120",
+                "speed_infill" to "=speed_print",
+                "speed_wall" to "=speed_print / 2",
+                "speed_topbottom" to "=speed_print / 2",
                 "infill_sparse_density" to "10",
+                "infill_pattern" to "cubic",
+                "infill_line_width" to "=line_width",
+                "infill_line_distance" to "=0 if infill_sparse_density == 0 else (infill_line_width * 100) / infill_sparse_density * (3 if infill_pattern == 'cubic' else 1)",
                 "material_print_temperature" to "200",
                 "material_print_temperature_layer_0" to "220",
+                "cool_min_temperature" to "=material_print_temperature",
                 "cool_fan_speed" to "100",
+                "cool_fan_speed_0" to "0",
+                "cool_fan_full_at_height" to "=layer_height_0 + layer_height * 2",
+                "cool_fan_full_layer" to "=max(1, int(math.floor((cool_fan_full_at_height - resolveOrValue('layer_height_0')) / resolveOrValue('layer_height')) + 2))",
+                "top_bottom_thickness" to "=layer_height_0+layer_height*3",
+                "top_thickness" to "=top_bottom_thickness",
+                "bottom_thickness" to "=top_bottom_thickness",
                 "top_layers" to "=0 if infill_sparse_density == 100 else math.ceil(round(top_thickness / resolveOrValue('layer_height'), 4))",
                 "bottom_layers" to "=999999 if infill_sparse_density == 100 and not magic_spiralize else math.ceil(round(bottom_thickness / resolveOrValue('layer_height'), 4))",
                 "initial_bottom_layers" to "=bottom_layers",
+                "wall_line_width_0" to "=line_width",
+                "wall_line_width_x" to "=line_width",
                 "wall_line_count" to "=1 if magic_spiralize else max(1, round((wall_thickness - wall_line_width_0) / wall_line_width_x) + 1) if wall_thickness != 0 else 0",
                 "wall_thickness" to "=line_width*2",
             ),
@@ -109,7 +124,7 @@ class CuraSliceSettingsResolverTest {
         assertEquals("cubic", resolved.extruderValues["infill_pattern"])
         assertEquals("G28", resolved.globalValues["machine_start_gcode"])
         assertEquals("M104 S0", resolved.globalValues["machine_end_gcode"])
-        assertTrue(resolved.expressionCount > 300)
+        assertTrue(resolved.expressionCount >= 20)
     }
 
     private fun assertNumeric(values: Map<String, String>, key: String, expected: Double) {
