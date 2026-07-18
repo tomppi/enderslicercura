@@ -4,6 +4,7 @@ import android.content.Context
 import android.opengl.GLES20
 import android.opengl.GLSurfaceView
 import android.opengl.Matrix
+import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import com.tomppi.enderslicer.model.PrinterDefinition
@@ -13,6 +14,7 @@ import java.nio.FloatBuffer
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 import kotlin.math.max
+import kotlin.math.tan
 
 class ModelSurfaceView(
     context: Context,
@@ -20,13 +22,18 @@ class ModelSurfaceView(
 ) : GLSurfaceView(context) {
     private val modelRenderer = ModelRenderer(printer)
     private val scaleDetector = ScaleGestureDetector(context, ScaleListener())
+    private val gestureDetector = GestureDetector(context, GestureListener())
     private var previousX = 0f
     private var previousY = 0f
+    private var previousFocusX = 0f
+    private var previousFocusY = 0f
+    private var panning = false
 
     init {
         setEGLContextClientVersion(2)
         setRenderer(modelRenderer)
         renderMode = RENDERMODE_WHEN_DIRTY
+        isClickable = true
     }
 
     fun setMesh(mesh: StlMesh?) {
@@ -35,27 +42,97 @@ class ModelSurfaceView(
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        gestureDetector.onTouchEvent(event)
         scaleDetector.onTouchEvent(event)
+
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 previousX = event.x
                 previousY = event.y
+                panning = false
             }
-            MotionEvent.ACTION_MOVE -> if (!scaleDetector.isInProgress) {
-                val dx = event.x - previousX
-                val dy = event.y - previousY
-                modelRenderer.rotate(dx * 0.35f, dy * 0.35f)
-                previousX = event.x
-                previousY = event.y
-                requestRender()
+
+            MotionEvent.ACTION_POINTER_DOWN -> {
+                if (event.pointerCount >= 2) {
+                    previousFocusX = pointerFocusX(event)
+                    previousFocusY = pointerFocusY(event)
+                    panning = true
+                }
             }
+
+            MotionEvent.ACTION_MOVE -> {
+                if (event.pointerCount >= 2) {
+                    val focusX = pointerFocusX(event)
+                    val focusY = pointerFocusY(event)
+                    if (panning) {
+                        modelRenderer.panPixels(
+                            deltaX = focusX - previousFocusX,
+                            deltaY = focusY - previousFocusY,
+                        )
+                    }
+                    previousFocusX = focusX
+                    previousFocusY = focusY
+                    panning = true
+                    requestRender()
+                } else if (!scaleDetector.isInProgress) {
+                    val dx = event.x - previousX
+                    val dy = event.y - previousY
+                    modelRenderer.rotate(dx * 0.35f, dy * 0.35f)
+                    previousX = event.x
+                    previousY = event.y
+                    requestRender()
+                }
+            }
+
+            MotionEvent.ACTION_POINTER_UP -> {
+                panning = false
+                if (event.pointerCount - 1 == 1) {
+                    val remainingIndex = if (event.actionIndex == 0) 1 else 0
+                    previousX = event.getX(remainingIndex)
+                    previousY = event.getY(remainingIndex)
+                }
+            }
+
+            MotionEvent.ACTION_UP -> {
+                performClick()
+                panning = false
+            }
+
+            MotionEvent.ACTION_CANCEL -> panning = false
         }
         return true
+    }
+
+    override fun performClick(): Boolean {
+        super.performClick()
+        return true
+    }
+
+    private fun pointerFocusX(event: MotionEvent): Float {
+        var total = 0f
+        for (index in 0 until event.pointerCount) total += event.getX(index)
+        return total / event.pointerCount
+    }
+
+    private fun pointerFocusY(event: MotionEvent): Float {
+        var total = 0f
+        for (index in 0 until event.pointerCount) total += event.getY(index)
+        return total / event.pointerCount
     }
 
     private inner class ScaleListener : ScaleGestureDetector.SimpleOnScaleGestureListener() {
         override fun onScale(detector: ScaleGestureDetector): Boolean {
             modelRenderer.zoom(detector.scaleFactor)
+            requestRender()
+            return true
+        }
+    }
+
+    private inner class GestureListener : GestureDetector.SimpleOnGestureListener() {
+        override fun onDown(event: MotionEvent): Boolean = true
+
+        override fun onDoubleTap(event: MotionEvent): Boolean {
+            modelRenderer.resetCamera()
             requestRender()
             return true
         }
@@ -73,9 +150,11 @@ private class ModelRenderer(
     private var gridVertexCount = 0
     private var viewportWidth = 1
     private var viewportHeight = 1
-    private var yaw = -28f
-    private var pitch = 58f
-    private var zoom = 1f
+    private var yaw = DEFAULT_YAW
+    private var pitch = DEFAULT_PITCH
+    private var zoom = DEFAULT_ZOOM
+    private var panX = 0f
+    private var panY = 0f
 
     private val projection = FloatArray(16)
     private val view = FloatArray(16)
@@ -91,12 +170,30 @@ private class ModelRenderer(
     }
 
     fun rotate(deltaYaw: Float, deltaPitch: Float) {
-        yaw += deltaYaw
-        pitch = (pitch + deltaPitch).coerceIn(10f, 85f)
+        yaw = wrapDegrees(yaw + deltaYaw)
+        pitch = wrapDegrees(pitch + deltaPitch)
     }
 
     fun zoom(scaleFactor: Float) {
-        zoom = (zoom * scaleFactor).coerceIn(0.35f, 3.5f)
+        if (!scaleFactor.isFinite() || scaleFactor <= 0f) return
+        zoom = (zoom * scaleFactor).coerceIn(MIN_ZOOM, MAX_ZOOM)
+    }
+
+    fun panPixels(deltaX: Float, deltaY: Float) {
+        if (!deltaX.isFinite() || !deltaY.isFinite()) return
+        val distance = cameraDistance()
+        val visibleHeight = 2f * distance * tan(Math.toRadians(FIELD_OF_VIEW_DEGREES / 2.0)).toFloat()
+        val worldPerPixel = visibleHeight / max(viewportHeight, 1).toFloat()
+        panX += deltaX * worldPerPixel
+        panY -= deltaY * worldPerPixel
+    }
+
+    fun resetCamera() {
+        yaw = DEFAULT_YAW
+        pitch = DEFAULT_PITCH
+        zoom = DEFAULT_ZOOM
+        panX = 0f
+        panY = 0f
     }
 
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
@@ -115,13 +212,12 @@ private class ModelRenderer(
 
     override fun onDrawFrame(gl: GL10?) {
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
-        val bedMax = max(printer.widthMm, printer.depthMm).toFloat()
-        val meshHeight = mesh?.bounds?.height ?: 0f
-        val distance = (bedMax * 1.55f + meshHeight * 0.35f) / zoom
+        val distance = cameraDistance()
         val aspect = viewportWidth.toFloat() / viewportHeight.toFloat()
 
-        Matrix.perspectiveM(projection, 0, 42f, aspect, 1f, 3000f)
+        Matrix.perspectiveM(projection, 0, FIELD_OF_VIEW_DEGREES, aspect, 0.05f, 20_000f)
         Matrix.setLookAtM(view, 0, 0f, -distance, distance * 0.62f, 0f, 0f, 0f, 0f, 0f, 1f)
+        Matrix.translateM(view, 0, panX, panY, 0f)
 
         Matrix.setIdentityM(scene, 0)
         Matrix.rotateM(scene, 0, pitch, 1f, 0f, 0f)
@@ -136,6 +232,12 @@ private class ModelRenderer(
 
         drawGrid()
         drawMesh()
+    }
+
+    private fun cameraDistance(): Float {
+        val bedMax = max(printer.widthMm, printer.depthMm).toFloat()
+        val meshHeight = mesh?.bounds?.height ?: 0f
+        return (bedMax * 1.55f + meshHeight * 0.35f) / zoom
     }
 
     private fun drawGrid() {
@@ -245,7 +347,21 @@ private class ModelRenderer(
             .apply { put(values); position(0) }
     }
 
+    private fun wrapDegrees(value: Float): Float {
+        var wrapped = value % 360f
+        if (wrapped < -180f) wrapped += 360f
+        if (wrapped >= 180f) wrapped -= 360f
+        return wrapped
+    }
+
     private companion object {
+        const val DEFAULT_YAW = -28f
+        const val DEFAULT_PITCH = 58f
+        const val DEFAULT_ZOOM = 1f
+        const val MIN_ZOOM = 0.08f
+        const val MAX_ZOOM = 20f
+        const val FIELD_OF_VIEW_DEGREES = 42f
+
         const val MESH_VERTEX_SHADER = """
             uniform mat4 uMvpMatrix;
             uniform mat4 uModelMatrix;
