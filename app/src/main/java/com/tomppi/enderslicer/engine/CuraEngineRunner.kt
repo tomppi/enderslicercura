@@ -4,6 +4,7 @@ import android.content.Context
 import com.tomppi.enderslicer.model.PrinterDefinition
 import com.tomppi.enderslicer.model.SlicerSettings
 import java.io.File
+import java.time.Instant
 import java.util.concurrent.TimeUnit
 
 class CuraEngineRunner(private val context: Context) {
@@ -12,6 +13,12 @@ class CuraEngineRunner(private val context: Context) {
         val logFile: File,
         val elapsedMilliseconds: Long,
     )
+
+    class SliceException(
+        message: String,
+        val logFile: File,
+        cause: Throwable? = null,
+    ) : Exception(message, cause)
 
     private val nativeDirectory = File(context.applicationInfo.nativeLibraryDir)
     private val executable = File(nativeDirectory, ENGINE_LIBRARY_NAME)
@@ -32,73 +39,144 @@ class CuraEngineRunner(private val context: Context) {
         startGcode: String,
         endGcode: String,
     ): SliceResult {
-        require(isAvailable()) { status() }
-        require(modelFile.isFile && modelFile.length() > 0L) { "The imported STL is no longer available" }
-
         val workDirectory = File(context.cacheDir, "curaengine").apply { mkdirs() }
-        val definitionsDirectory = prepareDefinitions(workDirectory)
         val outputFile = File(workDirectory, "current.gcode")
-        val logFile = File(workDirectory, "curaengine.log")
-        outputFile.delete()
-        logFile.delete()
+        val logFile = File(context.filesDir, "logs/curaengine-last.log").apply {
+            parentFile?.mkdirs()
+        }
 
-        val command = CuraEngineCommand.build(
-            executablePath = executable.absolutePath,
-            definitionsDirectory = definitionsDirectory.absolutePath,
-            modelPath = modelFile.absolutePath,
-            outputPath = outputFile.absolutePath,
-            printer = printer,
-            settings = settings,
-            startGcode = startGcode,
-            endGcode = endGcode,
+        outputFile.delete()
+        logFile.writeText(
+            buildString {
+                appendLine("EnderSlicer CuraEngine diagnostic log")
+                appendLine("Started: ${Instant.now()}")
+                appendLine("Engine: ${executable.absolutePath}")
+                appendLine("Engine status: ${status()}")
+                appendLine("Model: ${modelFile.name} (${modelFile.length()} bytes)")
+                appendLine("Printer: ${printer.name}")
+                appendLine("Build volume: ${printer.widthMm} x ${printer.depthMm} x ${printer.heightMm} mm")
+                appendLine("Nozzle: ${printer.nozzleSizeMm} mm")
+                appendLine("Layer height: ${settings.layerHeightMm} mm")
+                appendLine("Print speed: ${settings.printSpeedMmPerSecond} mm/s")
+                appendLine("Supports: ${settings.supportsEnabled} / ${settings.supportStructure} / ${settings.supportPlacement}")
+                appendLine()
+            },
         )
 
         val startedAt = System.nanoTime()
-        val process = ProcessBuilder(command)
-            .directory(workDirectory)
-            .redirectErrorStream(true)
-            .redirectOutput(logFile)
-            .apply {
-                environment()["LD_LIBRARY_PATH"] = nativeDirectory.absolutePath
-                environment()["TMPDIR"] = workDirectory.absolutePath
-                environment()["HOME"] = context.filesDir.absolutePath
-                environment()["CURAENGINE_LOG_LEVEL"] = "info"
+
+        try {
+            require(isAvailable()) { status() }
+            require(modelFile.isFile && modelFile.length() > 0L) { "The imported STL is no longer available" }
+
+            val definitionsDirectory = prepareDefinitions(workDirectory)
+            val command = CuraEngineCommand.build(
+                executablePath = executable.absolutePath,
+                definitionsDirectory = definitionsDirectory.absolutePath,
+                modelPath = modelFile.absolutePath,
+                outputPath = outputFile.absolutePath,
+                printer = printer,
+                settings = settings,
+                startGcode = startGcode,
+                endGcode = endGcode,
+            )
+
+            appendLog(
+                logFile,
+                buildString {
+                    appendLine("--- Command ---")
+                    command.forEachIndexed { index, argument -> appendLine("[$index] $argument") }
+                    appendLine()
+                    appendLine("--- CuraEngine output ---")
+                },
+            )
+
+            val process = ProcessBuilder(command)
+                .directory(workDirectory)
+                .redirectErrorStream(true)
+                .redirectOutput(ProcessBuilder.Redirect.appendTo(logFile))
+                .apply {
+                    environment()["LD_LIBRARY_PATH"] = nativeDirectory.absolutePath
+                    environment()["TMPDIR"] = workDirectory.absolutePath
+                    environment()["HOME"] = context.filesDir.absolutePath
+                    environment()["CURAENGINE_LOG_LEVEL"] = "info"
+                }
+                .start()
+
+            val completed = process.waitFor(SLICE_TIMEOUT_MINUTES, TimeUnit.MINUTES)
+            if (!completed) {
+                process.destroy()
+                if (!process.waitFor(3, TimeUnit.SECONDS)) process.destroyForcibly()
+                throw SliceException(
+                    "CuraEngine timed out after $SLICE_TIMEOUT_MINUTES minutes. Export the error log for details.",
+                    logFile,
+                )
             }
-            .start()
 
-        val completed = process.waitFor(SLICE_TIMEOUT_MINUTES, TimeUnit.MINUTES)
-        if (!completed) {
-            process.destroy()
-            if (!process.waitFor(3, TimeUnit.SECONDS)) process.destroyForcibly()
-            error("CuraEngine timed out after $SLICE_TIMEOUT_MINUTES minutes")
-        }
+            val exitCode = process.exitValue()
+            appendLog(logFile, "\n--- Process result ---\nExit code: $exitCode\n")
+            if (exitCode != 0) {
+                throw SliceException(
+                    "CuraEngine failed with exit code $exitCode. Export the error log for full details.",
+                    logFile,
+                )
+            }
 
-        val exitCode = process.exitValue()
-        val logTail = readTail(logFile, MAX_LOG_ERROR_BYTES)
-        check(exitCode == 0) {
-            "CuraEngine failed with exit code $exitCode${logTail.takeIf(String::isNotBlank)?.let { ":\n$it" }.orEmpty()}"
-        }
-        check(outputFile.isFile && outputFile.length() >= MINIMUM_GCODE_BYTES) {
-            "CuraEngine finished without producing a valid G-code file${logTail.takeIf(String::isNotBlank)?.let { ":\n$it" }.orEmpty()}"
-        }
+            if (!outputFile.isFile || outputFile.length() < MINIMUM_GCODE_BYTES) {
+                throw SliceException(
+                    "CuraEngine finished without producing a valid G-code file. Export the error log for details.",
+                    logFile,
+                )
+            }
 
-        val header = outputFile.inputStream().bufferedReader().use { reader ->
-            buildString {
-                repeat(20) {
-                    val line = reader.readLine() ?: return@repeat
-                    appendLine(line)
+            val header = outputFile.inputStream().bufferedReader().use { reader ->
+                buildString {
+                    repeat(20) {
+                        val line = reader.readLine() ?: return@repeat
+                        appendLine(line)
+                    }
                 }
             }
-        }
-        check(header.contains(";FLAVOR:") || header.contains(";Generated with Cura")) {
-            "The engine output did not contain a Cura G-code header"
-        }
+            if (!header.contains(";FLAVOR:") && !header.contains(";Generated with Cura")) {
+                throw SliceException(
+                    "The engine output did not contain a Cura G-code header. Export the error log for details.",
+                    logFile,
+                )
+            }
 
-        return SliceResult(
-            gcodeFile = outputFile,
-            logFile = logFile,
-            elapsedMilliseconds = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt),
-        )
+            val elapsed = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt)
+            appendLog(
+                logFile,
+                buildString {
+                    appendLine("G-code bytes: ${outputFile.length()}")
+                    appendLine("Elapsed milliseconds: $elapsed")
+                    appendLine("Completed: ${Instant.now()}")
+                    appendLine("Result: success")
+                },
+            )
+
+            return SliceResult(
+                gcodeFile = outputFile,
+                logFile = logFile,
+                elapsedMilliseconds = elapsed,
+            )
+        } catch (error: Throwable) {
+            appendLog(
+                logFile,
+                buildString {
+                    appendLine()
+                    appendLine("--- EnderSlicer failure ---")
+                    appendLine("Finished: ${Instant.now()}")
+                    appendLine(error.stackTraceToString())
+                },
+            )
+            if (error is SliceException) throw error
+            throw SliceException(
+                error.message ?: "CuraEngine failed before slicing started",
+                logFile,
+                error,
+            )
+        }
     }
 
     private fun prepareDefinitions(workDirectory: File): File {
@@ -113,18 +191,14 @@ class CuraEngineRunner(private val context: Context) {
         return destination
     }
 
-    private fun readTail(file: File, maximumBytes: Int): String {
-        if (!file.isFile || file.length() == 0L) return ""
-        val bytes = file.readBytes()
-        val start = (bytes.size - maximumBytes).coerceAtLeast(0)
-        return bytes.copyOfRange(start, bytes.size).toString(Charsets.UTF_8).trim()
+    private fun appendLog(file: File, text: String) {
+        runCatching { file.appendText(text) }
     }
 
     private companion object {
         const val ENGINE_LIBRARY_NAME = "libcuraengine_exec.so"
         const val SLICE_TIMEOUT_MINUTES = 30L
         const val MINIMUM_GCODE_BYTES = 128L
-        const val MAX_LOG_ERROR_BYTES = 16 * 1024
         val DEFINITION_FILES = listOf(
             "fdmprinter.def.json",
             "creality_base.def.json",
