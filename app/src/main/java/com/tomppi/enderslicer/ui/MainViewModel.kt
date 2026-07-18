@@ -6,8 +6,8 @@ import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.tomppi.enderslicer.data.PrinterDefinitionLoader
+import com.tomppi.enderslicer.engine.CuraEngineRunner
 import com.tomppi.enderslicer.model.SlicerSettings
-import com.tomppi.enderslicer.nativebridge.NativeSlicer
 import com.tomppi.enderslicer.profile.CuraProfileParser
 import com.tomppi.enderslicer.profile.CuraProjectParser
 import com.tomppi.enderslicer.profile.ImportedCuraConfig
@@ -20,10 +20,12 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import java.io.File
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val app = application
     private val printer = PrinterDefinitionLoader.loadModifiedEnder3V2(app.assets)
+    private val engine = CuraEngineRunner(app)
     private val initialStartGcode = readAsset("gcode/start.gcode")
     private val initialEndGcode = readAsset("gcode/end.gcode")
 
@@ -32,7 +34,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             printer = printer,
             startGcode = initialStartGcode,
             endGcode = initialEndGcode,
-            engineStatus = NativeSlicer.status(),
+            engineStatus = engine.status(),
+            engineAvailable = engine.isAvailable(),
         ),
     )
     val uiState: StateFlow<MainUiState> = _uiState.asStateFlow()
@@ -42,11 +45,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             busy("Reading STL…")
             runCatching {
-                withContext(Dispatchers.IO) { StlParser.parse(app.contentResolver, uri) }
-            }.onSuccess { mesh ->
+                withContext(Dispatchers.IO) {
+                    val mesh = StlParser.parse(app.contentResolver, uri)
+                    val modelFile = materializeModel(uri)
+                    mesh to modelFile
+                }
+            }.onSuccess { (mesh, modelFile) ->
                 _uiState.update {
                     it.copy(
                         mesh = mesh,
+                        modelPath = modelFile.absolutePath,
+                        gcodePath = null,
+                        sliceLogPath = null,
+                        sliceDurationMilliseconds = null,
                         isBusy = false,
                         statusMessage = "Loaded ${mesh.displayName}: ${mesh.triangleCount} triangles",
                     )
@@ -88,7 +99,76 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun updateSettings(transform: (SlicerSettings) -> SlicerSettings) {
-        _uiState.update { it.copy(settings = transform(it.settings), statusMessage = "Settings changed") }
+        _uiState.update {
+            it.copy(
+                settings = transform(it.settings),
+                gcodePath = null,
+                sliceLogPath = null,
+                sliceDurationMilliseconds = null,
+                statusMessage = "Settings changed; slice again to export G-code",
+            )
+        }
+    }
+
+    fun sliceModel() {
+        val snapshot = _uiState.value
+        val modelPath = snapshot.modelPath
+        if (modelPath == null) {
+            showFailure(IllegalStateException("Import an STL before slicing"))
+            return
+        }
+        if (!engine.isAvailable()) {
+            showFailure(IllegalStateException(engine.status()))
+            return
+        }
+
+        viewModelScope.launch {
+            busy("CuraEngine is slicing…")
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    engine.slice(
+                        modelFile = File(modelPath),
+                        printer = snapshot.printer,
+                        settings = snapshot.settings,
+                        startGcode = snapshot.startGcode,
+                        endGcode = snapshot.endGcode,
+                    )
+                }
+            }.onSuccess { result ->
+                _uiState.update {
+                    it.copy(
+                        gcodePath = result.gcodeFile.absolutePath,
+                        sliceLogPath = result.logFile.absolutePath,
+                        sliceDurationMilliseconds = result.elapsedMilliseconds,
+                        isBusy = false,
+                        statusMessage = "Sliced ${formatFileSize(result.gcodeFile.length())} of G-code in ${formatDuration(result.elapsedMilliseconds)}",
+                    )
+                }
+            }.onFailure(::showFailure)
+        }
+    }
+
+    fun exportGcode(uri: Uri) {
+        val sourcePath = _uiState.value.gcodePath
+        if (sourcePath == null) {
+            showFailure(IllegalStateException("Slice the model before exporting G-code"))
+            return
+        }
+
+        viewModelScope.launch {
+            busy("Exporting G-code…")
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    val source = File(sourcePath)
+                    check(source.isFile && source.length() > 0L) { "Generated G-code is no longer available" }
+                    app.contentResolver.openOutputStream(uri, "w")?.buffered()?.use { output ->
+                        source.inputStream().buffered().use { input -> input.copyTo(output) }
+                    } ?: error("Unable to open the G-code destination")
+                }
+            }.onSuccess {
+                _uiState.update { it.copy(isBusy = false, statusMessage = "G-code exported") }
+            }.onFailure(::showFailure)
+        }
     }
 
     fun exportConfiguration(uri: Uri) {
@@ -118,11 +198,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 settingVersion = config.settingVersion,
                 startGcode = config.startGcode ?: current.startGcode,
                 endGcode = config.endGcode ?: current.endGcode,
+                gcodePath = null,
+                sliceLogPath = null,
+                sliceDurationMilliseconds = null,
                 warnings = config.warnings,
                 isBusy = false,
-                statusMessage = "Imported ${config.rawValues.size} Cura values",
+                statusMessage = "Imported ${config.rawValues.size} Cura values; slice again to apply them",
             )
         }
+    }
+
+    private fun materializeModel(uri: Uri): File {
+        val directory = File(app.filesDir, "models").apply { mkdirs() }
+        val target = File(directory, "current.stl")
+        val temporary = File(directory, "current.stl.tmp")
+        temporary.delete()
+        app.contentResolver.openInputStream(uri)?.buffered()?.use { input ->
+            temporary.outputStream().buffered().use { output -> input.copyTo(output) }
+        } ?: error("Unable to copy the selected STL")
+        check(temporary.length() > 0L) { "The selected STL is empty" }
+        if (target.exists()) target.delete()
+        check(temporary.renameTo(target)) { "Unable to store the selected STL locally" }
+        return target
     }
 
     private fun busy(message: String) {
@@ -152,6 +249,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun readAsset(path: String): String = app.assets.open(path).bufferedReader().use { it.readText() }
+
+    private fun formatDuration(milliseconds: Long): String {
+        val seconds = milliseconds / 1_000.0
+        return if (seconds < 60.0) "%.1f s".format(seconds) else "%.1f min".format(seconds / 60.0)
+    }
+
+    private fun formatFileSize(bytes: Long): String {
+        return if (bytes < 1024L * 1024L) "%.1f KiB".format(bytes / 1024.0) else "%.1f MiB".format(bytes / 1024.0 / 1024.0)
+    }
 
     private fun configurationJson(state: MainUiState): JSONObject {
         val settings = state.settings
