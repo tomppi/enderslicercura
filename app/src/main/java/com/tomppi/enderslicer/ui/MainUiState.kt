@@ -1,5 +1,6 @@
 package com.tomppi.enderslicer.ui
 
+import com.tomppi.enderslicer.engine.GcodeLayerPreview
 import com.tomppi.enderslicer.model.PrinterDefinition
 import com.tomppi.enderslicer.model.SlicerSettings
 import com.tomppi.enderslicer.profile.CuraEngineProfile
@@ -11,6 +12,8 @@ data class MainUiState(
     val mesh: StlMesh? = null,
     val modelPath: String? = null,
     val gcodePath: String? = null,
+    val layerPreview: GcodeLayerPreview? = null,
+    val estimatedPrintSeconds: Int? = null,
     val sliceLogPath: String? = null,
     val sliceDurationMilliseconds: Long? = null,
     val profileName: String = "Built-in current Cura settings",
