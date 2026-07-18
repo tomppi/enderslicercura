@@ -103,8 +103,8 @@ object GcodeSanitizer {
                             val extrusionLayer = currentLayer?.let { "layer $it" } ?: "startup"
                             val targetLocation = buildString {
                                 append("target set")
-                                nozzleTargetLayer?.let { append(" at layer $it") }
                                 nozzleTargetLine?.let { append(" at line $it") }
+                                nozzleTargetLayer?.let { append(", layer $it") }
                             }
                             throw UnsafeGcodeException(
                                 "Unsafe nozzle target ${format(target)} C while extruding at $extrusionLayer " +
