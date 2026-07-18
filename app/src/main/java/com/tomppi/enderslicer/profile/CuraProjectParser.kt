@@ -28,38 +28,76 @@ object CuraProjectParser {
 
         val global = containers.firstOrNull { it.path.endsWith(".global.cfg") }
             ?: error("No Cura machine .global.cfg container was found")
+        val extruder = containers.firstOrNull { it.path.endsWith(".extruder.cfg") }
 
         val warnings = mutableListOf<String>()
-        val definitionIds = entries.keys
-            .filter { it.startsWith("Cura/") && it.endsWith(".def.json") }
-            .map { it.substringAfterLast('/').removeSuffix(".def.json") }
-            .toSet()
-        val globalValues = resolveStack(global, containers, definitionIds, warnings)
+        val definitionFiles = entries
+            .filterKeys { it.startsWith("Cura/") && it.endsWith(".def.json") }
+            .mapKeys { (path, _) -> path.substringAfterLast('/') }
+        val definitionIds = definitionFiles.keys.map { it.removeSuffix(".def.json") }.toSet()
 
-        val extruder = containers.firstOrNull { it.path.endsWith(".extruder.cfg") }
-        val extruderValues = if (extruder != null) {
+        val globalValues = resolveStack(global, containers, definitionIds, warnings)
+        val extruderStackValues = if (extruder != null) {
             resolveStack(extruder, containers, definitionIds, warnings)
         } else {
             warnings += "No extruder stack was found; only global settings were imported"
             emptyMap()
         }
 
+        val machineDefinitionId = global.ini["containers"]
+            .values
+            .map(String::trim)
+            .lastOrNull { it in definitionIds }
+            ?: definitionIds.firstOrNull { it.contains("ender3", ignoreCase = true) }
+        val extruderDefinitionId = extruder?.ini?.get("containers")
+            ?.values
+            ?.map(String::trim)
+            ?.lastOrNull { it in definitionIds }
+            ?: definitionIds.firstOrNull { it.contains("extruder", ignoreCase = true) }
+
+        val materialContainerIds = extruder?.ini?.get("containers")
+            ?.values
+            ?.map(String::trim)
+            ?.filter { it.contains("material", ignoreCase = true) }
+            .orEmpty()
+        val materialValues = parseMaterialValues(
+            entries = entries,
+            machineDefinitionId = machineDefinitionId,
+            referencedContainerIds = materialContainerIds,
+            warnings = warnings,
+        )
+        val extruderValuesWithMaterial = linkedMapOf<String, String>().apply {
+            putAll(materialValues)
+            putAll(extruderStackValues)
+        }
+        val resolved = CuraExpressionResolver.resolve(globalValues, extruderValuesWithMaterial)
+
         val merged = linkedMapOf<String, String>()
-        merged.putAll(globalValues)
-        merged.putAll(extruderValues)
+        merged.putAll(resolved.globalValues)
+        merged.putAll(resolved.extruderValues)
 
         val version = entries["Cura/version.ini"]
             ?.let(CuraIniParser::parse)
             ?.value("versions", "cura_version")
         val machineName = global.ini.value("general", "name") ?: sourceName
         val settingVersion = global.ini.value("metadata", "setting_version")
-        val expressionCount = merged.values.count { it.trimStart().startsWith("=") }
-        if (definitionIds.isNotEmpty()) {
-            warnings += "Defaults and formulas from ${definitionIds.size} Cura JSON definitions are preserved for the engine milestone but not evaluated by the Kotlin resolver yet"
+
+        if (definitionFiles.isEmpty()) {
+            warnings += "No flattened Cura machine definitions were embedded; bundled fallback definitions will be used"
         }
-        if (expressionCount > 0) {
-            warnings += "$expressionCount Cura expression values were preserved but are not evaluated yet"
+        if (resolved.unresolvedExpressions.isNotEmpty()) {
+            warnings += "Skipped ${resolved.unresolvedExpressions.size} unresolved Cura formula overrides; matching definition defaults remain active"
         }
+
+        val engineProfile = CuraEngineProfile(
+            globalValues = resolved.globalValues,
+            extruderValues = resolved.extruderValues,
+            definitionFiles = definitionFiles,
+            machineDefinitionFileName = machineDefinitionId?.let { "$it.def.json" },
+            extruderDefinitionFileName = extruderDefinitionId?.let { "$it.def.json" },
+            materialValueCount = materialValues.size,
+            unresolvedExpressions = resolved.unresolvedExpressions,
+        )
 
         return ImportedCuraConfig(
             name = machineName,
@@ -70,8 +108,35 @@ object CuraProjectParser {
             mappedSettings = CuraSettingsMapper.apply(baseSettings, merged),
             startGcode = merged["machine_start_gcode"],
             endGcode = merged["machine_end_gcode"],
+            engineProfile = engineProfile,
             warnings = warnings.distinct(),
         )
+    }
+
+    private fun parseMaterialValues(
+        entries: Map<String, String>,
+        machineDefinitionId: String?,
+        referencedContainerIds: List<String>,
+        warnings: MutableList<String>,
+    ): Map<String, String> {
+        val materials = entries.filterKeys { it.startsWith("Cura/") && it.endsWith(".fdm_material") }
+        if (materials.isEmpty()) return emptyMap()
+
+        val selected = materials.filterKeys { path ->
+            if (referencedContainerIds.isEmpty()) return@filterKeys true
+            val baseName = path.substringAfterLast('/')
+                .removeSuffix(".xml.fdm_material")
+                .removeSuffix(".fdm_material")
+            referencedContainerIds.any { id -> id == baseName || id.startsWith("${baseName}_") }
+        }.ifEmpty { materials }
+
+        val merged = linkedMapOf<String, String>()
+        selected.forEach { (path, xml) ->
+            runCatching { CuraMaterialParser.parse(xml, machineDefinitionId) }
+                .onSuccess(merged::putAll)
+                .onFailure { warnings += "Unable to parse Cura material ${path.substringAfterLast('/')}: ${it.message}" }
+        }
+        return merged
     }
 
     private fun resolveStack(
