@@ -15,6 +15,8 @@ class CuraEngineRunner(private val context: Context) {
         val gcodeFile: File,
         val logFile: File,
         val elapsedMilliseconds: Long,
+        val estimatedPrintSeconds: Int?,
+        val layerPreview: GcodeLayerPreview?,
     )
 
     class SliceException(
@@ -215,6 +217,8 @@ class CuraEngineRunner(private val context: Context) {
             }
 
             val summary = GcodeSanitizer.validateAndRepair(outputFile)
+            val previewResult = runCatching { GcodeLayerPreviewParser.parse(outputFile) }
+            val layerPreview = previewResult.getOrNull()
             val elapsed = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt)
             appendLog(
                 logFile,
@@ -223,7 +227,16 @@ class CuraEngineRunner(private val context: Context) {
                     appendLine("Layers: ${summary.layerCount}")
                     appendLine("Estimated seconds: ${summary.estimatedSeconds ?: "unknown"}")
                     appendLine("Model filament millimeters: ${summary.filamentMillimeters}")
+                    appendLine("Total print filament millimeters: ${summary.totalFilamentMillimeters}")
                     appendLine("Extrusion bounds: X ${summary.minX}..${summary.maxX}, Y ${summary.minY}..${summary.maxY}, Z ${summary.minZ}..${summary.maxZ}")
+                    if (layerPreview != null) {
+                        appendLine("Layer preview layers: ${layerPreview.layers.size}")
+                        appendLine("Layer preview extrusion segments: ${layerPreview.totalSegmentCount}")
+                        appendLine("Layer preview speed range: ${layerPreview.minSpeedMmPerSecond}..${layerPreview.maxSpeedMmPerSecond} mm/s")
+                        appendLine("Layer preview truncated: ${layerPreview.truncated}")
+                    } else {
+                        appendLine("Layer preview unavailable: ${previewResult.exceptionOrNull()?.message ?: "unknown parse error"}")
+                    }
                     appendLine("G-code bytes: ${outputFile.length()}")
                     appendLine("Elapsed milliseconds: $elapsed")
                     appendLine("Completed: ${Instant.now()}")
@@ -235,6 +248,8 @@ class CuraEngineRunner(private val context: Context) {
                 gcodeFile = outputFile,
                 logFile = logFile,
                 elapsedMilliseconds = elapsed,
+                estimatedPrintSeconds = summary.estimatedSeconds,
+                layerPreview = layerPreview,
             )
         } catch (error: Throwable) {
             outputFile.delete()

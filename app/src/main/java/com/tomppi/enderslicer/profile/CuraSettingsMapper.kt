@@ -29,6 +29,16 @@ object CuraSettingsMapper {
             supportPlacement = values["support_type"] ?: base.supportPlacement,
             supportStructure = values["support_structure"] ?: base.supportStructure,
             supportAngleDegrees = number("support_angle") ?: base.supportAngleDegrees,
+            supportDensityPercent = number("support_infill_rate") ?: base.supportDensityPercent,
+            supportPattern = values["support_pattern"] ?: base.supportPattern,
+            supportInterfaceEnabled = bool("support_interface_enable") ?: base.supportInterfaceEnabled,
+            supportInterfaceDensityPercent = number("support_interface_density")
+                ?: base.supportInterfaceDensityPercent,
+            supportZDistanceMm = number("support_z_distance") ?: base.supportZDistanceMm,
+            supportXyDistanceMm = number("support_xy_distance") ?: base.supportXyDistanceMm,
+            supportSpeedMmPerSecond = number("speed_support") ?: base.supportSpeedMmPerSecond,
+            supportInterfaceSpeedMmPerSecond = number("speed_support_interface")
+                ?: base.supportInterfaceSpeedMmPerSecond,
             adhesionType = values["adhesion_type"] ?: base.adhesionType,
             retractionDistanceMm = number("retraction_amount") ?: base.retractionDistanceMm,
             retractionSpeedMmPerSecond = number("retraction_speed") ?: base.retractionSpeedMmPerSecond,
@@ -37,6 +47,7 @@ object CuraSettingsMapper {
             firmwareRetraction = bool("machine_firmware_retract") ?: base.firmwareRetraction,
             fanSpeedPercent = number("cool_fan_speed") ?: base.fanSpeedPercent,
             materialFlowPercent = number("material_flow") ?: base.materialFlowPercent,
+            overriddenSettingKeys = emptySet(),
         )
     }
 }

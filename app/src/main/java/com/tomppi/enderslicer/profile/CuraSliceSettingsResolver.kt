@@ -43,30 +43,7 @@ internal object CuraSliceSettingsResolver {
                 "machine_head_with_fans_polygon",
                 "[[${printer.printheadXMinMm},${printer.printheadYMaxMm}],[${printer.printheadXMinMm},${printer.printheadYMinMm}],[${printer.printheadXMaxMm},${printer.printheadYMinMm}],[${printer.printheadXMaxMm},${printer.printheadYMaxMm}]]",
             )
-            put("layer_height", settings.layerHeightMm.toString())
-            put("layer_height_0", settings.initialLayerHeightMm.toString())
-            put("line_width", settings.lineWidthMm.toString())
-            put("speed_print", settings.printSpeedMmPerSecond.toString())
-            put("infill_sparse_density", settings.infillDensityPercent.toString())
-            put("support_enable", settings.supportsEnabled.toString())
-            put("support_type", settings.supportPlacement)
-            put("support_structure", settings.supportStructure)
-            put("support_angle", settings.supportAngleDegrees.toString())
-            put("adhesion_type", settings.adhesionType)
-            put("material_bed_temperature", settings.bedTemperatureC.toString())
-            put("material_bed_temperature_layer_0", settings.bedTemperatureC.toString())
-            put("material_print_temperature", settings.nozzleTemperatureC.toString())
-            put("material_print_temperature_layer_0", settings.initialNozzleTemperatureC.toString())
-            put("material_initial_print_temperature", settings.nozzleTemperatureC.toString())
-            put("material_final_print_temperature", settings.nozzleTemperatureC.toString())
-            put("material_flow", settings.materialFlowPercent.toString())
-            put("cool_fan_speed", settings.fanSpeedPercent.toString())
-            put("retraction_enable", (settings.retractionDistanceMm > 0.0).toString())
-            put("retraction_amount", settings.retractionDistanceMm.toString())
-            put("retraction_speed", settings.retractionSpeedMmPerSecond.toString())
-            put("retract_at_layer_change", settings.retractAtLayerChange.toString())
-            put("retraction_hop_enabled", settings.zHopEnabled.toString())
-            put("machine_firmware_retract", settings.firmwareRetraction.toString())
+            applyExplicitSettings(settings)
         }
 
         val extruderOverrides = linkedMapOf<String, String>().apply {
@@ -74,28 +51,7 @@ internal object CuraSliceSettingsResolver {
             put("extruder_nr", "0")
             put("machine_nozzle_size", printer.nozzleSizeMm.toString())
             put("material_diameter", printer.filamentDiameterMm.toString())
-            put("layer_height", settings.layerHeightMm.toString())
-            put("layer_height_0", settings.initialLayerHeightMm.toString())
-            put("line_width", settings.lineWidthMm.toString())
-            put("speed_print", settings.printSpeedMmPerSecond.toString())
-            put("infill_sparse_density", settings.infillDensityPercent.toString())
-            put("support_enable", settings.supportsEnabled.toString())
-            put("support_type", settings.supportPlacement)
-            put("support_structure", settings.supportStructure)
-            put("support_angle", settings.supportAngleDegrees.toString())
-            put("adhesion_type", settings.adhesionType)
-            put("material_flow", settings.materialFlowPercent.toString())
-            put("cool_fan_speed", settings.fanSpeedPercent.toString())
-            put("material_print_temperature", settings.nozzleTemperatureC.toString())
-            put("material_print_temperature_layer_0", settings.initialNozzleTemperatureC.toString())
-            put("material_initial_print_temperature", settings.nozzleTemperatureC.toString())
-            put("material_final_print_temperature", settings.nozzleTemperatureC.toString())
-            put("retraction_enable", (settings.retractionDistanceMm > 0.0).toString())
-            put("retraction_amount", settings.retractionDistanceMm.toString())
-            put("retraction_speed", settings.retractionSpeedMmPerSecond.toString())
-            put("retract_at_layer_change", settings.retractAtLayerChange.toString())
-            put("retraction_hop_enabled", settings.zHopEnabled.toString())
-            put("machine_firmware_retract", settings.firmwareRetraction.toString())
+            applyExplicitSettings(settings)
         }
 
         val resolved = CuraDefinitionResolver.resolve(
@@ -112,6 +68,97 @@ internal object CuraSliceSettingsResolver {
             extruderValues = resolved.extruderValues,
             expressionCount = resolved.expressionCount,
             passes = resolved.passes,
+        )
+    }
+
+    private fun MutableMap<String, String>.applyExplicitSettings(settings: SlicerSettings) {
+        fun putOverride(appKey: String, curaKey: String, value: Any) {
+            if (settings.isOverridden(appKey)) put(curaKey, value.toString())
+        }
+
+        putOverride(SlicerSettings.Keys.LAYER_HEIGHT, "layer_height", settings.layerHeightMm)
+        putOverride(SlicerSettings.Keys.INITIAL_LAYER_HEIGHT, "layer_height_0", settings.initialLayerHeightMm)
+        putOverride(SlicerSettings.Keys.LINE_WIDTH, "line_width", settings.lineWidthMm)
+        putOverride(SlicerSettings.Keys.PRINT_SPEED, "speed_print", settings.printSpeedMmPerSecond)
+        putOverride(SlicerSettings.Keys.INFILL_DENSITY, "infill_sparse_density", settings.infillDensityPercent)
+        putOverride(SlicerSettings.Keys.SUPPORTS_ENABLED, "support_enable", settings.supportsEnabled)
+        putOverride(SlicerSettings.Keys.SUPPORT_PLACEMENT, "support_type", settings.supportPlacement)
+        putOverride(SlicerSettings.Keys.SUPPORT_STRUCTURE, "support_structure", settings.supportStructure)
+        putOverride(SlicerSettings.Keys.SUPPORT_ANGLE, "support_angle", settings.supportAngleDegrees)
+        putOverride(SlicerSettings.Keys.SUPPORT_DENSITY, "support_infill_rate", settings.supportDensityPercent)
+        putOverride(SlicerSettings.Keys.SUPPORT_PATTERN, "support_pattern", settings.supportPattern)
+        putOverride(
+            SlicerSettings.Keys.SUPPORT_INTERFACE_ENABLED,
+            "support_interface_enable",
+            settings.supportInterfaceEnabled,
+        )
+        putOverride(
+            SlicerSettings.Keys.SUPPORT_INTERFACE_DENSITY,
+            "support_interface_density",
+            settings.supportInterfaceDensityPercent,
+        )
+        putOverride(SlicerSettings.Keys.SUPPORT_Z_DISTANCE, "support_z_distance", settings.supportZDistanceMm)
+        putOverride(SlicerSettings.Keys.SUPPORT_XY_DISTANCE, "support_xy_distance", settings.supportXyDistanceMm)
+        putOverride(SlicerSettings.Keys.SUPPORT_SPEED, "speed_support", settings.supportSpeedMmPerSecond)
+        putOverride(
+            SlicerSettings.Keys.SUPPORT_INTERFACE_SPEED,
+            "speed_support_interface",
+            settings.supportInterfaceSpeedMmPerSecond,
+        )
+        putOverride(SlicerSettings.Keys.ADHESION_TYPE, "adhesion_type", settings.adhesionType)
+        putOverride(SlicerSettings.Keys.BED_TEMPERATURE, "material_bed_temperature", settings.bedTemperatureC)
+        putOverride(
+            SlicerSettings.Keys.BED_TEMPERATURE,
+            "material_bed_temperature_layer_0",
+            settings.bedTemperatureC,
+        )
+        putOverride(
+            SlicerSettings.Keys.NOZZLE_TEMPERATURE,
+            "material_print_temperature",
+            settings.nozzleTemperatureC,
+        )
+        putOverride(
+            SlicerSettings.Keys.INITIAL_NOZZLE_TEMPERATURE,
+            "material_print_temperature_layer_0",
+            settings.initialNozzleTemperatureC,
+        )
+        putOverride(
+            SlicerSettings.Keys.NOZZLE_TEMPERATURE,
+            "material_initial_print_temperature",
+            settings.nozzleTemperatureC,
+        )
+        putOverride(
+            SlicerSettings.Keys.NOZZLE_TEMPERATURE,
+            "material_final_print_temperature",
+            settings.nozzleTemperatureC,
+        )
+        putOverride(SlicerSettings.Keys.MATERIAL_FLOW, "material_flow", settings.materialFlowPercent)
+        putOverride(SlicerSettings.Keys.FAN_SPEED, "cool_fan_speed", settings.fanSpeedPercent)
+        putOverride(
+            SlicerSettings.Keys.RETRACTION_DISTANCE,
+            "retraction_enable",
+            settings.retractionDistanceMm > 0.0,
+        )
+        putOverride(
+            SlicerSettings.Keys.RETRACTION_DISTANCE,
+            "retraction_amount",
+            settings.retractionDistanceMm,
+        )
+        putOverride(
+            SlicerSettings.Keys.RETRACTION_SPEED,
+            "retraction_speed",
+            settings.retractionSpeedMmPerSecond,
+        )
+        putOverride(
+            SlicerSettings.Keys.RETRACT_AT_LAYER_CHANGE,
+            "retract_at_layer_change",
+            settings.retractAtLayerChange,
+        )
+        putOverride(SlicerSettings.Keys.Z_HOP, "retraction_hop_enabled", settings.zHopEnabled)
+        putOverride(
+            SlicerSettings.Keys.FIRMWARE_RETRACTION,
+            "machine_firmware_retract",
+            settings.firmwareRetraction,
         )
     }
 
@@ -156,5 +203,11 @@ internal object CuraSliceSettingsResolver {
         range(extruder, "wall_line_count", 0.0, 1000.0)
         range(extruder, "top_layers", 0.0, 1000000.0)
         range(extruder, "bottom_layers", 0.0, 1000000.0)
+        range(extruder, "support_infill_rate", 0.0, 100.0)
+        range(extruder, "support_interface_density", 0.0, 100.0)
+        range(extruder, "support_z_distance", 0.0, 20.0)
+        range(extruder, "support_xy_distance", 0.0, 20.0)
+        range(extruder, "speed_support", 0.1, 1000.0)
+        range(extruder, "speed_support_interface", 0.1, 1000.0)
     }
 }
