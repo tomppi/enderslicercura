@@ -67,6 +67,7 @@ class CuraProjectParserTest {
                 [values]
                 layer_height = 0.2
                 layer_height_0 = 0.28
+                material_bed_temperature = 60
                 top_bottom_thickness = =layer_height_0+layer_height*3
             """.trimIndent(),
             "Cura/E0.extruder.cfg" to """
@@ -110,6 +111,8 @@ class CuraProjectParserTest {
         assertEquals("180", profile.extruderValues["material_standby_temperature"])
         assertEquals("210", profile.extruderValues["material_print_temperature"])
         assertEquals("235", profile.extruderValues["material_print_temperature_layer_0"])
+        assertEquals("50", profile.extruderValues["material_bed_temperature"])
+        assertEquals("60", profile.globalValues["material_bed_temperature"])
         assertEquals("exclusive", profile.extruderValues["slicing_tolerance"])
         assertEquals("0.88", profile.globalValues["top_bottom_thickness"])
         assertEquals("200", profile.extruderValues["speed_print"])
@@ -117,6 +120,9 @@ class CuraProjectParserTest {
         assertTrue(profile.unresolvedExpressions.contains("extruder.bottom_layers"))
         assertTrue(result.mappedSettings.supportsEnabled)
         assertEquals("everywhere", result.mappedSettings.supportPlacement)
+        assertEquals(60, result.mappedSettings.bedTemperatureC)
+        assertEquals(210, result.mappedSettings.nozzleTemperatureC)
+        assertEquals(200.0, result.mappedSettings.printSpeedMmPerSecond, 0.0)
     }
 
     private fun materialXml(): String = """
@@ -129,6 +135,7 @@ class CuraProjectParserTest {
           <properties><density>1.24</density><diameter>1.75</diameter></properties>
           <settings>
             <setting key="print temperature">200</setting>
+            <setting key="heated bed temperature">50</setting>
             <setting key="standby temperature">175</setting>
             <machine>
               <machine_identifier manufacturer="Creality3D" product="creality_ender3" />

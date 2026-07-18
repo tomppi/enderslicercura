@@ -72,9 +72,22 @@ object CuraProjectParser {
         }
         val resolved = CuraExpressionResolver.resolve(globalValues, extruderValuesWithMaterial)
 
-        val merged = linkedMapOf<String, String>()
-        merged.putAll(resolved.globalValues)
-        merged.putAll(resolved.extruderValues)
+        // Raw engine values retain their real settings-stack separation. This
+        // flattened view is only for diagnostics and import counts.
+        val merged = linkedMapOf<String, String>().apply {
+            putAll(resolved.globalValues)
+            putAll(resolved.extruderValues)
+        }
+
+        // The Android quick-settings model contains both global and extruder
+        // controls. Populate it with extruder/material values first, then let
+        // Cura's global stack win for global controls such as bed temperature,
+        // supports, layer height and adhesion. Previously the material's 50 C
+        // fallback replaced the project's global 60 C quality override.
+        val uiValues = linkedMapOf<String, String>().apply {
+            putAll(resolved.extruderValues)
+            putAll(resolved.globalValues)
+        }
 
         val version = entries["Cura/version.ini"]
             ?.let(CuraIniParser::parse)
@@ -105,9 +118,11 @@ object CuraProjectParser {
             curaVersion = version,
             settingVersion = settingVersion,
             rawValues = merged,
-            mappedSettings = CuraSettingsMapper.apply(baseSettings, merged),
-            startGcode = merged["machine_start_gcode"],
-            endGcode = merged["machine_end_gcode"],
+            mappedSettings = CuraSettingsMapper.apply(baseSettings, uiValues),
+            startGcode = resolved.globalValues["machine_start_gcode"]
+                ?: resolved.extruderValues["machine_start_gcode"],
+            endGcode = resolved.globalValues["machine_end_gcode"]
+                ?: resolved.extruderValues["machine_end_gcode"],
             engineProfile = engineProfile,
             warnings = warnings.distinct(),
         )
