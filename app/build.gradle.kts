@@ -6,7 +6,7 @@ plugins {
 
 android {
     namespace = "com.tomppi.enderslicer"
-    compileSdk = 37
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.tomppi.enderslicer"
@@ -46,7 +46,7 @@ android {
     externalNativeBuild {
         cmake {
             path = file("src/main/cpp/CMakeLists.txt")
-            version = "3.31.6"
+            version = "3.22.1"
         }
     }
 
