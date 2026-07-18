@@ -95,6 +95,39 @@ class GcodeSanitizerTest {
         assertTrue(output.contains(";MAXZ:0.4"))
     }
 
+    @Test
+    fun rewritesEveryLineWithPrinterCompatibleCrLfEndings() {
+        val file = temporaryGcode(
+            """
+            ;TIME:1
+            ;Filament used: 0m
+            ;LAYER_COUNT:1
+            M104 S210
+            ;LAYER:0
+            ;MESH:model.stl
+            G1 X1 Y2 Z0.2 E1
+            ;TIME_ELAPSED:1
+            """.trimIndent(),
+        )
+
+        GcodeSanitizer.validateAndRepair(file)
+        val output = file.readBytes()
+        var lineFeedCount = 0
+        var loneLineFeedCount = 0
+        output.forEachIndexed { index, byte ->
+            if (byte == '\n'.code.toByte()) {
+                lineFeedCount++
+                if (index == 0 || output[index - 1] != '\r'.code.toByte()) loneLineFeedCount++
+            }
+        }
+
+        assertTrue(lineFeedCount > 0)
+        assertEquals(0, loneLineFeedCount)
+        assertTrue(output.size >= 2)
+        assertEquals('\r'.code.toByte(), output[output.lastIndex - 1])
+        assertEquals('\n'.code.toByte(), output[output.lastIndex])
+    }
+
     private fun temporaryGcode(content: String): File {
         return kotlin.io.path.createTempFile("enderslicer-test", ".gcode")
             .toFile()
