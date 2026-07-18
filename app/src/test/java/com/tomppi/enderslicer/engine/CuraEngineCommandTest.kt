@@ -37,7 +37,35 @@ class CuraEngineCommandTest {
     )
 
     @Test
-    fun appliesCompleteProfileBeforeFinalAppOverrides() {
+    fun resolvedCommandUsesOfficialResolvedSettingsInput() {
+        val command = CuraEngineCommand.buildResolved(
+            executablePath = "/native/libcuraengine_exec.so",
+            definitionsDirectory = "/files/definitions",
+            resolvedSettingsPath = "/files/resolved-settings.json",
+            outputPath = "/files/current.gcode",
+        )
+
+        assertEquals(
+            listOf(
+                "/native/libcuraengine_exec.so",
+                "slice",
+                "-m4",
+                "-d",
+                "/files/definitions",
+                "-r",
+                "/files/resolved-settings.json",
+                "-o",
+                "/files/current.gcode",
+            ),
+            command,
+        )
+        assertFalse(command.contains("-l"))
+        assertFalse(command.contains("-j"))
+        assertFalse(command.contains("-s"))
+    }
+
+    @Test
+    fun appliesCompleteProfileBeforeFinalAppOverridesInFallbackMode() {
         val machineDefinition = "/files/definitions/creality_ender3.def.json"
         val extruderDefinition = "/files/definitions/creality_base_extruder_0.def.json"
         val profile = CuraEngineProfile(
