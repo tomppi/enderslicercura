@@ -6,6 +6,7 @@ ENGINE_ROOT="${ENGINE_ROOT:-$ROOT/.build/CuraEngine}"
 OUTPUT_ROOT="${OUTPUT_ROOT:-$ROOT/.build/curaengine-android}"
 PROFILE="$ROOT/native/curaengine/profiles/android-arm64"
 NDK_PATH="${ANDROID_NDK_HOME:-${ANDROID_NDK_ROOT:-}}"
+CURA_ENGINE_TAG="5.11.0-beta.1"
 
 if [[ -z "$NDK_PATH" ]]; then
   echo "ANDROID_NDK_HOME or ANDROID_NDK_ROOT must point to Android NDK 28.2.13676358" >&2
@@ -20,7 +21,7 @@ fi
 mkdir -p "$(dirname "$ENGINE_ROOT")" "$OUTPUT_ROOT"
 
 if [[ ! -d "$ENGINE_ROOT/.git" ]]; then
-  git clone --depth 1 --branch 5.11.0 https://github.com/Ultimaker/CuraEngine.git "$ENGINE_ROOT"
+  git clone --depth 1 --branch "$CURA_ENGINE_TAG" https://github.com/Ultimaker/CuraEngine.git "$ENGINE_ROOT"
 fi
 
 # CuraEngine 5.11 uses OneTBB only to cap its worker count. Android's linker
@@ -154,5 +155,5 @@ fi
 [[ -n "$ENGINE_LIBRARY" ]] && cp -v "$ENGINE_LIBRARY" "$OUTPUT_ROOT/artifacts/libCuraEngine-arm64-v8a.a"
 cp -v "$ENGINE_ROOT/LICENSE" "$OUTPUT_ROOT/artifacts/CuraEngine-LICENSE"
 
-echo "CuraEngine Android artifacts:"
+echo "CuraEngine Android artifacts ($CURA_ENGINE_TAG):"
 find "$OUTPUT_ROOT/artifacts" -maxdepth 1 -type f -print -exec file {} \;

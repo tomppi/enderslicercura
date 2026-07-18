@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DEST="${1:-$ROOT/app/src/main/assets/cura/definitions}"
-CURA_TAG="5.11.0"
+CURA_TAG="5.11.0-beta.1"
 RAW_BASE="https://raw.githubusercontent.com/Ultimaker/Cura/$CURA_TAG/resources"
 
 mkdir -p "$DEST"
@@ -17,8 +17,8 @@ fetch_resource() {
 }
 
 # Complete transitive definition chain for the Ender 3 V2 machine and its
-# single Creality extruder train. CuraEngine resolves inherited definitions by
-# ID from the directory passed with -d, regardless of their source subfolder.
+# single Creality extruder train. Keep these resources on exactly the same Cura
+# version as the embedded engine and the user's reference project.
 for name in fdmprinter fdmextruder creality_base creality_ender3; do
   fetch_resource definitions "$name"
 done
@@ -82,8 +82,7 @@ not_fetched = required - files.keys()
 if not_fetched:
     raise SystemExit("Required definitions were not fetched: " + ", ".join(sorted(not_fetched)))
 
-# This was the first fatal missing default found by the phone-side diagnostic
-# log. Verify that the complete printer base definition really contains it.
+
 def contains_key(value, key):
     if isinstance(value, dict):
         return key in value or any(contains_key(child, key) for child in value.values())
@@ -99,9 +98,9 @@ print("Validated Cura definition closure: " + " -> ".join(sorted(seen)))
 PY
 
 cat > "$DEST/version.txt" <<'EOF'
-Cura resources: 5.11.0
+Cura resources: 5.11.0-beta.1
 Setting version: 25
 Files: fdmprinter.def.json, fdmextruder.def.json, creality_base.def.json, creality_base_extruder_0.def.json, creality_ender3.def.json
 EOF
 
-printf 'Fetched and validated Cura 5.11 definition chain into %s\n' "$DEST"
+printf 'Fetched and validated Cura 5.11.0-beta.1 definition chain into %s\n' "$DEST"
