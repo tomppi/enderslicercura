@@ -19,6 +19,7 @@ class GcodeSanitizerTest {
             ;MAXY:-2.14748e+06
             ;MAXZ:-2.14748e+06
             ;LAYER_COUNT:3
+            M104 S210
             ;LAYER:0
             ;MESH:model.stl
             G1 X10 Y20 Z0.2 E1
@@ -33,11 +34,11 @@ class GcodeSanitizerTest {
 
         val error = runCatching { GcodeSanitizer.validateAndRepair(file) }.exceptionOrNull()
         assertTrue(error is GcodeSanitizer.UnsafeGcodeException)
-        assertTrue(error?.message.orEmpty().contains("layer 0"))
+        assertTrue(error?.message.orEmpty().contains("layer 1"))
     }
 
     @Test
-    fun repairsHeaderExcludingStartPurgeAndAllowsFinalShutdown() {
+    fun repairsHeaderFromPositiveModelExtrusionOnly() {
         val file = temporaryGcode(
             """
             ;TIME:6666
@@ -49,19 +50,21 @@ class GcodeSanitizerTest {
             ;MAXY:-2.14748e+06
             ;MAXZ:-2.14748e+06
             M82
+            M104 S210
             G92 E0
             G1 X1 Y1 E30
             G92 E0
             ;LAYER_COUNT:2
             ;LAYER:0
-            M104 S210
             ;MESH:model.stl
+            G0 X80 Y90 Z0.2
             G1 X100 Y110 Z0.2 E1
+            G0 X200 Y200 Z20
             G1 X120 Y130 Z0.4 E2
-            ;MESH:NONMESH
             ;TIME_ELAPSED:42.2
             ;LAYER:1
             M104 S0
+            G1 X0 Y20 Z35
             """.trimIndent(),
         )
 
@@ -71,10 +74,17 @@ class GcodeSanitizerTest {
         assertEquals(2, summary.layerCount)
         assertEquals(43, summary.estimatedSeconds)
         assertEquals(2.0, summary.filamentMillimeters, 0.0001)
+        assertEquals(100.0, summary.minX!!, 0.0)
+        assertEquals(110.0, summary.minY!!, 0.0)
+        assertEquals(0.2, summary.minZ!!, 0.0)
+        assertEquals(120.0, summary.maxX!!, 0.0)
+        assertEquals(130.0, summary.maxY!!, 0.0)
+        assertEquals(0.4, summary.maxZ!!, 0.0)
         assertTrue(output.contains(";TIME:43"))
         assertTrue(output.contains(";Filament used: 0.002m"))
         assertTrue(output.contains(";MINX:100"))
         assertTrue(output.contains(";MAXY:130"))
+        assertTrue(output.contains(";MAXZ:0.4"))
     }
 
     private fun temporaryGcode(content: String): File {
