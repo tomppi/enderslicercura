@@ -2,6 +2,7 @@ package com.tomppi.enderslicer.ui
 
 import com.tomppi.enderslicer.model.PrinterDefinition
 import com.tomppi.enderslicer.model.SlicerSettings
+import com.tomppi.enderslicer.profile.CuraEngineProfile
 import com.tomppi.enderslicer.viewer.StlMesh
 
 data class MainUiState(
@@ -17,6 +18,7 @@ data class MainUiState(
     val importedRawSettingCount: Int = 0,
     val curaVersion: String? = null,
     val settingVersion: String? = "25",
+    val engineProfile: CuraEngineProfile? = null,
     val startGcode: String = "",
     val endGcode: String = "",
     val engineStatus: String = "",

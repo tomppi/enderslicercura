@@ -11,5 +11,6 @@ data class ImportedCuraConfig(
     val mappedSettings: SlicerSettings,
     val startGcode: String? = null,
     val endGcode: String? = null,
+    val engineProfile: CuraEngineProfile? = null,
     val warnings: List<String> = emptyList(),
 )

@@ -31,12 +31,13 @@ object CuraProfileParser {
             merged.putAll(layer.ini["values"])
         }
 
+        val resolved = CuraExpressionResolver.resolve(emptyMap(), merged)
+        val concrete = resolved.extruderValues
         val primary = layers.first()
         val settingVersion = primary.ini.value("metadata", "setting_version")
-        val expressionCount = merged.values.count { it.trimStart().startsWith("=") }
         val warnings = buildList {
-            if (expressionCount > 0) {
-                add("$expressionCount Cura expression values were preserved but are not evaluated by the Android resolver yet")
+            if (resolved.unresolvedExpressions.isNotEmpty()) {
+                add("Skipped ${resolved.unresolvedExpressions.size} unresolved Cura formula overrides; bundled definition defaults remain active")
             }
         }
 
@@ -44,8 +45,12 @@ object CuraProfileParser {
             name = primary.name,
             source = "Cura profile: $sourceName",
             settingVersion = settingVersion,
-            rawValues = merged,
-            mappedSettings = CuraSettingsMapper.apply(baseSettings, merged),
+            rawValues = concrete,
+            mappedSettings = CuraSettingsMapper.apply(baseSettings, concrete),
+            engineProfile = CuraEngineProfile(
+                extruderValues = concrete,
+                unresolvedExpressions = resolved.unresolvedExpressions,
+            ),
             warnings = warnings,
         )
     }

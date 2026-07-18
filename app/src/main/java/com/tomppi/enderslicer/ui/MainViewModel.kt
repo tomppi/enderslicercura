@@ -132,6 +132,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         settings = snapshot.settings,
                         startGcode = snapshot.startGcode,
                         endGcode = snapshot.endGcode,
+                        profile = snapshot.engineProfile,
                     )
                 }
             }.onSuccess { result ->
@@ -141,7 +142,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         sliceLogPath = result.logFile.absolutePath,
                         sliceDurationMilliseconds = result.elapsedMilliseconds,
                         isBusy = false,
-                        statusMessage = "Sliced ${formatFileSize(result.gcodeFile.length())} of G-code in ${formatDuration(result.elapsedMilliseconds)}",
+                        statusMessage = "Sliced ${formatFileSize(result.gcodeFile.length())} of validated G-code in ${formatDuration(result.elapsedMilliseconds)}",
                     )
                 }
             }.onFailure(::showFailure)
@@ -189,13 +190,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun applyImportedConfig(config: ImportedCuraConfig) {
         _uiState.update { current ->
+            val concreteCount = config.engineProfile?.concreteSettingCount ?: config.rawValues.size
+            val definitionLabel = if (config.engineProfile?.usesProjectDefinitions == true) {
+                " with project machine/extruder definitions"
+            } else {
+                ""
+            }
             current.copy(
                 settings = config.mappedSettings,
                 profileName = config.name,
                 profileSource = config.source,
-                importedRawSettingCount = config.rawValues.size,
+                importedRawSettingCount = concreteCount,
                 curaVersion = config.curaVersion,
                 settingVersion = config.settingVersion,
+                engineProfile = config.engineProfile,
                 startGcode = config.startGcode ?: current.startGcode,
                 endGcode = config.endGcode ?: current.endGcode,
                 gcodePath = null,
@@ -203,7 +211,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 sliceDurationMilliseconds = null,
                 warnings = config.warnings,
                 isBusy = false,
-                statusMessage = "Imported ${config.rawValues.size} Cura values; slice again to apply them",
+                statusMessage = "Imported $concreteCount concrete Cura values$definitionLabel; slice again to apply them",
             )
         }
     }
@@ -230,6 +238,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.update {
             it.copy(
                 isBusy = false,
+                gcodePath = null,
+                sliceLogPath = (error as? CuraEngineRunner.SliceException)?.logFile?.absolutePath ?: it.sliceLogPath,
                 statusMessage = error.message ?: error::class.java.simpleName,
             )
         }
@@ -291,6 +301,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 put("retraction_amount", settings.retractionDistanceMm)
                 put("retraction_speed", settings.retractionSpeedMmPerSecond)
                 put("machine_firmware_retract", settings.firmwareRetraction)
+            })
+            put("cura_profile", JSONObject().apply {
+                put("source", state.profileSource)
+                put("concrete_global_values", state.engineProfile?.globalValues?.size ?: 0)
+                put("concrete_extruder_values", state.engineProfile?.extruderValues?.size ?: 0)
+                put("material_values", state.engineProfile?.materialValueCount ?: 0)
+                put("uses_project_definitions", state.engineProfile?.usesProjectDefinitions == true)
+                put("skipped_formula_overrides", state.engineProfile?.unresolvedExpressions?.size ?: 0)
             })
             put("machine_start_gcode", state.startGcode)
             put("machine_end_gcode", state.endGcode)
