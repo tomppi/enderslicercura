@@ -1,0 +1,28 @@
+package com.tomppi.enderslicer.model
+
+data class PrinterDefinition(
+    val id: String,
+    val name: String,
+    val manufacturer: String,
+    val widthMm: Double,
+    val depthMm: Double,
+    val heightMm: Double,
+    val buildPlateShape: String,
+    val originAtCenter: Boolean,
+    val heatedBed: Boolean,
+    val heatedBuildVolume: Boolean,
+    val gcodeFlavor: String,
+    val extruders: Int,
+    val nozzleSizeMm: Double,
+    val filamentDiameterMm: Double,
+    val printheadXMinMm: Double,
+    val printheadYMinMm: Double,
+    val printheadXMaxMm: Double,
+    val printheadYMaxMm: Double,
+    val gantryHeightMm: Double,
+    val directDrive: Boolean,
+    val dualZ: Boolean,
+    val zProbe: Boolean,
+    val bedLeveling: String,
+    val ublMeshSlot: Int,
+)
