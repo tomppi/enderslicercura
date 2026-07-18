@@ -7,7 +7,7 @@ import org.junit.Test
 
 class CuraResolvedSettingsWriterTest {
     @Test
-    fun centersModelAndKeepsResolvedScopesSeparate() {
+    fun centersModelThroughEffectiveMeshParentAndKeepsScopesSeparate() {
         val destination = kotlin.io.path.createTempFile("enderslicer-resolved", ".json").toFile()
         val resolved = CuraSliceSettingsResolver.Result(
             globalValues = mapOf("machine_width" to "230"),
@@ -24,7 +24,14 @@ class CuraResolvedSettingsWriterTest {
 
         val root = JSONObject(destination.readText())
         assertEquals("230", root.getJSONObject("global").getString("machine_width"))
-        assertEquals("210", root.getJSONObject("extruder.0").getString("material_print_temperature"))
+
+        val extruder = root.getJSONObject("extruder.0")
+        assertEquals("210", extruder.getString("material_print_temperature"))
+        assertTrue(extruder.getBoolean("center_object"))
+        assertEquals(0, extruder.getInt("mesh_position_x"))
+        assertEquals(0, extruder.getInt("mesh_position_y"))
+        assertEquals(0, extruder.getInt("mesh_position_z"))
+
         val model = root.getJSONObject("current.stl")
         assertEquals(0, model.getInt("extruder_nr"))
         assertTrue(model.getBoolean("center_object"))
