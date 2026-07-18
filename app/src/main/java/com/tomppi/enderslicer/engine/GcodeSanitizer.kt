@@ -45,6 +45,9 @@ object GcodeSanitizer {
         var maxX: Double? = null
         var maxY: Double? = null
         var maxZ: Double? = null
+        var explicitNozzleTarget: Double? = null
+        var nozzleTargetLine: Int? = null
+        var nozzleTargetLayer: Int? = null
 
         original.forEachIndexed { index, line ->
             when {
@@ -78,6 +81,15 @@ object GcodeSanitizer {
                 value(command, 'Z')?.let { z = it }
             }
 
+            if (opcode == "M104" || opcode == "M109") {
+                val target = value(command, 'S') ?: value(command, 'R')
+                if (target != null) {
+                    explicitNozzleTarget = target
+                    nozzleTargetLine = index + 1
+                    nozzleTargetLayer = currentLayer
+                }
+            }
+
             if (opcode == "G0" || opcode == "G1") {
                 value(command, 'X')?.let { x = if (absolutePosition) it else x + it }
                 value(command, 'Y')?.let { y = if (absolutePosition) it else y + it }
@@ -85,6 +97,22 @@ object GcodeSanitizer {
                 value(command, 'E')?.let { requested ->
                     val nextE = if (absoluteExtrusion) requested else currentE + requested
                     val delta = nextE - currentE
+                    if (delta > 0.0) {
+                        val target = explicitNozzleTarget
+                        if (target != null && target in 0.0..<MINIMUM_ACTIVE_NOZZLE_C) {
+                            val extrusionLayer = currentLayer?.let { "layer $it" } ?: "startup"
+                            val targetLocation = buildString {
+                                append("target set")
+                                nozzleTargetLayer?.let { append(" at layer $it") }
+                                nozzleTargetLine?.let { append(" at line $it") }
+                            }
+                            throw UnsafeGcodeException(
+                                "Unsafe nozzle target ${format(target)} C while extruding at $extrusionLayer " +
+                                    "(extrusion line ${index + 1}; $targetLocation). " +
+                                    "The G-code was not made available for export.",
+                            )
+                        }
+                    }
                     if (inModelMesh && currentLayer != null && delta > 0.0) filament += delta
                     currentE = nextE
                 }
@@ -96,18 +124,6 @@ object GcodeSanitizer {
                     maxX = maxX?.let { maxOf(it, x) } ?: x
                     maxY = maxY?.let { maxOf(it, y) } ?: y
                     maxZ = maxZ?.let { maxOf(it, z) } ?: z
-                }
-            }
-
-            if (opcode == "M104" || opcode == "M109") {
-                val target = value(command, 'S') ?: return@forEachIndexed
-                val layer = currentLayer
-                val activePrintLayer = layer != null && (layerCount <= 0 || layer < layerCount - 1)
-                if (activePrintLayer && target in 0.0..<MINIMUM_ACTIVE_NOZZLE_C) {
-                    throw UnsafeGcodeException(
-                        "Unsafe nozzle target ${format(target)} C at layer $layer (line ${index + 1}). " +
-                            "The G-code was not made available for export.",
-                    )
                 }
             }
         }
