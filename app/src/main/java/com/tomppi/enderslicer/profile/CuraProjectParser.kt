@@ -72,8 +72,10 @@ object CuraProjectParser {
         }
         val resolved = CuraExpressionResolver.resolve(globalValues, extruderValuesWithMaterial)
 
-        // Raw engine values retain their real settings-stack separation. This
-        // flattened view is only for diagnostics and import counts.
+        // Raw engine values retain their real settings-stack separation and all
+        // imported formulas. The small arithmetic resolver is used only for the
+        // Android quick-settings UI and diagnostics. The complete definition
+        // resolver runs at slice time after app edits have been applied.
         val merged = linkedMapOf<String, String>().apply {
             putAll(resolved.globalValues)
             putAll(resolved.extruderValues)
@@ -82,8 +84,7 @@ object CuraProjectParser {
         // The Android quick-settings model contains both global and extruder
         // controls. Populate it with extruder/material values first, then let
         // Cura's global stack win for global controls such as bed temperature,
-        // supports, layer height and adhesion. Previously the material's 50 C
-        // fallback replaced the project's global 60 C quality override.
+        // supports, layer height and adhesion.
         val uiValues = linkedMapOf<String, String>().apply {
             putAll(resolved.extruderValues)
             putAll(resolved.globalValues)
@@ -99,12 +100,14 @@ object CuraProjectParser {
             warnings += "No flattened Cura machine definitions were embedded; bundled fallback definitions will be used"
         }
         if (resolved.unresolvedExpressions.isNotEmpty()) {
-            warnings += "Skipped ${resolved.unresolvedExpressions.size} unresolved Cura formula overrides; matching definition defaults remain active"
+            warnings += "${resolved.unresolvedExpressions.size} imported formulas will be resolved with the complete Cura definitions at slice time"
         }
 
         val engineProfile = CuraEngineProfile(
             globalValues = resolved.globalValues,
             extruderValues = resolved.extruderValues,
+            rawGlobalValues = globalValues,
+            rawExtruderValues = extruderValuesWithMaterial,
             definitionFiles = definitionFiles,
             machineDefinitionFileName = machineDefinitionId?.let { "$it.def.json" },
             extruderDefinitionFileName = extruderDefinitionId?.let { "$it.def.json" },

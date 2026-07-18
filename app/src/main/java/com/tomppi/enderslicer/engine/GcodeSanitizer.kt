@@ -94,10 +94,12 @@ object GcodeSanitizer {
                 value(command, 'X')?.let { x = if (absolutePosition) it else x + it }
                 value(command, 'Y')?.let { y = if (absolutePosition) it else y + it }
                 value(command, 'Z')?.let { z = if (absolutePosition) it else z + it }
+                var positiveExtrusion = 0.0
                 value(command, 'E')?.let { requested ->
                     val nextE = if (absoluteExtrusion) requested else currentE + requested
                     val delta = nextE - currentE
                     if (delta > 0.0) {
+                        positiveExtrusion = delta
                         val target = explicitNozzleTarget
                         if (target != null && target in 0.0..<MINIMUM_ACTIVE_NOZZLE_C) {
                             val extrusionLayer = currentLayer?.let { "layer $it" } ?: "startup"
@@ -113,11 +115,11 @@ object GcodeSanitizer {
                             )
                         }
                     }
-                    if (inModelMesh && currentLayer != null && delta > 0.0) filament += delta
                     currentE = nextE
                 }
 
-                if (inModelMesh) {
+                if (inModelMesh && currentLayer != null && positiveExtrusion > 0.0) {
+                    filament += positiveExtrusion
                     minX = minX?.let { minOf(it, x) } ?: x
                     minY = minY?.let { minOf(it, y) } ?: y
                     minZ = minZ?.let { minOf(it, z) } ?: z

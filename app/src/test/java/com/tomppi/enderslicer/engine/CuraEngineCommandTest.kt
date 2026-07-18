@@ -37,7 +37,35 @@ class CuraEngineCommandTest {
     )
 
     @Test
-    fun appliesCompleteProfileBeforeFinalAppOverrides() {
+    fun resolvedCommandUsesOfficialResolvedSettingsInput() {
+        val command = CuraEngineCommand.buildResolved(
+            executablePath = "/native/libcuraengine_exec.so",
+            definitionsDirectory = "/files/definitions",
+            resolvedSettingsPath = "/files/resolved-settings.json",
+            outputPath = "/files/current.gcode",
+        )
+
+        assertEquals(
+            listOf(
+                "/native/libcuraengine_exec.so",
+                "slice",
+                "-m4",
+                "-d",
+                "/files/definitions",
+                "-r",
+                "/files/resolved-settings.json",
+                "-o",
+                "/files/current.gcode",
+            ),
+            command,
+        )
+        assertFalse(command.contains("-l"))
+        assertFalse(command.contains("-j"))
+        assertFalse(command.contains("-s"))
+    }
+
+    @Test
+    fun appliesCompleteProfileBeforeFinalAppOverridesInFallbackMode() {
         val machineDefinition = "/files/definitions/creality_ender3.def.json"
         val extruderDefinition = "/files/definitions/creality_base_extruder_0.def.json"
         val profile = CuraEngineProfile(
@@ -51,6 +79,7 @@ class CuraEngineCommandTest {
                 "coasting_volume" to "0.256",
                 "speed_print" to "120",
                 "material_standby_temperature" to "180",
+                "cool_min_temperature" to "0",
             ),
         )
         val command = CuraEngineCommand.build(
@@ -78,6 +107,7 @@ class CuraEngineCommandTest {
         assertTrue(command.contains("material_standby_temperature=180"))
         assertTrue(command.contains("material_initial_print_temperature=210"))
         assertTrue(command.contains("material_final_print_temperature=210"))
+        assertTrue(command.lastIndexOf("cool_min_temperature=210") > command.lastIndexOf("cool_min_temperature=0"))
         assertTrue(command.lastIndexOf("speed_print=200.0") > command.lastIndexOf("speed_print=120"))
         assertTrue(command.lastIndexOf("support_enable=true") > command.lastIndexOf("support_enable=false"))
 

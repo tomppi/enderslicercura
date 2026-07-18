@@ -3,6 +3,8 @@ package com.tomppi.enderslicer.profile
 data class CuraEngineProfile(
     val globalValues: Map<String, String> = emptyMap(),
     val extruderValues: Map<String, String> = emptyMap(),
+    val rawGlobalValues: Map<String, String> = globalValues,
+    val rawExtruderValues: Map<String, String> = extruderValues,
     val definitionFiles: Map<String, String> = emptyMap(),
     val machineDefinitionFileName: String? = null,
     val extruderDefinitionFileName: String? = null,

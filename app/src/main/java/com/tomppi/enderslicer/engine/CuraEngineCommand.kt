@@ -5,6 +5,29 @@ import com.tomppi.enderslicer.model.SlicerSettings
 import com.tomppi.enderslicer.profile.CuraEngineProfile
 
 object CuraEngineCommand {
+    fun buildResolved(
+        executablePath: String,
+        definitionsDirectory: String,
+        resolvedSettingsPath: String,
+        outputPath: String,
+        threadCount: Int = 4,
+    ): List<String> {
+        require(threadCount in 1..32) { "Invalid CuraEngine thread count: $threadCount" }
+        listOf(executablePath, definitionsDirectory, resolvedSettingsPath, outputPath)
+            .forEach(::requireSafeArgument)
+        return listOf(
+            executablePath,
+            "slice",
+            "-m$threadCount",
+            "-d",
+            definitionsDirectory,
+            "-r",
+            resolvedSettingsPath,
+            "-o",
+            outputPath,
+        )
+    }
+
     fun build(
         executablePath: String,
         definitionsDirectory: String,
@@ -37,9 +60,6 @@ object CuraEngineCommand {
             "-m$threadCount",
             "-d",
             definitionsDirectory,
-            // Parent settings such as roofing_layer_count must be retained. Do not
-            // use --force-read-nondefault here: Cura value expressions must be
-            // resolved by the profile stack rather than injected as raw strings.
             "--force-read-parent",
             "-j",
             machineDefinitionPath,
@@ -70,11 +90,8 @@ object CuraEngineCommand {
             }
         }
 
-        // Cura project global stack: definition changes -> quality -> user values.
         applyConcrete(profile?.globalValues.orEmpty())
 
-        // App printer configuration is authoritative and is applied after the
-        // imported Cura stack.
         setting("machine_name", printer.name)
         setting("machine_width", printer.widthMm)
         setting("machine_depth", printer.depthMm)
@@ -93,7 +110,6 @@ object CuraEngineCommand {
             "[[${printer.printheadXMinMm},${printer.printheadYMaxMm}],[${printer.printheadXMinMm},${printer.printheadYMinMm}],[${printer.printheadXMaxMm},${printer.printheadYMinMm}],[${printer.printheadXMaxMm},${printer.printheadYMaxMm}]]",
         )
 
-        // App-editable global settings override imported values last.
         setting("layer_height", settings.layerHeightMm)
         setting("layer_height_0", settings.initialLayerHeightMm)
         setting("line_width", settings.lineWidthMm)
@@ -109,9 +125,6 @@ object CuraEngineCommand {
         setting("material_flow", settings.materialFlowPercent)
         setting("cool_fan_speed", settings.fanSpeedPercent)
 
-        // -j applies to the currently selected stack. Load the flattened project
-        // machine/extruder definitions into extruder 0, then apply the complete
-        // concrete extruder stack from material, quality, and user containers.
         command += listOf(
             "-e0",
             "--force-read-parent",
@@ -123,8 +136,6 @@ object CuraEngineCommand {
         )
         applyConcrete(profile?.extruderValues.orEmpty())
 
-        // Settings edited in the app must also override values stored in Cura's
-        // extruder stack. Cura places several ordinary print settings there.
         setting("layer_height", settings.layerHeightMm)
         setting("layer_height_0", settings.initialLayerHeightMm)
         setting("line_width", settings.lineWidthMm)
@@ -138,7 +149,6 @@ object CuraEngineCommand {
         setting("material_flow", settings.materialFlowPercent)
         setting("cool_fan_speed", settings.fanSpeedPercent)
 
-        // App-editable extruder values remain the final authority.
         setting("extruder_nr", 0)
         setting("machine_nozzle_size", printer.nozzleSizeMm)
         setting("material_diameter", printer.filamentDiameterMm)
@@ -146,6 +156,9 @@ object CuraEngineCommand {
         setting("material_print_temperature_layer_0", settings.initialNozzleTemperatureC)
         setting("material_initial_print_temperature", settings.nozzleTemperatureC)
         setting("material_final_print_temperature", settings.nozzleTemperatureC)
+        // Fallback mode does not have the complete definition resolver. Keep the
+        // confirmed safety override so small-layer cooling cannot target 0 C.
+        setting("cool_min_temperature", settings.nozzleTemperatureC)
         setting("retraction_enable", settings.retractionDistanceMm > 0.0)
         setting("retraction_amount", settings.retractionDistanceMm)
         setting("retraction_speed", settings.retractionSpeedMmPerSecond)
