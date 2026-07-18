@@ -254,7 +254,7 @@ class CuraEngineRunner(private val context: Context) {
                 appendLine("--- $heading ---")
                 directory.listFiles()
                     .orEmpty()
-                    .sortedBy(File::getName)
+                    .sortedBy { it.name }
                     .forEach { appendLine("${it.name} (${it.length()} bytes)") }
                 appendLine()
             },
