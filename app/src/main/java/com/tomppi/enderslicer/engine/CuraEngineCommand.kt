@@ -20,14 +20,22 @@ object CuraEngineCommand {
         requireSafeArgument(startGcode)
         requireSafeArgument(endGcode)
 
+        val machineDefinition = "$definitionsDirectory/creality_ender3.def.json"
+        val extruderDefinition = "$definitionsDirectory/creality_base_extruder_0.def.json"
+
         val command = mutableListOf(
             executablePath,
             "slice",
             "-m$threadCount",
             "-d",
             definitionsDirectory,
+            // Creality's machine overrides use both default_value and value.
+            // CuraEngine's CLI normally ignores a value when default_value is absent,
+            // so explicitly enable its non-default fallback while reading definitions.
+            "--force-read-nondefault",
             "-j",
-            "$definitionsDirectory/creality_ender3.def.json",
+            machineDefinition,
+            "--end-force-read",
         )
 
         fun setting(key: String, value: Any) {
@@ -70,7 +78,20 @@ object CuraEngineCommand {
         setting("material_flow", settings.materialFlowPercent)
         setting("cool_fan_speed", settings.fanSpeedPercent)
 
-        command += "-e0"
+        // -j applies to the currently selected settings stack. Loading the machine
+        // definition only before -e0 leaves all limit_to_extruder settings (including
+        // roofing_layer_count) absent from extruder 0. Load the complete printer
+        // settings into that stack first, then overlay the Creality extruder train.
+        command += listOf(
+            "-e0",
+            "--force-read-nondefault",
+            "-j",
+            machineDefinition,
+            "-j",
+            extruderDefinition,
+            "--end-force-read",
+        )
+
         setting("extruder_nr", 0)
         setting("machine_nozzle_size", printer.nozzleSizeMm)
         setting("material_diameter", printer.filamentDiameterMm)
