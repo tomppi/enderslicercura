@@ -1,16 +1,6 @@
 name: Build CuraEngine Android ARM64
 
 on:
-  push:
-    paths:
-      - 'native/curaengine/**'
-      - 'scripts/build-curaengine-android.sh'
-      - '.github/workflows/curaengine-android.yml'
-  pull_request:
-    paths:
-      - 'native/curaengine/**'
-      - 'scripts/build-curaengine-android.sh'
-      - '.github/workflows/curaengine-android.yml'
   workflow_dispatch:
 
 jobs:
