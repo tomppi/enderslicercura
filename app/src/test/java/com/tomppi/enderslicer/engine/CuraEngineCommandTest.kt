@@ -57,6 +57,7 @@ class CuraEngineCommandTest {
         assertTrue(command.contains("speed_print=200.0"))
         assertTrue(command.contains("machine_nozzle_size=0.4"))
 
+        assertEquals(2, command.count { it == "--force-read-parent" })
         assertEquals(2, command.count { it == "--force-read-nondefault" })
         assertEquals(2, command.count { it == "--end-force-read" })
         assertEquals(2, command.count { it == machineDefinition })
@@ -65,6 +66,7 @@ class CuraEngineCommandTest {
         assertContainsSubsequence(
             command,
             listOf(
+                "--force-read-parent",
                 "--force-read-nondefault",
                 "-j",
                 machineDefinition,
@@ -75,6 +77,7 @@ class CuraEngineCommandTest {
             command,
             listOf(
                 "-e0",
+                "--force-read-parent",
                 "--force-read-nondefault",
                 "-j",
                 machineDefinition,
