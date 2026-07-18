@@ -11,8 +11,8 @@ android {
         applicationId = "com.tomppi.enderslicer"
         minSdk = 29
         targetSdk = 36
-        versionCode = 2
-        versionName = "0.1.1-dev"
+        versionCode = 3
+        versionName = "0.2.0-dev"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -57,6 +57,9 @@ android {
     packaging {
         resources {
             excludes += setOf("/META-INF/{AL2.0,LGPL2.1}")
+        }
+        jniLibs {
+            useLegacyPackaging = true
         }
     }
 }

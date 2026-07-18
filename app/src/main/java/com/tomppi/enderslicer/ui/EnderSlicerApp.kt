@@ -54,10 +54,36 @@ fun EnderSlicerApp(viewModel: MainViewModel = viewModel()) {
     val projectPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let(viewModel::importCuraProject)
     }
-    val exportPicker = rememberLauncherForActivityResult(
+    val configExportPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/json"),
     ) { uri: Uri? ->
         uri?.let(viewModel::exportConfiguration)
+    }
+    val gcodeExportPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("text/x-gcode"),
+    ) { uri: Uri? ->
+        uri?.let(viewModel::exportGcode)
+    }
+
+    val controls: @Composable () -> Unit = {
+        Controls(
+            state = state,
+            onImportStl = { stlPicker.launch(arrayOf("*/*")) },
+            onImportProfile = { profilePicker.launch(arrayOf("*/*")) },
+            onImportProject = {
+                projectPicker.launch(
+                    arrayOf(
+                        "model/3mf",
+                        "application/vnd.ms-package.3dmanufacturing-3dmodel+xml",
+                        "*/*",
+                    ),
+                )
+            },
+            onExportConfiguration = { configExportPicker.launch("ender3v2-config.json") },
+            onSlice = viewModel::sliceModel,
+            onExportGcode = { gcodeExportPicker.launch("ender3v2-print.gcode") },
+            onSettings = viewModel::updateSettings,
+        )
     }
 
     Scaffold(
@@ -85,16 +111,7 @@ fun EnderSlicerApp(viewModel: MainViewModel = viewModel()) {
                             .padding(bottom = 24.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        Controls(
-                            state = state,
-                            // Android document providers use several different or unknown MIME types for STL.
-                            // Let the user select the file and rely on StlParser for strict content validation.
-                            onImportStl = { stlPicker.launch(arrayOf("*/*")) },
-                            onImportProfile = { profilePicker.launch(arrayOf("*/*")) },
-                            onImportProject = { projectPicker.launch(arrayOf("model/3mf", "application/vnd.ms-package.3dmanufacturing-3dmodel+xml", "*/*")) },
-                            onExport = { exportPicker.launch("ender3v2-config.json") },
-                            onSettings = viewModel::updateSettings,
-                        )
+                        controls()
                     }
                 }
             } else {
@@ -106,14 +123,7 @@ fun EnderSlicerApp(viewModel: MainViewModel = viewModel()) {
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     ViewerPanel(state)
-                    Controls(
-                        state = state,
-                        onImportStl = { stlPicker.launch(arrayOf("*/*")) },
-                        onImportProfile = { profilePicker.launch(arrayOf("*/*")) },
-                        onImportProject = { projectPicker.launch(arrayOf("model/3mf", "application/vnd.ms-package.3dmanufacturing-3dmodel+xml", "*/*")) },
-                        onExport = { exportPicker.launch("ender3v2-config.json") },
-                        onSettings = viewModel::updateSettings,
-                    )
+                    controls()
                 }
             }
         }
@@ -139,6 +149,10 @@ private fun ViewerPanel(state: MainUiState) {
                 update = { view -> view.setMesh(state.mesh) },
             )
             Spacer(Modifier.height(8.dp))
+            Text(
+                "Drag: unrestricted orbit · Pinch: zoom · Two fingers: pan · Double tap: reset",
+                style = MaterialTheme.typography.bodySmall,
+            )
             val mesh = state.mesh
             if (mesh == null) {
                 Text("No STL loaded. The 230 × 230 mm bed grid is ready.")
@@ -163,7 +177,9 @@ private fun Controls(
     onImportStl: () -> Unit,
     onImportProfile: () -> Unit,
     onImportProject: () -> Unit,
-    onExport: () -> Unit,
+    onExportConfiguration: () -> Unit,
+    onSlice: () -> Unit,
+    onExportGcode: () -> Unit,
     onSettings: ((SlicerSettings) -> SlicerSettings) -> Unit,
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
@@ -172,10 +188,18 @@ private fun Controls(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Text("Files", style = MaterialTheme.typography.titleMedium)
-            Button(onClick = onImportStl, modifier = Modifier.fillMaxWidth()) { Text("Import STL") }
-            OutlinedButton(onClick = onImportProfile, modifier = Modifier.fillMaxWidth()) { Text("Import .curaprofile") }
-            OutlinedButton(onClick = onImportProject, modifier = Modifier.fillMaxWidth()) { Text("Import Cura project .3mf") }
-            OutlinedButton(onClick = onExport, modifier = Modifier.fillMaxWidth()) { Text("Export configuration snapshot") }
+            Button(onClick = onImportStl, enabled = !state.isBusy, modifier = Modifier.fillMaxWidth()) {
+                Text("Import STL")
+            }
+            OutlinedButton(onClick = onImportProfile, enabled = !state.isBusy, modifier = Modifier.fillMaxWidth()) {
+                Text("Import .curaprofile")
+            }
+            OutlinedButton(onClick = onImportProject, enabled = !state.isBusy, modifier = Modifier.fillMaxWidth()) {
+                Text("Import Cura project .3mf")
+            }
+            OutlinedButton(onClick = onExportConfiguration, enabled = !state.isBusy, modifier = Modifier.fillMaxWidth()) {
+                Text("Export configuration snapshot")
+            }
         }
     }
 
@@ -207,12 +231,25 @@ private fun Controls(
             modifier = Modifier.padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text("Slicing engine", style = MaterialTheme.typography.titleMedium)
+            Text("CuraEngine", style = MaterialTheme.typography.titleMedium)
             Text(state.engineStatus, style = MaterialTheme.typography.bodySmall)
-            Button(onClick = {}, enabled = false, modifier = Modifier.fillMaxWidth()) {
-                Text("Slice to G-code — next milestone")
+            Button(
+                onClick = onSlice,
+                enabled = state.engineAvailable && state.modelPath != null && !state.isBusy,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(if (state.isBusy) "Working…" else "Slice to G-code")
             }
-            Text("No placeholder or unsafe G-code is generated by this scaffold.", style = MaterialTheme.typography.bodySmall)
+            OutlinedButton(
+                onClick = onExportGcode,
+                enabled = state.gcodePath != null && !state.isBusy,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Export G-code")
+            }
+            if (state.gcodePath != null) {
+                Text("A validated Cura G-code file is ready for export.", style = MaterialTheme.typography.bodySmall)
+            }
         }
     }
 
