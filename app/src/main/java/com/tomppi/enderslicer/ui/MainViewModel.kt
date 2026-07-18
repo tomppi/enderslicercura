@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.tomppi.enderslicer.data.AppStateStore
 import com.tomppi.enderslicer.data.PrinterDefinitionLoader
 import com.tomppi.enderslicer.engine.CuraEngineRunner
 import com.tomppi.enderslicer.model.SlicerSettings
@@ -23,11 +24,20 @@ import org.json.JSONObject
 import java.io.File
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
+    private data class PendingImport(
+        val config: ImportedCuraConfig,
+        val stagedFile: File,
+        val kind: String,
+        val displayName: String,
+    )
+
     private val app = application
     private val printer = PrinterDefinitionLoader.loadModifiedEnder3V2(app.assets)
     private val engine = CuraEngineRunner(app)
+    private val stateStore = AppStateStore(app)
     private val initialStartGcode = readAsset("gcode/start.gcode")
     private val initialEndGcode = readAsset("gcode/end.gcode")
+    private var importedSettingsBaseline: SlicerSettings? = null
 
     private val _uiState = MutableStateFlow(
         MainUiState(
@@ -39,6 +49,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         ),
     )
     val uiState: StateFlow<MainUiState> = _uiState.asStateFlow()
+
+    init {
+        restorePersistedState()
+    }
 
     fun importStl(uri: Uri) {
         retainReadPermission(uri)
@@ -68,44 +82,74 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun importCuraProfile(uri: Uri) {
         retainReadPermission(uri)
+        val sourceName = displayName(uri)
         viewModelScope.launch {
             busy("Importing Cura profile…")
-            val current = _uiState.value.settings
             runCatching {
                 withContext(Dispatchers.IO) {
-                    app.contentResolver.openInputStream(uri)?.use { input ->
-                        CuraProfileParser.parse(input, displayName(uri), current)
-                    } ?: error("Unable to open the selected Cura profile")
+                    stageAndParseImport(uri, AppStateStore.KIND_PROFILE, sourceName) { file ->
+                        file.inputStream().use { input ->
+                            CuraProfileParser.parse(input, sourceName, SlicerSettings())
+                        }
+                    }
                 }
-            }.onSuccess(::applyImportedConfig)
+            }.onSuccess(::commitImportedConfig)
                 .onFailure(::showFailure)
         }
     }
 
     fun importCuraProject(uri: Uri) {
         retainReadPermission(uri)
+        val sourceName = displayName(uri)
         viewModelScope.launch {
             busy("Importing Cura project…")
-            val current = _uiState.value.settings
             runCatching {
                 withContext(Dispatchers.IO) {
-                    app.contentResolver.openInputStream(uri)?.use { input ->
-                        CuraProjectParser.parse(input, displayName(uri), current)
-                    } ?: error("Unable to open the selected Cura project")
+                    stageAndParseImport(uri, AppStateStore.KIND_PROJECT, sourceName) { file ->
+                        file.inputStream().use { input ->
+                            CuraProjectParser.parse(input, sourceName, SlicerSettings())
+                        }
+                    }
                 }
-            }.onSuccess(::applyImportedConfig)
+            }.onSuccess(::commitImportedConfig)
                 .onFailure(::showFailure)
         }
     }
 
-    fun updateSettings(transform: (SlicerSettings) -> SlicerSettings) {
-        _uiState.update {
-            it.copy(
-                settings = transform(it.settings),
+    fun updateSettings(
+        key: String,
+        transform: (SlicerSettings) -> SlicerSettings,
+    ) {
+        _uiState.update { current ->
+            val changed = transform(current.settings).copy(
+                overriddenSettingKeys = current.settings.overriddenSettingKeys + key,
+            )
+            stateStore.saveSettings(changed)
+            current.copy(
+                settings = changed,
                 gcodePath = null,
                 sliceLogPath = null,
                 sliceDurationMilliseconds = null,
                 statusMessage = "Settings changed; slice again to export G-code",
+            )
+        }
+    }
+
+    fun resetAllSettingOverrides() {
+        val baseline = importedSettingsBaseline ?: SlicerSettings()
+        val restored = baseline.copy(overriddenSettingKeys = emptySet())
+        stateStore.saveSettings(restored)
+        _uiState.update {
+            it.copy(
+                settings = restored,
+                gcodePath = null,
+                sliceLogPath = null,
+                sliceDurationMilliseconds = null,
+                statusMessage = if (importedSettingsBaseline != null) {
+                    "App overrides cleared; imported Cura values are active"
+                } else {
+                    "App overrides cleared; built-in defaults are active"
+                },
             )
         }
     }
@@ -188,7 +232,98 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun applyImportedConfig(config: ImportedCuraConfig) {
+    private fun restorePersistedState() {
+        viewModelScope.launch {
+            val result = runCatching {
+                withContext(Dispatchers.IO) {
+                    val saved = stateStore.savedImport()
+                    if (saved == null) {
+                        null to stateStore.restoreSettings(SlicerSettings())
+                    } else {
+                        val config = saved.file.inputStream().use { input ->
+                            when (saved.kind) {
+                                AppStateStore.KIND_PROJECT -> CuraProjectParser.parse(input, saved.displayName, SlicerSettings())
+                                AppStateStore.KIND_PROFILE -> CuraProfileParser.parse(input, saved.displayName, SlicerSettings())
+                                else -> error("Unknown persisted Cura import kind: ${saved.kind}")
+                            }
+                        }
+                        config to stateStore.restoreSettings(config.mappedSettings)
+                    }
+                }
+            }
+
+            result.onSuccess { (config, settings) ->
+                if (config == null) {
+                    importedSettingsBaseline = null
+                    _uiState.update {
+                        it.copy(
+                            settings = settings,
+                            statusMessage = if (settings.overriddenSettingKeys.isEmpty()) {
+                                it.statusMessage
+                            } else {
+                                "Restored ${settings.overriddenSettingKeys.size} saved app setting overrides"
+                            },
+                        )
+                    }
+                } else {
+                    applyImportedConfig(
+                        config = config,
+                        settings = settings,
+                        statusMessage = "Restored ${config.name} and ${settings.overriddenSettingKeys.size} app overrides",
+                    )
+                }
+            }.onFailure { error ->
+                _uiState.update {
+                    it.copy(statusMessage = "Saved Cura configuration could not be restored: ${error.message}")
+                }
+            }
+        }
+    }
+
+    private fun stageAndParseImport(
+        uri: Uri,
+        kind: String,
+        sourceName: String,
+        parse: (File) -> ImportedCuraConfig,
+    ): PendingImport {
+        val staged = app.contentResolver.openInputStream(uri)?.use(stateStore::stageImport)
+            ?: error("Unable to open the selected Cura file")
+        return try {
+            PendingImport(
+                config = parse(staged),
+                stagedFile = staged,
+                kind = kind,
+                displayName = sourceName,
+            )
+        } catch (error: Throwable) {
+            staged.delete()
+            throw error
+        }
+    }
+
+    private fun commitImportedConfig(pending: PendingImport) {
+        runCatching {
+            stateStore.commitImport(pending.stagedFile, pending.kind, pending.displayName)
+            stateStore.clearSavedSettings()
+        }.onFailure {
+            showFailure(it)
+            return
+        }
+        val baseline = pending.config.mappedSettings.copy(overriddenSettingKeys = emptySet())
+        stateStore.saveSettings(baseline)
+        applyImportedConfig(
+            config = pending.config,
+            settings = baseline,
+            statusMessage = null,
+        )
+    }
+
+    private fun applyImportedConfig(
+        config: ImportedCuraConfig,
+        settings: SlicerSettings,
+        statusMessage: String?,
+    ) {
+        importedSettingsBaseline = config.mappedSettings.copy(overriddenSettingKeys = emptySet())
         _uiState.update { current ->
             val concreteCount = config.engineProfile?.concreteSettingCount ?: config.rawValues.size
             val definitionLabel = if (config.engineProfile?.usesProjectDefinitions == true) {
@@ -197,7 +332,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 ""
             }
             current.copy(
-                settings = config.mappedSettings,
+                settings = settings,
                 profileName = config.name,
                 profileSource = config.source,
                 importedRawSettingCount = concreteCount,
@@ -211,7 +346,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 sliceDurationMilliseconds = null,
                 warnings = config.warnings,
                 isBusy = false,
-                statusMessage = "Imported $concreteCount concrete Cura values$definitionLabel; slice again to apply them",
+                statusMessage = statusMessage
+                    ?: "Imported $concreteCount concrete Cura values$definitionLabel; imported values remain active until overridden",
             )
         }
     }
@@ -260,58 +396,61 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun readAsset(path: String): String = app.assets.open(path).bufferedReader().use { it.readText() }
 
-    private fun formatDuration(milliseconds: Long): String {
-        val seconds = milliseconds / 1_000.0
-        return if (seconds < 60.0) "%.1f s".format(seconds) else "%.1f min".format(seconds / 60.0)
+    private fun formatFileSize(bytes: Long): String = when {
+        bytes >= 1024L * 1024L -> "%.1f MiB".format(bytes / (1024.0 * 1024.0))
+        bytes >= 1024L -> "%.1f KiB".format(bytes / 1024.0)
+        else -> "$bytes bytes"
     }
 
-    private fun formatFileSize(bytes: Long): String {
-        return if (bytes < 1024L * 1024L) "%.1f KiB".format(bytes / 1024.0) else "%.1f MiB".format(bytes / 1024.0 / 1024.0)
+    private fun formatDuration(milliseconds: Long): String = when {
+        milliseconds >= 60_000L -> "%.1f min".format(milliseconds / 60_000.0)
+        milliseconds >= 1_000L -> "%.1f s".format(milliseconds / 1_000.0)
+        else -> "$milliseconds ms"
     }
 
     private fun configurationJson(state: MainUiState): JSONObject {
         val settings = state.settings
-        return JSONObject().apply {
-            put("format", "enderslicer-config-v1")
-            put("printer", JSONObject().apply {
-                put("id", state.printer.id)
-                put("name", state.printer.name)
-                put("width_mm", state.printer.widthMm)
-                put("depth_mm", state.printer.depthMm)
-                put("height_mm", state.printer.heightMm)
-                put("nozzle_mm", state.printer.nozzleSizeMm)
-                put("filament_mm", state.printer.filamentDiameterMm)
-                put("direct_drive", state.printer.directDrive)
-                put("dual_z", state.printer.dualZ)
-                put("z_probe", state.printer.zProbe)
-                put("bed_leveling", state.printer.bedLeveling)
-                put("ubl_mesh_slot", state.printer.ublMeshSlot)
-            })
-            put("settings", JSONObject().apply {
-                put("layer_height", settings.layerHeightMm)
-                put("layer_height_0", settings.initialLayerHeightMm)
-                put("speed_print", settings.printSpeedMmPerSecond)
-                put("material_print_temperature", settings.nozzleTemperatureC)
-                put("material_print_temperature_layer_0", settings.initialNozzleTemperatureC)
-                put("material_bed_temperature", settings.bedTemperatureC)
-                put("infill_sparse_density", settings.infillDensityPercent)
-                put("support_enable", settings.supportsEnabled)
-                put("support_type", settings.supportPlacement)
-                put("support_structure", settings.supportStructure)
-                put("retraction_amount", settings.retractionDistanceMm)
-                put("retraction_speed", settings.retractionSpeedMmPerSecond)
-                put("machine_firmware_retract", settings.firmwareRetraction)
-            })
-            put("cura_profile", JSONObject().apply {
-                put("source", state.profileSource)
-                put("concrete_global_values", state.engineProfile?.globalValues?.size ?: 0)
-                put("concrete_extruder_values", state.engineProfile?.extruderValues?.size ?: 0)
-                put("material_values", state.engineProfile?.materialValueCount ?: 0)
-                put("uses_project_definitions", state.engineProfile?.usesProjectDefinitions == true)
-                put("skipped_formula_overrides", state.engineProfile?.unresolvedExpressions?.size ?: 0)
-            })
-            put("machine_start_gcode", state.startGcode)
-            put("machine_end_gcode", state.endGcode)
-        }
+        return JSONObject()
+            .put("printer", state.printer.name)
+            .put("profileName", state.profileName)
+            .put("profileSource", state.profileSource)
+            .put("curaVersion", state.curaVersion)
+            .put("settingVersion", state.settingVersion)
+            .put("importedValues", state.importedRawSettingCount)
+            .put("appOverrideKeys", settings.overriddenSettingKeys.sorted())
+            .put(
+                "settings",
+                JSONObject()
+                    .put("layerHeightMm", settings.layerHeightMm)
+                    .put("initialLayerHeightMm", settings.initialLayerHeightMm)
+                    .put("lineWidthMm", settings.lineWidthMm)
+                    .put("printSpeedMmPerSecond", settings.printSpeedMmPerSecond)
+                    .put("nozzleTemperatureC", settings.nozzleTemperatureC)
+                    .put("initialNozzleTemperatureC", settings.initialNozzleTemperatureC)
+                    .put("bedTemperatureC", settings.bedTemperatureC)
+                    .put("infillDensityPercent", settings.infillDensityPercent)
+                    .put("supportsEnabled", settings.supportsEnabled)
+                    .put("supportPlacement", settings.supportPlacement)
+                    .put("supportStructure", settings.supportStructure)
+                    .put("supportAngleDegrees", settings.supportAngleDegrees)
+                    .put("supportDensityPercent", settings.supportDensityPercent)
+                    .put("supportPattern", settings.supportPattern)
+                    .put("supportInterfaceEnabled", settings.supportInterfaceEnabled)
+                    .put("supportInterfaceDensityPercent", settings.supportInterfaceDensityPercent)
+                    .put("supportZDistanceMm", settings.supportZDistanceMm)
+                    .put("supportXyDistanceMm", settings.supportXyDistanceMm)
+                    .put("supportSpeedMmPerSecond", settings.supportSpeedMmPerSecond)
+                    .put("supportInterfaceSpeedMmPerSecond", settings.supportInterfaceSpeedMmPerSecond)
+                    .put("adhesionType", settings.adhesionType)
+                    .put("retractionDistanceMm", settings.retractionDistanceMm)
+                    .put("retractionSpeedMmPerSecond", settings.retractionSpeedMmPerSecond)
+                    .put("retractAtLayerChange", settings.retractAtLayerChange)
+                    .put("zHopEnabled", settings.zHopEnabled)
+                    .put("firmwareRetraction", settings.firmwareRetraction)
+                    .put("fanSpeedPercent", settings.fanSpeedPercent)
+                    .put("materialFlowPercent", settings.materialFlowPercent),
+            )
+            .put("startGcode", state.startGcode)
+            .put("endGcode", state.endGcode)
     }
 }
