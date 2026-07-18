@@ -22,10 +22,10 @@ jobs:
         run: |
           yes | sdkmanager --licenses >/dev/null
           sdkmanager \
-            "platforms;android-37" \
+            "platforms;android-36" \
             "build-tools;36.0.0" \
             "ndk;28.2.13676358" \
-            "cmake;3.31.6"
+            "cmake;3.22.1"
 
       - uses: gradle/actions/setup-gradle@v4
         with:
