@@ -86,6 +86,15 @@ private fun writeDiagnosticReport(
         writer.appendLine("Setting version: ${state.settingVersion ?: "unknown"}")
         writer.appendLine("Imported layered values: ${state.importedRawSettingCount}")
         writer.appendLine("Warnings: ${state.warnings.joinToString(" | ").ifBlank { "none" }}")
+        writer.appendLine("Estimated print seconds: ${state.estimatedPrintSeconds ?: "not available"}")
+        val preview = state.layerPreview
+        writer.appendLine("Layer preview available: ${preview != null}")
+        if (preview != null) {
+            writer.appendLine("Layer preview layers: ${preview.layers.size}")
+            writer.appendLine("Layer preview segments: ${preview.totalSegmentCount}")
+            writer.appendLine("Layer preview speed range: ${preview.minSpeedMmPerSecond}..${preview.maxSpeedMmPerSecond} mm/s")
+            writer.appendLine("Layer preview truncated: ${preview.truncated}")
+        }
         writer.appendLine()
 
         writer.appendLine("--- Printer and slice settings ---")
