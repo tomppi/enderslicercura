@@ -85,7 +85,7 @@ object GcodeSanitizer {
                 value(command, 'E')?.let { requested ->
                     val nextE = if (absoluteExtrusion) requested else currentE + requested
                     val delta = nextE - currentE
-                    if (delta > 0.0) filament += delta
+                    if (inModelMesh && currentLayer != null && delta > 0.0) filament += delta
                     currentE = nextE
                 }
 
@@ -113,26 +113,28 @@ object GcodeSanitizer {
         }
 
         val estimatedSeconds = lastElapsed?.let { ceil(it).toInt() }
+        val resolvedMinX = minX
+        val resolvedMinY = minY
+        val resolvedMinZ = minZ
+        val resolvedMaxX = maxX
+        val resolvedMaxY = maxY
+        val resolvedMaxZ = maxZ
         val repaired = original.map { line ->
             when {
                 line.startsWith(";TIME:") && estimatedSeconds != null -> ";TIME:$estimatedSeconds"
                 line.startsWith(";Filament used:") -> ";Filament used: ${format(filament / 1000.0)}m"
-                line.startsWith(";MINX:") && minX != null -> ";MINX:${format(minX)}"
-                line.startsWith(";MINY:") && minY != null -> ";MINY:${format(minY)}"
-                line.startsWith(";MINZ:") && minZ != null -> ";MINZ:${format(minZ)}"
-                line.startsWith(";MAXX:") && maxX != null -> ";MAXX:${format(maxX)}"
-                line.startsWith(";MAXY:") && maxY != null -> ";MAXY:${format(maxY)}"
-                line.startsWith(";MAXZ:") && maxZ != null -> ";MAXZ:${format(maxZ)}"
+                line.startsWith(";MINX:") && resolvedMinX != null -> ";MINX:${format(resolvedMinX)}"
+                line.startsWith(";MINY:") && resolvedMinY != null -> ";MINY:${format(resolvedMinY)}"
+                line.startsWith(";MINZ:") && resolvedMinZ != null -> ";MINZ:${format(resolvedMinZ)}"
+                line.startsWith(";MAXX:") && resolvedMaxX != null -> ";MAXX:${format(resolvedMaxX)}"
+                line.startsWith(";MAXY:") && resolvedMaxY != null -> ";MAXY:${format(resolvedMaxY)}"
+                line.startsWith(";MAXZ:") && resolvedMaxZ != null -> ";MAXZ:${format(resolvedMaxZ)}"
                 else -> line
             }
         }
 
         val temporary = File(file.parentFile, "${file.name}.validated")
-        temporary.bufferedWriter().use { writer ->
-            repaired.forEach { line ->
-                writer.appendLine(line)
-            }
-        }
+        temporary.bufferedWriter().use { writer -> repaired.forEach { line -> writer.appendLine(line) } }
         check(temporary.length() > 0L) { "Validated G-code output is empty" }
         check(temporary.renameTo(file) || temporary.copyTo(file, overwrite = true).let { temporary.delete(); true }) {
             "Unable to replace generated G-code with the validated output"
