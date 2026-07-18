@@ -158,7 +158,12 @@ object GcodeSanitizer {
         }
 
         val temporary = File(file.parentFile, "${file.name}.validated")
-        temporary.bufferedWriter().use { writer -> repaired.forEach { line -> writer.appendLine(line) } }
+        temporary.bufferedWriter().use { writer ->
+            repaired.forEach { line ->
+                writer.write(line)
+                writer.write(PRINTER_LINE_ENDING)
+            }
+        }
         check(temporary.length() > 0L) { "Validated G-code output is empty" }
         check(temporary.renameTo(file) || temporary.copyTo(file, overwrite = true).let { temporary.delete(); true }) {
             "Unable to replace generated G-code with the validated output"
@@ -186,4 +191,5 @@ object GcodeSanitizer {
     private fun format(value: Double): String = "%.5f".format(java.util.Locale.US, value).trimEnd('0').trimEnd('.')
 
     private const val MINIMUM_ACTIVE_NOZZLE_C = 150.0
+    private const val PRINTER_LINE_ENDING = "\r\n"
 }
