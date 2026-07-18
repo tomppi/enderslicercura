@@ -14,6 +14,7 @@ import java.nio.FloatBuffer
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 import kotlin.math.max
+import kotlin.math.sqrt
 import kotlin.math.tan
 
 class ModelSurfaceView(
@@ -31,6 +32,7 @@ class ModelSurfaceView(
 
     init {
         setEGLContextClientVersion(2)
+        preserveEGLContextOnPause = true
         setRenderer(modelRenderer)
         renderMode = RENDERMODE_WHEN_DIRTY
         isClickable = true
@@ -165,8 +167,10 @@ private class ModelRenderer(
     private val mvp = FloatArray(16)
 
     fun setMesh(value: StlMesh?) {
+        if (mesh === value) return
         mesh = value
         meshBuffer = value?.interleavedVertices?.let(::floatBuffer)
+        resetCamera()
     }
 
     fun rotate(deltaYaw: Float, deltaPitch: Float) {
@@ -198,7 +202,10 @@ private class ModelRenderer(
 
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
         GLES20.glClearColor(0.055f, 0.065f, 0.08f, 1f)
+        GLES20.glClearDepthf(1f)
         GLES20.glEnable(GLES20.GL_DEPTH_TEST)
+        GLES20.glDepthFunc(GLES20.GL_LEQUAL)
+        GLES20.glDisable(GLES20.GL_CULL_FACE)
         meshProgram = createProgram(MESH_VERTEX_SHADER, MESH_FRAGMENT_SHADER)
         lineProgram = createProgram(LINE_VERTEX_SHADER, LINE_FRAGMENT_SHADER)
         buildGrid()
@@ -214,8 +221,12 @@ private class ModelRenderer(
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
         val distance = cameraDistance()
         val aspect = viewportWidth.toFloat() / viewportHeight.toFloat()
+        val bedMax = max(printer.widthMm, printer.depthMm).toFloat()
+        val meshHeight = mesh?.bounds?.height ?: 0f
+        val nearPlane = max(0.5f, distance * 0.015f)
+        val farPlane = max(nearPlane + 100f, distance * 4.0f + bedMax + meshHeight * 2f)
 
-        Matrix.perspectiveM(projection, 0, FIELD_OF_VIEW_DEGREES, aspect, 0.05f, 20_000f)
+        Matrix.perspectiveM(projection, 0, FIELD_OF_VIEW_DEGREES, aspect, nearPlane, farPlane)
         Matrix.setLookAtM(view, 0, 0f, -distance, distance * 0.62f, 0f, 0f, 0f, 0f, 0f, 1f)
         Matrix.translateM(view, 0, panX, panY, 0f)
 
@@ -236,8 +247,15 @@ private class ModelRenderer(
 
     private fun cameraDistance(): Float {
         val bedMax = max(printer.widthMm, printer.depthMm).toFloat()
-        val meshHeight = mesh?.bounds?.height ?: 0f
-        return (bedMax * 1.55f + meshHeight * 0.35f) / zoom
+        val bounds = mesh?.bounds
+        val meshRadius = if (bounds == null) {
+            0f
+        } else {
+            val diagonal = sqrt(bounds.width * bounds.width + bounds.depth * bounds.depth + bounds.height * bounds.height)
+            diagonal * 0.5f
+        }
+        val requested = (bedMax * 1.55f + (bounds?.height ?: 0f) * 0.35f) / zoom
+        return max(requested, meshRadius * 1.12f + 4f)
     }
 
     private fun drawGrid() {
@@ -300,14 +318,14 @@ private class ModelRenderer(
         val depth = printer.depthMm.toFloat()
         var x = 0f
         while (x <= width + 0.01f) {
-            values += x; values += 0f; values += 0f
-            values += x; values += depth; values += 0f
+            values += x; values += 0f; values += GRID_Z
+            values += x; values += depth; values += GRID_Z
             x += 10f
         }
         var y = 0f
         while (y <= depth + 0.01f) {
-            values += 0f; values += y; values += 0f
-            values += width; values += y; values += 0f
+            values += 0f; values += y; values += GRID_Z
+            values += width; values += y; values += GRID_Z
             y += 10f
         }
         val array = FloatArray(values.size) { values[it] }
@@ -361,6 +379,7 @@ private class ModelRenderer(
         const val MIN_ZOOM = 0.08f
         const val MAX_ZOOM = 20f
         const val FIELD_OF_VIEW_DEGREES = 42f
+        const val GRID_Z = -0.08f
 
         const val MESH_VERTEX_SHADER = """
             uniform mat4 uMvpMatrix;
@@ -370,7 +389,7 @@ private class ModelRenderer(
             varying vec3 vNormal;
             void main() {
                 gl_Position = uMvpMatrix * vec4(aPosition, 1.0);
-                vNormal = mat3(uModelMatrix) * aNormal;
+                vNormal = normalize(mat3(uModelMatrix) * aNormal);
             }
         """
         const val MESH_FRAGMENT_SHADER = """
@@ -378,10 +397,16 @@ private class ModelRenderer(
             varying vec3 vNormal;
             void main() {
                 vec3 normal = normalize(vNormal);
-                vec3 lightDirection = normalize(vec3(0.35, -0.70, 0.62));
-                float diffuse = max(dot(normal, lightDirection), 0.16);
+                if (!gl_FrontFacing) {
+                    normal = -normal;
+                }
+                vec3 keyLight = normalize(vec3(0.35, -0.70, 0.62));
+                vec3 fillLight = normalize(vec3(-0.55, 0.30, 0.72));
+                float key = max(dot(normal, keyLight), 0.0);
+                float fill = max(dot(normal, fillLight), 0.0);
+                float lighting = 0.28 + key * 0.62 + fill * 0.22;
                 vec3 base = vec3(0.14, 0.58, 0.86);
-                gl_FragColor = vec4(base * diffuse, 1.0);
+                gl_FragColor = vec4(base * min(lighting, 1.12), 1.0);
             }
         """
         const val LINE_VERTEX_SHADER = """
