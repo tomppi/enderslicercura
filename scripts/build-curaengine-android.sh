@@ -139,7 +139,18 @@ if [[ -z "$ENGINE_BINARY" && -z "$ENGINE_LIBRARY" ]]; then
 fi
 
 mkdir -p "$OUTPUT_ROOT/artifacts"
-[[ -n "$ENGINE_BINARY" ]] && cp -v "$ENGINE_BINARY" "$OUTPUT_ROOT/artifacts/CuraEngine-arm64-v8a"
+if [[ -n "$ENGINE_BINARY" ]]; then
+  ENGINE_APK_BINARY="$OUTPUT_ROOT/artifacts/libcuraengine_exec.so"
+  cp -v "$ENGINE_BINARY" "$ENGINE_APK_BINARY"
+  STRIP_TOOL="$NDK_PATH/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip"
+  "$STRIP_TOOL" --strip-unneeded "$ENGINE_APK_BINARY"
+  chmod 755 "$ENGINE_APK_BINARY"
+
+  if [[ -n "${APP_JNILIBS_DIR:-}" ]]; then
+    mkdir -p "$APP_JNILIBS_DIR/arm64-v8a"
+    cp -v "$ENGINE_APK_BINARY" "$APP_JNILIBS_DIR/arm64-v8a/libcuraengine_exec.so"
+  fi
+fi
 [[ -n "$ENGINE_LIBRARY" ]] && cp -v "$ENGINE_LIBRARY" "$OUTPUT_ROOT/artifacts/libCuraEngine-arm64-v8a.a"
 cp -v "$ENGINE_ROOT/LICENSE" "$OUTPUT_ROOT/artifacts/CuraEngine-LICENSE"
 
