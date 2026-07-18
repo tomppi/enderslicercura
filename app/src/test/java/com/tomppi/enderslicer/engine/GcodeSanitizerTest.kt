@@ -38,7 +38,7 @@ class GcodeSanitizerTest {
     }
 
     @Test
-    fun repairsHeaderFromPositiveModelExtrusionOnly() {
+    fun repairsBoundsFromModelButFilamentFromWholePrint() {
         val file = temporaryGcode(
             """
             ;TIME:6666
@@ -56,11 +56,18 @@ class GcodeSanitizerTest {
             G92 E0
             ;LAYER_COUNT:2
             ;LAYER:0
+            ;TYPE:SKIRT
+            G1 X5 Y5 Z0.2 E0.5
+            ;TYPE:SUPPORT
+            G1 X6 Y6 Z0.2 E1.0
             ;MESH:model.stl
             G0 X80 Y90 Z0.2
-            G1 X100 Y110 Z0.2 E1
-            G0 X200 Y200 Z20
-            G1 X120 Y130 Z0.4 E2
+            G1 X100 Y110 Z0.2 E2.0
+            ;TYPE:SUPPORT-INTERFACE
+            ;MESH:NONMESH
+            G1 X7 Y7 Z0.4 E2.5
+            ;MESH:model.stl
+            G1 X120 Y130 Z0.4 E3.5
             ;TIME_ELAPSED:42.2
             ;LAYER:1
             M104 S0
@@ -73,7 +80,8 @@ class GcodeSanitizerTest {
 
         assertEquals(2, summary.layerCount)
         assertEquals(43, summary.estimatedSeconds)
-        assertEquals(2.0, summary.filamentMillimeters, 0.0001)
+        assertEquals(2.5, summary.filamentMillimeters, 0.0001)
+        assertEquals(3.5, summary.totalFilamentMillimeters, 0.0001)
         assertEquals(100.0, summary.minX!!, 0.0)
         assertEquals(110.0, summary.minY!!, 0.0)
         assertEquals(0.2, summary.minZ!!, 0.0)
@@ -81,7 +89,7 @@ class GcodeSanitizerTest {
         assertEquals(130.0, summary.maxY!!, 0.0)
         assertEquals(0.4, summary.maxZ!!, 0.0)
         assertTrue(output.contains(";TIME:43"))
-        assertTrue(output.contains(";Filament used: 0.002m"))
+        assertTrue(output.contains(";Filament used: 0.0035m"))
         assertTrue(output.contains(";MINX:100"))
         assertTrue(output.contains(";MAXY:130"))
         assertTrue(output.contains(";MAXZ:0.4"))
