@@ -3,6 +3,7 @@ package com.tomppi.enderslicer.engine
 import android.content.Context
 import com.tomppi.enderslicer.model.PrinterDefinition
 import com.tomppi.enderslicer.model.SlicerSettings
+import com.tomppi.enderslicer.profile.CuraEngineProfile
 import java.io.File
 import java.time.Instant
 import java.util.concurrent.TimeUnit
@@ -19,6 +20,13 @@ class CuraEngineRunner(private val context: Context) {
         val logFile: File,
         cause: Throwable? = null,
     ) : Exception(message, cause)
+
+    private data class PreparedDefinitions(
+        val directory: File,
+        val machineDefinition: File,
+        val extruderDefinition: File,
+        val source: String,
+    )
 
     private val nativeDirectory = File(context.applicationInfo.nativeLibraryDir)
     private val executable = File(nativeDirectory, ENGINE_LIBRARY_NAME)
@@ -38,6 +46,7 @@ class CuraEngineRunner(private val context: Context) {
         settings: SlicerSettings,
         startGcode: String,
         endGcode: String,
+        profile: CuraEngineProfile? = null,
     ): SliceResult {
         val workDirectory = File(context.cacheDir, "curaengine").apply { mkdirs() }
         val outputFile = File(workDirectory, "current.gcode")
@@ -59,6 +68,10 @@ class CuraEngineRunner(private val context: Context) {
                 appendLine("Layer height: ${settings.layerHeightMm} mm")
                 appendLine("Print speed: ${settings.printSpeedMmPerSecond} mm/s")
                 appendLine("Supports: ${settings.supportsEnabled} / ${settings.supportStructure} / ${settings.supportPlacement}")
+                appendLine("Concrete Cura global values: ${profile?.globalValues?.size ?: 0}")
+                appendLine("Concrete Cura extruder values: ${profile?.extruderValues?.size ?: 0}")
+                appendLine("Parsed material values: ${profile?.materialValueCount ?: 0}")
+                appendLine("Skipped unresolved formula overrides: ${profile?.unresolvedExpressions?.size ?: 0}")
                 appendLine()
             },
         )
@@ -69,21 +82,28 @@ class CuraEngineRunner(private val context: Context) {
             require(isAvailable()) { status() }
             require(modelFile.isFile && modelFile.length() > 0L) { "The imported STL is no longer available" }
 
-            val definitionsDirectory = prepareDefinitions(workDirectory, logFile)
+            val definitions = prepareDefinitions(workDirectory, logFile, profile)
             val command = CuraEngineCommand.build(
                 executablePath = executable.absolutePath,
-                definitionsDirectory = definitionsDirectory.absolutePath,
+                definitionsDirectory = definitions.directory.absolutePath,
+                machineDefinitionPath = definitions.machineDefinition.absolutePath,
+                extruderDefinitionPath = definitions.extruderDefinition.absolutePath,
                 modelPath = modelFile.absolutePath,
                 outputPath = outputFile.absolutePath,
                 printer = printer,
                 settings = settings,
                 startGcode = startGcode,
                 endGcode = endGcode,
+                profile = profile,
             )
 
             appendLog(
                 logFile,
                 buildString {
+                    appendLine("Definition source: ${definitions.source}")
+                    appendLine("Machine definition: ${definitions.machineDefinition.name}")
+                    appendLine("Extruder definition: ${definitions.extruderDefinition.name}")
+                    appendLine()
                     appendLine("--- Command ---")
                     command.forEachIndexed { index, argument -> appendLine("[$index] $argument") }
                     appendLine()
@@ -144,10 +164,16 @@ class CuraEngineRunner(private val context: Context) {
                 )
             }
 
+            val summary = GcodeSanitizer.validateAndRepair(outputFile)
             val elapsed = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt)
             appendLog(
                 logFile,
                 buildString {
+                    appendLine("--- Validated G-code ---")
+                    appendLine("Layers: ${summary.layerCount}")
+                    appendLine("Estimated seconds: ${summary.estimatedSeconds ?: "unknown"}")
+                    appendLine("Model filament millimeters: ${summary.filamentMillimeters}")
+                    appendLine("Bounds: X ${summary.minX}..${summary.maxX}, Y ${summary.minY}..${summary.maxY}, Z ${summary.minZ}..${summary.maxZ}")
                     appendLine("G-code bytes: ${outputFile.length()}")
                     appendLine("Elapsed milliseconds: $elapsed")
                     appendLine("Completed: ${Instant.now()}")
@@ -161,6 +187,7 @@ class CuraEngineRunner(private val context: Context) {
                 elapsedMilliseconds = elapsed,
             )
         } catch (error: Throwable) {
+            outputFile.delete()
             appendLog(
                 logFile,
                 buildString {
@@ -179,30 +206,66 @@ class CuraEngineRunner(private val context: Context) {
         }
     }
 
-    private fun prepareDefinitions(workDirectory: File, logFile: File): File {
+    private fun prepareDefinitions(
+        workDirectory: File,
+        logFile: File,
+        profile: CuraEngineProfile?,
+    ): PreparedDefinitions {
         val destination = File(workDirectory, "definitions").apply {
             deleteRecursively()
             mkdirs()
         }
-        DEFINITION_FILES.forEach { name ->
+
+        if (profile?.usesProjectDefinitions == true) {
+            profile.definitionFiles.forEach { (rawName, content) ->
+                val name = safeDefinitionName(rawName)
+                val target = File(destination, name)
+                target.writeText(content)
+                check(target.length() > 0L) { "Imported Cura definition is empty: $name" }
+            }
+            val machine = File(destination, safeDefinitionName(requireNotNull(profile.machineDefinitionFileName)))
+            val extruder = File(destination, safeDefinitionName(requireNotNull(profile.extruderDefinitionFileName)))
+            check(machine.isFile) { "Imported machine definition is missing: ${machine.name}" }
+            check(extruder.isFile) { "Imported extruder definition is missing: ${extruder.name}" }
+            logDefinitions(logFile, "Imported Cura project definitions", destination)
+            return PreparedDefinitions(destination, machine, extruder, "imported Cura project")
+        }
+
+        BUNDLED_DEFINITION_FILES.forEach { name ->
             val target = File(destination, name)
             context.assets.open("cura/definitions/$name").use { input ->
                 target.outputStream().buffered().use { output -> input.copyTo(output) }
             }
             check(target.length() > 0L) { "Bundled Cura definition is empty: $name" }
         }
+        logDefinitions(logFile, "Bundled Cura definitions", destination)
+        return PreparedDefinitions(
+            directory = destination,
+            machineDefinition = File(destination, BUNDLED_MACHINE_DEFINITION),
+            extruderDefinition = File(destination, BUNDLED_EXTRUDER_DEFINITION),
+            source = "bundled Cura 5.11 fallback",
+        )
+    }
+
+    private fun logDefinitions(logFile: File, heading: String, directory: File) {
         appendLog(
             logFile,
             buildString {
-                appendLine("--- Bundled Cura definitions ---")
-                DEFINITION_FILES.forEach { name ->
-                    val file = File(destination, name)
-                    appendLine("$name (${file.length()} bytes)")
-                }
+                appendLine("--- $heading ---")
+                directory.listFiles()
+                    .orEmpty()
+                    .sortedBy(File::getName)
+                    .forEach { appendLine("${it.name} (${it.length()} bytes)") }
                 appendLine()
             },
         )
-        return destination
+    }
+
+    private fun safeDefinitionName(rawName: String): String {
+        val name = rawName.substringAfterLast('/').substringAfterLast('\\')
+        require(name.endsWith(".def.json")) { "Invalid Cura definition filename: $rawName" }
+        require(name.matches(Regex("[A-Za-z0-9._ #+%()-]+"))) { "Unsafe Cura definition filename: $rawName" }
+        return name
     }
 
     private fun appendLog(file: File, text: String) {
@@ -213,12 +276,14 @@ class CuraEngineRunner(private val context: Context) {
         const val ENGINE_LIBRARY_NAME = "libcuraengine_exec.so"
         const val SLICE_TIMEOUT_MINUTES = 30L
         const val MINIMUM_GCODE_BYTES = 128L
-        val DEFINITION_FILES = listOf(
+        const val BUNDLED_MACHINE_DEFINITION = "creality_ender3.def.json"
+        const val BUNDLED_EXTRUDER_DEFINITION = "creality_base_extruder_0.def.json"
+        val BUNDLED_DEFINITION_FILES = listOf(
             "fdmprinter.def.json",
             "fdmextruder.def.json",
             "creality_base.def.json",
-            "creality_base_extruder_0.def.json",
-            "creality_ender3.def.json",
+            BUNDLED_EXTRUDER_DEFINITION,
+            BUNDLED_MACHINE_DEFINITION,
         )
     }
 }
