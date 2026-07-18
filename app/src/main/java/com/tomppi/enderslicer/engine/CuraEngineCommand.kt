@@ -146,6 +146,12 @@ object CuraEngineCommand {
         setting("material_print_temperature_layer_0", settings.initialNozzleTemperatureC)
         setting("material_initial_print_temperature", settings.nozzleTemperatureC)
         setting("material_final_print_temperature", settings.nozzleTemperatureC)
+        // In Cura's definition this is an expression equal to
+        // material_print_temperature. The raw fallback is 0 C, which the
+        // standalone engine otherwise uses when minimum-layer-time slowdown
+        // reaches its limit. Resolve the expression explicitly so short layers
+        // stay at the configured printing temperature instead of cooling to 0 C.
+        setting("cool_min_temperature", settings.nozzleTemperatureC)
         setting("retraction_enable", settings.retractionDistanceMm > 0.0)
         setting("retraction_amount", settings.retractionDistanceMm)
         setting("retraction_speed", settings.retractionSpeedMmPerSecond)
