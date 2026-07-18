@@ -106,7 +106,7 @@ class CuraEngineRunner(private val context: Context) {
         DEFINITION_FILES.forEach { name ->
             val target = File(destination, name)
             context.assets.open("cura/definitions/$name").use { input ->
-                target.outputStream().buffered().use(input::copyTo)
+                target.outputStream().buffered().use { output -> input.copyTo(output) }
             }
             check(target.length() > 0L) { "Bundled Cura definition is empty: $name" }
         }
