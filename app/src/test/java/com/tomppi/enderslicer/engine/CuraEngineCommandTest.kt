@@ -2,7 +2,9 @@ package com.tomppi.enderslicer.engine
 
 import com.tomppi.enderslicer.model.PrinterDefinition
 import com.tomppi.enderslicer.model.SlicerSettings
+import com.tomppi.enderslicer.profile.CuraEngineProfile
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -35,50 +37,59 @@ class CuraEngineCommandTest {
     )
 
     @Test
-    fun createsArgumentSafeEnder3Command() {
+    fun appliesCompleteProfileBeforeFinalAppOverrides() {
+        val machineDefinition = "/files/definitions/creality_ender3.def.json"
+        val extruderDefinition = "/files/definitions/creality_base_extruder_0.def.json"
+        val profile = CuraEngineProfile(
+            globalValues = linkedMapOf(
+                "slicing_tolerance" to "exclusive",
+                "support_enable" to "False",
+                "unresolved" to "=some_formula()",
+            ),
+            extruderValues = linkedMapOf(
+                "coasting_enable" to "True",
+                "coasting_volume" to "0.256",
+                "speed_print" to "120",
+                "material_standby_temperature" to "180",
+            ),
+        )
         val command = CuraEngineCommand.build(
             executablePath = "/native/libcuraengine_exec.so",
             definitionsDirectory = "/files/definitions",
+            machineDefinitionPath = machineDefinition,
+            extruderDefinitionPath = extruderDefinition,
             modelPath = "/files/current model.stl",
             outputPath = "/files/current.gcode",
             printer = printer,
-            settings = SlicerSettings(printSpeedMmPerSecond = 200.0),
+            settings = SlicerSettings(printSpeedMmPerSecond = 200.0, supportsEnabled = true),
             startGcode = "G28\nG29 L0\nG29 A",
             endGcode = "M104 S0\nM140 S0",
+            profile = profile,
         )
-
-        val machineDefinition = "/files/definitions/creality_ender3.def.json"
-        val extruderDefinition = "/files/definitions/creality_base_extruder_0.def.json"
 
         assertEquals("/native/libcuraengine_exec.so", command.first())
         assertEquals("slice", command[1])
-        assertTrue(command.contains("machine_width=230.0"))
-        assertTrue(command.contains("machine_start_gcode=G28\nG29 L0\nG29 A"))
-        assertTrue(command.contains("speed_print=200.0"))
-        assertTrue(command.contains("machine_nozzle_size=0.4"))
-
         assertEquals(2, command.count { it == "--force-read-parent" })
-        assertEquals(2, command.count { it == "--force-read-nondefault" })
-        assertEquals(2, command.count { it == "--end-force-read" })
-        assertEquals(2, command.count { it == machineDefinition })
-        assertEquals(1, command.count { it == extruderDefinition })
+        assertFalse(command.contains("--force-read-nondefault"))
+        assertFalse(command.any { it.startsWith("unresolved=") })
+        assertTrue(command.contains("slicing_tolerance=exclusive"))
+        assertTrue(command.contains("coasting_enable=true"))
+        assertTrue(command.contains("coasting_volume=0.256"))
+        assertTrue(command.contains("material_standby_temperature=180"))
+        assertTrue(command.contains("material_initial_print_temperature=210"))
+        assertTrue(command.contains("material_final_print_temperature=210"))
+        assertTrue(command.lastIndexOf("speed_print=200.0") > command.lastIndexOf("speed_print=120"))
+        assertTrue(command.lastIndexOf("support_enable=true") > command.lastIndexOf("support_enable=false"))
 
         assertContainsSubsequence(
             command,
-            listOf(
-                "--force-read-parent",
-                "--force-read-nondefault",
-                "-j",
-                machineDefinition,
-                "--end-force-read",
-            ),
+            listOf("--force-read-parent", "-j", machineDefinition, "--end-force-read"),
         )
         assertContainsSubsequence(
             command,
             listOf(
                 "-e0",
                 "--force-read-parent",
-                "--force-read-nondefault",
                 "-j",
                 machineDefinition,
                 "-j",
@@ -86,7 +97,6 @@ class CuraEngineCommandTest {
                 "--end-force-read",
             ),
         )
-
         assertEquals("/files/current.gcode", command.last())
         assertEquals("-o", command[command.lastIndex - 1])
     }
