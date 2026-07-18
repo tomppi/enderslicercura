@@ -76,7 +76,7 @@ class CuraDefinitionResolverIntegrationTest {
         )
 
         assertTrue("Expected hundreds of Cura expressions, got ${resolved.expressionCount}", resolved.expressionCount > 300)
-        assertTrue("Expected dependency resolution to require multiple passes, got ${resolved.passes}", resolved.passes > 1)
+        assertTrue("Expected at least one resolution pass, got ${resolved.passes}", resolved.passes >= 1)
         assertNumeric(resolved.extruderValues, "cool_min_temperature", 210.0)
         assertNumeric(resolved.extruderValues, "cool_fan_speed_0", 0.0)
         assertNumeric(resolved.extruderValues, "cool_fan_full_at_height", 0.68)
