@@ -37,7 +37,7 @@ object CuraProfileParser {
         val settingVersion = primary.ini.value("metadata", "setting_version")
         val warnings = buildList {
             if (resolved.unresolvedExpressions.isNotEmpty()) {
-                add("Skipped ${resolved.unresolvedExpressions.size} unresolved Cura formula overrides; bundled definition defaults remain active")
+                add("${resolved.unresolvedExpressions.size} imported formulas require a compatible machine definition at slice time")
             }
         }
 
@@ -49,6 +49,7 @@ object CuraProfileParser {
             mappedSettings = CuraSettingsMapper.apply(baseSettings, concrete),
             engineProfile = CuraEngineProfile(
                 extruderValues = concrete,
+                rawExtruderValues = merged,
                 unresolvedExpressions = resolved.unresolvedExpressions,
             ),
             warnings = warnings,
