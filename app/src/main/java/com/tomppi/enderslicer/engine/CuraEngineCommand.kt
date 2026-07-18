@@ -101,6 +101,12 @@ object CuraEngineCommand {
         setting("material_diameter", printer.filamentDiameterMm)
         setting("material_print_temperature", settings.nozzleTemperatureC)
         setting("material_print_temperature_layer_0", settings.initialNozzleTemperatureC)
+        // CuraEngine uses these two values to create gradual heat-up/cool-down
+        // commands near the start and end of a print. The CLI defaults can resolve
+        // to zero when material resources are not loaded, which produced M104 S0
+        // during active layers. Pin both to the normal print temperature.
+        setting("material_initial_print_temperature", settings.nozzleTemperatureC)
+        setting("material_final_print_temperature", settings.nozzleTemperatureC)
         setting("retraction_enable", settings.retractionDistanceMm > 0.0)
         setting("retraction_amount", settings.retractionDistanceMm)
         setting("retraction_speed", settings.retractionSpeedMmPerSecond)
