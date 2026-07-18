@@ -70,6 +70,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         mesh = mesh,
                         modelPath = modelFile.absolutePath,
                         gcodePath = null,
+                        layerPreview = null,
+                        estimatedPrintSeconds = null,
                         sliceLogPath = null,
                         sliceDurationMilliseconds = null,
                         isBusy = false,
@@ -128,6 +130,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             current.copy(
                 settings = changed,
                 gcodePath = null,
+                layerPreview = null,
+                estimatedPrintSeconds = null,
                 sliceLogPath = null,
                 sliceDurationMilliseconds = null,
                 statusMessage = "Settings changed; slice again to export G-code",
@@ -143,6 +147,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             it.copy(
                 settings = restored,
                 gcodePath = null,
+                layerPreview = null,
+                estimatedPrintSeconds = null,
                 sliceLogPath = null,
                 sliceDurationMilliseconds = null,
                 statusMessage = if (importedSettingsBaseline != null) {
@@ -181,12 +187,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }.onSuccess { result ->
                 _uiState.update {
+                    val printTime = result.estimatedPrintSeconds?.let(::formatPrintTime)
                     it.copy(
                         gcodePath = result.gcodeFile.absolutePath,
+                        layerPreview = result.layerPreview,
+                        estimatedPrintSeconds = result.estimatedPrintSeconds,
                         sliceLogPath = result.logFile.absolutePath,
                         sliceDurationMilliseconds = result.elapsedMilliseconds,
                         isBusy = false,
-                        statusMessage = "Sliced ${formatFileSize(result.gcodeFile.length())} of validated G-code in ${formatDuration(result.elapsedMilliseconds)}",
+                        statusMessage = buildString {
+                            append("Sliced ${formatFileSize(result.gcodeFile.length())} of validated G-code in ${formatDuration(result.elapsedMilliseconds)}")
+                            if (printTime != null) append(" · estimated print $printTime")
+                            if (result.layerPreview == null) append(" · layer preview unavailable; see diagnostic log")
+                        },
                     )
                 }
             }.onFailure(::showFailure)
@@ -342,6 +355,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 startGcode = config.startGcode ?: current.startGcode,
                 endGcode = config.endGcode ?: current.endGcode,
                 gcodePath = null,
+                layerPreview = null,
+                estimatedPrintSeconds = null,
                 sliceLogPath = null,
                 sliceDurationMilliseconds = null,
                 warnings = config.warnings,
@@ -375,6 +390,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             it.copy(
                 isBusy = false,
                 gcodePath = null,
+                layerPreview = null,
+                estimatedPrintSeconds = null,
                 sliceLogPath = (error as? CuraEngineRunner.SliceException)?.logFile?.absolutePath ?: it.sliceLogPath,
                 statusMessage = error.message ?: error::class.java.simpleName,
             )
@@ -408,6 +425,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         else -> "$milliseconds ms"
     }
 
+    private fun formatPrintTime(totalSeconds: Int): String {
+        val seconds = totalSeconds.coerceAtLeast(0)
+        val days = seconds / 86_400
+        val hours = (seconds % 86_400) / 3_600
+        val minutes = (seconds % 3_600) / 60
+        return buildString {
+            if (days > 0) append("${days}d ")
+            if (hours > 0 || days > 0) append("${hours}h ")
+            append("${minutes}m")
+        }.trim()
+    }
+
     private fun configurationJson(state: MainUiState): JSONObject {
         val settings = state.settings
         return JSONObject()
@@ -418,6 +447,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             .put("settingVersion", state.settingVersion)
             .put("importedValues", state.importedRawSettingCount)
             .put("appOverrideKeys", settings.overriddenSettingKeys.sorted())
+            .put("estimatedPrintSeconds", state.estimatedPrintSeconds)
             .put(
                 "settings",
                 JSONObject()
