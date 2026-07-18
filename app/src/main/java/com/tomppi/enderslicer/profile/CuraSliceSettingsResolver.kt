@@ -37,6 +37,8 @@ internal object CuraSliceSettingsResolver {
             put("machine_start_gcode", startGcode)
             put("machine_end_gcode", endGcode)
             put("gantry_height", printer.gantryHeightMm.toString())
+            put("machine_nozzle_size", printer.nozzleSizeMm.toString())
+            put("material_diameter", printer.filamentDiameterMm.toString())
             put(
                 "machine_head_with_fans_polygon",
                 "[[${printer.printheadXMinMm},${printer.printheadYMaxMm}],[${printer.printheadXMinMm},${printer.printheadYMinMm}],[${printer.printheadXMaxMm},${printer.printheadYMinMm}],[${printer.printheadXMaxMm},${printer.printheadYMaxMm}]]",
@@ -53,8 +55,18 @@ internal object CuraSliceSettingsResolver {
             put("adhesion_type", settings.adhesionType)
             put("material_bed_temperature", settings.bedTemperatureC.toString())
             put("material_bed_temperature_layer_0", settings.bedTemperatureC.toString())
+            put("material_print_temperature", settings.nozzleTemperatureC.toString())
+            put("material_print_temperature_layer_0", settings.initialNozzleTemperatureC.toString())
+            put("material_initial_print_temperature", settings.nozzleTemperatureC.toString())
+            put("material_final_print_temperature", settings.nozzleTemperatureC.toString())
             put("material_flow", settings.materialFlowPercent.toString())
             put("cool_fan_speed", settings.fanSpeedPercent.toString())
+            put("retraction_enable", (settings.retractionDistanceMm > 0.0).toString())
+            put("retraction_amount", settings.retractionDistanceMm.toString())
+            put("retraction_speed", settings.retractionSpeedMmPerSecond.toString())
+            put("retract_at_layer_change", settings.retractAtLayerChange.toString())
+            put("retraction_hop_enabled", settings.zHopEnabled.toString())
+            put("machine_firmware_retract", settings.firmwareRetraction.toString())
         }
 
         val extruderOverrides = linkedMapOf<String, String>().apply {
