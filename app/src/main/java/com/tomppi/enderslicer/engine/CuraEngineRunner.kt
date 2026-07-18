@@ -69,7 +69,7 @@ class CuraEngineRunner(private val context: Context) {
             require(isAvailable()) { status() }
             require(modelFile.isFile && modelFile.length() > 0L) { "The imported STL is no longer available" }
 
-            val definitionsDirectory = prepareDefinitions(workDirectory)
+            val definitionsDirectory = prepareDefinitions(workDirectory, logFile)
             val command = CuraEngineCommand.build(
                 executablePath = executable.absolutePath,
                 definitionsDirectory = definitionsDirectory.absolutePath,
@@ -179,8 +179,11 @@ class CuraEngineRunner(private val context: Context) {
         }
     }
 
-    private fun prepareDefinitions(workDirectory: File): File {
-        val destination = File(workDirectory, "definitions").apply { mkdirs() }
+    private fun prepareDefinitions(workDirectory: File, logFile: File): File {
+        val destination = File(workDirectory, "definitions").apply {
+            deleteRecursively()
+            mkdirs()
+        }
         DEFINITION_FILES.forEach { name ->
             val target = File(destination, name)
             context.assets.open("cura/definitions/$name").use { input ->
@@ -188,6 +191,17 @@ class CuraEngineRunner(private val context: Context) {
             }
             check(target.length() > 0L) { "Bundled Cura definition is empty: $name" }
         }
+        appendLog(
+            logFile,
+            buildString {
+                appendLine("--- Bundled Cura definitions ---")
+                DEFINITION_FILES.forEach { name ->
+                    val file = File(destination, name)
+                    appendLine("$name (${file.length()} bytes)")
+                }
+                appendLine()
+            },
+        )
         return destination
     }
 
@@ -201,7 +215,9 @@ class CuraEngineRunner(private val context: Context) {
         const val MINIMUM_GCODE_BYTES = 128L
         val DEFINITION_FILES = listOf(
             "fdmprinter.def.json",
+            "fdmextruder.def.json",
             "creality_base.def.json",
+            "creality_base_extruder_0.def.json",
             "creality_ender3.def.json",
         )
     }
