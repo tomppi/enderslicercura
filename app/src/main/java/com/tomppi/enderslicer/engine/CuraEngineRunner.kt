@@ -4,6 +4,8 @@ import android.content.Context
 import com.tomppi.enderslicer.model.PrinterDefinition
 import com.tomppi.enderslicer.model.SlicerSettings
 import com.tomppi.enderslicer.profile.CuraEngineProfile
+import com.tomppi.enderslicer.profile.CuraResolvedSettingsWriter
+import com.tomppi.enderslicer.profile.CuraSliceSettingsResolver
 import java.io.File
 import java.time.Instant
 import java.util.concurrent.TimeUnit
@@ -50,11 +52,15 @@ class CuraEngineRunner(private val context: Context) {
     ): SliceResult {
         val workDirectory = File(context.cacheDir, "curaengine").apply { mkdirs() }
         val outputFile = File(workDirectory, "current.gcode")
+        val resolvedSettingsFile = File(workDirectory, "resolved-settings.json")
+        val resolvedModelFile = File(workDirectory, "current.stl")
         val logFile = File(context.filesDir, "logs/curaengine-last.log").apply {
             parentFile?.mkdirs()
         }
 
         outputFile.delete()
+        resolvedSettingsFile.delete()
+        resolvedModelFile.delete()
         logFile.writeText(
             buildString {
                 appendLine("EnderSlicer CuraEngine diagnostic log")
@@ -68,10 +74,11 @@ class CuraEngineRunner(private val context: Context) {
                 appendLine("Layer height: ${settings.layerHeightMm} mm")
                 appendLine("Print speed: ${settings.printSpeedMmPerSecond} mm/s")
                 appendLine("Supports: ${settings.supportsEnabled} / ${settings.supportStructure} / ${settings.supportPlacement}")
-                appendLine("Concrete Cura global values: ${profile?.globalValues?.size ?: 0}")
-                appendLine("Concrete Cura extruder values: ${profile?.extruderValues?.size ?: 0}")
+                appendLine("Imported Cura global values: ${profile?.globalValues?.size ?: 0}")
+                appendLine("Imported Cura extruder values: ${profile?.extruderValues?.size ?: 0}")
+                appendLine("Raw Cura global overrides: ${profile?.rawGlobalValues?.size ?: 0}")
+                appendLine("Raw Cura extruder overrides: ${profile?.rawExtruderValues?.size ?: 0}")
                 appendLine("Parsed material values: ${profile?.materialValueCount ?: 0}")
-                appendLine("Skipped unresolved formula overrides: ${profile?.unresolvedExpressions?.size ?: 0}")
                 appendLine()
             },
         )
@@ -83,19 +90,45 @@ class CuraEngineRunner(private val context: Context) {
             require(modelFile.isFile && modelFile.length() > 0L) { "The imported STL is no longer available" }
 
             val definitions = prepareDefinitions(workDirectory, logFile, profile)
-            val command = CuraEngineCommand.build(
-                executablePath = executable.absolutePath,
-                definitionsDirectory = definitions.directory.absolutePath,
-                machineDefinitionPath = definitions.machineDefinition.absolutePath,
-                extruderDefinitionPath = definitions.extruderDefinition.absolutePath,
-                modelPath = modelFile.absolutePath,
-                outputPath = outputFile.absolutePath,
-                printer = printer,
-                settings = settings,
-                startGcode = startGcode,
-                endGcode = endGcode,
-                profile = profile,
-            )
+            var resolved: CuraSliceSettingsResolver.Result? = null
+            val command = if (profile?.usesProjectDefinitions == true) {
+                modelFile.copyTo(resolvedModelFile, overwrite = true)
+                check(resolvedModelFile.isFile && resolvedModelFile.length() == modelFile.length()) {
+                    "Unable to stage the STL for resolved Cura slicing"
+                }
+                resolved = CuraSliceSettingsResolver.resolve(
+                    profile = profile,
+                    printer = printer,
+                    settings = settings,
+                    startGcode = startGcode,
+                    endGcode = endGcode,
+                )
+                CuraResolvedSettingsWriter.write(
+                    destination = resolvedSettingsFile,
+                    modelFileName = resolvedModelFile.name,
+                    resolved = resolved,
+                )
+                CuraEngineCommand.buildResolved(
+                    executablePath = executable.absolutePath,
+                    definitionsDirectory = definitions.directory.absolutePath,
+                    resolvedSettingsPath = resolvedSettingsFile.absolutePath,
+                    outputPath = outputFile.absolutePath,
+                )
+            } else {
+                CuraEngineCommand.build(
+                    executablePath = executable.absolutePath,
+                    definitionsDirectory = definitions.directory.absolutePath,
+                    machineDefinitionPath = definitions.machineDefinition.absolutePath,
+                    extruderDefinitionPath = definitions.extruderDefinition.absolutePath,
+                    modelPath = modelFile.absolutePath,
+                    outputPath = outputFile.absolutePath,
+                    printer = printer,
+                    settings = settings,
+                    startGcode = startGcode,
+                    endGcode = endGcode,
+                    profile = profile,
+                )
+            }
 
             appendLog(
                 logFile,
@@ -103,6 +136,22 @@ class CuraEngineRunner(private val context: Context) {
                     appendLine("Definition source: ${definitions.source}")
                     appendLine("Machine definition: ${definitions.machineDefinition.name}")
                     appendLine("Extruder definition: ${definitions.extruderDefinition.name}")
+                    if (resolved != null) {
+                        appendLine("Settings transport: CuraEngine resolved JSON (-r)")
+                        appendLine("Resolved definition expressions: ${resolved.expressionCount}")
+                        appendLine("Resolution passes: ${resolved.passes}")
+                        appendLine("Resolved global settings: ${resolved.globalValues.size}")
+                        appendLine("Resolved extruder settings: ${resolved.extruderValues.size}")
+                        appendLine("Resolved layer height: ${resolved.globalValues["layer_height"]}")
+                        appendLine("Resolved wall lines: ${resolved.extruderValues["wall_line_count"]}")
+                        appendLine("Resolved top/bottom layers: ${resolved.extruderValues["top_layers"]}/${resolved.extruderValues["bottom_layers"]}")
+                        appendLine("Resolved infill pattern/distance: ${resolved.extruderValues["infill_pattern"]}/${resolved.extruderValues["infill_line_distance"]}")
+                        appendLine("Resolved fan start/full layer: ${resolved.extruderValues["cool_fan_speed_0"]}/${resolved.extruderValues["cool_fan_full_layer"]}")
+                        appendLine("Resolved nozzle temperatures: ${resolved.extruderValues["material_print_temperature_layer_0"]}/${resolved.extruderValues["material_print_temperature"]}/${resolved.extruderValues["cool_min_temperature"]}")
+                        appendLine("Resolved settings JSON: ${resolvedSettingsFile.length()} bytes")
+                    } else {
+                        appendLine("Settings transport: fallback command-line overrides")
+                    }
                     appendLine()
                     appendLine("--- Command ---")
                     command.forEachIndexed { index, argument -> appendLine("[$index] $argument") }
@@ -173,7 +222,7 @@ class CuraEngineRunner(private val context: Context) {
                     appendLine("Layers: ${summary.layerCount}")
                     appendLine("Estimated seconds: ${summary.estimatedSeconds ?: "unknown"}")
                     appendLine("Model filament millimeters: ${summary.filamentMillimeters}")
-                    appendLine("Bounds: X ${summary.minX}..${summary.maxX}, Y ${summary.minY}..${summary.maxY}, Z ${summary.minZ}..${summary.maxZ}")
+                    appendLine("Extrusion bounds: X ${summary.minX}..${summary.maxX}, Y ${summary.minY}..${summary.maxY}, Z ${summary.minZ}..${summary.maxZ}")
                     appendLine("G-code bytes: ${outputFile.length()}")
                     appendLine("Elapsed milliseconds: $elapsed")
                     appendLine("Completed: ${Instant.now()}")
