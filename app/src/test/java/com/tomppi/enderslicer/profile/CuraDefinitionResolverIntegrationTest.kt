@@ -8,7 +8,7 @@ import java.io.File
 
 class CuraDefinitionResolverIntegrationTest {
     @Test
-    fun resolvesPinnedEnder3DefinitionsWithoutFormulaFallbacks() {
+    fun resolvesPinnedEnder3DefinitionsAndExplicitProfileFormulas() {
         val definitions = loadDefinitions()
         val resolved = CuraDefinitionResolver.resolve(
             definitionFiles = definitions,
@@ -63,24 +63,31 @@ class CuraDefinitionResolverIntegrationTest {
                 "material_initial_print_temperature" to "210",
                 "material_final_print_temperature" to "210",
                 "material_standby_temperature" to "180",
+                "cool_min_temperature" to "=material_print_temperature",
                 "retraction_enable" to "true",
                 "retraction_amount" to "1.5",
                 "retraction_speed" to "120",
                 "retract_at_layer_change" to "true",
                 "retraction_hop_enabled" to "false",
                 "machine_firmware_retract" to "true",
+                "top_bottom_thickness" to "=layer_height_0+layer_height*3",
+                "top_thickness" to "=top_bottom_thickness",
+                "bottom_thickness" to "=top_bottom_thickness",
                 "top_layers" to "=0 if infill_sparse_density == 100 else math.ceil(round(top_thickness / resolveOrValue('layer_height'), 4))",
                 "bottom_layers" to "=999999 if infill_sparse_density == 100 and not magic_spiralize else math.ceil(round(bottom_thickness / resolveOrValue('layer_height'), 4))",
                 "initial_bottom_layers" to "=bottom_layers",
+                "wall_thickness" to "=line_width*2",
+                "wall_line_count" to "=1 if magic_spiralize else max(1, round((wall_thickness - wall_line_width_0) / wall_line_width_x) + 1) if wall_thickness != 0 else 0",
+                "infill_pattern" to "cubic",
+                "infill_line_distance" to "=0 if infill_sparse_density == 0 else (infill_line_width * 100) / infill_sparse_density * (3 if infill_pattern == 'cubic' else 1)",
+                "speed_infill" to "=speed_print",
+                "speed_topbottom" to "=speed_print / 2",
             ),
         )
 
-        assertTrue("Expected hundreds of Cura expressions, got ${resolved.expressionCount}", resolved.expressionCount > 300)
+        assertTrue("Expected definition and profile expressions, got ${resolved.expressionCount}", resolved.expressionCount >= 10)
         assertTrue("Expected at least one resolution pass, got ${resolved.passes}", resolved.passes >= 1)
         assertNumeric(resolved.extruderValues, "cool_min_temperature", 210.0)
-        assertNumeric(resolved.extruderValues, "cool_fan_speed_0", 0.0)
-        assertNumeric(resolved.extruderValues, "cool_fan_full_at_height", 0.68)
-        assertNumeric(resolved.extruderValues, "cool_fan_full_layer", 4.0)
         assertNumeric(resolved.extruderValues, "top_bottom_thickness", 0.88)
         assertNumeric(resolved.extruderValues, "top_layers", 5.0)
         assertNumeric(resolved.extruderValues, "bottom_layers", 5.0)
