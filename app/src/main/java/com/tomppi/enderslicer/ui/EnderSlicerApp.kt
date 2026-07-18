@@ -87,7 +87,9 @@ fun EnderSlicerApp(viewModel: MainViewModel = viewModel()) {
                     ) {
                         Controls(
                             state = state,
-                            onImportStl = { stlPicker.launch(arrayOf("model/stl", "application/sla", "application/octet-stream")) },
+                            // Android document providers use several different or unknown MIME types for STL.
+                            // Let the user select the file and rely on StlParser for strict content validation.
+                            onImportStl = { stlPicker.launch(arrayOf("*/*")) },
                             onImportProfile = { profilePicker.launch(arrayOf("*/*")) },
                             onImportProject = { projectPicker.launch(arrayOf("model/3mf", "application/vnd.ms-package.3dmanufacturing-3dmodel+xml", "*/*")) },
                             onExport = { exportPicker.launch("ender3v2-config.json") },
@@ -106,7 +108,7 @@ fun EnderSlicerApp(viewModel: MainViewModel = viewModel()) {
                     ViewerPanel(state)
                     Controls(
                         state = state,
-                        onImportStl = { stlPicker.launch(arrayOf("model/stl", "application/sla", "application/octet-stream")) },
+                        onImportStl = { stlPicker.launch(arrayOf("*/*")) },
                         onImportProfile = { profilePicker.launch(arrayOf("*/*")) },
                         onImportProject = { projectPicker.launch(arrayOf("model/3mf", "application/vnd.ms-package.3dmanufacturing-3dmodel+xml", "*/*")) },
                         onExport = { exportPicker.launch("ender3v2-config.json") },
