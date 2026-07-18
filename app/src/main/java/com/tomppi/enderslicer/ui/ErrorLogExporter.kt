@@ -130,7 +130,7 @@ private fun writeDiagnosticReport(
         writer.appendLine("--- Complete CuraEngine log ---")
         if (engineLog.isFile && engineLog.length() > 0L) {
             engineLog.bufferedReader().useLines { lines ->
-                lines.forEach(writer::appendLine)
+                lines.forEach { line -> writer.appendLine(line) }
             }
         } else {
             writer.appendLine("No CuraEngine process log exists yet.")
