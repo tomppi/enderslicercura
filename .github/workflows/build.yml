@@ -7,7 +7,8 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
 
@@ -16,20 +17,54 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
       - uses: android-actions/setup-android@v3
 
-      - name: Install Android SDK components
+      - name: Install Android SDK and native build tools
         run: |
           yes | sdkmanager --licenses >/dev/null
           sdkmanager \
             "platforms;android-36" \
             "build-tools;36.0.0" \
             "ndk;28.2.13676358" \
-            "cmake;3.22.1"
+            "cmake;3.22.1" \
+            "cmake;3.31.6"
+          sudo apt-get update
+          sudo apt-get install -y ninja-build file
 
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.4.1'
+
+      - name: Cache Conan packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.conan2/p
+          key: conan-curaengine-5.11-android-arm64-v3-${{ hashFiles('scripts/build-curaengine-android.sh', 'native/curaengine/profiles/android-arm64') }}
+          restore-keys: |
+            conan-curaengine-5.11-android-arm64-v3-
+
+      - name: Fetch pinned Cura definitions
+        run: |
+          chmod +x scripts/fetch-cura-resources.sh
+          scripts/fetch-cura-resources.sh
+          test -s app/src/main/assets/cura/definitions/fdmprinter.def.json
+          test -s app/src/main/assets/cura/definitions/creality_base.def.json
+          test -s app/src/main/assets/cura/definitions/creality_ender3.def.json
+
+      - name: Build and package CuraEngine ARM64
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/28.2.13676358
+          APP_JNILIBS_DIR: ${{ github.workspace }}/app/src/main/jniLibs
+        run: |
+          chmod +x scripts/build-curaengine-android.sh
+          set -o pipefail
+          scripts/build-curaengine-android.sh 2>&1 | tee curaengine-android-build.log
+          test -s app/src/main/jniLibs/arm64-v8a/libcuraengine_exec.so
+          file app/src/main/jniLibs/arm64-v8a/libcuraengine_exec.so
 
       - name: Unit tests
         run: |
@@ -40,11 +75,14 @@ jobs:
         run: |
           set -o pipefail
           gradle :app:assembleDebug --stacktrace 2>&1 | tee apk-build.log
+          unzip -l app/build/outputs/apk/debug/app-debug.apk | tee apk-contents.log
+          grep -q 'lib/arm64-v8a/libcuraengine_exec.so' apk-contents.log
+          grep -q 'assets/cura/definitions/fdmprinter.def.json' apk-contents.log
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: EnderSlicer-debug-apk
+          name: EnderSlicer-0.2.0-dev-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
 
       - name: Upload build logs
@@ -53,6 +91,8 @@ jobs:
         with:
           name: EnderSlicer-build-logs
           path: |
+            curaengine-android-build.log
             unit-tests.log
             apk-build.log
+            apk-contents.log
           if-no-files-found: ignore
