@@ -1,6 +1,26 @@
 package com.tomppi.enderslicer.model
 
 data class SlicerSettings(
+    val printerName: String = "Modified Ender 3 V2",
+    val machineWidthMm: Double = 230.0,
+    val machineDepthMm: Double = 230.0,
+    val machineHeightMm: Double = 250.0,
+    val buildPlateShape: String = "rectangular",
+    val originAtCenter: Boolean = false,
+    val heatedBed: Boolean = true,
+    val heatedBuildVolume: Boolean = false,
+    val gcodeFlavor: String = "Marlin",
+    val nozzleSizeMm: Double = 0.4,
+    val filamentDiameterMm: Double = 1.75,
+    val printheadXMinMm: Double = -26.0,
+    val printheadYMinMm: Double = -32.0,
+    val printheadXMaxMm: Double = 32.0,
+    val printheadYMaxMm: Double = 34.0,
+    val gantryHeightMm: Double = 25.0,
+    val customStartGcodeEnabled: Boolean = false,
+    val customStartGcode: String = "",
+    val customEndGcodeEnabled: Boolean = false,
+    val customEndGcode: String = "",
     val layerHeightMm: Double = 0.20,
     val initialLayerHeightMm: Double = 0.28,
     val lineWidthMm: Double = 0.40,
@@ -57,6 +77,26 @@ data class SlicerSettings(
     fun isOverridden(key: String): Boolean = key in overriddenSettingKeys
 
     object Keys {
+        const val PRINTER_NAME = "printerName"
+        const val MACHINE_WIDTH = "machineWidthMm"
+        const val MACHINE_DEPTH = "machineDepthMm"
+        const val MACHINE_HEIGHT = "machineHeightMm"
+        const val BUILD_PLATE_SHAPE = "buildPlateShape"
+        const val ORIGIN_AT_CENTER = "originAtCenter"
+        const val HEATED_BED = "heatedBed"
+        const val HEATED_BUILD_VOLUME = "heatedBuildVolume"
+        const val GCODE_FLAVOR = "gcodeFlavor"
+        const val NOZZLE_SIZE = "nozzleSizeMm"
+        const val FILAMENT_DIAMETER = "filamentDiameterMm"
+        const val PRINTHEAD_X_MIN = "printheadXMinMm"
+        const val PRINTHEAD_Y_MIN = "printheadYMinMm"
+        const val PRINTHEAD_X_MAX = "printheadXMaxMm"
+        const val PRINTHEAD_Y_MAX = "printheadYMaxMm"
+        const val GANTRY_HEIGHT = "gantryHeightMm"
+        const val CUSTOM_START_GCODE_ENABLED = "customStartGcodeEnabled"
+        const val CUSTOM_START_GCODE = "customStartGcode"
+        const val CUSTOM_END_GCODE_ENABLED = "customEndGcodeEnabled"
+        const val CUSTOM_END_GCODE = "customEndGcode"
         const val LAYER_HEIGHT = "layerHeightMm"
         const val INITIAL_LAYER_HEIGHT = "initialLayerHeightMm"
         const val LINE_WIDTH = "lineWidthMm"
