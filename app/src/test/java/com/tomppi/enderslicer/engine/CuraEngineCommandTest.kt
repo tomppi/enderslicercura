@@ -65,7 +65,7 @@ class CuraEngineCommandTest {
     }
 
     @Test
-    fun appliesCompleteProfileBeforeFinalAppOverridesInFallbackMode() {
+    fun importedFallbackProfileRemainsActiveWithoutExplicitAppOverrides() {
         val machineDefinition = "/files/definitions/creality_ender3.def.json"
         val extruderDefinition = "/files/definitions/creality_base_extruder_0.def.json"
         val profile = CuraEngineProfile(
@@ -90,7 +90,11 @@ class CuraEngineCommandTest {
             modelPath = "/files/current model.stl",
             outputPath = "/files/current.gcode",
             printer = printer,
-            settings = SlicerSettings(printSpeedMmPerSecond = 200.0, supportsEnabled = true),
+            settings = SlicerSettings(
+                printSpeedMmPerSecond = 200.0,
+                supportsEnabled = true,
+                overriddenSettingKeys = emptySet(),
+            ),
             startGcode = "G28\nG29 L0\nG29 A",
             endGcode = "M104 S0\nM140 S0",
             profile = profile,
@@ -105,11 +109,14 @@ class CuraEngineCommandTest {
         assertTrue(command.contains("coasting_enable=true"))
         assertTrue(command.contains("coasting_volume=0.256"))
         assertTrue(command.contains("material_standby_temperature=180"))
-        assertTrue(command.contains("material_initial_print_temperature=210"))
-        assertTrue(command.contains("material_final_print_temperature=210"))
-        assertTrue(command.lastIndexOf("cool_min_temperature=210") > command.lastIndexOf("cool_min_temperature=0"))
-        assertTrue(command.lastIndexOf("speed_print=200.0") > command.lastIndexOf("speed_print=120"))
-        assertTrue(command.lastIndexOf("support_enable=true") > command.lastIndexOf("support_enable=false"))
+        assertTrue(command.contains("cool_min_temperature=0"))
+        assertFalse(command.contains("cool_min_temperature=210"))
+        assertTrue(command.contains("speed_print=120"))
+        assertFalse(command.contains("speed_print=200.0"))
+        assertTrue(command.contains("support_enable=false"))
+        assertFalse(command.contains("support_enable=true"))
+        assertFalse(command.contains("material_initial_print_temperature=210"))
+        assertFalse(command.contains("material_final_print_temperature=210"))
 
         assertContainsSubsequence(
             command,
