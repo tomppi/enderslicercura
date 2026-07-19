@@ -19,7 +19,13 @@ object GcodeSanitizer {
 
     class UnsafeGcodeException(message: String) : Exception(message)
 
-    fun validateAndRepair(file: File): Summary {
+    fun validateAndRepair(
+        file: File,
+        settingsTransport: String = "unknown",
+    ): Summary {
+        require('\n' !in settingsTransport && '\r' !in settingsTransport) {
+            "Settings transport marker contains a line break"
+        }
         val original = file.readLines()
         require(original.isNotEmpty()) { "Generated G-code is empty" }
 
@@ -146,7 +152,8 @@ object GcodeSanitizer {
         val repairedBody = original
             .filterNot { line ->
                 line.startsWith(";ENDERSLICER_VERSION:") ||
-                    line.startsWith(";ENDERSLICER_COORDINATE_TRANSPORT:")
+                    line.startsWith(";ENDERSLICER_COORDINATE_TRANSPORT:") ||
+                    line.startsWith(";ENDERSLICER_SETTINGS_TRANSPORT:")
             }
             .map { line ->
                 when {
@@ -161,12 +168,13 @@ object GcodeSanitizer {
                     else -> line
                 }
             }
-        val repaired = buildList(repairedBody.size + 2) {
+        val repaired = buildList(repairedBody.size + 3) {
             repairedBody.forEachIndexed { index, line ->
                 add(line)
                 if (index == 0) {
                     add(";ENDERSLICER_VERSION:$ENDERSLICER_VERSION")
                     add(";ENDERSLICER_COORDINATE_TRANSPORT:staged-stl-and-fallback-offset")
+                    add(";ENDERSLICER_SETTINGS_TRANSPORT:$settingsTransport")
                 }
             }
         }
@@ -204,7 +212,7 @@ object GcodeSanitizer {
 
     private fun format(value: Double): String = "%.5f".format(java.util.Locale.US, value).trimEnd('0').trimEnd('.')
 
-    private const val ENDERSLICER_VERSION = "0.5.6-dev"
+    private const val ENDERSLICER_VERSION = "0.5.7-dev"
     private const val MINIMUM_ACTIVE_NOZZLE_C = 150.0
     private const val PRINTER_LINE_ENDING = "\r\n"
 }
