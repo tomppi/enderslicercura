@@ -92,7 +92,7 @@ internal object CuraResolvedSettingsWriter {
         require(linear.size == 9 && linear.all(Double::isFinite)) {
             "Resolved Cura model transform must contain nine finite values"
         }
-        return linear.chunked(3).joinToString(prefix = "[", postfix = "]") { row ->
+        return linear.chunked(3).joinToString(prefix = "[", postfix = "]", separator = ",") { row ->
             row.joinToString(prefix = "[", postfix = "]", separator = ",")
         }
     }
