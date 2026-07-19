@@ -17,11 +17,16 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.tomppi.enderslicer.model.ModelPlacement
+import com.tomppi.enderslicer.profile.CuraComputedSettings
+import com.tomppi.enderslicer.profile.CuraComputedSnapshot
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @Composable
 fun ModelToolsSheet(
@@ -38,6 +43,30 @@ fun ModelToolsSheet(
     var xText by remember { mutableStateOf(placement?.centerXmm?.formatPosition().orEmpty()) }
     var yText by remember { mutableStateOf(placement?.centerYmm?.formatPosition().orEmpty()) }
     var zText by remember { mutableStateOf(placement?.baseZmm?.formatPosition().orEmpty()) }
+    val computedSnapshot by produceState<CuraComputedSnapshot?>(
+        initialValue = null,
+        state.engineProfile,
+        state.settings,
+        state.startGcode,
+        state.endGcode,
+    ) {
+        val profile = state.engineProfile
+        value = if (profile == null) {
+            null
+        } else {
+            withContext(Dispatchers.Default) {
+                runCatching {
+                    CuraComputedSettings.resolve(
+                        profile = profile,
+                        printer = state.printer,
+                        settings = state.settings,
+                        startGcode = state.startGcode,
+                        endGcode = state.endGcode,
+                    )
+                }.getOrNull()
+            }
+        }
+    }
 
     LaunchedEffect(placement) {
         xText = placement?.centerXmm?.formatPosition().orEmpty()
@@ -111,6 +140,24 @@ fun ModelToolsSheet(
             )
             OutlinedButton(onClick = onApplyImportedTransform, modifier = Modifier.fillMaxWidth()) {
                 Text("Apply imported Cura transform")
+            }
+        }
+
+        computedSnapshot?.let { snapshot ->
+            if (snapshot.values.isNotEmpty()) {
+                HorizontalDivider()
+                Text("Computed Cura values", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "${snapshot.expressionCount} formulas resolved in ${snapshot.passes} passes. These values are read-only and recalculate when their source settings change.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                snapshot.values.forEach { computed ->
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text("${computed.label}: ${computed.value}", style = MaterialTheme.typography.bodyMedium)
+                        Text(computed.key, style = MaterialTheme.typography.labelSmall)
+                        Text(computed.source, style = MaterialTheme.typography.labelSmall)
+                    }
+                }
             }
         }
 
