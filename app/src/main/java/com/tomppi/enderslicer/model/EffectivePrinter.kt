@@ -20,7 +20,7 @@ fun PrinterDefinition.withSettings(settings: SlicerSettings): PrinterDefinition 
 )
 
 fun SlicerSettings.resolveStartGcode(fallback: String): String =
-    if (customStartGcodeEnabled) customStartGcode else fallback
+    if (customStartGcodeEnabled) customStartGcode.ifEmpty { fallback } else fallback
 
 fun SlicerSettings.resolveEndGcode(fallback: String): String =
-    if (customEndGcodeEnabled) customEndGcode else fallback
+    if (customEndGcodeEnabled) customEndGcode.ifEmpty { fallback } else fallback
