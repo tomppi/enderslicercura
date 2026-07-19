@@ -43,6 +43,7 @@ class CuraEngineCommandTest {
             definitionsDirectory = "/files/definitions",
             resolvedSettingsPath = "/files/resolved-settings.json",
             outputPath = "/files/current.gcode",
+            threadCount = 4,
         )
 
         assertEquals(
@@ -62,6 +63,14 @@ class CuraEngineCommandTest {
         assertFalse(command.contains("-l"))
         assertFalse(command.contains("-j"))
         assertFalse(command.contains("-s"))
+    }
+
+    @Test
+    fun workerCountUsesAvailableProcessorsWithAConservativeCap() {
+        assertEquals(1, CuraEngineCommand.recommendedThreadCount(1))
+        assertEquals(4, CuraEngineCommand.recommendedThreadCount(4))
+        assertEquals(8, CuraEngineCommand.recommendedThreadCount(8))
+        assertEquals(8, CuraEngineCommand.recommendedThreadCount(16))
     }
 
     @Test
