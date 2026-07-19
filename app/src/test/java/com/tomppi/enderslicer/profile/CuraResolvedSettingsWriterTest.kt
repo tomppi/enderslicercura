@@ -2,14 +2,14 @@ package com.tomppi.enderslicer.profile
 
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
+import org.junit.Assert.assertFalse
 import org.junit.Test
 import java.io.File
 import java.nio.file.Files
 
 class CuraResolvedSettingsWriterTest {
     @Test
-    fun centersModelThroughEffectiveMeshParentAndKeepsScopesSeparate() {
+    fun preservesFinalBedCoordinatesInBothModelScopes() {
         val directory = Files.createTempDirectory("enderslicer-resolved").toFile()
         try {
             val destination = File(directory, "resolved-settings.json")
@@ -18,9 +18,9 @@ class CuraResolvedSettingsWriterTest {
                 solid test
                   facet normal 0 0 1
                     outer loop
-                      vertex 0 0 0
-                      vertex 1 0 0
-                      vertex 0 1 1
+                      vertex 100 100 1
+                      vertex 101 100 1
+                      vertex 100 101 2
                     endloop
                   endfacet
                 endsolid test
@@ -44,17 +44,17 @@ class CuraResolvedSettingsWriterTest {
 
             val extruder = root.getJSONObject("extruder.0")
             assertEquals("210", extruder.getString("material_print_temperature"))
-            assertTrue(extruder.getBoolean("center_object"))
+            assertFalse(extruder.getBoolean("center_object"))
             assertEquals(0, extruder.getInt("mesh_position_x"))
             assertEquals(0, extruder.getInt("mesh_position_y"))
-            assertEquals(0.0, extruder.getDouble("mesh_position_z"), 1e-7)
+            assertEquals(0, extruder.getInt("mesh_position_z"))
 
             val model = root.getJSONObject("current.stl")
             assertEquals(0, model.getInt("extruder_nr"))
-            assertTrue(model.getBoolean("center_object"))
+            assertFalse(model.getBoolean("center_object"))
             assertEquals(0, model.getInt("mesh_position_x"))
             assertEquals(0, model.getInt("mesh_position_y"))
-            assertEquals(0.0, model.getDouble("mesh_position_z"), 1e-7)
+            assertEquals(0, model.getInt("mesh_position_z"))
         } finally {
             directory.deleteRecursively()
         }
