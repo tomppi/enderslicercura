@@ -11,7 +11,7 @@ import java.util.zip.ZipOutputStream
 
 class CuraProjectSceneParserTest {
     @Test
-    fun parsesBuildTransformDropFlagAndPostProcessingWarning() {
+    fun parsesBuildTransformEmbeddedTargetBoundsDropFlagAndPostProcessingWarning() {
         val archive = zip(
             "3D/3dmodel.model" to """
                 <?xml version="1.0"?>
@@ -23,7 +23,14 @@ class CuraProjectSceneParserTest {
                       <metadatagroup>
                         <metadata name="cura:drop_to_buildplate">True</metadata>
                       </metadatagroup>
-                      <mesh><vertices/><triangles/></mesh>
+                      <mesh>
+                        <vertices>
+                          <vertex x="0" y="0" z="0"/>
+                          <vertex x="2" y="0" z="0"/>
+                          <vertex x="0" y="4" z="1"/>
+                        </vertices>
+                        <triangles/>
+                      </mesh>
                     </object>
                   </resources>
                   <build>
@@ -45,9 +52,13 @@ class CuraProjectSceneParserTest {
         assertTrue(scene.dropToBuildPlate)
         assertEquals(1, scene.objectCount)
         assertEquals(1, scene.buildItemCount)
-        assertEquals(1.0, requireNotNull(scene.affine).linear[0], 1e-9)
-        assertEquals(-1.0, requireNotNull(scene.affine).linear[5], 1e-9)
-        assertEquals(22.5, requireNotNull(scene.affine).translationZmm, 1e-9)
+        val affine = requireNotNull(scene.affine)
+        assertEquals(1.0, affine.linear[0], 1e-9)
+        assertEquals(-1.0, affine.linear[5], 1e-9)
+        assertEquals(22.5, affine.translationZmm, 1e-9)
+        assertEquals(116.0, requireNotNull(affine.targetCenterXmm), 1e-9)
+        assertEquals(114.5, requireNotNull(affine.targetCenterYmm), 1e-9)
+        assertEquals(22.5, requireNotNull(affine.targetBaseZmm), 1e-9)
         assertTrue(scene.warnings.any { it.contains("post-processing") })
     }
 
