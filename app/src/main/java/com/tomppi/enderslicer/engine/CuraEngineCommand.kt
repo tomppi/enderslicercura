@@ -2,6 +2,9 @@ package com.tomppi.enderslicer.engine
 
 import com.tomppi.enderslicer.model.PrinterDefinition
 import com.tomppi.enderslicer.model.SlicerSettings
+import com.tomppi.enderslicer.model.resolveEndGcode
+import com.tomppi.enderslicer.model.resolveStartGcode
+import com.tomppi.enderslicer.model.withSettings
 import com.tomppi.enderslicer.profile.CuraEngineProfile
 
 object CuraEngineCommand {
@@ -51,8 +54,12 @@ object CuraEngineCommand {
             modelPath,
             outputPath,
         ).forEach(::requireSafeArgument)
-        requireSafeArgument(startGcode)
-        requireSafeArgument(endGcode)
+
+        val effectivePrinter = printer.withSettings(settings)
+        val effectiveStartGcode = settings.resolveStartGcode(startGcode)
+        val effectiveEndGcode = settings.resolveEndGcode(endGcode)
+        requireSafeArgument(effectiveStartGcode)
+        requireSafeArgument(effectiveEndGcode)
 
         val command = mutableListOf(
             executablePath,
@@ -92,38 +99,79 @@ object CuraEngineCommand {
 
         applyConcrete(profile?.globalValues.orEmpty())
 
-        setting("machine_name", printer.name)
-        setting("machine_width", printer.widthMm)
-        setting("machine_depth", printer.depthMm)
-        setting("machine_height", printer.heightMm)
-        setting("machine_shape", printer.buildPlateShape)
-        setting("machine_center_is_zero", printer.originAtCenter)
-        setting("machine_heated_bed", printer.heatedBed)
-        setting("machine_heated_build_volume", printer.heatedBuildVolume)
-        setting("machine_extruder_count", printer.extruders)
-        setting("machine_gcode_flavor", printer.gcodeFlavor)
-        setting("machine_start_gcode", startGcode)
-        setting("machine_end_gcode", endGcode)
-        setting("gantry_height", printer.gantryHeightMm)
+        setting("machine_name", effectivePrinter.name)
+        setting("machine_width", effectivePrinter.widthMm)
+        setting("machine_depth", effectivePrinter.depthMm)
+        setting("machine_height", effectivePrinter.heightMm)
+        setting("machine_shape", effectivePrinter.buildPlateShape)
+        setting("machine_center_is_zero", effectivePrinter.originAtCenter)
+        setting("machine_heated_bed", effectivePrinter.heatedBed)
+        setting("machine_heated_build_volume", effectivePrinter.heatedBuildVolume)
+        setting("machine_extruder_count", effectivePrinter.extruders)
+        setting("machine_gcode_flavor", effectivePrinter.gcodeFlavor)
+        setting("machine_start_gcode", effectiveStartGcode)
+        setting("machine_end_gcode", effectiveEndGcode)
+        setting("gantry_height", effectivePrinter.gantryHeightMm)
         setting(
             "machine_head_with_fans_polygon",
-            "[[${printer.printheadXMinMm},${printer.printheadYMaxMm}],[${printer.printheadXMinMm},${printer.printheadYMinMm}],[${printer.printheadXMaxMm},${printer.printheadYMinMm}],[${printer.printheadXMaxMm},${printer.printheadYMaxMm}]]",
+            "[[${effectivePrinter.printheadXMinMm},${effectivePrinter.printheadYMaxMm}],[${effectivePrinter.printheadXMinMm},${effectivePrinter.printheadYMinMm}],[${effectivePrinter.printheadXMaxMm},${effectivePrinter.printheadYMinMm}],[${effectivePrinter.printheadXMaxMm},${effectivePrinter.printheadYMaxMm}]]",
         )
 
-        setting("layer_height", settings.layerHeightMm)
-        setting("layer_height_0", settings.initialLayerHeightMm)
-        setting("line_width", settings.lineWidthMm)
-        setting("speed_print", settings.printSpeedMmPerSecond)
-        setting("infill_sparse_density", settings.infillDensityPercent)
-        setting("support_enable", settings.supportsEnabled)
-        setting("support_type", settings.supportPlacement)
-        setting("support_structure", settings.supportStructure)
-        setting("support_angle", settings.supportAngleDegrees)
-        setting("adhesion_type", settings.adhesionType)
-        setting("material_bed_temperature", settings.bedTemperatureC)
-        setting("material_bed_temperature_layer_0", settings.bedTemperatureC)
-        setting("material_flow", settings.materialFlowPercent)
-        setting("cool_fan_speed", settings.fanSpeedPercent)
+        fun applyPrintSettings() {
+            setting("layer_height", settings.layerHeightMm)
+            setting("layer_height_0", settings.initialLayerHeightMm)
+            setting("line_width", settings.lineWidthMm)
+            setting("wall_line_count", settings.wallLineCount)
+            setting("top_layers", settings.topLayers)
+            setting("bottom_layers", settings.bottomLayers)
+            setting("infill_sparse_density", settings.infillDensityPercent)
+            setting("infill_pattern", settings.infillPattern)
+            setting("speed_print", settings.printSpeedMmPerSecond)
+            setting("speed_wall", settings.wallSpeedMmPerSecond)
+            setting("speed_wall_0", settings.outerWallSpeedMmPerSecond)
+            setting("speed_wall_x", settings.innerWallSpeedMmPerSecond)
+            setting("speed_infill", settings.infillSpeedMmPerSecond)
+            setting("speed_topbottom", settings.topBottomSpeedMmPerSecond)
+            setting("speed_travel", settings.travelSpeedMmPerSecond)
+            setting("speed_layer_0", settings.initialLayerSpeedMmPerSecond)
+            setting("support_enable", settings.supportsEnabled)
+            setting("support_type", settings.supportPlacement)
+            setting("support_structure", settings.supportStructure)
+            setting("support_angle", settings.supportAngleDegrees)
+            setting("support_infill_rate", settings.supportDensityPercent)
+            setting("support_pattern", settings.supportPattern)
+            setting("support_interface_enable", settings.supportInterfaceEnabled)
+            setting("support_interface_density", settings.supportInterfaceDensityPercent)
+            setting("support_z_distance", settings.supportZDistanceMm)
+            setting("support_xy_distance", settings.supportXyDistanceMm)
+            setting("speed_support", settings.supportSpeedMmPerSecond)
+            setting("speed_support_interface", settings.supportInterfaceSpeedMmPerSecond)
+            setting("adhesion_type", settings.adhesionType)
+            setting("skirt_line_count", settings.skirtLineCount)
+            setting("brim_width", settings.brimWidthMm)
+            setting("material_bed_temperature", settings.bedTemperatureC)
+            setting("material_bed_temperature_layer_0", settings.bedTemperatureC)
+            setting("material_flow", settings.materialFlowPercent)
+            setting("cool_fan_speed", settings.fanSpeedPercent)
+            setting("cool_fan_speed_0", settings.initialFanSpeedPercent)
+            setting("cool_fan_full_layer", settings.fanFullAtLayer)
+            setting("retraction_enable", settings.retractionDistanceMm > 0.0)
+            setting("retraction_amount", settings.retractionDistanceMm)
+            setting("retraction_speed", settings.retractionSpeedMmPerSecond)
+            setting("retraction_min_travel", settings.retractionMinimumTravelMm)
+            setting("retract_at_layer_change", settings.retractAtLayerChange)
+            setting("retraction_combing", settings.combingMode)
+            setting("travel_avoid_other_parts", settings.avoidPrintedParts)
+            setting("travel_avoid_distance", settings.travelAvoidDistanceMm)
+            setting("retraction_hop_enabled", settings.zHopEnabled)
+            setting("retraction_hop", settings.zHopHeightMm)
+            setting("machine_firmware_retract", settings.firmwareRetraction)
+            setting("ironing_enabled", settings.ironingEnabled)
+            setting("ironing_flow", settings.ironingFlowPercent)
+            setting("speed_ironing", settings.ironingSpeedMmPerSecond)
+        }
+
+        applyPrintSettings()
 
         command += listOf(
             "-e0",
@@ -135,36 +183,16 @@ object CuraEngineCommand {
             "--end-force-read",
         )
         applyConcrete(profile?.extruderValues.orEmpty())
-
-        setting("layer_height", settings.layerHeightMm)
-        setting("layer_height_0", settings.initialLayerHeightMm)
-        setting("line_width", settings.lineWidthMm)
-        setting("speed_print", settings.printSpeedMmPerSecond)
-        setting("infill_sparse_density", settings.infillDensityPercent)
-        setting("support_enable", settings.supportsEnabled)
-        setting("support_type", settings.supportPlacement)
-        setting("support_structure", settings.supportStructure)
-        setting("support_angle", settings.supportAngleDegrees)
-        setting("adhesion_type", settings.adhesionType)
-        setting("material_flow", settings.materialFlowPercent)
-        setting("cool_fan_speed", settings.fanSpeedPercent)
+        applyPrintSettings()
 
         setting("extruder_nr", 0)
-        setting("machine_nozzle_size", printer.nozzleSizeMm)
-        setting("material_diameter", printer.filamentDiameterMm)
+        setting("machine_nozzle_size", effectivePrinter.nozzleSizeMm)
+        setting("material_diameter", effectivePrinter.filamentDiameterMm)
         setting("material_print_temperature", settings.nozzleTemperatureC)
         setting("material_print_temperature_layer_0", settings.initialNozzleTemperatureC)
         setting("material_initial_print_temperature", settings.nozzleTemperatureC)
         setting("material_final_print_temperature", settings.nozzleTemperatureC)
-        // Fallback mode does not have the complete definition resolver. Keep the
-        // confirmed safety override so small-layer cooling cannot target 0 C.
         setting("cool_min_temperature", settings.nozzleTemperatureC)
-        setting("retraction_enable", settings.retractionDistanceMm > 0.0)
-        setting("retraction_amount", settings.retractionDistanceMm)
-        setting("retraction_speed", settings.retractionSpeedMmPerSecond)
-        setting("retract_at_layer_change", settings.retractAtLayerChange)
-        setting("retraction_hop_enabled", settings.zHopEnabled)
-        setting("machine_firmware_retract", settings.firmwareRetraction)
 
         command += listOf("-l", modelPath, "-o", outputPath)
         return command
