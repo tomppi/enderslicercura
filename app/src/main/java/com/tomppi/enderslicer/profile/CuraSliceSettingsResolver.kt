@@ -86,9 +86,15 @@ internal object CuraSliceSettingsResolver {
         putOverride(SlicerSettings.Keys.LAYER_HEIGHT, "layer_height", settings.layerHeightMm)
         putOverride(SlicerSettings.Keys.INITIAL_LAYER_HEIGHT, "layer_height_0", settings.initialLayerHeightMm)
         putOverride(SlicerSettings.Keys.LINE_WIDTH, "line_width", settings.lineWidthMm)
+        putOverride(SlicerSettings.Keys.SLICING_TOLERANCE, "slicing_tolerance", settings.slicingTolerance)
         putOverride(SlicerSettings.Keys.WALL_LINE_COUNT, "wall_line_count", settings.wallLineCount)
         putOverride(SlicerSettings.Keys.TOP_LAYERS, "top_layers", settings.topLayers)
         putOverride(SlicerSettings.Keys.BOTTOM_LAYERS, "bottom_layers", settings.bottomLayers)
+        putOverride(SlicerSettings.Keys.Z_SEAM_TYPE, "z_seam_type", settings.zSeamType)
+        putOverride(SlicerSettings.Keys.Z_SEAM_X, "z_seam_x", settings.zSeamXmm)
+        putOverride(SlicerSettings.Keys.Z_SEAM_Y, "z_seam_y", settings.zSeamYmm)
+        putOverride(SlicerSettings.Keys.Z_SEAM_RELATIVE, "z_seam_relative", settings.zSeamRelative)
+        putOverride(SlicerSettings.Keys.Z_SEAM_CORNER, "z_seam_corner", settings.zSeamCorner)
         putOverride(SlicerSettings.Keys.INFILL_DENSITY, "infill_sparse_density", settings.infillDensityPercent)
         putOverride(SlicerSettings.Keys.INFILL_PATTERN, "infill_pattern", settings.infillPattern)
         putOverride(SlicerSettings.Keys.PRINT_SPEED, "speed_print", settings.printSpeedMmPerSecond)
@@ -160,6 +166,14 @@ internal object CuraSliceSettingsResolver {
         putOverride(SlicerSettings.Keys.Z_HOP, "retraction_hop_enabled", settings.zHopEnabled)
         putOverride(SlicerSettings.Keys.Z_HOP_HEIGHT, "retraction_hop", settings.zHopHeightMm)
         putOverride(SlicerSettings.Keys.FIRMWARE_RETRACTION, "machine_firmware_retract", settings.firmwareRetraction)
+        putOverride(SlicerSettings.Keys.COASTING_ENABLED, "coasting_enable", settings.coastingEnabled)
+        putOverride(SlicerSettings.Keys.COASTING_VOLUME, "coasting_volume", settings.coastingVolumeMm3)
+        putOverride(
+            SlicerSettings.Keys.COASTING_MINIMUM_VOLUME,
+            "coasting_min_volume",
+            settings.coastingMinimumVolumeMm3,
+        )
+        putOverride(SlicerSettings.Keys.COASTING_SPEED, "coasting_speed", settings.coastingSpeedPercent)
         putOverride(SlicerSettings.Keys.ADHESION_TYPE, "adhesion_type", settings.adhesionType)
         putOverride(SlicerSettings.Keys.SKIRT_LINE_COUNT, "skirt_line_count", settings.skirtLineCount)
         putOverride(SlicerSettings.Keys.BRIM_WIDTH, "brim_width", settings.brimWidthMm)
@@ -193,16 +207,38 @@ internal object CuraSliceSettingsResolver {
             }
         }
 
+        fun option(values: Map<String, String>, key: String, allowed: Set<String>) {
+            val value = values[key] ?: error("Resolved Cura setting is missing: $key")
+            require(value in allowed) {
+                "Resolved Cura setting is invalid: $key=$value, expected one of ${allowed.joinToString()}"
+            }
+        }
+
         range(global, "machine_width", 1.0, 2000.0)
         range(global, "machine_depth", 1.0, 2000.0)
         range(global, "machine_height", 1.0, 2000.0)
         range(global, "layer_height", 0.01, 5.0)
+        option(extruder, "slicing_tolerance", setOf("middle", "exclusive", "inclusive"))
         range(extruder, "machine_nozzle_size", 0.05, 5.0)
         range(extruder, "material_diameter", 0.5, 5.0)
         range(extruder, "line_width", 0.01, 5.0)
         range(extruder, "wall_line_count", 0.0, 1000.0)
         range(extruder, "top_layers", 0.0, 1000000.0)
         range(extruder, "bottom_layers", 0.0, 1000000.0)
+        option(extruder, "z_seam_type", setOf("back", "shortest", "random", "sharpest_corner"))
+        option(
+            extruder,
+            "z_seam_corner",
+            setOf(
+                "z_seam_corner_none",
+                "z_seam_corner_inner",
+                "z_seam_corner_outer",
+                "z_seam_corner_any",
+                "z_seam_corner_weighted",
+            ),
+        )
+        range(extruder, "z_seam_x", -2000.0, 2000.0)
+        range(extruder, "z_seam_y", -2000.0, 2000.0)
         range(extruder, "infill_sparse_density", 0.0, 100.0)
         range(extruder, "material_print_temperature", 150.0, 500.0)
         range(extruder, "material_print_temperature_layer_0", 150.0, 500.0)
@@ -234,6 +270,14 @@ internal object CuraSliceSettingsResolver {
         range(extruder, "retraction_min_travel", 0.0, 1000.0)
         range(extruder, "travel_avoid_distance", 0.0, 100.0)
         range(extruder, "retraction_hop", 0.0, 100.0)
+        range(extruder, "coasting_volume", 0.0, 1000.0)
+        range(extruder, "coasting_min_volume", 0.0, 100000.0)
+        range(extruder, "coasting_speed", 0.0001, 1000.0)
+        if (extruder["coasting_enable"]?.toBooleanStrictOrNull() == true) {
+            require(number(extruder, "coasting_min_volume") >= number(extruder, "coasting_volume")) {
+                "Minimum volume before coasting must be at least the coasting volume"
+            }
+        }
         range(extruder, "skirt_line_count", 0.0, 1000.0)
         range(extruder, "brim_width", 0.0, 100.0)
         range(extruder, "ironing_flow", 0.0, 100.0)
