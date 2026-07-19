@@ -38,9 +38,10 @@ class GcodeSanitizerTest {
     }
 
     @Test
-    fun repairsBoundsFromModelButFilamentFromWholePrint() {
+    fun repairsBoundsFromModelButFilamentFromWholePrintAndStampsBuild() {
         val file = temporaryGcode(
             """
+            ;FLAVOR:Marlin
             ;TIME:6666
             ;Filament used: 0m
             ;MINX:2.14748e+06
@@ -88,11 +89,16 @@ class GcodeSanitizerTest {
         assertEquals(120.0, summary.maxX!!, 0.0)
         assertEquals(130.0, summary.maxY!!, 0.0)
         assertEquals(0.4, summary.maxZ!!, 0.0)
+        assertTrue(output.startsWith(";FLAVOR:Marlin\r\n;ENDERSLICER_VERSION:0.5.6-dev\r\n"))
+        assertTrue(output.contains(";ENDERSLICER_COORDINATE_TRANSPORT:staged-stl-and-fallback-offset"))
         assertTrue(output.contains(";TIME:43"))
         assertTrue(output.contains(";Filament used: 0.0035m"))
         assertTrue(output.contains(";MINX:100"))
         assertTrue(output.contains(";MAXY:130"))
         assertTrue(output.contains(";MAXZ:0.4"))
+
+        GcodeSanitizer.validateAndRepair(file)
+        assertEquals(1, file.readText().lineSequence().count { it.startsWith(";ENDERSLICER_VERSION:") })
     }
 
     @Test
