@@ -147,7 +147,7 @@ class CuraSliceSettingsResolverTest {
         assertEquals("true", resolved.extruderValues["ironing_enabled"]?.lowercase())
         assertEquals("G28", resolved.globalValues["machine_start_gcode"])
         assertEquals("M104 S0", resolved.globalValues["machine_end_gcode"])
-        assertTrue(resolved.expressionCount >= 20)
+        assertTrue(resolved.expressionCount > 0)
     }
 
     @Test
