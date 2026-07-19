@@ -11,8 +11,8 @@ android {
         applicationId = "com.tomppi.enderslicer"
         minSdk = 29
         targetSdk = 36
-        versionCode = 31
-        versionName = "0.5.12-dev"
+        versionCode = 32
+        versionName = "0.5.13-dev"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
