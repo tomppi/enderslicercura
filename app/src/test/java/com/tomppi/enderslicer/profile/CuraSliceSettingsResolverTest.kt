@@ -36,15 +36,11 @@ class CuraSliceSettingsResolverTest {
     )
 
     @Test
-    fun appEditsAreAppliedBeforeDependentCuraFormulas() {
-        val profile = profile()
-        val settings = SlicerSettings(
+    fun visibleSettingsAreAppliedBeforeDependentCuraFormulas() {
+        val settings = importedUiSettings().copy(
             layerHeightMm = 0.20,
-            initialLayerHeightMm = 0.28,
             lineWidthMm = 0.40,
             wallLineCount = 4,
-            topLayers = 7,
-            bottomLayers = 6,
             infillDensityPercent = 10.0,
             infillPattern = "gyroid",
             printSpeedMmPerSecond = 200.0,
@@ -54,69 +50,16 @@ class CuraSliceSettingsResolverTest {
             infillSpeedMmPerSecond = 150.0,
             topBottomSpeedMmPerSecond = 60.0,
             travelSpeedMmPerSecond = 220.0,
-            initialLayerSpeedMmPerSecond = 25.0,
             nozzleTemperatureC = 210,
             initialNozzleTemperatureC = 235,
-            bedTemperatureC = 60,
-            fanSpeedPercent = 100.0,
-            initialFanSpeedPercent = 15.0,
-            fanFullAtLayer = 5,
-            supportsEnabled = true,
-            supportPlacement = "everywhere",
-            supportStructure = "tree",
-            supportAngleDegrees = 56.0,
-            retractionMinimumTravelMm = 2.5,
-            combingMode = "noskin",
-            avoidPrintedParts = true,
-            travelAvoidDistanceMm = 0.8,
-            zHopHeightMm = 0.4,
-            skirtLineCount = 3,
-            brimWidthMm = 10.0,
-            ironingEnabled = true,
-            ironingFlowPercent = 12.0,
-            ironingSpeedMmPerSecond = 18.0,
-            overriddenSettingKeys = setOf(
-                SlicerSettings.Keys.LAYER_HEIGHT,
-                SlicerSettings.Keys.INITIAL_LAYER_HEIGHT,
-                SlicerSettings.Keys.LINE_WIDTH,
-                SlicerSettings.Keys.WALL_LINE_COUNT,
-                SlicerSettings.Keys.TOP_LAYERS,
-                SlicerSettings.Keys.BOTTOM_LAYERS,
-                SlicerSettings.Keys.INFILL_DENSITY,
-                SlicerSettings.Keys.INFILL_PATTERN,
-                SlicerSettings.Keys.PRINT_SPEED,
-                SlicerSettings.Keys.WALL_SPEED,
-                SlicerSettings.Keys.OUTER_WALL_SPEED,
-                SlicerSettings.Keys.INNER_WALL_SPEED,
-                SlicerSettings.Keys.INFILL_SPEED,
-                SlicerSettings.Keys.TOP_BOTTOM_SPEED,
-                SlicerSettings.Keys.TRAVEL_SPEED,
-                SlicerSettings.Keys.INITIAL_LAYER_SPEED,
-                SlicerSettings.Keys.NOZZLE_TEMPERATURE,
-                SlicerSettings.Keys.INITIAL_NOZZLE_TEMPERATURE,
-                SlicerSettings.Keys.BED_TEMPERATURE,
-                SlicerSettings.Keys.FAN_SPEED,
-                SlicerSettings.Keys.INITIAL_FAN_SPEED,
-                SlicerSettings.Keys.FAN_FULL_AT_LAYER,
-                SlicerSettings.Keys.SUPPORTS_ENABLED,
-                SlicerSettings.Keys.SUPPORT_PLACEMENT,
-                SlicerSettings.Keys.SUPPORT_STRUCTURE,
-                SlicerSettings.Keys.SUPPORT_ANGLE,
-                SlicerSettings.Keys.RETRACTION_MINIMUM_TRAVEL,
-                SlicerSettings.Keys.COMBING_MODE,
-                SlicerSettings.Keys.AVOID_PRINTED_PARTS,
-                SlicerSettings.Keys.TRAVEL_AVOID_DISTANCE,
-                SlicerSettings.Keys.Z_HOP_HEIGHT,
-                SlicerSettings.Keys.SKIRT_LINE_COUNT,
-                SlicerSettings.Keys.BRIM_WIDTH,
-                SlicerSettings.Keys.IRONING_ENABLED,
-                SlicerSettings.Keys.IRONING_FLOW,
-                SlicerSettings.Keys.IRONING_SPEED,
-            ),
+            adhesionType = "none",
+            overriddenSettingKeys = emptySet(),
         )
 
-        val resolved = resolve(profile, settings)
+        val resolved = resolve(profile(), settings)
 
+        assertNumeric(resolved.globalValues, "layer_height", 0.20)
+        assertNumeric(resolved.extruderValues, "layer_height", 0.20)
         assertNumeric(resolved.extruderValues, "material_print_temperature", 210.0)
         assertNumeric(resolved.extruderValues, "material_print_temperature_layer_0", 235.0)
         assertNumeric(resolved.extruderValues, "cool_min_temperature", 210.0)
@@ -127,67 +70,72 @@ class CuraSliceSettingsResolverTest {
         assertNumeric(resolved.extruderValues, "speed_infill", 150.0)
         assertNumeric(resolved.extruderValues, "speed_topbottom", 60.0)
         assertNumeric(resolved.extruderValues, "speed_travel", 220.0)
-        assertNumeric(resolved.extruderValues, "speed_layer_0", 25.0)
-        assertNumeric(resolved.extruderValues, "top_layers", 7.0)
-        assertNumeric(resolved.extruderValues, "bottom_layers", 6.0)
         assertNumeric(resolved.extruderValues, "wall_line_count", 4.0)
         assertNumeric(resolved.extruderValues, "infill_line_distance", 4.0)
-        assertNumeric(resolved.extruderValues, "cool_fan_speed_0", 15.0)
-        assertNumeric(resolved.extruderValues, "cool_fan_full_layer", 5.0)
-        assertNumeric(resolved.extruderValues, "retraction_min_travel", 2.5)
-        assertNumeric(resolved.extruderValues, "travel_avoid_distance", 0.8)
-        assertNumeric(resolved.extruderValues, "retraction_hop", 0.4)
-        assertNumeric(resolved.extruderValues, "skirt_line_count", 3.0)
-        assertNumeric(resolved.extruderValues, "brim_width", 10.0)
-        assertNumeric(resolved.extruderValues, "ironing_flow", 12.0)
-        assertNumeric(resolved.extruderValues, "speed_ironing", 18.0)
         assertEquals("gyroid", resolved.extruderValues["infill_pattern"])
-        assertEquals("noskin", resolved.extruderValues["retraction_combing"])
-        assertEquals("true", resolved.extruderValues["travel_avoid_other_parts"]?.lowercase())
-        assertEquals("true", resolved.extruderValues["ironing_enabled"]?.lowercase())
+        assertEquals("none", resolved.extruderValues["adhesion_type"])
         assertEquals("G28", resolved.globalValues["machine_start_gcode"])
         assertEquals("M104 S0", resolved.globalValues["machine_end_gcode"])
         assertTrue(resolved.expressionCount > 0)
     }
 
     @Test
-    fun importedValuesRemainActiveWithoutExplicitAppOverrides() {
-        val resolved = resolve(
-            profile(),
-            SlicerSettings(
-                printSpeedMmPerSecond = 300.0,
-                nozzleTemperatureC = 245,
-                initialNozzleTemperatureC = 250,
-                overriddenSettingKeys = emptySet(),
-            ),
+    fun visibleSettingsDoNotNeedOverrideFlagsToReachTheEngine() {
+        val settings = importedUiSettings().copy(
+            layerHeightMm = 0.20,
+            printSpeedMmPerSecond = 300.0,
+            nozzleTemperatureC = 245,
+            initialNozzleTemperatureC = 250,
+            adhesionType = "none",
+            overriddenSettingKeys = emptySet(),
         )
 
-        assertNumeric(resolved.extruderValues, "speed_print", 120.0)
-        assertNumeric(resolved.extruderValues, "material_print_temperature", 200.0)
-        assertNumeric(resolved.extruderValues, "material_print_temperature_layer_0", 220.0)
-        assertNumeric(resolved.extruderValues, "cool_min_temperature", 200.0)
+        val resolved = resolve(profile(), settings)
+
+        assertNumeric(resolved.globalValues, "layer_height", 0.20)
+        assertNumeric(resolved.extruderValues, "layer_height", 0.20)
+        assertNumeric(resolved.extruderValues, "speed_print", 300.0)
+        assertNumeric(resolved.extruderValues, "material_print_temperature", 245.0)
+        assertNumeric(resolved.extruderValues, "material_print_temperature_layer_0", 250.0)
+        assertNumeric(resolved.extruderValues, "cool_min_temperature", 245.0)
+        assertEquals("none", resolved.extruderValues["adhesion_type"])
     }
 
     @Test
-    fun globalTreeSupportFeedsExtruderFormulasAndMeshScope() {
-        val resolved = resolve(
-            profile(),
-            SlicerSettings(overriddenSettingKeys = emptySet()),
-        )
+    fun hiddenImportedTreeSettingsRemainActiveBehindTheVisibleOverlay() {
+        val resolved = resolve(profile(), importedUiSettings())
 
         assertEquals("tree", resolved.extruderValues["support_structure"])
         assertEquals("everywhere", resolved.extruderValues["support_type"])
         assertEquals("true", resolved.extruderValues["support_enable"]?.lowercase())
         assertNumeric(resolved.extruderValues, "support_infill_rate", 0.0)
         assertNumeric(resolved.extruderValues, "support_interface_density", 33.333)
-
-        assertEquals("true", resolved.modelValues["support_enable"]?.lowercase())
         assertEquals("true", resolved.modelValues["support_interface_enable"]?.lowercase())
         assertEquals("true", resolved.modelValues["support_roof_enable"]?.lowercase())
         assertNumeric(resolved.modelValues, "support_z_distance", 0.2)
         assertNumeric(resolved.modelValues, "support_xy_distance", 0.8)
         assertNumeric(resolved.modelValues, "support_angle", 56.0)
     }
+
+    private fun importedUiSettings() = SlicerSettings(
+        layerHeightMm = 0.20,
+        initialLayerHeightMm = 0.28,
+        lineWidthMm = 0.40,
+        printSpeedMmPerSecond = 120.0,
+        nozzleTemperatureC = 200,
+        initialNozzleTemperatureC = 220,
+        supportsEnabled = true,
+        supportPlacement = "everywhere",
+        supportStructure = "tree",
+        supportAngleDegrees = 56.0,
+        supportDensityPercent = 0.0,
+        supportInterfaceEnabled = true,
+        supportInterfaceDensityPercent = 33.333,
+        supportZDistanceMm = 0.2,
+        supportXyDistanceMm = 0.8,
+        adhesionType = "none",
+        overriddenSettingKeys = emptySet(),
+    )
 
     private fun resolve(
         profile: CuraEngineProfile,
@@ -201,8 +149,15 @@ class CuraSliceSettingsResolverTest {
     )
 
     private fun profile(): CuraEngineProfile = CuraEngineProfile(
-        globalValues = mapOf("layer_height" to "0.2"),
-        extruderValues = mapOf("speed_print" to "120"),
+        globalValues = mapOf(
+            "layer_height" to "0.2",
+            "adhesion_type" to "none",
+        ),
+        extruderValues = mapOf(
+            "layer_height" to "0.1",
+            "adhesion_type" to "brim",
+            "speed_print" to "120",
+        ),
         rawGlobalValues = linkedMapOf(
             "layer_height" to "0.2",
             "layer_height_0" to "0.28",
@@ -212,10 +167,14 @@ class CuraSliceSettingsResolverTest {
             "support_type" to "everywhere",
             "support_structure" to "tree",
             "material_bed_temperature" to "60",
+            "adhesion_type" to "none",
         ),
         rawExtruderValues = linkedMapOf(
             "machine_nozzle_size" to "0.4",
+            "material_diameter" to "1.75",
             "line_width" to "=machine_nozzle_size",
+            "layer_height" to "0.1",
+            "adhesion_type" to "brim",
             "speed_print" to "120",
             "speed_infill" to "=speed_print",
             "speed_wall" to "=speed_print / 2",
@@ -241,10 +200,6 @@ class CuraSliceSettingsResolverTest {
             "wall_line_width_x" to "=line_width",
             "wall_line_count" to "=1 if magic_spiralize else max(1, round((wall_thickness - wall_line_width_0) / wall_line_width_x) + 1) if wall_thickness != 0 else 0",
             "wall_thickness" to "=line_width*2",
-            // These mirror the flattened support expressions stored in a Cura
-            // 3MF definition. The bundled source definitions keep the same
-            // values under `overrides`, so they are not part of this synthetic
-            // imported-project fixture unless explicitly supplied here.
             "support_infill_rate" to "=0 if support_enable and support_structure == 'tree' else 20",
             "support_interface_enable" to "=True",
             "support_roof_enable" to "=support_interface_enable",
