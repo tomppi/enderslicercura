@@ -89,6 +89,8 @@ jobs:
           unzip -l app/build/outputs/apk/debug/app-debug.apk | tee apk-contents.log
           grep -q 'lib/arm64-v8a/libcuraengine_exec.so' apk-contents.log
           grep -q 'assets/cura/definitions/version.txt' apk-contents.log
+          unzip -p app/build/outputs/apk/debug/app-debug.apk 'classes*.dex' | strings | grep -q '0.5.6-dev'
+          unzip -p app/build/outputs/apk/debug/app-debug.apk 'classes*.dex' | strings | grep -q 'staged-stl-and-fallback-offset'
           for name in \
             fdmprinter \
             fdmextruder \
@@ -101,7 +103,7 @@ jobs:
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: EnderSlicer-0.5.5-dev-debug-apk
+          name: EnderSlicer-0.5.6-dev-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
 
       - name: Upload build logs
