@@ -33,6 +33,12 @@ fi
 # Copy those values onto the actual Mesh after loading so support interface/roof
 # and other settable_per_mesh values reach the slicer.
 #
+# EnderSlicer transports the original STL and a complete affine transform. The
+# stock resolved loader reads only the 3x3 mesh_rotation_matrix and applies
+# mesh_position after the transformed vertex has already been rounded to Cura's
+# integer-micron geometry. Add the affine translation to Matrix4x3D before the
+# STL loader converts the vertex, matching Cura frontend transform order.
+#
 # Cura project files can also contain cool_min_temperature=0 as a frontend
 # sentinel. CuraEngine's minimum-layer-time interpolation otherwise treats that
 # literal zero as a real nozzle target and can emit unsafe temperatures while
@@ -111,6 +117,21 @@ text = text.replace(
 application_cpp.write_text(text)
 
 command_line_cpp = root / "src" / "communication" / "CommandLine.cpp"
+replace(
+    command_line_cpp,
+    '''                        const auto transformation = slice->scene.mesh_groups[mesh_group_index].settings.get<Matrix4x3D>("mesh_rotation_matrix");
+                        const auto extruder_nr = slice->scene.mesh_groups[mesh_group_index].settings.get<size_t>("extruder_nr");''',
+    '''                        auto transformation = slice->scene.mesh_groups[mesh_group_index].settings.get<Matrix4x3D>("mesh_rotation_matrix");
+                        // EnderSlicer: Cura's frontend applies the complete affine
+                        // transform before converting vertices to integer microns.
+                        // mesh_position is too late for that because MeshGroup
+                        // finalization runs after the STL loader has rounded each
+                        // transformed vertex. Carry the translation in Matrix4x3D.
+                        transformation.m[3][0] = slice->scene.mesh_groups[mesh_group_index].settings.get<double>("enderslicer_mesh_translation_x");
+                        transformation.m[3][1] = slice->scene.mesh_groups[mesh_group_index].settings.get<double>("enderslicer_mesh_translation_y");
+                        transformation.m[3][2] = slice->scene.mesh_groups[mesh_group_index].settings.get<double>("enderslicer_mesh_translation_z");
+                        const auto extruder_nr = slice->scene.mesh_groups[mesh_group_index].settings.get<size_t>("extruder_nr");''',
+)
 replace(
     command_line_cpp,
     '''                        if (! loadMeshIntoMeshGroup(&slice->scene.mesh_groups[mesh_group_index], model_name.c_str(), transformation, slice->scene.extruders[extruder_nr].settings_))
