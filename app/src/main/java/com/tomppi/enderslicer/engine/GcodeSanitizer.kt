@@ -217,7 +217,7 @@ object GcodeSanitizer {
 
     private fun format(value: Double): String = "%.5f".format(java.util.Locale.US, value).trimEnd('0').trimEnd('.')
 
-    private const val ENDERSLICER_VERSION = "0.5.8-dev"
+    private const val ENDERSLICER_VERSION = "0.5.9-dev"
     private const val MINIMUM_ACTIVE_NOZZLE_C = 150.0
     private const val PRINTER_LINE_ENDING = "\r\n"
 }
