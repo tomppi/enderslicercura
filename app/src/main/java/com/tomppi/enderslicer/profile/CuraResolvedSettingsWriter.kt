@@ -1,5 +1,6 @@
 package com.tomppi.enderslicer.profile
 
+import com.tomppi.enderslicer.viewer.StlMeshWriter
 import com.tomppi.enderslicer.viewer.StlSliceTransform
 import org.json.JSONObject
 import java.io.File
@@ -21,21 +22,39 @@ internal object CuraResolvedSettingsWriter {
             "Resolved Cura STL is missing or empty: ${modelFile.absolutePath}"
         }
 
+        // MainViewModel still writes the displayed transformed STL so the
+        // profile-less fallback path remains unchanged. For resolved Cura
+        // slicing, StlMeshWriter also stages the original geometry and affine in
+        // the sibling model-placement directory. Replace only the temporary
+        // resolved model copy with that source STL.
+        val stagedDisplayedFile = modelDirectory.parentFile
+            ?.let { cacheRoot -> File(cacheRoot, "model-placement/current-transformed.stl") }
+        val stagedSource = stagedDisplayedFile
+            ?.takeIf(File::isFile)
+            ?.let(StlMeshWriter::resolvedSliceSource)
+        if (stagedSource != null) {
+            stagedSource.modelFile.copyTo(modelFile, overwrite = true)
+            check(modelFile.length() == stagedSource.modelFile.length()) {
+                "Unable to stage original STL geometry for direct Cura transformation"
+            }
+        }
+        val effectiveTransform = modelTransform ?: stagedSource?.transform
+
         // CuraEngine applies mesh_rotation_matrix while reading each source STL
         // vertex and converts the result directly to its integer-micron geometry.
         // Translation is applied later by MeshGroup::finalize(). Supplying the
         // complete affine here avoids writing an intermediate transformed Float
-        // STL, which was enough to alter a few threshold-sized infill islands.
+        // STL, which was enough to alter threshold-sized infill islands.
         val centerIsZero = resolved.globalValues["machine_center_is_zero"]
             ?.trim()
             ?.equals("true", ignoreCase = true)
             ?: false
         val machineCenterX = if (centerIsZero) 0.0 else requiredNumber(resolved.globalValues, "machine_width") / 2.0
         val machineCenterY = if (centerIsZero) 0.0 else requiredNumber(resolved.globalValues, "machine_depth") / 2.0
-        val linear = modelTransform?.linear ?: IDENTITY
-        val enginePositionX = (modelTransform?.translationXmm ?: 0.0) - machineCenterX
-        val enginePositionY = (modelTransform?.translationYmm ?: 0.0) - machineCenterY
-        val enginePositionZ = modelTransform?.translationZmm ?: 0.0
+        val linear = effectiveTransform?.linear ?: IDENTITY
+        val enginePositionX = (effectiveTransform?.translationXmm ?: 0.0) - machineCenterX
+        val enginePositionY = (effectiveTransform?.translationYmm ?: 0.0) - machineCenterY
+        val enginePositionZ = effectiveTransform?.translationZmm ?: 0.0
         val rotationMatrix = matrixString(linear)
 
         // CuraEngine's command-line model loader constructs the single model
