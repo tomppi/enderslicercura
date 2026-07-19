@@ -114,7 +114,7 @@ class GcodeSanitizerTest {
         assertEquals(120.0, summary.maxX!!, 0.0)
         assertEquals(130.0, summary.maxY!!, 0.0)
         assertEquals(0.4, summary.maxZ!!, 0.0)
-        assertTrue(output.startsWith(";FLAVOR:Marlin\r\n;ENDERSLICER_VERSION:0.5.8-dev\r\n"))
+        assertTrue(output.startsWith(";FLAVOR:Marlin\r\n;ENDERSLICER_VERSION:0.5.9-dev\r\n"))
         assertTrue(output.contains(";ENDERSLICER_COORDINATE_TRANSPORT:staged-stl-and-fallback-offset"))
         assertTrue(output.contains(";ENDERSLICER_SETTINGS_TRANSPORT:fallback-command"))
         assertTrue(output.contains(";TIME:43"))
