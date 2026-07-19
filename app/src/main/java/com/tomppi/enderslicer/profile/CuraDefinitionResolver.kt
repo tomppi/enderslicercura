@@ -8,6 +8,7 @@ internal object CuraDefinitionResolver {
     data class Result(
         val globalValues: Map<String, String>,
         val extruderValues: Map<String, String>,
+        val modelValues: Map<String, String>,
         val expressionCount: Int,
         val passes: Int,
     )
@@ -15,6 +16,7 @@ internal object CuraDefinitionResolver {
     private data class SettingDefinition(
         val defaultValue: Any?,
         val expression: String?,
+        val settablePerMesh: Boolean,
     )
 
     private data class DefinitionDocument(
@@ -60,6 +62,14 @@ internal object CuraDefinitionResolver {
         val lockedExtruder = mutableSetOf<String>()
 
         applyOverrides(globalOverrides, globalValues, globalExpressions, lockedGlobal)
+
+        // Cura's extruder stack inherits the selected global machine/quality
+        // stack before applying extruder-specific containers. Re-apply those
+        // global values here so per-extruder formulas do not evaluate against
+        // unrelated definition defaults. This is especially important for tree
+        // support: support_infill_rate depends on the globally selected
+        // support_enable/support_structure values.
+        applyOverrides(globalOverrides, extruderValues, extruderExpressions, lockedExtruder)
         applyOverrides(extruderOverrides, extruderValues, extruderExpressions, lockedExtruder)
 
         var passes = 0
@@ -112,9 +122,25 @@ internal object CuraDefinitionResolver {
             ) { (key, reason) -> "$key ($reason)" }
         }
 
+        val formattedGlobal = globalValues.mapValues { formatValue(it.value) }
+        val formattedExtruder = extruderValues.mapValues { formatValue(it.value) }
+
+        // CuraEngine evaluates mesh-sensitive settings from the model's own
+        // settings stack. The resolved JSON transport does not infer this scope
+        // from the definitions, so explicitly copy every setting marked
+        // settable_per_mesh into the model section.
+        val formattedModel = linkedMapOf<String, String>().apply {
+            combinedExtruderDefinitions.forEach { (key, definition) ->
+                if (!definition.settablePerMesh) return@forEach
+                val value = extruderValues[key] ?: globalValues[key] ?: return@forEach
+                put(key, formatValue(value))
+            }
+        }
+
         return Result(
-            globalValues = globalValues.mapValues { formatValue(it.value) },
-            extruderValues = extruderValues.mapValues { formatValue(it.value) },
+            globalValues = formattedGlobal,
+            extruderValues = formattedExtruder,
+            modelValues = formattedModel,
             expressionCount = globalExpressions.size + extruderExpressions.size,
             passes = passes,
         )
@@ -176,10 +202,25 @@ internal object CuraDefinitionResolver {
                 ?.removePrefix("=")
                 ?.trim()
             if (defaultValue != null || expression != null) {
-                output[key] = SettingDefinition(defaultValue, expression)
+                output[key] = SettingDefinition(
+                    defaultValue = defaultValue,
+                    expression = expression,
+                    settablePerMesh = booleanValue(setting.opt("settable_per_mesh")) ?: false,
+                )
             }
             setting.optJSONObject("children")?.let { collectSettings(it, output) }
         }
+    }
+
+    private fun booleanValue(value: Any?): Boolean? = when (value) {
+        is Boolean -> value
+        is String -> when (value.trim().lowercase()) {
+            "true", "1", "yes", "on" -> true
+            "false", "0", "no", "off" -> false
+            else -> null
+        }
+        is Number -> value.toInt() != 0
+        else -> null
     }
 
     private fun fromJson(value: Any?): Any? = when (value) {
