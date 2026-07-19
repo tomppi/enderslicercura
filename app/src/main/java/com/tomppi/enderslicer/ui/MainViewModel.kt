@@ -8,10 +8,16 @@ import androidx.lifecycle.viewModelScope
 import com.tomppi.enderslicer.data.AppStateStore
 import com.tomppi.enderslicer.data.PrinterDefinitionLoader
 import com.tomppi.enderslicer.engine.CuraEngineRunner
+import com.tomppi.enderslicer.model.ModelPlacement
 import com.tomppi.enderslicer.model.SlicerSettings
 import com.tomppi.enderslicer.profile.CuraProfileParser
+import com.tomppi.enderslicer.profile.CuraProjectAudit
 import com.tomppi.enderslicer.profile.CuraProjectParser
+import com.tomppi.enderslicer.profile.CuraProjectScene
+import com.tomppi.enderslicer.profile.CuraProjectSceneParser
 import com.tomppi.enderslicer.profile.ImportedCuraConfig
+import com.tomppi.enderslicer.viewer.StlMesh
+import com.tomppi.enderslicer.viewer.StlMeshWriter
 import com.tomppi.enderslicer.viewer.StlParser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -29,6 +35,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val stagedFile: File,
         val kind: String,
         val displayName: String,
+        val scene: CuraProjectScene? = null,
+    )
+
+    private data class RestoredImport(
+        val config: ImportedCuraConfig?,
+        val settings: SlicerSettings,
+        val scene: CuraProjectScene?,
     )
 
     private val app = application
@@ -38,6 +51,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val initialStartGcode = readAsset("gcode/start.gcode")
     private val initialEndGcode = readAsset("gcode/end.gcode")
     private var importedSettingsBaseline: SlicerSettings? = null
+    private var sourceMesh: StlMesh? = null
+    private var importedScene: CuraProjectScene? = null
 
     private val _uiState = MutableStateFlow(
         MainUiState(
@@ -65,17 +80,36 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     mesh to modelFile
                 }
             }.onSuccess { (mesh, modelFile) ->
-                _uiState.update {
-                    it.copy(
-                        mesh = mesh,
+                sourceMesh = mesh
+                val automaticImportedPlacement = importedScene
+                    ?.takeIf { scene -> scene.affine != null && modelNamesMatch(scene.modelName, mesh.displayName) }
+                    ?.let { scene -> ModelPlacement.from3mf(mesh, requireNotNull(scene.affine), scene.dropToBuildPlate) }
+                val placement = automaticImportedPlacement
+                    ?: ModelPlacement.centeredOnBed(mesh, printer.widthMm, printer.depthMm)
+                val transformed = placement.transformed(mesh)
+                val mismatchWarning = importedScene
+                    ?.takeIf { it.affine != null && !modelNamesMatch(it.modelName, mesh.displayName) }
+                    ?.let { scene ->
+                        "Imported Cura transform is for ${scene.modelName ?: "another model"}; it was not applied automatically to ${mesh.displayName}"
+                    }
+                _uiState.update { current ->
+                    current.copy(
+                        mesh = transformed,
                         modelPath = modelFile.absolutePath,
+                        modelPlacement = placement,
+                        importedSceneTransformAvailable = importedScene?.affine != null,
+                        importedSceneModelName = importedScene?.modelName,
                         gcodePath = null,
                         layerPreview = null,
                         estimatedPrintSeconds = null,
                         sliceLogPath = null,
                         sliceDurationMilliseconds = null,
+                        warnings = (current.warnings.filterNot { it.startsWith("Imported Cura transform is for") } + listOfNotNull(mismatchWarning)).distinct(),
                         isBusy = false,
-                        statusMessage = "Loaded ${mesh.displayName}: ${mesh.triangleCount} triangles",
+                        statusMessage = buildString {
+                            append("Loaded ${mesh.displayName}: ${mesh.triangleCount} triangles")
+                            if (automaticImportedPlacement != null) append(" · imported Cura scene transform applied")
+                        },
                     )
                 }
             }.onFailure(::showFailure)
@@ -107,7 +141,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             busy("Importing Cura project…")
             runCatching {
                 withContext(Dispatchers.IO) {
-                    stageAndParseImport(uri, AppStateStore.KIND_PROJECT, sourceName) { file ->
+                    stageAndParseImport(
+                        uri = uri,
+                        kind = AppStateStore.KIND_PROJECT,
+                        sourceName = sourceName,
+                        parseScene = { file -> file.inputStream().use(CuraProjectSceneParser::parse) },
+                    ) { file ->
                         file.inputStream().use { input ->
                             CuraProjectParser.parse(input, sourceName, SlicerSettings())
                         }
@@ -160,10 +199,49 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun moveModel(centerXmm: Double, centerYmm: Double, baseZmm: Double) {
+        changePlacement("Model position changed") { placement, _ ->
+            placement.moved(centerXmm, centerYmm, baseZmm)
+        }
+    }
+
+    fun rotateModel(axis: ModelPlacement.Axis, degrees: Double) {
+        changePlacement("Model rotated ${degrees.toInt()}° around ${axis.name}") { placement, _ ->
+            placement.rotated(axis, degrees)
+        }
+    }
+
+    fun dropModelToBed() {
+        changePlacement("Model dropped to the build plate") { placement, _ -> placement.droppedToBed() }
+    }
+
+    fun layModelFlat() {
+        changePlacement("Model laid flat on its largest face") { placement, mesh -> placement.layFlat(mesh) }
+    }
+
+    fun resetModelTransform() {
+        changePlacement("Model transform reset and centered") { _, mesh ->
+            ModelPlacement.centeredOnBed(mesh, printer.widthMm, printer.depthMm)
+        }
+    }
+
+    fun applyImportedSceneTransform() {
+        val scene = importedScene
+        val affine = scene?.affine
+        if (scene == null || affine == null) {
+            showFailure(IllegalStateException("The imported Cura project has no object transform"))
+            return
+        }
+        changePlacement("Imported Cura scene transform applied") { _, mesh ->
+            ModelPlacement.from3mf(mesh, affine, scene.dropToBuildPlate)
+        }
+    }
+
     fun sliceModel() {
         val snapshot = _uiState.value
-        val modelPath = snapshot.modelPath
-        if (modelPath == null) {
+        val originalPath = snapshot.modelPath
+        val transformedMesh = snapshot.mesh
+        if (originalPath == null || transformedMesh == null) {
             showFailure(IllegalStateException("Import an STL before slicing"))
             return
         }
@@ -176,8 +254,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             busy("CuraEngine is slicing…")
             runCatching {
                 withContext(Dispatchers.IO) {
+                    val transformedFile = File(app.cacheDir, "model-placement/current-transformed.stl")
+                    StlMeshWriter.writeBinary(transformedMesh, transformedFile)
                     engine.slice(
-                        modelFile = File(modelPath),
+                        modelFile = transformedFile,
                         printer = snapshot.printer,
                         settings = snapshot.settings,
                         startGcode = snapshot.startGcode,
@@ -245,13 +325,42 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private fun changePlacement(
+        message: String,
+        transform: (ModelPlacement, StlMesh) -> ModelPlacement,
+    ) {
+        val original = sourceMesh
+        val current = _uiState.value.modelPlacement
+        if (original == null || current == null) {
+            showFailure(IllegalStateException("Import an STL before changing model placement"))
+            return
+        }
+        runCatching {
+            val changed = transform(current, original)
+            changed to changed.transformed(original)
+        }.onSuccess { (changed, transformed) ->
+            _uiState.update {
+                it.copy(
+                    mesh = transformed,
+                    modelPlacement = changed,
+                    gcodePath = null,
+                    layerPreview = null,
+                    estimatedPrintSeconds = null,
+                    sliceLogPath = null,
+                    sliceDurationMilliseconds = null,
+                    statusMessage = "$message; slice again to export G-code",
+                )
+            }
+        }.onFailure(::showFailure)
+    }
+
     private fun restorePersistedState() {
         viewModelScope.launch {
             val result = runCatching {
                 withContext(Dispatchers.IO) {
                     val saved = stateStore.savedImport()
                     if (saved == null) {
-                        null to stateStore.restoreSettings(SlicerSettings())
+                        RestoredImport(null, stateStore.restoreSettings(SlicerSettings()), null)
                     } else {
                         val config = saved.file.inputStream().use { input ->
                             when (saved.kind) {
@@ -260,29 +369,38 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 else -> error("Unknown persisted Cura import kind: ${saved.kind}")
                             }
                         }
-                        config to stateStore.restoreSettings(config.mappedSettings)
+                        val scene = if (saved.kind == AppStateStore.KIND_PROJECT) {
+                            saved.file.inputStream().use(CuraProjectSceneParser::parse)
+                        } else {
+                            null
+                        }
+                        RestoredImport(config, stateStore.restoreSettings(config.mappedSettings), scene)
                     }
                 }
             }
 
-            result.onSuccess { (config, settings) ->
-                if (config == null) {
+            result.onSuccess { restored ->
+                importedScene = restored.scene
+                if (restored.config == null) {
                     importedSettingsBaseline = null
                     _uiState.update {
                         it.copy(
-                            settings = settings,
-                            statusMessage = if (settings.overriddenSettingKeys.isEmpty()) {
+                            settings = restored.settings,
+                            importedSceneTransformAvailable = restored.scene?.affine != null,
+                            importedSceneModelName = restored.scene?.modelName,
+                            statusMessage = if (restored.settings.overriddenSettingKeys.isEmpty()) {
                                 it.statusMessage
                             } else {
-                                "Restored ${settings.overriddenSettingKeys.size} saved app setting overrides"
+                                "Restored ${restored.settings.overriddenSettingKeys.size} saved app setting overrides"
                             },
                         )
                     }
                 } else {
                     applyImportedConfig(
-                        config = config,
-                        settings = settings,
-                        statusMessage = "Restored ${config.name} and ${settings.overriddenSettingKeys.size} app overrides",
+                        config = restored.config,
+                        settings = restored.settings,
+                        scene = restored.scene,
+                        statusMessage = "Restored ${restored.config.name} and ${restored.settings.overriddenSettingKeys.size} app overrides",
                     )
                 }
             }.onFailure { error ->
@@ -297,6 +415,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         uri: Uri,
         kind: String,
         sourceName: String,
+        parseScene: ((File) -> CuraProjectScene?)? = null,
         parse: (File) -> ImportedCuraConfig,
     ): PendingImport {
         val staged = app.contentResolver.openInputStream(uri)?.use(stateStore::stageImport)
@@ -307,6 +426,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 stagedFile = staged,
                 kind = kind,
                 displayName = sourceName,
+                scene = parseScene?.invoke(staged),
             )
         } catch (error: Throwable) {
             staged.delete()
@@ -322,11 +442,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             showFailure(it)
             return
         }
+        importedScene = pending.scene
         val baseline = pending.config.mappedSettings.copy(overriddenSettingKeys = emptySet())
         stateStore.saveSettings(baseline)
         applyImportedConfig(
             config = pending.config,
             settings = baseline,
+            scene = pending.scene,
             statusMessage = null,
         )
     }
@@ -334,9 +456,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun applyImportedConfig(
         config: ImportedCuraConfig,
         settings: SlicerSettings,
+        scene: CuraProjectScene?,
         statusMessage: String?,
     ) {
         importedSettingsBaseline = config.mappedSettings.copy(overriddenSettingKeys = emptySet())
+        importedScene = scene
+        val original = sourceMesh
+        val autoPlacement = if (
+            original != null && scene?.affine != null && modelNamesMatch(scene.modelName, original.displayName)
+        ) {
+            ModelPlacement.from3mf(original, scene.affine, scene.dropToBuildPlate)
+        } else {
+            null
+        }
         _uiState.update { current ->
             val concreteCount = config.engineProfile?.concreteSettingCount ?: config.rawValues.size
             val definitionLabel = if (config.engineProfile?.usesProjectDefinitions == true) {
@@ -344,6 +476,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             } else {
                 ""
             }
+            val mismatchWarning = if (
+                original != null && scene?.affine != null && !modelNamesMatch(scene.modelName, original.displayName)
+            ) {
+                "Imported Cura transform is for ${scene.modelName ?: "another model"}; use Model position & rotation to apply it manually"
+            } else {
+                null
+            }
+            val auditWarnings = CuraProjectAudit.warnings(config.rawValues)
+            val warnings = (config.warnings + scene?.warnings.orEmpty() + auditWarnings + listOfNotNull(mismatchWarning)).distinct()
             current.copy(
                 settings = settings,
                 profileName = config.name,
@@ -354,15 +495,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 engineProfile = config.engineProfile,
                 startGcode = config.startGcode ?: current.startGcode,
                 endGcode = config.endGcode ?: current.endGcode,
+                mesh = if (autoPlacement != null && original != null) autoPlacement.transformed(original) else current.mesh,
+                modelPlacement = autoPlacement ?: current.modelPlacement,
+                importedSceneTransformAvailable = scene?.affine != null,
+                importedSceneModelName = scene?.modelName,
                 gcodePath = null,
                 layerPreview = null,
                 estimatedPrintSeconds = null,
                 sliceLogPath = null,
                 sliceDurationMilliseconds = null,
-                warnings = config.warnings,
+                warnings = warnings,
                 isBusy = false,
                 statusMessage = statusMessage
-                    ?: "Imported $concreteCount concrete Cura values$definitionLabel; imported values remain active until overridden",
+                    ?: buildString {
+                        append("Imported $concreteCount concrete Cura values$definitionLabel")
+                        if (autoPlacement != null) append(" and applied the matching scene transform")
+                        append("; imported values remain active until overridden")
+                    },
             )
         }
     }
@@ -379,6 +528,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (target.exists()) target.delete()
         check(temporary.renameTo(target)) { "Unable to store the selected STL locally" }
         return target
+    }
+
+    private fun modelNamesMatch(projectName: String?, stlName: String): Boolean {
+        if (projectName.isNullOrBlank()) return true
+        fun normalize(value: String): String = value
+            .substringAfterLast('/')
+            .substringAfterLast('\\')
+            .substringBeforeLast('.', value)
+            .lowercase()
+            .filter(Char::isLetterOrDigit)
+        return normalize(projectName) == normalize(stlName)
     }
 
     private fun busy(message: String) {
@@ -439,6 +599,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun configurationJson(state: MainUiState): JSONObject {
         val settings = state.settings
+        val placement = state.modelPlacement
         return JSONObject()
             .put("printer", state.printer.name)
             .put("profileName", state.profileName)
@@ -448,6 +609,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             .put("importedValues", state.importedRawSettingCount)
             .put("appOverrideKeys", settings.overriddenSettingKeys.sorted())
             .put("estimatedPrintSeconds", state.estimatedPrintSeconds)
+            .put("warnings", state.warnings)
+            .put(
+                "modelPlacement",
+                placement?.let {
+                    JSONObject()
+                        .put("source", it.source)
+                        .put("centerXmm", it.centerXmm)
+                        .put("centerYmm", it.centerYmm)
+                        .put("baseZmm", it.baseZmm)
+                        .put("linear", it.linear)
+                },
+            )
             .put(
                 "settings",
                 JSONObject()
