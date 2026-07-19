@@ -1,0 +1,84 @@
+package com.tomppi.enderslicer.profile
+
+object CuraProjectAudit {
+    private val exposedOrMachineKeys = setOf(
+        "machine_name", "machine_width", "machine_depth", "machine_height", "machine_shape",
+        "machine_center_is_zero", "machine_heated_bed", "machine_heated_build_volume",
+        "machine_gcode_flavor", "machine_nozzle_size", "material_diameter", "gantry_height",
+        "machine_start_gcode", "machine_end_gcode", "layer_height", "layer_height_0", "line_width",
+        "wall_line_count", "top_layers", "bottom_layers", "infill_sparse_density", "infill_pattern",
+        "speed_print", "speed_wall", "speed_wall_0", "speed_wall_x", "speed_infill",
+        "speed_topbottom", "speed_travel", "speed_layer_0", "material_print_temperature",
+        "material_print_temperature_layer_0", "material_bed_temperature", "material_flow",
+        "cool_fan_speed", "cool_fan_speed_0", "cool_fan_full_layer", "support_enable",
+        "support_type", "support_structure", "support_angle", "support_infill_rate", "support_pattern",
+        "support_interface_enable", "support_interface_density", "support_z_distance",
+        "support_xy_distance", "speed_support", "speed_support_interface", "retraction_amount",
+        "retraction_speed", "retraction_min_travel", "retract_at_layer_change", "retraction_combing",
+        "travel_avoid_other_parts", "travel_avoid_distance", "retraction_hop_enabled",
+        "retraction_hop", "machine_firmware_retract", "adhesion_type", "skirt_line_count",
+        "brim_width", "ironing_enabled", "ironing_flow", "speed_ironing",
+    )
+
+    private val highImpactHiddenKeys = linkedMapOf(
+        "coasting_enable" to "coasting",
+        "coasting_volume" to "coasting volume",
+        "slicing_tolerance" to "slicing tolerance",
+        "z_seam_type" to "Z-seam placement",
+        "z_seam_x" to "Z-seam X position",
+        "z_seam_y" to "Z-seam Y position",
+        "adaptive_layer_height_enabled" to "adaptive layers",
+        "adaptive_layer_height_variation" to "adaptive-layer variation",
+        "adaptive_layer_height_variation_step" to "adaptive-layer step",
+        "support_interface_height" to "support-interface thickness",
+        "support_roof_enable" to "support roof",
+        "support_bottom_enable" to "support floor",
+        "support_roof_density" to "support-roof density",
+        "support_bottom_density" to "support-floor density",
+        "support_tree_branch_diameter" to "tree-support branch diameter",
+        "support_tree_branch_angle" to "tree-support branch angle",
+        "support_tree_tip_diameter" to "tree-support tip diameter",
+        "wall_thickness" to "formula-derived wall thickness",
+        "top_bottom_thickness" to "formula-derived top/bottom thickness",
+        "hole_xy_offset" to "hole horizontal expansion",
+        "xy_offset" to "horizontal expansion",
+        "xy_offset_layer_0" to "initial-layer horizontal expansion",
+        "zig_zaggify_infill" to "connected zig-zag infill",
+        "infill_wipe_dist" to "infill wipe distance",
+        "bridge_settings_enabled" to "bridge settings",
+        "bridge_wall_speed" to "bridge wall speed",
+        "bridge_skin_speed" to "bridge skin speed",
+        "acceleration_enabled" to "acceleration control",
+        "jerk_enabled" to "jerk control",
+        "speed_slowdown_layers" to "initial-layer speed ramp",
+        "magic_spiralize" to "spiralize outer contour",
+        "meshfix_union_all" to "mesh union repair",
+        "meshfix_extensive_stitching" to "extensive mesh stitching",
+        "meshfix_keep_open_polygons" to "open-polygon handling",
+    )
+
+    fun warnings(rawValues: Map<String, String>): List<String> {
+        val active = highImpactHiddenKeys.mapNotNull { (key, label) ->
+            val value = rawValues[key]?.trim()?.takeIf(String::isNotBlank) ?: return@mapNotNull null
+            "$label ($key=$value)"
+        }
+        val unknownConcrete = rawValues.entries
+            .filter { (key, value) ->
+                key !in exposedOrMachineKeys &&
+                    key !in highImpactHiddenKeys &&
+                    value.isNotBlank() &&
+                    !value.trim().startsWith("=")
+            }
+            .map(Map.Entry<String, String>::key)
+            .sorted()
+
+        return buildList {
+            if (active.isNotEmpty()) {
+                add("Imported Cura behavior is active but not editable in EnderSlicer: ${active.joinToString(limit = 12, truncated = "…")}")
+            }
+            if (unknownConcrete.isNotEmpty()) {
+                add("${unknownConcrete.size} additional Cura values are passed through in the background but are not exposed in the app")
+            }
+        }
+    }
+}
