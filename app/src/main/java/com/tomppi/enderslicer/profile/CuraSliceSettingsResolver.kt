@@ -2,6 +2,9 @@ package com.tomppi.enderslicer.profile
 
 import com.tomppi.enderslicer.model.PrinterDefinition
 import com.tomppi.enderslicer.model.SlicerSettings
+import com.tomppi.enderslicer.model.resolveEndGcode
+import com.tomppi.enderslicer.model.resolveStartGcode
+import com.tomppi.enderslicer.model.withSettings
 
 internal object CuraSliceSettingsResolver {
     data class Result(
@@ -22,26 +25,30 @@ internal object CuraSliceSettingsResolver {
             "A complete Cura project with embedded machine and extruder definitions is required"
         }
 
+        val effectivePrinter = printer.withSettings(settings)
+        val effectiveStartGcode = settings.resolveStartGcode(startGcode)
+        val effectiveEndGcode = settings.resolveEndGcode(endGcode)
+
         val globalOverrides = linkedMapOf<String, String>().apply {
             putAll(profile.rawGlobalValues)
-            put("machine_name", printer.name)
-            put("machine_width", printer.widthMm.toString())
-            put("machine_depth", printer.depthMm.toString())
-            put("machine_height", printer.heightMm.toString())
-            put("machine_shape", printer.buildPlateShape)
-            put("machine_center_is_zero", printer.originAtCenter.toString())
-            put("machine_heated_bed", printer.heatedBed.toString())
-            put("machine_heated_build_volume", printer.heatedBuildVolume.toString())
-            put("machine_extruder_count", printer.extruders.toString())
-            put("machine_gcode_flavor", printer.gcodeFlavor)
-            put("machine_start_gcode", startGcode)
-            put("machine_end_gcode", endGcode)
-            put("gantry_height", printer.gantryHeightMm.toString())
-            put("machine_nozzle_size", printer.nozzleSizeMm.toString())
-            put("material_diameter", printer.filamentDiameterMm.toString())
+            put("machine_name", effectivePrinter.name)
+            put("machine_width", effectivePrinter.widthMm.toString())
+            put("machine_depth", effectivePrinter.depthMm.toString())
+            put("machine_height", effectivePrinter.heightMm.toString())
+            put("machine_shape", effectivePrinter.buildPlateShape)
+            put("machine_center_is_zero", effectivePrinter.originAtCenter.toString())
+            put("machine_heated_bed", effectivePrinter.heatedBed.toString())
+            put("machine_heated_build_volume", effectivePrinter.heatedBuildVolume.toString())
+            put("machine_extruder_count", effectivePrinter.extruders.toString())
+            put("machine_gcode_flavor", effectivePrinter.gcodeFlavor)
+            put("machine_start_gcode", effectiveStartGcode)
+            put("machine_end_gcode", effectiveEndGcode)
+            put("gantry_height", effectivePrinter.gantryHeightMm.toString())
+            put("machine_nozzle_size", effectivePrinter.nozzleSizeMm.toString())
+            put("material_diameter", effectivePrinter.filamentDiameterMm.toString())
             put(
                 "machine_head_with_fans_polygon",
-                "[[${printer.printheadXMinMm},${printer.printheadYMaxMm}],[${printer.printheadXMinMm},${printer.printheadYMinMm}],[${printer.printheadXMaxMm},${printer.printheadYMinMm}],[${printer.printheadXMaxMm},${printer.printheadYMaxMm}]]",
+                "[[${effectivePrinter.printheadXMinMm},${effectivePrinter.printheadYMaxMm}],[${effectivePrinter.printheadXMinMm},${effectivePrinter.printheadYMinMm}],[${effectivePrinter.printheadXMaxMm},${effectivePrinter.printheadYMinMm}],[${effectivePrinter.printheadXMaxMm},${effectivePrinter.printheadYMaxMm}]]",
             )
             applyExplicitSettings(settings)
         }
@@ -49,8 +56,8 @@ internal object CuraSliceSettingsResolver {
         val extruderOverrides = linkedMapOf<String, String>().apply {
             putAll(profile.rawExtruderValues)
             put("extruder_nr", "0")
-            put("machine_nozzle_size", printer.nozzleSizeMm.toString())
-            put("material_diameter", printer.filamentDiameterMm.toString())
+            put("machine_nozzle_size", effectivePrinter.nozzleSizeMm.toString())
+            put("material_diameter", effectivePrinter.filamentDiameterMm.toString())
             applyExplicitSettings(settings)
         }
 
@@ -190,6 +197,8 @@ internal object CuraSliceSettingsResolver {
         range(global, "machine_depth", 1.0, 2000.0)
         range(global, "machine_height", 1.0, 2000.0)
         range(global, "layer_height", 0.01, 5.0)
+        range(extruder, "machine_nozzle_size", 0.05, 5.0)
+        range(extruder, "material_diameter", 0.5, 5.0)
         range(extruder, "line_width", 0.01, 5.0)
         range(extruder, "wall_line_count", 0.0, 1000.0)
         range(extruder, "top_layers", 0.0, 1000000.0)
