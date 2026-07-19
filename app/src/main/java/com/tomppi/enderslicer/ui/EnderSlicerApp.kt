@@ -174,7 +174,7 @@ fun EnderSlicerApp(viewModel: MainViewModel = viewModel()) {
             ActionBar(
                 state = state,
                 onSlice = viewModel::sliceModel,
-                onExportGcode = { gcodeExportPicker.launch("print.gcode") },
+                onExportGcode = { gcodeExportPicker.launch(GcodeExportName.suggest()) },
             )
         },
     ) { padding ->
