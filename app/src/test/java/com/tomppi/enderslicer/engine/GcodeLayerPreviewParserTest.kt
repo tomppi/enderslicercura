@@ -64,4 +64,38 @@ class GcodeLayerPreviewParserTest {
         )
         assertTrue(preview.layers.any { it.z == 0.4f })
     }
+
+    @Test
+    fun cappedPreviewSamplesAllLayersInsteadOfDroppingTheTopOfThePrint() {
+        val file = kotlin.io.path.createTempFile("enderslicer-capped-layer-preview", ".gcode")
+            .toFile()
+            .apply {
+                writeText(
+                    buildString {
+                        appendLine("G90")
+                        appendLine("M82")
+                        appendLine("G92 E0")
+                        var extrusion = 0
+                        repeat(3) { layer ->
+                            appendLine(";LAYER:$layer")
+                            appendLine(";TYPE:WALL-OUTER")
+                            appendLine("G1 Z${(layer + 1) * 0.2} F3000")
+                            repeat(4) { segment ->
+                                extrusion++
+                                val x = layer * 10 + segment + 1
+                                appendLine("G1 X$x Y${layer + 1} E$extrusion F1200")
+                            }
+                        }
+                    },
+                )
+            }
+
+        val preview = GcodeLayerPreviewParser.parse(file, maxSegments = 5)
+
+        assertTrue(preview.truncated)
+        assertEquals(5, preview.totalSegmentCount)
+        assertEquals(listOf(0, 1, 2), preview.layers.map { it.number })
+        assertEquals(0.6f, preview.layers.last().z, 0.0001f)
+        assertTrue(preview.layers.all { it.segmentCount > 0 })
+    }
 }
