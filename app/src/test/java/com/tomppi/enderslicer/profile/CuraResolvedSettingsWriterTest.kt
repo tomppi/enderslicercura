@@ -1,6 +1,7 @@
 package com.tomppi.enderslicer.profile
 
 import org.json.JSONObject
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -12,11 +13,12 @@ import java.nio.file.Files
 
 class CuraResolvedSettingsWriterTest {
     @Test
-    fun translatesStagedMeshAndCopiesMeshSupportIntoExtruderScope() {
+    fun keepsStagedMeshBytesAndCopiesMeshSupportIntoExtruderScope() {
         val directory = Files.createTempDirectory("enderslicer-resolved").toFile()
         try {
             val modelFile = File(directory, "current.stl")
-            writeTriangle(modelFile, 100f, 100f, 1f)
+            writeTriangle(modelFile, 100.123456f, 100.654321f, 1f)
+            val originalBytes = modelFile.readBytes()
             val destination = File(directory, "resolved-settings.json")
             val resolved = CuraSliceSettingsResolver.Result(
                 globalValues = mapOf(
@@ -58,18 +60,24 @@ class CuraResolvedSettingsWriterTest {
             assertTrue(extruder.getBoolean("support_roof_enable"))
             assertEquals("0.2", extruder.getString("support_z_distance"))
             assertFalse(extruder.getBoolean("center_object"))
-            assertEquals(0.0, extruder.getDouble("mesh_position_x"), 1e-9)
-            assertEquals(0.0, extruder.getDouble("mesh_position_y"), 1e-9)
+            assertEquals(-115.0, extruder.getDouble("mesh_position_x"), 1e-9)
+            assertEquals(-115.0, extruder.getDouble("mesh_position_y"), 1e-9)
 
             val model = root.getJSONObject("current.stl")
             assertEquals(0, model.getInt("extruder_nr"))
             assertTrue(model.getBoolean("support_interface_enable"))
             assertTrue(model.getBoolean("support_roof_enable"))
-            assertEquals(0.0, model.getDouble("mesh_position_x"), 1e-9)
+            assertEquals(-115.0, model.getDouble("mesh_position_x"), 1e-9)
+            assertEquals(-115.0, model.getDouble("mesh_position_y"), 1e-9)
 
+            assertArrayEquals(
+                "Writing resolved settings must not rewrite or re-round STL coordinates",
+                originalBytes,
+                modelFile.readBytes(),
+            )
             val firstVertex = firstVertex(modelFile)
-            assertEquals(-15.0, firstVertex[0].toDouble(), 1e-6)
-            assertEquals(-15.0, firstVertex[1].toDouble(), 1e-6)
+            assertEquals(100.123456, firstVertex[0].toDouble(), 1e-5)
+            assertEquals(100.654321, firstVertex[1].toDouble(), 1e-5)
             assertEquals(1.0, firstVertex[2].toDouble(), 1e-6)
         } finally {
             directory.deleteRecursively()
@@ -77,11 +85,12 @@ class CuraResolvedSettingsWriterTest {
     }
 
     @Test
-    fun keepsStagedMeshCoordinatesForCenterOriginMachines() {
+    fun keepsZeroOffsetsAndMeshBytesForCenterOriginMachines() {
         val directory = Files.createTempDirectory("enderslicer-resolved-center").toFile()
         try {
             val modelFile = File(directory, "current.stl")
             writeTriangle(modelFile, 10f, 20f, 1f)
+            val originalBytes = modelFile.readBytes()
             val destination = File(directory, "resolved-settings.json")
             CuraResolvedSettingsWriter.write(
                 destination = destination,
@@ -100,6 +109,8 @@ class CuraResolvedSettingsWriterTest {
             )
             val root = JSONObject(destination.readText())
             assertEquals(0.0, root.getJSONObject("extruder.0").getDouble("mesh_position_x"), 1e-9)
+            assertEquals(0.0, root.getJSONObject("extruder.0").getDouble("mesh_position_y"), 1e-9)
+            assertArrayEquals(originalBytes, modelFile.readBytes())
             assertEquals(10.0, firstVertex(modelFile)[0].toDouble(), 1e-6)
             assertEquals(20.0, firstVertex(modelFile)[1].toDouble(), 1e-6)
         } finally {
