@@ -12,31 +12,28 @@ internal object CuraResolvedSettingsWriter {
         require(modelFileName.endsWith(".stl", ignoreCase = true)) {
             "Resolved Cura model must be an STL file"
         }
-
         val modelDirectory = destination.parentFile
             ?: error("Resolved settings destination has no parent directory")
         val modelFile = File(modelDirectory, modelFileName)
-        val meshPositionZ = StlModelPlacement.buildPlateOffsetMm(modelFile)
+        require(modelFile.isFile && modelFile.length() > 0L) {
+            "Resolved Cura STL is missing or empty: ${modelFile.absolutePath}"
+        }
 
-        // CuraEngine 5.11 beta loads the STL with extruder.0 as the mesh's
-        // settings parent. MeshGroup::finalize() reads center_object and the
-        // mesh-position values from that mesh settings stack, not from the
-        // per-model JSON section. Put the placement settings in both scopes:
-        // extruder.0 is effective for this single-extruder app, while the model
-        // section remains correct metadata for CuraEngine's resolved format.
-        // The STL can use an arbitrary coordinate origin, so move its actual
-        // minimum Z onto the build plate instead of assuming its minimum is 0.
+        // EnderSlicer now writes a transformed STL whose vertices are already in
+        // final build-plate coordinates. Do not ask CuraEngine to center or drop
+        // it again: doing so discards imported 3MF translations, floating-model
+        // Z offsets, manual movement and lay-flat results.
         val extruderValues = JSONObject(resolved.extruderValues)
-            .put("center_object", true)
+            .put("center_object", false)
             .put("mesh_position_x", 0)
             .put("mesh_position_y", 0)
-            .put("mesh_position_z", meshPositionZ)
+            .put("mesh_position_z", 0)
         val modelValues = JSONObject()
             .put("extruder_nr", 0)
-            .put("center_object", true)
+            .put("center_object", false)
             .put("mesh_position_x", 0)
             .put("mesh_position_y", 0)
-            .put("mesh_position_z", meshPositionZ)
+            .put("mesh_position_z", 0)
 
         val root = JSONObject()
             .put("global", JSONObject(resolved.globalValues))
