@@ -5,7 +5,7 @@ import org.w3c.dom.Element
 import java.io.InputStream
 import javax.xml.parsers.DocumentBuilderFactory
 
-data class CuraProjectScene(
+ data class CuraProjectScene(
     val modelName: String?,
     val affine: ModelPlacement.Affine3mf?,
     val dropToBuildPlate: Boolean,
@@ -58,8 +58,9 @@ object CuraProjectSceneParser {
         val affine = if (transformText.isBlank()) {
             null
         } else {
-            runCatching { parseTransform(transformText) }
-                .onFailure { warnings += "Cura object transform could not be parsed: ${it.message}" }
+            runCatching {
+                parseTransform(transformText).withEmbeddedTargetBounds(objectElement)
+            }.onFailure { warnings += "Cura object transform could not be parsed: ${it.message}" }
                 .getOrNull()
         }
         val drop = metadata["cura:drop_to_buildplate"]?.equals("true", ignoreCase = true) == true
@@ -90,10 +91,8 @@ object CuraProjectSceneParser {
         require(values.size == 12) { "expected 12 values but found ${values.size}" }
         require(values.all(Double::isFinite)) { "transform contains a non-finite value" }
 
-        // 3MF stores a row-vector affine matrix:
-        // [x y z 1] * [m00 m01 m02 0; m10 m11 m12 0;
-        //              m20 m21 m22 0; m30 m31 m32 1].
-        // Convert its linear part to the column-vector convention used by the app.
+        // 3MF stores a row-vector affine matrix. Convert its linear part to the
+        // column-vector convention used by ModelPlacement.
         return ModelPlacement.Affine3mf(
             linear = listOf(
                 values[0], values[3], values[6],
@@ -103,6 +102,42 @@ object CuraProjectSceneParser {
             translationXmm = values[9],
             translationYmm = values[10],
             translationZmm = values[11],
+        )
+    }
+
+    private fun ModelPlacement.Affine3mf.withEmbeddedTargetBounds(
+        objectElement: Element?,
+    ): ModelPlacement.Affine3mf {
+        val vertices = objectElement?.getElementsByTagNameNS("*", "vertex") ?: return this
+        if (vertices.length == 0) return this
+
+        var minX = Double.POSITIVE_INFINITY
+        var minY = Double.POSITIVE_INFINITY
+        var minZ = Double.POSITIVE_INFINITY
+        var maxX = Double.NEGATIVE_INFINITY
+        var maxY = Double.NEGATIVE_INFINITY
+
+        repeat(vertices.length) { index ->
+            val vertex = vertices.item(index) as? Element ?: return@repeat
+            val x = vertex.getAttribute("x").toDoubleOrNull() ?: error("invalid embedded vertex X")
+            val y = vertex.getAttribute("y").toDoubleOrNull() ?: error("invalid embedded vertex Y")
+            val z = vertex.getAttribute("z").toDoubleOrNull() ?: error("invalid embedded vertex Z")
+            require(x.isFinite() && y.isFinite() && z.isFinite()) { "embedded mesh contains a non-finite vertex" }
+
+            val transformedX = linear[0] * x + linear[1] * y + linear[2] * z + translationXmm
+            val transformedY = linear[3] * x + linear[4] * y + linear[5] * z + translationYmm
+            val transformedZ = linear[6] * x + linear[7] * y + linear[8] * z + translationZmm
+            minX = minOf(minX, transformedX)
+            maxX = maxOf(maxX, transformedX)
+            minY = minOf(minY, transformedY)
+            maxY = maxOf(maxY, transformedY)
+            minZ = minOf(minZ, transformedZ)
+        }
+
+        return copy(
+            targetCenterXmm = (minX + maxX) / 2.0,
+            targetCenterYmm = (minY + maxY) / 2.0,
+            targetBaseZmm = minZ,
         )
     }
 
