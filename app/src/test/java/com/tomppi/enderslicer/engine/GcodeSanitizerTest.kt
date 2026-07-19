@@ -38,7 +38,7 @@ class GcodeSanitizerTest {
     }
 
     @Test
-    fun repairsBoundsFromModelButFilamentFromWholePrintAndStampsBuild() {
+    fun repairsBoundsFromModelButFilamentFromWholePrintAndStampsFallbackBuild() {
         val file = temporaryGcode(
             """
             ;FLAVOR:Marlin
@@ -89,8 +89,9 @@ class GcodeSanitizerTest {
         assertEquals(120.0, summary.maxX!!, 0.0)
         assertEquals(130.0, summary.maxY!!, 0.0)
         assertEquals(0.4, summary.maxZ!!, 0.0)
-        assertTrue(output.startsWith(";FLAVOR:Marlin\r\n;ENDERSLICER_VERSION:0.5.6-dev\r\n"))
+        assertTrue(output.startsWith(";FLAVOR:Marlin\r\n;ENDERSLICER_VERSION:0.5.7-dev\r\n"))
         assertTrue(output.contains(";ENDERSLICER_COORDINATE_TRANSPORT:staged-stl-and-fallback-offset"))
+        assertTrue(output.contains(";ENDERSLICER_SETTINGS_TRANSPORT:fallback-command"))
         assertTrue(output.contains(";TIME:43"))
         assertTrue(output.contains(";Filament used: 0.0035m"))
         assertTrue(output.contains(";MINX:100"))
@@ -99,6 +100,29 @@ class GcodeSanitizerTest {
 
         GcodeSanitizer.validateAndRepair(file)
         assertEquals(1, file.readText().lineSequence().count { it.startsWith(";ENDERSLICER_VERSION:") })
+        assertEquals(1, file.readText().lineSequence().count { it.startsWith(";ENDERSLICER_SETTINGS_TRANSPORT:") })
+    }
+
+    @Test
+    fun detectsResolvedJsonTransportFromSidecar() {
+        val file = temporaryGcode(
+            """
+            ;FLAVOR:Marlin
+            ;TIME:1
+            ;Filament used: 0m
+            ;LAYER_COUNT:1
+            M104 S210
+            ;LAYER:0
+            ;MESH:model.stl
+            G1 X1 Y2 Z0.2 E1
+            ;TIME_ELAPSED:1
+            """.trimIndent(),
+        )
+        File(file.parentFile, "resolved-settings.json").writeText("{}")
+
+        GcodeSanitizer.validateAndRepair(file)
+
+        assertTrue(file.readText().contains(";ENDERSLICER_SETTINGS_TRANSPORT:resolved-json"))
     }
 
     @Test
