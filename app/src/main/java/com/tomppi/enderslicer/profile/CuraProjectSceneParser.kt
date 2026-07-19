@@ -18,8 +18,6 @@ import javax.xml.parsers.DocumentBuilderFactory
 
 object CuraProjectSceneParser {
     private const val MODEL_PATH = "3D/3dmodel.model"
-    private const val ACCESS_EXTERNAL_DTD = "http://javax.xml.XMLConstants/property/accessExternalDTD"
-    private const val ACCESS_EXTERNAL_SCHEMA = "http://javax.xml.XMLConstants/property/accessExternalSchema"
 
     fun parse(input: InputStream): CuraProjectScene? {
         val entries = CuraArchive.readTextEntries(input, accept = { path ->
@@ -91,8 +89,6 @@ object CuraProjectSceneParser {
         require(values.size == 12) { "expected 12 values but found ${values.size}" }
         require(values.all(Double::isFinite)) { "transform contains a non-finite value" }
 
-        // 3MF stores a row-vector affine matrix. Convert its linear part to the
-        // column-vector convention used by ModelPlacement.
         return ModelPlacement.Affine3mf(
             linear = listOf(
                 values[0], values[3], values[6],
@@ -156,12 +152,7 @@ object CuraProjectSceneParser {
 
     private fun secureFactory(): DocumentBuilderFactory = DocumentBuilderFactory.newInstance().apply {
         isNamespaceAware = true
-        isXIncludeAware = false
-        setExpandEntityReferences(false)
-        runCatching { setFeature("http://apache.org/xml/features/disallow-doctype-decl", true) }
-        runCatching { setFeature("http://xml.org/sax/features/external-general-entities", false) }
-        runCatching { setFeature("http://xml.org/sax/features/external-parameter-entities", false) }
-        runCatching { setAttribute(ACCESS_EXTERNAL_DTD, "") }
-        runCatching { setAttribute(ACCESS_EXTERNAL_SCHEMA, "") }
+        runCatching { isXIncludeAware = false }
+        runCatching { setExpandEntityReferences(false) }
     }
 }
