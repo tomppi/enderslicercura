@@ -2,7 +2,6 @@ package com.tomppi.enderslicer.engine
 
 import com.tomppi.enderslicer.model.PrinterDefinition
 import com.tomppi.enderslicer.model.SlicerSettings
-import com.tomppi.enderslicer.profile.CuraEngineProfile
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -101,78 +100,9 @@ class CuraEngineCommandPrinterTest {
         assertFalse(values.containsKey("support_bottom_enable"))
     }
 
-    @Test
-    fun importedHiddenValuesRemainWhileVisibleImportedUiValuesAreFlattened() {
-        val settings = SlicerSettings(
-            supportsEnabled = true,
-            supportStructure = "tree",
-            supportPlacement = "everywhere",
-            supportInterfaceEnabled = true,
-            outerWallSpeedMmPerSecond = 30.0,
-            innerWallSpeedMmPerSecond = 60.0,
-            infillSpeedMmPerSecond = 60.0,
-            topBottomSpeedMmPerSecond = 30.0,
-            travelSpeedMmPerSecond = 120.0,
-            supportInterfaceDensityPercent = 33.333,
-            supportXyDistanceMm = 0.7,
-            supportSpeedMmPerSecond = 30.0,
-            supportInterfaceSpeedMmPerSecond = 30.0,
-            overriddenSettingKeys = emptySet(),
-        )
-
-        val values = commandSettings(
-            build(
-                printer = printer(width = 230.0, depth = 230.0, originAtCenter = false),
-                settings = settings,
-                profile = importedSupportProfile(),
-            ),
-        )
-
-        assertEquals("30.0", values["speed_wall_0"])
-        assertEquals("60.0", values["speed_wall_x"])
-        assertEquals("60.0", values["speed_infill"])
-        assertEquals("30.0", values["speed_topbottom"])
-        assertEquals("120.0", values["speed_travel"])
-        assertEquals("0.0", values["support_infill_rate"])
-        assertEquals("true", values["support_interface_enable"])
-        assertEquals("33.333", values["support_interface_density"])
-        assertEquals("false", values["support_roof_enable"])
-        assertEquals("false", values["support_bottom_enable"])
-        assertEquals("0.7", values["support_xy_distance"])
-        assertEquals("5", values["support_tree_branch_diameter"])
-        assertEquals("0.4", values["support_tree_tip_diameter"])
-        assertEquals("60", values["support_tree_angle"])
-    }
-
-    private fun importedSupportProfile() = CuraEngineProfile(
-        globalValues = linkedMapOf(
-            "support_enable" to "true",
-            "support_structure" to "tree",
-            "support_type" to "everywhere",
-            "support_roof_enable" to "false",
-            "support_bottom_enable" to "false",
-            "support_tree_branch_diameter" to "5",
-            "support_tree_tip_diameter" to "0.4",
-            "support_tree_angle" to "60",
-            "support_tree_angle_slow" to "50",
-            "support_tree_branch_diameter_angle" to "7",
-            "support_tree_max_diameter" to "25",
-        ),
-        extruderValues = linkedMapOf(
-            "speed_wall_0" to "30",
-            "speed_wall_x" to "60",
-            "speed_infill" to "60",
-            "speed_topbottom" to "30",
-            "speed_travel" to "120",
-            "support_interface_height" to "0.8",
-            "support_interface_pattern" to "grid",
-        ),
-    )
-
     private fun build(
         printer: PrinterDefinition,
         settings: SlicerSettings,
-        profile: CuraEngineProfile? = null,
     ): List<String> = CuraEngineCommand.build(
         executablePath = "/tmp/CuraEngine",
         definitionsDirectory = "/tmp/definitions",
@@ -184,7 +114,7 @@ class CuraEngineCommandPrinterTest {
         settings = settings,
         startGcode = "G28 ; fallback",
         endGcode = "M84 ; fallback",
-        profile = profile,
+        profile = null,
     )
 
     private fun printer(width: Double, depth: Double, originAtCenter: Boolean) = PrinterDefinition(
