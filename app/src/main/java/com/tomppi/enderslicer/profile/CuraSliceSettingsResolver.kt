@@ -23,16 +23,17 @@ internal object CuraSliceSettingsResolver {
         endGcode: String,
     ): Result {
         require(profile.usesProjectDefinitions) {
-            "A complete Cura project with embedded machine and extruder definitions is required"
+            "A complete Cura definition stack is required for dependency resolution"
         }
 
         val effectivePrinter = printer.withSettings(settings)
         val effectiveStartGcode = settings.resolveStartGcode(startGcode)
         val effectiveEndGcode = settings.resolveEndGcode(endGcode)
-        val visibleValues = CuraUiSettingsOverlay.values(settings)
+        val explicitDelta = CuraSettingDelta.explicitValues(settings)
+        val canonical = CuraSettingScopeResolver.canonicalize(profile, explicitDelta)
 
         val globalOverrides = linkedMapOf<String, String>().apply {
-            putAll(profile.rawGlobalValues)
+            putAll(canonical.global)
             put("machine_name", effectivePrinter.name)
             put("machine_width", effectivePrinter.widthMm.toString())
             put("machine_depth", effectivePrinter.depthMm.toString())
@@ -52,18 +53,16 @@ internal object CuraSliceSettingsResolver {
                 "machine_head_with_fans_polygon",
                 "[[${effectivePrinter.printheadXMinMm},${effectivePrinter.printheadYMaxMm}],[${effectivePrinter.printheadXMinMm},${effectivePrinter.printheadYMinMm}],[${effectivePrinter.printheadXMaxMm},${effectivePrinter.printheadYMinMm}],[${effectivePrinter.printheadXMaxMm},${effectivePrinter.printheadYMaxMm}]]",
             )
-            putAll(visibleValues)
         }
 
         val extruderOverrides = linkedMapOf<String, String>().apply {
-            putAll(profile.rawExtruderValues)
+            putAll(canonical.extruder)
             put("extruder_nr", "0")
             put("machine_nozzle_size", effectivePrinter.nozzleSizeMm.toString())
             put("material_diameter", effectivePrinter.filamentDiameterMm.toString())
-            putAll(visibleValues)
         }
 
-        val resolved = CuraDefinitionResolver.resolve(
+        val rawResolved = CuraDefinitionResolver.resolve(
             definitionFiles = profile.definitionFiles,
             machineDefinitionFileName = requireNotNull(profile.machineDefinitionFileName),
             extruderDefinitionFileName = requireNotNull(profile.extruderDefinitionFileName),
@@ -71,22 +70,31 @@ internal object CuraSliceSettingsResolver {
             extruderOverrides = extruderOverrides,
         )
 
-        // This assertion is intentionally part of production resolution. A
-        // future mapping or precedence change must fail before CuraEngine runs
-        // if any setting shown in the UI differs from the final engine snapshot.
-        CuraUiSettingsOverlay.requireResolvedMatch(
+        // Cura stores zero as a frontend sentinel for some material profiles.
+        // Normalize it in the temporary slice snapshot, never in the persisted
+        // baseline, so future dependency recalculation still starts from the
+        // original imported project.
+        val resolvedExtruder = linkedMapOf<String, String>().apply {
+            putAll(rawResolved.extruderValues)
+            val coolMinimum = get("cool_min_temperature")?.toDoubleOrNull()
+            if (coolMinimum != null && coolMinimum <= 0.0) {
+                put("cool_min_temperature", requireNotNull(get("material_print_temperature")))
+            }
+        }
+
+        CuraSettingDelta.requireResolvedMatch(
             settings = settings,
-            globalValues = resolved.globalValues,
-            extruderValues = resolved.extruderValues,
+            globalValues = rawResolved.globalValues,
+            extruderValues = resolvedExtruder,
         )
-        validateResolvedSettings(resolved.globalValues, resolved.extruderValues)
+        validateResolvedSettings(rawResolved.globalValues, resolvedExtruder)
 
         return Result(
-            globalValues = resolved.globalValues,
-            extruderValues = resolved.extruderValues,
-            modelValues = resolved.modelValues,
-            expressionCount = resolved.expressionCount,
-            passes = resolved.passes,
+            globalValues = rawResolved.globalValues,
+            extruderValues = resolvedExtruder,
+            modelValues = rawResolved.modelValues,
+            expressionCount = rawResolved.expressionCount,
+            passes = rawResolved.passes,
         )
     }
 
