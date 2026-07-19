@@ -10,6 +10,7 @@ internal object CuraSliceSettingsResolver {
     data class Result(
         val globalValues: Map<String, String>,
         val extruderValues: Map<String, String>,
+        val modelValues: Map<String, String>,
         val expressionCount: Int,
         val passes: Int,
     )
@@ -73,6 +74,7 @@ internal object CuraSliceSettingsResolver {
         return Result(
             globalValues = resolved.globalValues,
             extruderValues = resolved.extruderValues,
+            modelValues = resolved.modelValues,
             expressionCount = resolved.expressionCount,
             passes = resolved.passes,
         )
