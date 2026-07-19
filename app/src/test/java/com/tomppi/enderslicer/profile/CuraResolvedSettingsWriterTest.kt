@@ -3,13 +3,14 @@ package com.tomppi.enderslicer.profile
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 import java.nio.file.Files
 
 class CuraResolvedSettingsWriterTest {
     @Test
-    fun preservesFinalBedCoordinatesInBothModelScopes() {
+    fun preservesFinalBedCoordinatesAndWritesMeshSupportSettings() {
         val directory = Files.createTempDirectory("enderslicer-resolved").toFile()
         try {
             val destination = File(directory, "resolved-settings.json")
@@ -28,7 +29,18 @@ class CuraResolvedSettingsWriterTest {
             )
             val resolved = CuraSliceSettingsResolver.Result(
                 globalValues = mapOf("machine_width" to "230"),
-                extruderValues = mapOf("material_print_temperature" to "210"),
+                extruderValues = mapOf(
+                    "material_print_temperature" to "210",
+                    "support_infill_rate" to "0",
+                    "support_interface_density" to "33.333",
+                ),
+                modelValues = mapOf(
+                    "support_enable" to "true",
+                    "support_interface_enable" to "true",
+                    "support_roof_enable" to "true",
+                    "support_z_distance" to "0.2",
+                    "support_xy_distance" to "0.8",
+                ),
                 expressionCount = 400,
                 passes = 5,
             )
@@ -44,6 +56,8 @@ class CuraResolvedSettingsWriterTest {
 
             val extruder = root.getJSONObject("extruder.0")
             assertEquals("210", extruder.getString("material_print_temperature"))
+            assertEquals("0", extruder.getString("support_infill_rate"))
+            assertEquals("33.333", extruder.getString("support_interface_density"))
             assertFalse(extruder.getBoolean("center_object"))
             assertEquals(0, extruder.getInt("mesh_position_x"))
             assertEquals(0, extruder.getInt("mesh_position_y"))
@@ -51,6 +65,11 @@ class CuraResolvedSettingsWriterTest {
 
             val model = root.getJSONObject("current.stl")
             assertEquals(0, model.getInt("extruder_nr"))
+            assertTrue(model.getBoolean("support_enable"))
+            assertTrue(model.getBoolean("support_interface_enable"))
+            assertTrue(model.getBoolean("support_roof_enable"))
+            assertEquals("0.2", model.getString("support_z_distance"))
+            assertEquals("0.8", model.getString("support_xy_distance"))
             assertFalse(model.getBoolean("center_object"))
             assertEquals(0, model.getInt("mesh_position_x"))
             assertEquals(0, model.getInt("mesh_position_y"))
