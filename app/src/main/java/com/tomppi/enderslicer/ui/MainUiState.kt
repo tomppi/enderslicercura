@@ -1,6 +1,7 @@
 package com.tomppi.enderslicer.ui
 
 import com.tomppi.enderslicer.engine.GcodeLayerPreview
+import com.tomppi.enderslicer.model.ModelPlacement
 import com.tomppi.enderslicer.model.PrinterDefinition
 import com.tomppi.enderslicer.model.SlicerSettings
 import com.tomppi.enderslicer.profile.CuraEngineProfile
@@ -11,6 +12,9 @@ data class MainUiState(
     val settings: SlicerSettings = SlicerSettings(),
     val mesh: StlMesh? = null,
     val modelPath: String? = null,
+    val modelPlacement: ModelPlacement? = null,
+    val importedSceneTransformAvailable: Boolean = false,
+    val importedSceneModelName: String? = null,
     val gcodePath: String? = null,
     val layerPreview: GcodeLayerPreview? = null,
     val estimatedPrintSeconds: Int? = null,
