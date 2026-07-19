@@ -45,15 +45,23 @@ class CuraResolvedSettingsWriterTest {
             assertEquals("0.2", extruder.getString("support_z_distance"))
             assertFalse(extruder.getBoolean("center_object"))
             assertEquals("[[1.0,0.0,0.0],[0.0,1.0,0.0],[0.0,0.0,1.0]]", extruder.getString("mesh_rotation_matrix"))
+            assertEquals(0.0, extruder.getDouble("enderslicer_mesh_translation_x"), 1e-12)
+            assertEquals(0.0, extruder.getDouble("enderslicer_mesh_translation_y"), 1e-12)
+            assertEquals(0.0, extruder.getDouble("enderslicer_mesh_translation_z"), 1e-12)
             assertEquals(-115.0, extruder.getDouble("mesh_position_x"), 1e-9)
             assertEquals(-115.0, extruder.getDouble("mesh_position_y"), 1e-9)
+            assertEquals(0.0, extruder.getDouble("mesh_position_z"), 1e-9)
 
             val model = root.getJSONObject("current.stl")
             assertEquals(0, model.getInt("extruder_nr"))
             assertTrue(model.getBoolean("support_interface_enable"))
             assertTrue(model.getBoolean("support_roof_enable"))
+            assertEquals(0.0, model.getDouble("enderslicer_mesh_translation_x"), 1e-12)
+            assertEquals(0.0, model.getDouble("enderslicer_mesh_translation_y"), 1e-12)
+            assertEquals(0.0, model.getDouble("enderslicer_mesh_translation_z"), 1e-12)
             assertEquals(-115.0, model.getDouble("mesh_position_x"), 1e-9)
             assertEquals(-115.0, model.getDouble("mesh_position_y"), 1e-9)
+            assertEquals(0.0, model.getDouble("mesh_position_z"), 1e-9)
 
             assertArrayEquals(
                 "Writing resolved settings must not rewrite or re-round STL coordinates",
@@ -70,7 +78,7 @@ class CuraResolvedSettingsWriterTest {
     }
 
     @Test
-    fun replacesTemporaryDisplayedMeshWithOriginalAndWritesCompleteAffine() {
+    fun replacesTemporaryDisplayedMeshAndWritesTranslationBeforeMicronRounding() {
         val cacheRoot = Files.createTempDirectory("enderslicer-direct-affine").toFile()
         try {
             val placementDirectory = File(cacheRoot, "model-placement").apply { mkdirs() }
@@ -117,11 +125,20 @@ class CuraResolvedSettingsWriterTest {
             assertEquals(20.0, firstVertex[1].toDouble(), 1e-6)
             assertEquals(30.0, firstVertex[2].toDouble(), 1e-6)
 
-            val model = JSONObject(destination.readText()).getJSONObject("current.stl")
+            val root = JSONObject(destination.readText())
+            val model = root.getJSONObject("current.stl")
             assertEquals("[[1.0,0.0,0.0],[0.0,0.0,-1.0],[0.0,1.0,0.0]]", model.getString("mesh_rotation_matrix"))
-            assertEquals(0.25, model.getDouble("mesh_position_x"), 1e-9)
-            assertEquals(-0.25, model.getDouble("mesh_position_y"), 1e-9)
-            assertEquals(22.462965929567872, model.getDouble("mesh_position_z"), 1e-12)
+            assertEquals(115.25, model.getDouble("enderslicer_mesh_translation_x"), 1e-12)
+            assertEquals(114.75, model.getDouble("enderslicer_mesh_translation_y"), 1e-12)
+            assertEquals(22.462965929567872, model.getDouble("enderslicer_mesh_translation_z"), 1e-12)
+            assertEquals(-115.0, model.getDouble("mesh_position_x"), 1e-9)
+            assertEquals(-115.0, model.getDouble("mesh_position_y"), 1e-9)
+            assertEquals(0.0, model.getDouble("mesh_position_z"), 1e-12)
+
+            val extruder = root.getJSONObject("extruder.0")
+            assertEquals(115.25, extruder.getDouble("enderslicer_mesh_translation_x"), 1e-12)
+            assertEquals(114.75, extruder.getDouble("enderslicer_mesh_translation_y"), 1e-12)
+            assertEquals(22.462965929567872, extruder.getDouble("enderslicer_mesh_translation_z"), 1e-12)
         } finally {
             cacheRoot.deleteRecursively()
         }
@@ -141,8 +158,13 @@ class CuraResolvedSettingsWriterTest {
                 resolved = resolvedSettings(centerIsZero = true),
             )
             val root = JSONObject(destination.readText())
-            assertEquals(0.0, root.getJSONObject("extruder.0").getDouble("mesh_position_x"), 1e-9)
-            assertEquals(0.0, root.getJSONObject("extruder.0").getDouble("mesh_position_y"), 1e-9)
+            val extruder = root.getJSONObject("extruder.0")
+            assertEquals(0.0, extruder.getDouble("mesh_position_x"), 1e-9)
+            assertEquals(0.0, extruder.getDouble("mesh_position_y"), 1e-9)
+            assertEquals(0.0, extruder.getDouble("mesh_position_z"), 1e-9)
+            assertEquals(0.0, extruder.getDouble("enderslicer_mesh_translation_x"), 1e-12)
+            assertEquals(0.0, extruder.getDouble("enderslicer_mesh_translation_y"), 1e-12)
+            assertEquals(0.0, extruder.getDouble("enderslicer_mesh_translation_z"), 1e-12)
             assertArrayEquals(originalBytes, modelFile.readBytes())
             assertEquals(10.0, firstVertex(modelFile)[0].toDouble(), 1e-6)
             assertEquals(20.0, firstVertex(modelFile)[1].toDouble(), 1e-6)
