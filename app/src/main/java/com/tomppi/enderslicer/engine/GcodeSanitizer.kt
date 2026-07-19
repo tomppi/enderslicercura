@@ -143,17 +143,31 @@ object GcodeSanitizer {
         val resolvedMaxX = maxX
         val resolvedMaxY = maxY
         val resolvedMaxZ = maxZ
-        val repaired = original.map { line ->
-            when {
-                line.startsWith(";TIME:") && estimatedSeconds != null -> ";TIME:$estimatedSeconds"
-                line.startsWith(";Filament used:") -> ";Filament used: ${format(totalFilament / 1000.0)}m"
-                line.startsWith(";MINX:") && resolvedMinX != null -> ";MINX:${format(resolvedMinX)}"
-                line.startsWith(";MINY:") && resolvedMinY != null -> ";MINY:${format(resolvedMinY)}"
-                line.startsWith(";MINZ:") && resolvedMinZ != null -> ";MINZ:${format(resolvedMinZ)}"
-                line.startsWith(";MAXX:") && resolvedMaxX != null -> ";MAXX:${format(resolvedMaxX)}"
-                line.startsWith(";MAXY:") && resolvedMaxY != null -> ";MAXY:${format(resolvedMaxY)}"
-                line.startsWith(";MAXZ:") && resolvedMaxZ != null -> ";MAXZ:${format(resolvedMaxZ)}"
-                else -> line
+        val repairedBody = original
+            .filterNot { line ->
+                line.startsWith(";ENDERSLICER_VERSION:") ||
+                    line.startsWith(";ENDERSLICER_COORDINATE_TRANSPORT:")
+            }
+            .map { line ->
+                when {
+                    line.startsWith(";TIME:") && estimatedSeconds != null -> ";TIME:$estimatedSeconds"
+                    line.startsWith(";Filament used:") -> ";Filament used: ${format(totalFilament / 1000.0)}m"
+                    line.startsWith(";MINX:") && resolvedMinX != null -> ";MINX:${format(resolvedMinX)}"
+                    line.startsWith(";MINY:") && resolvedMinY != null -> ";MINY:${format(resolvedMinY)}"
+                    line.startsWith(";MINZ:") && resolvedMinZ != null -> ";MINZ:${format(resolvedMinZ)}"
+                    line.startsWith(";MAXX:") && resolvedMaxX != null -> ";MAXX:${format(resolvedMaxX)}"
+                    line.startsWith(";MAXY:") && resolvedMaxY != null -> ";MAXY:${format(resolvedMaxY)}"
+                    line.startsWith(";MAXZ:") && resolvedMaxZ != null -> ";MAXZ:${format(resolvedMaxZ)}"
+                    else -> line
+                }
+            }
+        val repaired = buildList(repairedBody.size + 2) {
+            repairedBody.forEachIndexed { index, line ->
+                add(line)
+                if (index == 0) {
+                    add(";ENDERSLICER_VERSION:$ENDERSLICER_VERSION")
+                    add(";ENDERSLICER_COORDINATE_TRANSPORT:staged-stl-and-fallback-offset")
+                }
             }
         }
 
@@ -190,6 +204,7 @@ object GcodeSanitizer {
 
     private fun format(value: Double): String = "%.5f".format(java.util.Locale.US, value).trimEnd('0').trimEnd('.')
 
+    private const val ENDERSLICER_VERSION = "0.5.6-dev"
     private const val MINIMUM_ACTIVE_NOZZLE_C = 150.0
     private const val PRINTER_LINE_ENDING = "\r\n"
 }
