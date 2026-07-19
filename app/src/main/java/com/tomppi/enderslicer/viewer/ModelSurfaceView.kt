@@ -281,14 +281,10 @@ private class ModelRenderer(
         val currentMesh = mesh ?: return
         val buffer = meshBuffer ?: return
 
+        // ModelPlacement has already written the mesh vertices into final
+        // build-plate coordinates. Preserve those coordinates so the viewer,
+        // CuraEngine input and exported G-code all show the same placement.
         Matrix.setIdentityM(modelLocal, 0)
-        Matrix.translateM(
-            modelLocal,
-            0,
-            (printer.widthMm / 2.0 - currentMesh.bounds.centerX).toFloat(),
-            (printer.depthMm / 2.0 - currentMesh.bounds.centerY).toFloat(),
-            -currentMesh.bounds.minZ,
-        )
         Matrix.multiplyMM(modelMatrix, 0, scene, 0, modelLocal, 0)
         Matrix.multiplyMM(modelView, 0, view, 0, modelMatrix, 0)
         Matrix.multiplyMM(mvp, 0, projection, 0, modelView, 0)
