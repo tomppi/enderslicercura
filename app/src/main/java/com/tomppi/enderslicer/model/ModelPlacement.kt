@@ -33,7 +33,23 @@ data class ModelPlacement(
         val translationXmm: Double,
         val translationYmm: Double,
         val translationZmm: Double,
-    )
+        val targetCenterXmm: Double? = null,
+        val targetCenterYmm: Double? = null,
+        val targetBaseZmm: Double? = null,
+    ) {
+        init {
+            require(linear.size == 9) { "3MF transform must contain nine linear values" }
+            require(linear.all(Double::isFinite)) { "3MF transform contains a non-finite linear value" }
+            require(
+                listOf(translationXmm, translationYmm, translationZmm)
+                    .all(Double::isFinite),
+            ) { "3MF transform contains a non-finite translation" }
+            require(
+                listOfNotNull(targetCenterXmm, targetCenterYmm, targetBaseZmm)
+                    .all(Double::isFinite),
+            ) { "3MF target bounds contain a non-finite value" }
+        }
+    }
 
     fun transformed(mesh: StlMesh): StlMesh {
         val raw = transformedPositions(mesh)
@@ -170,34 +186,22 @@ data class ModelPlacement(
             dropToBuildPlate: Boolean,
         ): ModelPlacement {
             require(affine.linear.size == 9)
-            val temporary = ModelPlacement(
-                linear = affine.linear,
-                centerXmm = 0.0,
-                centerYmm = 0.0,
-                baseZmm = 0.0,
-            )
-            val raw = temporary.transformedPositions(mesh)
-            var minX = Double.POSITIVE_INFINITY
-            var minY = Double.POSITIVE_INFINITY
-            var minZ = Double.POSITIVE_INFINITY
-            var maxX = Double.NEGATIVE_INFINITY
-            var maxY = Double.NEGATIVE_INFINITY
-            var maxZ = Double.NEGATIVE_INFINITY
-            var index = 0
-            while (index < raw.size) {
-                val x = raw[index] + affine.translationXmm
-                val y = raw[index + 1] + affine.translationYmm
-                val z = raw[index + 2] + affine.translationZmm
-                minX = minOf(minX, x); maxX = maxOf(maxX, x)
-                minY = minOf(minY, y); maxY = maxOf(maxY, y)
-                minZ = minOf(minZ, z); maxZ = maxOf(maxZ, z)
-                index += 3
-            }
+
+            // Cura's build-item translation is defined against the mesh stored
+            // inside the 3MF. An independently imported STL may contain the same
+            // geometry in a different coordinate frame (for example already
+            // centred at X/Y=115). Use the final bounds calculated from the
+            // embedded 3MF object instead of adding the translation to the
+            // external STL's existing centre a second time.
+            val targetCenterX = affine.targetCenterXmm ?: affine.translationXmm
+            val targetCenterY = affine.targetCenterYmm ?: affine.translationYmm
+            val targetBaseZ = affine.targetBaseZmm ?: affine.translationZmm
+
             return ModelPlacement(
                 linear = affine.linear,
-                centerXmm = (minX + maxX) / 2.0,
-                centerYmm = (minY + maxY) / 2.0,
-                baseZmm = if (dropToBuildPlate) 0.0 else minZ,
+                centerXmm = targetCenterX,
+                centerYmm = targetCenterY,
+                baseZmm = if (dropToBuildPlate) 0.0 else targetBaseZ,
                 source = if (dropToBuildPlate) "Imported Cura transform · drop to bed" else "Imported Cura transform",
             )
         }
