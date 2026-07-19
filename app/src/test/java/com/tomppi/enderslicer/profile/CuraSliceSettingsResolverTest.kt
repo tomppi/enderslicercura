@@ -42,30 +42,76 @@ class CuraSliceSettingsResolverTest {
             layerHeightMm = 0.20,
             initialLayerHeightMm = 0.28,
             lineWidthMm = 0.40,
+            wallLineCount = 4,
+            topLayers = 7,
+            bottomLayers = 6,
+            infillDensityPercent = 10.0,
+            infillPattern = "gyroid",
             printSpeedMmPerSecond = 200.0,
+            wallSpeedMmPerSecond = 80.0,
+            outerWallSpeedMmPerSecond = 40.0,
+            innerWallSpeedMmPerSecond = 70.0,
+            infillSpeedMmPerSecond = 150.0,
+            topBottomSpeedMmPerSecond = 60.0,
+            travelSpeedMmPerSecond = 220.0,
+            initialLayerSpeedMmPerSecond = 25.0,
             nozzleTemperatureC = 210,
             initialNozzleTemperatureC = 235,
             bedTemperatureC = 60,
-            infillDensityPercent = 10.0,
+            fanSpeedPercent = 100.0,
+            initialFanSpeedPercent = 15.0,
+            fanFullAtLayer = 5,
             supportsEnabled = true,
             supportPlacement = "everywhere",
             supportStructure = "tree",
             supportAngleDegrees = 56.0,
-            fanSpeedPercent = 100.0,
+            retractionMinimumTravelMm = 2.5,
+            combingMode = "noskin",
+            avoidPrintedParts = true,
+            travelAvoidDistanceMm = 0.8,
+            zHopHeightMm = 0.4,
+            skirtLineCount = 3,
+            brimWidthMm = 10.0,
+            ironingEnabled = true,
+            ironingFlowPercent = 12.0,
+            ironingSpeedMmPerSecond = 18.0,
             overriddenSettingKeys = setOf(
                 SlicerSettings.Keys.LAYER_HEIGHT,
                 SlicerSettings.Keys.INITIAL_LAYER_HEIGHT,
                 SlicerSettings.Keys.LINE_WIDTH,
+                SlicerSettings.Keys.WALL_LINE_COUNT,
+                SlicerSettings.Keys.TOP_LAYERS,
+                SlicerSettings.Keys.BOTTOM_LAYERS,
+                SlicerSettings.Keys.INFILL_DENSITY,
+                SlicerSettings.Keys.INFILL_PATTERN,
                 SlicerSettings.Keys.PRINT_SPEED,
+                SlicerSettings.Keys.WALL_SPEED,
+                SlicerSettings.Keys.OUTER_WALL_SPEED,
+                SlicerSettings.Keys.INNER_WALL_SPEED,
+                SlicerSettings.Keys.INFILL_SPEED,
+                SlicerSettings.Keys.TOP_BOTTOM_SPEED,
+                SlicerSettings.Keys.TRAVEL_SPEED,
+                SlicerSettings.Keys.INITIAL_LAYER_SPEED,
                 SlicerSettings.Keys.NOZZLE_TEMPERATURE,
                 SlicerSettings.Keys.INITIAL_NOZZLE_TEMPERATURE,
                 SlicerSettings.Keys.BED_TEMPERATURE,
-                SlicerSettings.Keys.INFILL_DENSITY,
+                SlicerSettings.Keys.FAN_SPEED,
+                SlicerSettings.Keys.INITIAL_FAN_SPEED,
+                SlicerSettings.Keys.FAN_FULL_AT_LAYER,
                 SlicerSettings.Keys.SUPPORTS_ENABLED,
                 SlicerSettings.Keys.SUPPORT_PLACEMENT,
                 SlicerSettings.Keys.SUPPORT_STRUCTURE,
                 SlicerSettings.Keys.SUPPORT_ANGLE,
-                SlicerSettings.Keys.FAN_SPEED,
+                SlicerSettings.Keys.RETRACTION_MINIMUM_TRAVEL,
+                SlicerSettings.Keys.COMBING_MODE,
+                SlicerSettings.Keys.AVOID_PRINTED_PARTS,
+                SlicerSettings.Keys.TRAVEL_AVOID_DISTANCE,
+                SlicerSettings.Keys.Z_HOP_HEIGHT,
+                SlicerSettings.Keys.SKIRT_LINE_COUNT,
+                SlicerSettings.Keys.BRIM_WIDTH,
+                SlicerSettings.Keys.IRONING_ENABLED,
+                SlicerSettings.Keys.IRONING_FLOW,
+                SlicerSettings.Keys.IRONING_SPEED,
             ),
         )
 
@@ -75,16 +121,30 @@ class CuraSliceSettingsResolverTest {
         assertNumeric(resolved.extruderValues, "material_print_temperature_layer_0", 235.0)
         assertNumeric(resolved.extruderValues, "cool_min_temperature", 210.0)
         assertNumeric(resolved.extruderValues, "speed_print", 200.0)
-        assertNumeric(resolved.extruderValues, "speed_topbottom", 100.0)
-        assertNumeric(resolved.extruderValues, "speed_wall", 100.0)
-        assertNumeric(resolved.extruderValues, "speed_infill", 200.0)
-        assertNumeric(resolved.extruderValues, "top_layers", 5.0)
-        assertNumeric(resolved.extruderValues, "bottom_layers", 5.0)
-        assertNumeric(resolved.extruderValues, "wall_line_count", 2.0)
-        assertNumeric(resolved.extruderValues, "infill_line_distance", 12.0)
-        assertNumeric(resolved.extruderValues, "cool_fan_speed_0", 0.0)
-        assertNumeric(resolved.extruderValues, "cool_fan_full_layer", 4.0)
-        assertEquals("cubic", resolved.extruderValues["infill_pattern"])
+        assertNumeric(resolved.extruderValues, "speed_wall", 80.0)
+        assertNumeric(resolved.extruderValues, "speed_wall_0", 40.0)
+        assertNumeric(resolved.extruderValues, "speed_wall_x", 70.0)
+        assertNumeric(resolved.extruderValues, "speed_infill", 150.0)
+        assertNumeric(resolved.extruderValues, "speed_topbottom", 60.0)
+        assertNumeric(resolved.extruderValues, "speed_travel", 220.0)
+        assertNumeric(resolved.extruderValues, "speed_layer_0", 25.0)
+        assertNumeric(resolved.extruderValues, "top_layers", 7.0)
+        assertNumeric(resolved.extruderValues, "bottom_layers", 6.0)
+        assertNumeric(resolved.extruderValues, "wall_line_count", 4.0)
+        assertNumeric(resolved.extruderValues, "infill_line_distance", 4.0)
+        assertNumeric(resolved.extruderValues, "cool_fan_speed_0", 15.0)
+        assertNumeric(resolved.extruderValues, "cool_fan_full_layer", 5.0)
+        assertNumeric(resolved.extruderValues, "retraction_min_travel", 2.5)
+        assertNumeric(resolved.extruderValues, "travel_avoid_distance", 0.8)
+        assertNumeric(resolved.extruderValues, "retraction_hop", 0.4)
+        assertNumeric(resolved.extruderValues, "skirt_line_count", 3.0)
+        assertNumeric(resolved.extruderValues, "brim_width", 10.0)
+        assertNumeric(resolved.extruderValues, "ironing_flow", 12.0)
+        assertNumeric(resolved.extruderValues, "speed_ironing", 18.0)
+        assertEquals("gyroid", resolved.extruderValues["infill_pattern"])
+        assertEquals("noskin", resolved.extruderValues["retraction_combing"])
+        assertEquals("true", resolved.extruderValues["travel_avoid_other_parts"]?.lowercase())
+        assertEquals("true", resolved.extruderValues["ironing_enabled"]?.lowercase())
         assertEquals("G28", resolved.globalValues["machine_start_gcode"])
         assertEquals("M104 S0", resolved.globalValues["machine_end_gcode"])
         assertTrue(resolved.expressionCount >= 20)
