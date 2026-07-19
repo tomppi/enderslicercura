@@ -27,6 +27,11 @@ fi
 # CuraEngine 5.11 uses OneTBB only to cap its worker count. Android's linker
 # rejects OneTBB's Linux version script, while CuraEngine's own ThreadPool works
 # normally on pthreads. Keep threading enabled and remove only the TBB controller.
+#
+# The resolved-settings (-r) loader also stores each model section on the mesh
+# group but constructs the loaded Mesh with only the extruder stack as parent.
+# Copy those values onto the actual Mesh after loading so support interface/roof
+# and other settable_per_mesh values reach the slicer.
 python3 - "$ENGINE_ROOT" <<'PY'
 from pathlib import Path
 import sys
@@ -98,6 +103,33 @@ text = text.replace(
     '#if !defined(__EMSCRIPTEN__) && !defined(CURA_ENGINE_NO_TBB)\n    delete tbb_controller_;\n    tbb_controller_ = new tbb::global_control(tbb::global_control::max_allowed_parallelism, nthreads + 1);\n#endif',
 )
 application_cpp.write_text(text)
+
+command_line_cpp = root / "src" / "communication" / "CommandLine.cpp"
+replace(
+    command_line_cpp,
+    '''                        if (! loadMeshIntoMeshGroup(&slice->scene.mesh_groups[mesh_group_index], model_name.c_str(), transformation, slice->scene.extruders[extruder_nr].settings_))
+                        {
+                            spdlog::error("Failed to load model: {}. (error number {})", model_name, errno);
+                            exit(1);
+                        }''',
+    '''                        if (! loadMeshIntoMeshGroup(&slice->scene.mesh_groups[mesh_group_index], model_name.c_str(), transformation, slice->scene.extruders[extruder_nr].settings_))
+                        {
+                            spdlog::error("Failed to load model: {}. (error number {})", model_name, errno);
+                            exit(1);
+                        }
+
+                        // EnderSlicer: resolved model values must live on the
+                        // actual Mesh, not only on MeshGroup::settings. The
+                        // latter is not a parent of Mesh::settings_, so without
+                        // this copy settable_per_mesh values such as
+                        // support_interface_enable silently use extruder/default
+                        // values during slicing.
+                        Mesh& loaded_mesh = slice->scene.mesh_groups[mesh_group_index].meshes.back();
+                        for (const auto& [setting_key, setting_value] : values)
+                        {
+                            loaded_mesh.settings_.add(setting_key, setting_value);
+                        }''',
+)
 PY
 
 python3 -m pip install --user --upgrade 'conan>=2.7,<3'
