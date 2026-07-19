@@ -178,7 +178,7 @@ object GcodeSanitizer {
                 add(line)
                 if (index == 0) {
                     add(";ENDERSLICER_VERSION:$ENDERSLICER_VERSION")
-                    add(";ENDERSLICER_COORDINATE_TRANSPORT:original-stl-direct-affine")
+                    add(";ENDERSLICER_COORDINATE_TRANSPORT:original-stl-full-affine-pre-round")
                     add(";ENDERSLICER_SETTINGS_TRANSPORT:$resolvedSettingsTransport")
                 }
             }
@@ -217,7 +217,7 @@ object GcodeSanitizer {
 
     private fun format(value: Double): String = "%.5f".format(java.util.Locale.US, value).trimEnd('0').trimEnd('.')
 
-    private const val ENDERSLICER_VERSION = "0.5.12-dev"
+    private const val ENDERSLICER_VERSION = "0.5.13-dev"
     private const val MINIMUM_ACTIVE_NOZZLE_C = 150.0
     private const val PRINTER_LINE_ENDING = "\r\n"
 }
