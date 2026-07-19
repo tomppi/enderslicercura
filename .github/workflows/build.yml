@@ -102,7 +102,7 @@ jobs:
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: EnderSlicer-0.5.10-dev-debug-apk
+          name: EnderSlicer-0.5.11-dev-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
 
       - name: Upload build logs
