@@ -21,10 +21,15 @@ object GcodeSanitizer {
 
     fun validateAndRepair(
         file: File,
-        settingsTransport: String = "unknown",
+        settingsTransport: String = "auto",
     ): Summary {
         require('\n' !in settingsTransport && '\r' !in settingsTransport) {
             "Settings transport marker contains a line break"
+        }
+        val resolvedSettingsTransport = when {
+            !settingsTransport.equals("auto", ignoreCase = true) -> settingsTransport
+            File(file.parentFile, "resolved-settings.json").isFile -> "resolved-json"
+            else -> "fallback-command"
         }
         val original = file.readLines()
         require(original.isNotEmpty()) { "Generated G-code is empty" }
@@ -174,7 +179,7 @@ object GcodeSanitizer {
                 if (index == 0) {
                     add(";ENDERSLICER_VERSION:$ENDERSLICER_VERSION")
                     add(";ENDERSLICER_COORDINATE_TRANSPORT:staged-stl-and-fallback-offset")
-                    add(";ENDERSLICER_SETTINGS_TRANSPORT:$settingsTransport")
+                    add(";ENDERSLICER_SETTINGS_TRANSPORT:$resolvedSettingsTransport")
                 }
             }
         }
