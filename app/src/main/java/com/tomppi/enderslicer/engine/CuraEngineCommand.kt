@@ -14,7 +14,7 @@ object CuraEngineCommand {
         definitionsDirectory: String,
         resolvedSettingsPath: String,
         outputPath: String,
-        threadCount: Int = 4,
+        threadCount: Int = recommendedThreadCount(),
     ): List<String> {
         require(threadCount in 1..32) { "Invalid CuraEngine thread count: $threadCount" }
         listOf(executablePath, definitionsDirectory, resolvedSettingsPath, outputPath)
@@ -44,7 +44,7 @@ object CuraEngineCommand {
         startGcode: String,
         endGcode: String,
         profile: CuraEngineProfile? = null,
-        threadCount: Int = 4,
+        threadCount: Int = recommendedThreadCount(),
     ): List<String> {
         require(profile == null) {
             "Imported Cura configurations must be dependency-resolved before command generation"
@@ -156,7 +156,13 @@ object CuraEngineCommand {
         return command
     }
 
+    internal fun recommendedThreadCount(
+        availableProcessors: Int = Runtime.getRuntime().availableProcessors(),
+    ): Int = availableProcessors.coerceIn(1, MAX_RECOMMENDED_THREADS)
+
     private fun requireSafeArgument(value: String) {
         require('\u0000' !in value) { "CuraEngine argument contains a NUL character" }
     }
+
+    private const val MAX_RECOMMENDED_THREADS = 8
 }
