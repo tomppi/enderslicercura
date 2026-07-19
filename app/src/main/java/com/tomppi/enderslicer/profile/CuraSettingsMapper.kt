@@ -16,6 +16,18 @@ object CuraSettingsMapper {
         }
 
         return base.copy(
+            printerName = values["machine_name"] ?: base.printerName,
+            machineWidthMm = number("machine_width") ?: base.machineWidthMm,
+            machineDepthMm = number("machine_depth") ?: base.machineDepthMm,
+            machineHeightMm = number("machine_height") ?: base.machineHeightMm,
+            buildPlateShape = values["machine_shape"] ?: base.buildPlateShape,
+            originAtCenter = bool("machine_center_is_zero") ?: base.originAtCenter,
+            heatedBed = bool("machine_heated_bed") ?: base.heatedBed,
+            heatedBuildVolume = bool("machine_heated_build_volume") ?: base.heatedBuildVolume,
+            gcodeFlavor = values["machine_gcode_flavor"] ?: base.gcodeFlavor,
+            nozzleSizeMm = number("machine_nozzle_size") ?: base.nozzleSizeMm,
+            filamentDiameterMm = number("material_diameter") ?: base.filamentDiameterMm,
+            gantryHeightMm = number("gantry_height") ?: base.gantryHeightMm,
             layerHeightMm = number("layer_height") ?: base.layerHeightMm,
             initialLayerHeightMm = number("layer_height_0") ?: base.initialLayerHeightMm,
             lineWidthMm = number("line_width") ?: base.lineWidthMm,
