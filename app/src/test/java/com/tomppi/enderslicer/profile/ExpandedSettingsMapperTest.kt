@@ -12,9 +12,15 @@ class ExpandedSettingsMapperTest {
         val mapped = CuraSettingsMapper.apply(
             SlicerSettings(),
             mapOf(
+                "slicing_tolerance" to "inclusive",
                 "wall_line_count" to "4",
                 "top_layers" to "7",
                 "bottom_layers" to "6",
+                "z_seam_type" to "back",
+                "z_seam_x" to "12.5",
+                "z_seam_y" to "220.0",
+                "z_seam_relative" to "true",
+                "z_seam_corner" to "z_seam_corner_weighted",
                 "infill_pattern" to "gyroid",
                 "speed_wall" to "80",
                 "speed_wall_0" to "45",
@@ -30,6 +36,10 @@ class ExpandedSettingsMapperTest {
                 "travel_avoid_other_parts" to "true",
                 "travel_avoid_distance" to "0.8",
                 "retraction_hop" to "0.4",
+                "coasting_enable" to "true",
+                "coasting_volume" to "0.08",
+                "coasting_min_volume" to "1.2",
+                "coasting_speed" to "92",
                 "skirt_line_count" to "3",
                 "brim_width" to "10",
                 "ironing_enabled" to "true",
@@ -38,9 +48,15 @@ class ExpandedSettingsMapperTest {
             ),
         )
 
+        assertEquals("inclusive", mapped.slicingTolerance)
         assertEquals(4, mapped.wallLineCount)
         assertEquals(7, mapped.topLayers)
         assertEquals(6, mapped.bottomLayers)
+        assertEquals("back", mapped.zSeamType)
+        assertEquals(12.5, mapped.zSeamXmm, 0.0)
+        assertEquals(220.0, mapped.zSeamYmm, 0.0)
+        assertTrue(mapped.zSeamRelative)
+        assertEquals("z_seam_corner_weighted", mapped.zSeamCorner)
         assertEquals("gyroid", mapped.infillPattern)
         assertEquals(80.0, mapped.wallSpeedMmPerSecond, 0.0)
         assertEquals(45.0, mapped.outerWallSpeedMmPerSecond, 0.0)
@@ -56,6 +72,10 @@ class ExpandedSettingsMapperTest {
         assertTrue(mapped.avoidPrintedParts)
         assertEquals(0.8, mapped.travelAvoidDistanceMm, 0.0)
         assertEquals(0.4, mapped.zHopHeightMm, 0.0)
+        assertTrue(mapped.coastingEnabled)
+        assertEquals(0.08, mapped.coastingVolumeMm3, 0.0)
+        assertEquals(1.2, mapped.coastingMinimumVolumeMm3, 0.0)
+        assertEquals(92.0, mapped.coastingSpeedPercent, 0.0)
         assertEquals(3, mapped.skirtLineCount)
         assertEquals(10.0, mapped.brimWidthMm, 0.0)
         assertTrue(mapped.ironingEnabled)
