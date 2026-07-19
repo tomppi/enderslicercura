@@ -159,8 +159,7 @@ class GcodeSanitizerTest {
     }
 
     private fun temporaryGcode(content: String): File {
-        return kotlin.io.path.createTempFile("enderslicer-test", ".gcode")
-            .toFile()
-            .apply { writeText(content) }
+        val directory = kotlin.io.path.createTempDirectory("enderslicer-test").toFile()
+        return File(directory, "output.gcode").apply { writeText(content) }
     }
 }
