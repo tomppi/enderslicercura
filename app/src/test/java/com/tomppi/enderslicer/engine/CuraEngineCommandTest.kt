@@ -65,72 +65,24 @@ class CuraEngineCommandTest {
     }
 
     @Test
-    fun currentVisibleValuesWinOverConflictingImportedGlobalAndExtruderCopies() {
-        val profile = CuraEngineProfile(
-            globalValues = linkedMapOf(
-                "layer_height" to "0.2",
-                "adhesion_type" to "none",
-                "support_enable" to "true",
-                "hidden_tree_value" to "kept-global",
-            ),
-            extruderValues = linkedMapOf(
-                "layer_height" to "0.1",
-                "adhesion_type" to "brim",
-                "material_print_temperature" to "200",
-                "cool_min_temperature" to "0",
-                "hidden_tree_value" to "kept-extruder",
-            ),
-        )
-        val settings = SlicerSettings(
-            layerHeightMm = 0.2,
-            adhesionType = "none",
-            nozzleTemperatureC = 210,
-            initialNozzleTemperatureC = 235,
-            supportsEnabled = true,
-            supportStructure = "tree",
-            supportDensityPercent = 15.0,
-            overriddenSettingKeys = emptySet(),
-        )
+    fun importedConfigurationCannotBypassDependencyResolution() {
+        val error = runCatching {
+            CuraEngineCommand.build(
+                executablePath = "/native/libcuraengine_exec.so",
+                definitionsDirectory = "/files/definitions",
+                machineDefinitionPath = "/files/definitions/creality_ender3.def.json",
+                extruderDefinitionPath = "/files/definitions/creality_base_extruder_0.def.json",
+                modelPath = "/files/current.stl",
+                outputPath = "/files/current.gcode",
+                printer = printer,
+                settings = SlicerSettings(),
+                startGcode = "G28",
+                endGcode = "M104 S0",
+                profile = CuraEngineProfile(extruderValues = mapOf("speed_print" to "120")),
+            )
+        }.exceptionOrNull()
 
-        val command = CuraEngineCommand.build(
-            executablePath = "/native/libcuraengine_exec.so",
-            definitionsDirectory = "/files/definitions",
-            machineDefinitionPath = "/files/definitions/creality_ender3.def.json",
-            extruderDefinitionPath = "/files/definitions/creality_base_extruder_0.def.json",
-            modelPath = "/files/current model.stl",
-            outputPath = "/files/current.gcode",
-            printer = printer,
-            settings = settings,
-            startGcode = "G28",
-            endGcode = "M104 S0",
-            profile = profile,
-        )
-        val values = commandSettings(command)
-
-        assertEquals("0.2", values["layer_height"])
-        assertEquals("none", values["adhesion_type"])
-        assertEquals("210", values["material_print_temperature"])
-        assertEquals("235", values["material_print_temperature_layer_0"])
-        assertEquals("210", values["cool_min_temperature"])
-        assertEquals("0.0", values["support_infill_rate"])
-        assertEquals("kept-extruder", values["hidden_tree_value"])
-        assertEquals("-115.0", values["mesh_position_x"])
-        assertEquals("-115.0", values["mesh_position_y"])
-        assertTrue(command.contains("-l"))
-    }
-
-    private fun commandSettings(command: List<String>): Map<String, String> {
-        val result = linkedMapOf<String, String>()
-        var index = 0
-        while (index < command.size - 1) {
-            if (command[index] == "-s") {
-                val raw = command[index + 1]
-                result[raw.substringBefore('=')] = raw.substringAfter('=', "")
-                index += 2
-            } else {
-                index++
-            }
-        }
-        return result
+        assertTrue(error is IllegalArgumentException)
+        assertTrue(error?.message.orEmpty().contains("dependency-resolved"))
     }
 }
