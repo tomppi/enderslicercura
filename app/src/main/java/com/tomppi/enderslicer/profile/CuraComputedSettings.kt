@@ -10,6 +10,12 @@ data class CuraComputedValue(
     val source: String,
 )
 
+data class CuraComputedSnapshot(
+    val values: List<CuraComputedValue>,
+    val expressionCount: Int,
+    val passes: Int,
+)
+
 object CuraComputedSettings {
     private val displayedKeys = linkedMapOf(
         "wall_thickness" to "Wall thickness",
@@ -36,8 +42,8 @@ object CuraComputedSettings {
         settings: SlicerSettings,
         startGcode: String,
         endGcode: String,
-    ): List<CuraComputedValue> {
-        if (!profile.usesProjectDefinitions) return emptyList()
+    ): CuraComputedSnapshot? {
+        if (!profile.usesProjectDefinitions) return null
         val result = CuraSliceSettingsResolver.resolve(
             profile = profile,
             printer = printer,
@@ -49,7 +55,7 @@ object CuraComputedSettings {
             putAll(profile.rawGlobalValues.filterValues { it.trim().startsWith("=") })
             putAll(profile.rawExtruderValues.filterValues { it.trim().startsWith("=") })
         }
-        return displayedKeys.mapNotNull { (key, label) ->
+        val values = displayedKeys.mapNotNull { (key, label) ->
             val value = result.extruderValues[key] ?: result.globalValues[key] ?: return@mapNotNull null
             CuraComputedValue(
                 key = key,
@@ -58,5 +64,10 @@ object CuraComputedSettings {
                 source = formulaSources[key]?.let { "Cura formula: $it" } ?: "Computed from Cura definitions",
             )
         }
+        return CuraComputedSnapshot(
+            values = values,
+            expressionCount = result.expressionCount,
+            passes = result.passes,
+        )
     }
 }
