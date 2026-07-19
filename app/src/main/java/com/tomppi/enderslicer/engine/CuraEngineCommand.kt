@@ -58,6 +58,24 @@ object CuraEngineCommand {
         val effectivePrinter = printer.withSettings(settings)
         val effectiveStartGcode = settings.resolveStartGcode(startGcode)
         val effectiveEndGcode = settings.resolveEndGcode(endGcode)
+        val engineOffsetX = if (effectivePrinter.originAtCenter) 0.0 else -effectivePrinter.widthMm / 2.0
+        val engineOffsetY = if (effectivePrinter.originAtCenter) 0.0 else -effectivePrinter.depthMm / 2.0
+        val interfaceEnabled = settings.supportsEnabled && settings.supportInterfaceEnabled
+        val interfaceDensity = settings.supportInterfaceDensityPercent.coerceIn(0.0, 100.0)
+        val interfaceHeight = settings.layerHeightMm * 4.0
+        val interfacePattern = "grid"
+        val interfaceLineDistance = if (interfaceDensity <= 0.0) {
+            0.0
+        } else {
+            settings.lineWidthMm * 100.0 / interfaceDensity * 2.0
+        }
+        val supportDensity = if (
+            settings.supportsEnabled && settings.supportStructure.equals("tree", ignoreCase = true)
+        ) {
+            0.0
+        } else {
+            settings.supportDensityPercent
+        }
         requireSafeArgument(effectiveStartGcode)
         requireSafeArgument(effectiveEndGcode)
 
@@ -117,8 +135,8 @@ object CuraEngineCommand {
             "[[${effectivePrinter.printheadXMinMm},${effectivePrinter.printheadYMaxMm}],[${effectivePrinter.printheadXMinMm},${effectivePrinter.printheadYMinMm}],[${effectivePrinter.printheadXMaxMm},${effectivePrinter.printheadYMinMm}],[${effectivePrinter.printheadXMaxMm},${effectivePrinter.printheadYMaxMm}]]",
         )
         setting("center_object", false)
-        setting("mesh_position_x", 0)
-        setting("mesh_position_y", 0)
+        setting("mesh_position_x", engineOffsetX)
+        setting("mesh_position_y", engineOffsetY)
         setting("mesh_position_z", 0)
 
         fun applyPrintSettings() {
@@ -148,14 +166,33 @@ object CuraEngineCommand {
             setting("support_type", settings.supportPlacement)
             setting("support_structure", settings.supportStructure)
             setting("support_angle", settings.supportAngleDegrees)
-            setting("support_infill_rate", settings.supportDensityPercent)
+            setting("support_infill_rate", supportDensity)
             setting("support_pattern", settings.supportPattern)
-            setting("support_interface_enable", settings.supportInterfaceEnabled)
-            setting("support_interface_density", settings.supportInterfaceDensityPercent)
+            setting("support_interface_enable", interfaceEnabled)
+            setting("support_roof_enable", interfaceEnabled)
+            setting("support_bottom_enable", interfaceEnabled)
+            setting("support_interface_extruder_nr", 0)
+            setting("support_roof_extruder_nr", 0)
+            setting("support_bottom_extruder_nr", 0)
+            setting("support_interface_density", interfaceDensity)
+            setting("support_roof_density", interfaceDensity)
+            setting("support_bottom_density", interfaceDensity)
+            setting("support_interface_height", interfaceHeight)
+            setting("support_roof_height", interfaceHeight)
+            setting("support_bottom_height", interfaceHeight)
+            setting("support_interface_pattern", interfacePattern)
+            setting("support_roof_pattern", interfacePattern)
+            setting("support_bottom_pattern", interfacePattern)
+            setting("support_roof_line_width", settings.lineWidthMm)
+            setting("support_bottom_line_width", settings.lineWidthMm)
+            setting("support_roof_line_distance", interfaceLineDistance)
+            setting("support_bottom_line_distance", interfaceLineDistance)
             setting("support_z_distance", settings.supportZDistanceMm)
             setting("support_xy_distance", settings.supportXyDistanceMm)
             setting("speed_support", settings.supportSpeedMmPerSecond)
             setting("speed_support_interface", settings.supportInterfaceSpeedMmPerSecond)
+            setting("speed_support_roof", settings.supportInterfaceSpeedMmPerSecond)
+            setting("speed_support_bottom", settings.supportInterfaceSpeedMmPerSecond)
             setting("adhesion_type", settings.adhesionType)
             setting("skirt_line_count", settings.skirtLineCount)
             setting("brim_width", settings.brimWidthMm)
@@ -208,8 +245,8 @@ object CuraEngineCommand {
         setting("material_final_print_temperature", settings.nozzleTemperatureC)
         setting("cool_min_temperature", settings.nozzleTemperatureC)
         setting("center_object", false)
-        setting("mesh_position_x", 0)
-        setting("mesh_position_y", 0)
+        setting("mesh_position_x", engineOffsetX)
+        setting("mesh_position_y", engineOffsetY)
         setting("mesh_position_z", 0)
 
         command += listOf("-l", modelPath, "-o", outputPath)
