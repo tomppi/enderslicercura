@@ -8,7 +8,7 @@ import org.junit.Test
 
 class CuraEngineCommandPrinterTest {
     @Test
-    fun fallbackCommandUsesCustomMachineAndGcodeSettings() {
+    fun fallbackCommandUsesCustomMachineGcodeAndAdvancedSettings() {
         val printer = PrinterDefinition(
             id = "base",
             name = "Base",
@@ -50,6 +50,16 @@ class CuraEngineCommandPrinterTest {
             customStartGcode = "G28\nM117 custom start",
             customEndGcodeEnabled = true,
             customEndGcode = "M104 S0\nM84",
+            slicingTolerance = "inclusive",
+            zSeamType = "back",
+            zSeamXmm = 12.5,
+            zSeamYmm = 300.0,
+            zSeamRelative = true,
+            zSeamCorner = "z_seam_corner_weighted",
+            coastingEnabled = true,
+            coastingVolumeMm3 = 0.09,
+            coastingMinimumVolumeMm3 = 1.4,
+            coastingSpeedPercent = 95.0,
         )
 
         val command = CuraEngineCommand.build(
@@ -78,6 +88,17 @@ class CuraEngineCommandPrinterTest {
         assertEquals("M104 S0\nM84", values["machine_end_gcode"])
         assertEquals("0.6", values["machine_nozzle_size"])
         assertEquals("2.85", values["material_diameter"])
+        assertEquals("inclusive", values["slicing_tolerance"])
+        assertEquals("back", values["z_seam_type"])
+        assertEquals("12.5", values["z_seam_x"])
+        assertEquals("300.0", values["z_seam_y"])
+        assertEquals("true", values["z_seam_relative"])
+        assertEquals("z_seam_corner_weighted", values["z_seam_corner"])
+        assertEquals("true", values["coasting_enable"])
+        assertEquals("0.09", values["coasting_volume"])
+        assertEquals("1.4", values["coasting_min_volume"])
+        assertEquals("95.0", values["coasting_speed"])
+        assertEquals("false", values["center_object"])
         assertTrue(command.contains("-l"))
     }
 
