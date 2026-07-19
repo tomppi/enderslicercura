@@ -9,32 +9,7 @@ import org.junit.Test
 class CuraEngineCommandPrinterTest {
     @Test
     fun fallbackCommandUsesCustomMachineGcodeAndAdvancedSettings() {
-        val printer = PrinterDefinition(
-            id = "base",
-            name = "Base",
-            manufacturer = "Test",
-            widthMm = 100.0,
-            depthMm = 100.0,
-            heightMm = 100.0,
-            buildPlateShape = "rectangular",
-            originAtCenter = false,
-            heatedBed = false,
-            heatedBuildVolume = false,
-            gcodeFlavor = "Marlin",
-            extruders = 1,
-            nozzleSizeMm = 0.4,
-            filamentDiameterMm = 1.75,
-            printheadXMinMm = -10.0,
-            printheadYMinMm = -10.0,
-            printheadXMaxMm = 10.0,
-            printheadYMaxMm = 10.0,
-            gantryHeightMm = 20.0,
-            directDrive = false,
-            dualZ = false,
-            zProbe = false,
-            bedLeveling = "none",
-            ublMeshSlot = 0,
-        )
+        val printer = printer(width = 100.0, depth = 100.0, originAtCenter = false)
         val settings = SlicerSettings(
             printerName = "Other printer",
             machineWidthMm = 320.0,
@@ -62,19 +37,7 @@ class CuraEngineCommandPrinterTest {
             coastingSpeedPercent = 95.0,
         )
 
-        val command = CuraEngineCommand.build(
-            executablePath = "/tmp/CuraEngine",
-            definitionsDirectory = "/tmp/definitions",
-            machineDefinitionPath = "/tmp/machine.def.json",
-            extruderDefinitionPath = "/tmp/extruder.def.json",
-            modelPath = "/tmp/model.stl",
-            outputPath = "/tmp/output.gcode",
-            printer = printer,
-            settings = settings,
-            startGcode = "G28 ; fallback",
-            endGcode = "M84 ; fallback",
-        )
-        val values = commandSettings(command)
+        val values = commandSettings(build(printer, settings))
 
         assertEquals("Other printer", values["machine_name"])
         assertEquals("320.0", values["machine_width"])
@@ -99,8 +62,83 @@ class CuraEngineCommandPrinterTest {
         assertEquals("1.4", values["coasting_min_volume"])
         assertEquals("95.0", values["coasting_speed"])
         assertEquals("false", values["center_object"])
-        assertTrue(command.contains("-l"))
+        assertEquals("0.0", values["mesh_position_x"])
+        assertTrue(build(printer, settings).contains("-l"))
     }
+
+    @Test
+    fun fallbackTreeSupportUsesCuraInterfaceValuesAndCenteredEngineCoordinates() {
+        val settings = SlicerSettings(
+            machineWidthMm = 230.0,
+            machineDepthMm = 230.0,
+            originAtCenter = false,
+            supportsEnabled = true,
+            supportStructure = "tree",
+            supportPlacement = "everywhere",
+            supportDensityPercent = 20.0,
+            supportPattern = "grid",
+            supportInterfaceEnabled = true,
+            supportInterfaceDensityPercent = 33.333,
+            supportInterfaceSpeedMmPerSecond = 30.0,
+            layerHeightMm = 0.2,
+            lineWidthMm = 0.4,
+        )
+
+        val values = commandSettings(build(printer(width = 230.0, depth = 230.0, originAtCenter = false), settings))
+
+        assertEquals("-115.0", values["mesh_position_x"])
+        assertEquals("-115.0", values["mesh_position_y"])
+        assertEquals("0.0", values["support_infill_rate"])
+        assertEquals("true", values["support_interface_enable"])
+        assertEquals("true", values["support_roof_enable"])
+        assertEquals("true", values["support_bottom_enable"])
+        assertEquals("33.333", values["support_interface_density"])
+        assertEquals("33.333", values["support_roof_density"])
+        assertEquals("0.8", values["support_interface_height"])
+        assertEquals("grid", values["support_roof_pattern"])
+        assertEquals("2.4000240002400024", values["support_roof_line_distance"])
+        assertEquals("30.0", values["speed_support_roof"])
+    }
+
+    private fun build(printer: PrinterDefinition, settings: SlicerSettings): List<String> = CuraEngineCommand.build(
+        executablePath = "/tmp/CuraEngine",
+        definitionsDirectory = "/tmp/definitions",
+        machineDefinitionPath = "/tmp/machine.def.json",
+        extruderDefinitionPath = "/tmp/extruder.def.json",
+        modelPath = "/tmp/model.stl",
+        outputPath = "/tmp/output.gcode",
+        printer = printer,
+        settings = settings,
+        startGcode = "G28 ; fallback",
+        endGcode = "M84 ; fallback",
+    )
+
+    private fun printer(width: Double, depth: Double, originAtCenter: Boolean) = PrinterDefinition(
+        id = "base",
+        name = "Base",
+        manufacturer = "Test",
+        widthMm = width,
+        depthMm = depth,
+        heightMm = 100.0,
+        buildPlateShape = "rectangular",
+        originAtCenter = originAtCenter,
+        heatedBed = false,
+        heatedBuildVolume = false,
+        gcodeFlavor = "Marlin",
+        extruders = 1,
+        nozzleSizeMm = 0.4,
+        filamentDiameterMm = 1.75,
+        printheadXMinMm = -10.0,
+        printheadYMinMm = -10.0,
+        printheadXMaxMm = 10.0,
+        printheadYMaxMm = 10.0,
+        gantryHeightMm = 20.0,
+        directDrive = false,
+        dualZ = false,
+        zProbe = false,
+        bedLeveling = "none",
+        ublMeshSlot = 0,
+    )
 
     private fun commandSettings(command: List<String>): Map<String, String> {
         val result = linkedMapOf<String, String>()
