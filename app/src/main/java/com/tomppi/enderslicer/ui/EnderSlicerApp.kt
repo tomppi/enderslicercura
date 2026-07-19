@@ -33,6 +33,7 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -42,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.tomppi.enderslicer.model.withSettings
 import com.tomppi.enderslicer.viewer.ModelSurfaceView
 
 private enum class ViewerMode { MODEL, LAYERS }
@@ -52,6 +54,7 @@ fun EnderSlicerApp(viewModel: MainViewModel = viewModel()) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     var menuExpanded by remember { mutableStateOf(false) }
     var settingsOpen by remember { mutableStateOf(false) }
+    var machineSettingsOpen by remember { mutableStateOf(false) }
     var viewerMode by remember { mutableStateOf(ViewerMode.MODEL) }
     var selectedLayerIndex by remember { mutableStateOf(0) }
 
@@ -139,10 +142,17 @@ fun EnderSlicerApp(viewModel: MainViewModel = viewModel()) {
                                 },
                             )
                             DropdownMenuItem(
+                                text = { Text("Printer & G-code") },
+                                onClick = {
+                                    menuExpanded = false
+                                    machineSettingsOpen = true
+                                },
+                            )
+                            DropdownMenuItem(
                                 text = { Text("Export configuration snapshot") },
                                 onClick = {
                                     menuExpanded = false
-                                    configExportPicker.launch("ender3v2-config.json")
+                                    configExportPicker.launch("printer-config.json")
                                 },
                                 enabled = !state.isBusy,
                             )
@@ -155,7 +165,7 @@ fun EnderSlicerApp(viewModel: MainViewModel = viewModel()) {
             ActionBar(
                 state = state,
                 onSlice = viewModel::sliceModel,
-                onExportGcode = { gcodeExportPicker.launch("ender3v2-print.gcode") },
+                onExportGcode = { gcodeExportPicker.launch("print.gcode") },
             )
         },
     ) { padding ->
@@ -186,6 +196,22 @@ fun EnderSlicerApp(viewModel: MainViewModel = viewModel()) {
             )
         }
     }
+
+    if (machineSettingsOpen) {
+        ModalBottomSheet(
+            onDismissRequest = { machineSettingsOpen = false },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        ) {
+            MachineSettingsSheet(
+                state = state,
+                onSettings = viewModel::updateSettings,
+                onResetOverrides = viewModel::resetAllSettingOverrides,
+                modifier = Modifier
+                    .fillMaxHeight(0.94f)
+                    .navigationBarsPadding(),
+            )
+        }
+    }
 }
 
 @Composable
@@ -197,6 +223,7 @@ private fun ViewerPanel(
     onLayerSelected: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val effectivePrinter = state.printer.withSettings(state.settings)
     Box(modifier = modifier) {
         val preview = state.layerPreview
         if (viewerMode == ViewerMode.LAYERS && preview != null) {
@@ -207,11 +234,13 @@ private fun ViewerPanel(
                 modifier = Modifier.fillMaxSize(),
             )
         } else {
-            AndroidView(
-                modifier = Modifier.fillMaxSize(),
-                factory = { context -> ModelSurfaceView(context, state.printer) },
-                update = { view -> view.setMesh(state.mesh) },
-            )
+            key(effectivePrinter) {
+                AndroidView(
+                    modifier = Modifier.fillMaxSize(),
+                    factory = { context -> ModelSurfaceView(context, effectivePrinter) },
+                    update = { view -> view.setMesh(state.mesh) },
+                )
+            }
         }
 
         Card(
@@ -221,7 +250,16 @@ private fun ViewerPanel(
                 .widthIn(max = 360.dp),
         ) {
             Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp)) {
-                Text(state.printer.name, style = MaterialTheme.typography.titleSmall)
+                Text(effectivePrinter.name, style = MaterialTheme.typography.titleSmall)
+                Text(
+                    "%.0f × %.0f × %.0f mm · %.2f mm nozzle".format(
+                        effectivePrinter.widthMm,
+                        effectivePrinter.depthMm,
+                        effectivePrinter.heightMm,
+                        effectivePrinter.nozzleSizeMm,
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                )
                 val mesh = state.mesh
                 if (mesh == null) {
                     Text("Import an STL from Menu", style = MaterialTheme.typography.bodySmall)
