@@ -40,11 +40,12 @@ internal object CuraResolvedSettingsWriter {
         }
         val effectiveTransform = modelTransform ?: stagedSource?.transform
 
-        // CuraEngine applies mesh_rotation_matrix while reading each source STL
-        // vertex and converts the result directly to its integer-micron geometry.
-        // Translation is applied later by MeshGroup::finalize(). Supplying the
-        // complete affine here avoids writing an intermediate transformed Float
-        // STL, which was enough to alter threshold-sized infill islands.
+        // Cura's frontend applies the complete affine before converting mesh
+        // vertices into integer microns. A normal CuraEngine command-line slice
+        // applies mesh_position only afterwards, which computes
+        // round(linear * vertex) + round(translation) instead of Cura's
+        // round(linear * vertex + translation). The native resolved-loader patch
+        // consumes these translation keys in Matrix4x3D before STL conversion.
         val centerIsZero = resolved.globalValues["machine_center_is_zero"]
             ?.trim()
             ?.equals("true", ignoreCase = true)
@@ -52,10 +53,17 @@ internal object CuraResolvedSettingsWriter {
         val machineCenterX = if (centerIsZero) 0.0 else requiredNumber(resolved.globalValues, "machine_width") / 2.0
         val machineCenterY = if (centerIsZero) 0.0 else requiredNumber(resolved.globalValues, "machine_depth") / 2.0
         val linear = effectiveTransform?.linear ?: IDENTITY
-        val enginePositionX = (effectiveTransform?.translationXmm ?: 0.0) - machineCenterX
-        val enginePositionY = (effectiveTransform?.translationYmm ?: 0.0) - machineCenterY
-        val enginePositionZ = effectiveTransform?.translationZmm ?: 0.0
+        val affineTranslationX = effectiveTransform?.translationXmm ?: 0.0
+        val affineTranslationY = effectiveTransform?.translationYmm ?: 0.0
+        val affineTranslationZ = effectiveTransform?.translationZmm ?: 0.0
         val rotationMatrix = matrixString(linear)
+
+        // Matrix4x3D now creates final build-plate coordinates directly. Cancel
+        // only CuraEngine's automatic front-left-bed half-width/depth offset in
+        // MeshGroup::finalize; no model translation belongs in mesh_position.
+        val enginePositionX = -machineCenterX
+        val enginePositionY = -machineCenterY
+        val enginePositionZ = 0.0
 
         // CuraEngine's command-line model loader constructs the single model
         // from the extruder stack. Copy all resolved per-mesh values into that
@@ -66,6 +74,9 @@ internal object CuraResolvedSettingsWriter {
         extruderValues
             .put("center_object", false)
             .put("mesh_rotation_matrix", rotationMatrix)
+            .put(AFFINE_TRANSLATION_X, affineTranslationX)
+            .put(AFFINE_TRANSLATION_Y, affineTranslationY)
+            .put(AFFINE_TRANSLATION_Z, affineTranslationZ)
             .put("mesh_position_x", enginePositionX)
             .put("mesh_position_y", enginePositionY)
             .put("mesh_position_z", enginePositionZ)
@@ -74,6 +85,9 @@ internal object CuraResolvedSettingsWriter {
             .put("extruder_nr", 0)
             .put("center_object", false)
             .put("mesh_rotation_matrix", rotationMatrix)
+            .put(AFFINE_TRANSLATION_X, affineTranslationX)
+            .put(AFFINE_TRANSLATION_Y, affineTranslationY)
+            .put(AFFINE_TRANSLATION_Z, affineTranslationZ)
             .put("mesh_position_x", enginePositionX)
             .put("mesh_position_y", enginePositionY)
             .put("mesh_position_z", enginePositionZ)
@@ -103,6 +117,10 @@ internal object CuraResolvedSettingsWriter {
         require(value.isFinite() && value > 0.0) { "Resolved Cura setting is invalid: $key=$raw" }
         return value
     }
+
+    private const val AFFINE_TRANSLATION_X = "enderslicer_mesh_translation_x"
+    private const val AFFINE_TRANSLATION_Y = "enderslicer_mesh_translation_y"
+    private const val AFFINE_TRANSLATION_Z = "enderslicer_mesh_translation_z"
 
     private val IDENTITY = listOf(
         1.0, 0.0, 0.0,
