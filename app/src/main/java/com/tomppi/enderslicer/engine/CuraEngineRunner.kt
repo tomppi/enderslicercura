@@ -73,13 +73,14 @@ class CuraEngineRunner(private val context: Context) {
                 appendLine("Printer: ${printer.name}")
                 appendLine("Build volume: ${printer.widthMm} x ${printer.depthMm} x ${printer.heightMm} mm")
                 appendLine("Nozzle: ${printer.nozzleSizeMm} mm")
-                appendLine("Layer height: ${settings.layerHeightMm} mm")
-                appendLine("Print speed: ${settings.printSpeedMmPerSecond} mm/s")
-                appendLine("Supports: ${settings.supportsEnabled} / ${settings.supportStructure} / ${settings.supportPlacement}")
+                appendLine("Layer height shown in UI: ${settings.layerHeightMm} mm")
+                appendLine("Print speed shown in UI: ${settings.printSpeedMmPerSecond} mm/s")
+                appendLine("Supports shown in UI: ${settings.supportsEnabled} / ${settings.supportStructure} / ${settings.supportPlacement}")
+                appendLine("Explicit persisted edits: ${settings.overriddenSettingKeys.size}")
                 appendLine("Imported Cura global values: ${profile?.globalValues?.size ?: 0}")
                 appendLine("Imported Cura extruder values: ${profile?.extruderValues?.size ?: 0}")
-                appendLine("Raw Cura global overrides: ${profile?.rawGlobalValues?.size ?: 0}")
-                appendLine("Raw Cura extruder overrides: ${profile?.rawExtruderValues?.size ?: 0}")
+                appendLine("Raw Cura global baseline: ${profile?.rawGlobalValues?.size ?: 0}")
+                appendLine("Raw Cura extruder baseline: ${profile?.rawExtruderValues?.size ?: 0}")
                 appendLine("Parsed material values: ${profile?.materialValueCount ?: 0}")
                 appendLine()
             },
@@ -91,15 +92,20 @@ class CuraEngineRunner(private val context: Context) {
             require(isAvailable()) { status() }
             require(modelFile.isFile && modelFile.length() > 0L) { "The imported STL is no longer available" }
 
-            val definitions = prepareDefinitions(workDirectory, logFile, profile)
+            // Every imported Cura configuration is dependency-resolved. Projects
+            // keep their embedded definitions; profiles or incomplete projects
+            // are completed with the pinned Cura definitions packaged in the APK.
+            // Command transport is reserved for a genuinely profile-less slice.
+            val resolutionProfile = profile?.let(::completeDefinitionStack)
+            val definitions = prepareDefinitions(workDirectory, logFile, resolutionProfile)
             var resolved: CuraSliceSettingsResolver.Result? = null
-            val command = if (profile?.usesProjectDefinitions == true) {
+            val command = if (resolutionProfile != null) {
                 modelFile.copyTo(resolvedModelFile, overwrite = true)
                 check(resolvedModelFile.isFile && resolvedModelFile.length() == modelFile.length()) {
                     "Unable to stage the STL for resolved Cura slicing"
                 }
                 resolved = CuraSliceSettingsResolver.resolve(
-                    profile = profile,
+                    profile = resolutionProfile,
                     printer = printer,
                     settings = settings,
                     startGcode = startGcode,
@@ -128,7 +134,7 @@ class CuraEngineRunner(private val context: Context) {
                     settings = settings,
                     startGcode = startGcode,
                     endGcode = endGcode,
-                    profile = profile,
+                    profile = null,
                 )
             }
 
@@ -140,12 +146,14 @@ class CuraEngineRunner(private val context: Context) {
                     appendLine("Extruder definition: ${definitions.extruderDefinition.name}")
                     if (resolved != null) {
                         appendLine("Settings transport: CuraEngine resolved JSON (-r)")
+                        appendLine("Configuration model: immutable Cura baseline + persisted explicit delta + temporary resolved snapshot")
                         appendLine("Resolved definition expressions: ${resolved.expressionCount}")
                         appendLine("Resolution passes: ${resolved.passes}")
                         appendLine("Resolved global settings: ${resolved.globalValues.size}")
                         appendLine("Resolved extruder settings: ${resolved.extruderValues.size}")
                         appendLine("Resolved per-mesh settings: ${resolved.modelValues.size}")
                         appendLine("Resolved layer height: ${resolved.globalValues["layer_height"]}")
+                        appendLine("Resolved adhesion type: ${resolved.globalValues["adhesion_type"] ?: resolved.extruderValues["adhesion_type"]}")
                         appendLine("Resolved wall lines: ${resolved.extruderValues["wall_line_count"]}")
                         appendLine("Resolved top/bottom layers: ${resolved.extruderValues["top_layers"]}/${resolved.extruderValues["bottom_layers"]}")
                         appendLine("Resolved infill pattern/distance: ${resolved.extruderValues["infill_pattern"]}/${resolved.extruderValues["infill_line_distance"]}")
@@ -159,7 +167,7 @@ class CuraEngineRunner(private val context: Context) {
                         appendLine("Resolved model placement: transformed STL uses bed coordinates; JSON offsets compensate CuraEngine's build-volume centre")
                         appendLine("Resolved settings JSON: ${resolvedSettingsFile.length()} bytes")
                     } else {
-                        appendLine("Settings transport: fallback command-line overrides")
+                        appendLine("Settings transport: standalone fallback command-line values")
                     }
                     appendLine()
                     appendLine("--- Command ---")
@@ -222,7 +230,10 @@ class CuraEngineRunner(private val context: Context) {
                 )
             }
 
-            val summary = GcodeSanitizer.validateAndRepair(outputFile)
+            val summary = GcodeSanitizer.validateAndRepair(
+                outputFile,
+                settingsTransport = if (resolved != null) "resolved-json" else "fallback-command",
+            )
             val previewResult = runCatching { GcodeLayerPreviewParser.parse(outputFile) }
             val layerPreview = previewResult.getOrNull()
             val elapsed = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt)
@@ -277,6 +288,32 @@ class CuraEngineRunner(private val context: Context) {
         }
     }
 
+    private fun completeDefinitionStack(profile: CuraEngineProfile): CuraEngineProfile {
+        if (profile.usesProjectDefinitions) return profile
+
+        val bundled = loadBundledDefinitions()
+        val combined = linkedMapOf<String, String>().apply {
+            putAll(bundled)
+            putAll(profile.definitionFiles)
+        }
+        val selectedMachine = profile.machineDefinitionFileName
+            ?.takeIf(combined::containsKey)
+            ?: BUNDLED_MACHINE_DEFINITION
+        val selectedExtruder = profile.extruderDefinitionFileName
+            ?.takeIf(combined::containsKey)
+            ?: BUNDLED_EXTRUDER_DEFINITION
+
+        return profile.copy(
+            definitionFiles = combined,
+            machineDefinitionFileName = selectedMachine,
+            extruderDefinitionFileName = selectedExtruder,
+        )
+    }
+
+    private fun loadBundledDefinitions(): Map<String, String> = BUNDLED_DEFINITION_FILES.associateWith { name ->
+        context.assets.open("cura/definitions/$name").bufferedReader().use { it.readText() }
+    }
+
     private fun prepareDefinitions(
         workDirectory: File,
         logFile: File,
@@ -298,8 +335,13 @@ class CuraEngineRunner(private val context: Context) {
             val extruder = File(destination, safeDefinitionName(requireNotNull(profile.extruderDefinitionFileName)))
             check(machine.isFile) { "Imported machine definition is missing: ${machine.name}" }
             check(extruder.isFile) { "Imported extruder definition is missing: ${extruder.name}" }
-            logDefinitions(logFile, "Imported Cura project definitions", destination)
-            return PreparedDefinitions(destination, machine, extruder, "imported Cura project")
+            val source = if (profile.definitionFiles.keys.containsAll(BUNDLED_DEFINITION_FILES)) {
+                "Cura baseline completed with pinned definitions"
+            } else {
+                "imported Cura project definitions"
+            }
+            logDefinitions(logFile, source, destination)
+            return PreparedDefinitions(destination, machine, extruder, source)
         }
 
         BUNDLED_DEFINITION_FILES.forEach { name ->
@@ -314,7 +356,7 @@ class CuraEngineRunner(private val context: Context) {
             directory = destination,
             machineDefinition = File(destination, BUNDLED_MACHINE_DEFINITION),
             extruderDefinition = File(destination, BUNDLED_EXTRUDER_DEFINITION),
-            source = "bundled Cura 5.11.0-beta.1 fallback",
+            source = "bundled Cura 5.11.0-beta.1 standalone fallback",
         )
     }
 
