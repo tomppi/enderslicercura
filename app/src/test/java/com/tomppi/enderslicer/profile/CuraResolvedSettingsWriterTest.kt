@@ -10,7 +10,7 @@ import java.nio.file.Files
 
 class CuraResolvedSettingsWriterTest {
     @Test
-    fun preservesFinalBedCoordinatesAndWritesMeshSupportSettings() {
+    fun convertsBedCoordinatesToCuraEngineSpaceAndWritesMeshSupportSettings() {
         val directory = Files.createTempDirectory("enderslicer-resolved").toFile()
         try {
             val destination = File(directory, "resolved-settings.json")
@@ -28,7 +28,11 @@ class CuraResolvedSettingsWriterTest {
                 """.trimIndent(),
             )
             val resolved = CuraSliceSettingsResolver.Result(
-                globalValues = mapOf("machine_width" to "230"),
+                globalValues = mapOf(
+                    "machine_width" to "230",
+                    "machine_depth" to "230",
+                    "machine_center_is_zero" to "false",
+                ),
                 extruderValues = mapOf(
                     "material_print_temperature" to "210",
                     "support_infill_rate" to "0",
@@ -59,8 +63,8 @@ class CuraResolvedSettingsWriterTest {
             assertEquals("0", extruder.getString("support_infill_rate"))
             assertEquals("33.333", extruder.getString("support_interface_density"))
             assertFalse(extruder.getBoolean("center_object"))
-            assertEquals(0, extruder.getInt("mesh_position_x"))
-            assertEquals(0, extruder.getInt("mesh_position_y"))
+            assertEquals(-115.0, extruder.getDouble("mesh_position_x"), 1e-9)
+            assertEquals(-115.0, extruder.getDouble("mesh_position_y"), 1e-9)
             assertEquals(0, extruder.getInt("mesh_position_z"))
 
             val model = root.getJSONObject("current.stl")
@@ -71,9 +75,38 @@ class CuraResolvedSettingsWriterTest {
             assertEquals("0.2", model.getString("support_z_distance"))
             assertEquals("0.8", model.getString("support_xy_distance"))
             assertFalse(model.getBoolean("center_object"))
-            assertEquals(0, model.getInt("mesh_position_x"))
-            assertEquals(0, model.getInt("mesh_position_y"))
+            assertEquals(-115.0, model.getDouble("mesh_position_x"), 1e-9)
+            assertEquals(-115.0, model.getDouble("mesh_position_y"), 1e-9)
             assertEquals(0, model.getInt("mesh_position_z"))
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun keepsZeroOffsetForCenterOriginMachines() {
+        val directory = Files.createTempDirectory("enderslicer-resolved-center").toFile()
+        try {
+            File(directory, "current.stl").writeText("solid test\nendsolid test")
+            val destination = File(directory, "resolved-settings.json")
+            CuraResolvedSettingsWriter.write(
+                destination = destination,
+                modelFileName = "current.stl",
+                resolved = CuraSliceSettingsResolver.Result(
+                    globalValues = mapOf(
+                        "machine_width" to "230",
+                        "machine_depth" to "230",
+                        "machine_center_is_zero" to "true",
+                    ),
+                    extruderValues = emptyMap(),
+                    modelValues = emptyMap(),
+                    expressionCount = 0,
+                    passes = 1,
+                ),
+            )
+            val root = JSONObject(destination.readText())
+            assertEquals(0.0, root.getJSONObject("extruder.0").getDouble("mesh_position_x"), 1e-9)
+            assertEquals(0.0, root.getJSONObject("current.stl").getDouble("mesh_position_y"), 1e-9)
         } finally {
             directory.deleteRecursively()
         }
