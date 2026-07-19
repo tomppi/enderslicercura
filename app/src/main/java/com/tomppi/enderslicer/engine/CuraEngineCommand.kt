@@ -6,7 +6,7 @@ import com.tomppi.enderslicer.model.resolveEndGcode
 import com.tomppi.enderslicer.model.resolveStartGcode
 import com.tomppi.enderslicer.model.withSettings
 import com.tomppi.enderslicer.profile.CuraEngineProfile
-import com.tomppi.enderslicer.profile.CuraUiSettingsOverlay
+import com.tomppi.enderslicer.profile.CuraSettingDelta
 
 object CuraEngineCommand {
     fun buildResolved(
@@ -46,6 +46,9 @@ object CuraEngineCommand {
         profile: CuraEngineProfile? = null,
         threadCount: Int = 4,
     ): List<String> {
+        require(profile == null) {
+            "Imported Cura configurations must be dependency-resolved before command generation"
+        }
         require(threadCount in 1..32) { "Invalid CuraEngine thread count: $threadCount" }
         listOf(
             executablePath,
@@ -87,31 +90,9 @@ object CuraEngineCommand {
             command += "$key=$normalized"
         }
 
-        fun applyConcrete(values: Map<String, String>) {
-            values.forEach { (key, rawValue) ->
-                val value = rawValue.trim()
-                if (key.isBlank() || value.isBlank() || value.startsWith("=")) return@forEach
-                setting(
-                    key,
-                    when (value.lowercase()) {
-                        "true" -> "true"
-                        "false" -> "false"
-                        else -> rawValue
-                    },
-                )
-            }
+        fun applyStandaloneSettings() {
+            CuraSettingDelta.standaloneValues(settings).forEach { (key, value) -> setting(key, value) }
         }
-
-        fun applyVisibleUiSettings() {
-            CuraUiSettingsOverlay.values(settings).forEach { (key, value) -> setting(key, value) }
-        }
-
-        // Imported hidden values are loaded first. Every setting shown in the UI
-        // is then overlaid from SlicerSettings, regardless of whether the user has
-        // touched it. This guarantees that the engine uses exactly what the app
-        // displays and prevents duplicate extruder values from shadowing global
-        // Cura values such as adhesion_type and layer_height.
-        applyConcrete(profile?.globalValues.orEmpty())
 
         setting("machine_name", effectivePrinter.name)
         setting("machine_width", effectivePrinter.widthMm)
@@ -136,7 +117,7 @@ object CuraEngineCommand {
         setting("mesh_position_x", engineOffsetX)
         setting("mesh_position_y", engineOffsetY)
         setting("mesh_position_z", 0)
-        applyVisibleUiSettings()
+        applyStandaloneSettings()
 
         command += listOf(
             "-e0",
@@ -148,28 +129,23 @@ object CuraEngineCommand {
             "--end-force-read",
         )
 
-        applyConcrete(profile?.extruderValues.orEmpty())
-        applyVisibleUiSettings()
+        applyStandaloneSettings()
         setting("extruder_nr", 0)
         setting("machine_nozzle_size", effectivePrinter.nozzleSizeMm)
         setting("material_diameter", effectivePrinter.filamentDiameterMm)
 
-        // A profile-less slice has no Cura frontend to calculate these hidden
-        // interface defaults. Imported profiles retain their own hidden values.
-        if (profile == null) {
-            val interfaceHeight = settings.layerHeightMm * 4.0
-            val density = settings.supportInterfaceDensityPercent.coerceIn(0.0, 100.0)
-            val lineDistance = if (density <= 0.0) 0.0 else settings.lineWidthMm * 100.0 / density * 2.0
-            setting("support_interface_extruder_nr", 0)
-            setting("support_roof_extruder_nr", 0)
-            setting("support_bottom_extruder_nr", 0)
-            setting("support_interface_height", interfaceHeight)
-            setting("support_interface_pattern", "grid")
-            setting("support_roof_line_width", settings.lineWidthMm)
-            setting("support_bottom_line_width", settings.lineWidthMm)
-            setting("support_roof_line_distance", lineDistance)
-            setting("support_bottom_line_distance", lineDistance)
-        }
+        val interfaceHeight = settings.layerHeightMm * 4.0
+        val density = settings.supportInterfaceDensityPercent.coerceIn(0.0, 100.0)
+        val lineDistance = if (density <= 0.0) 0.0 else settings.lineWidthMm * 100.0 / density * 2.0
+        setting("support_interface_extruder_nr", 0)
+        setting("support_roof_extruder_nr", 0)
+        setting("support_bottom_extruder_nr", 0)
+        setting("support_interface_height", interfaceHeight)
+        setting("support_interface_pattern", "grid")
+        setting("support_roof_line_width", settings.lineWidthMm)
+        setting("support_bottom_line_width", settings.lineWidthMm)
+        setting("support_roof_line_distance", lineDistance)
+        setting("support_bottom_line_distance", lineDistance)
 
         setting("center_object", false)
         setting("mesh_position_x", engineOffsetX)
