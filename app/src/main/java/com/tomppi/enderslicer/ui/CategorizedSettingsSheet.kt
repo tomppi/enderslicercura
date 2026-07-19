@@ -79,6 +79,18 @@ internal fun CategorizedSettingsSheet(
             NumberField("Line width (mm)", settings.lineWidthMm, source(state, SlicerSettings.Keys.LINE_WIDTH)) {
                 onSettings(SlicerSettings.Keys.LINE_WIDTH) { current -> current.copy(lineWidthMm = it.coerceIn(0.01, 5.0)) }
             }
+            OptionField(
+                label = "Slicing tolerance",
+                value = settings.slicingTolerance,
+                options = listOf(
+                    "middle" to "Middle · closest to surface",
+                    "exclusive" to "Exclusive · best dimensional fit",
+                    "inclusive" to "Inclusive · retain small details",
+                ),
+                source = source(state, SlicerSettings.Keys.SLICING_TOLERANCE),
+            ) {
+                onSettings(SlicerSettings.Keys.SLICING_TOLERANCE) { current -> current.copy(slicingTolerance = it) }
+            }
         }
 
         SettingsCategory("Walls and top/bottom") {
@@ -90,6 +102,46 @@ internal fun CategorizedSettingsSheet(
             }
             NumberField("Bottom layers", settings.bottomLayers.toDouble(), source(state, SlicerSettings.Keys.BOTTOM_LAYERS), decimals = 0) {
                 onSettings(SlicerSettings.Keys.BOTTOM_LAYERS) { current -> current.copy(bottomLayers = it.toInt().coerceIn(0, 1000000)) }
+            }
+            OptionField(
+                label = "Z seam alignment",
+                value = settings.zSeamType,
+                options = listOf(
+                    "back" to "User specified",
+                    "shortest" to "Shortest path",
+                    "random" to "Random",
+                    "sharpest_corner" to "Sharpest corner",
+                ),
+                source = source(state, SlicerSettings.Keys.Z_SEAM_TYPE),
+            ) {
+                onSettings(SlicerSettings.Keys.Z_SEAM_TYPE) { current -> current.copy(zSeamType = it) }
+            }
+            if (settings.zSeamType == "back") {
+                NumberField("Z seam X (mm)", settings.zSeamXmm, source(state, SlicerSettings.Keys.Z_SEAM_X)) {
+                    onSettings(SlicerSettings.Keys.Z_SEAM_X) { current -> current.copy(zSeamXmm = it.coerceIn(-2000.0, 2000.0)) }
+                }
+                NumberField("Z seam Y (mm)", settings.zSeamYmm, source(state, SlicerSettings.Keys.Z_SEAM_Y)) {
+                    onSettings(SlicerSettings.Keys.Z_SEAM_Y) { current -> current.copy(zSeamYmm = it.coerceIn(-2000.0, 2000.0)) }
+                }
+                SwitchRow("Coordinates relative to each model", settings.zSeamRelative, source(state, SlicerSettings.Keys.Z_SEAM_RELATIVE)) {
+                    onSettings(SlicerSettings.Keys.Z_SEAM_RELATIVE) { current -> current.copy(zSeamRelative = it) }
+                }
+            }
+            if (settings.zSeamType != "random") {
+                OptionField(
+                    label = "Seam corner preference",
+                    value = settings.zSeamCorner,
+                    options = listOf(
+                        "z_seam_corner_none" to "None",
+                        "z_seam_corner_inner" to "Hide seam",
+                        "z_seam_corner_outer" to "Expose seam",
+                        "z_seam_corner_any" to "Hide or expose",
+                        "z_seam_corner_weighted" to "Smart hiding",
+                    ),
+                    source = source(state, SlicerSettings.Keys.Z_SEAM_CORNER),
+                ) {
+                    onSettings(SlicerSettings.Keys.Z_SEAM_CORNER) { current -> current.copy(zSeamCorner = it) }
+                }
             }
         }
 
@@ -286,6 +338,20 @@ internal fun CategorizedSettingsSheet(
             }
             SwitchRow("Firmware retraction", settings.firmwareRetraction, source(state, SlicerSettings.Keys.FIRMWARE_RETRACTION)) {
                 onSettings(SlicerSettings.Keys.FIRMWARE_RETRACTION) { current -> current.copy(firmwareRetraction = it) }
+            }
+            SwitchRow("Enable coasting", settings.coastingEnabled, source(state, SlicerSettings.Keys.COASTING_ENABLED)) {
+                onSettings(SlicerSettings.Keys.COASTING_ENABLED) { current -> current.copy(coastingEnabled = it) }
+            }
+            if (settings.coastingEnabled) {
+                NumberField("Coasting volume (mm³)", settings.coastingVolumeMm3, source(state, SlicerSettings.Keys.COASTING_VOLUME), decimals = 3) {
+                    onSettings(SlicerSettings.Keys.COASTING_VOLUME) { current -> current.copy(coastingVolumeMm3 = it.coerceIn(0.0, 1000.0)) }
+                }
+                NumberField("Minimum volume before coasting (mm³)", settings.coastingMinimumVolumeMm3, source(state, SlicerSettings.Keys.COASTING_MINIMUM_VOLUME), decimals = 3) {
+                    onSettings(SlicerSettings.Keys.COASTING_MINIMUM_VOLUME) { current -> current.copy(coastingMinimumVolumeMm3 = it.coerceIn(0.0, 100000.0)) }
+                }
+                NumberField("Coasting speed (%)", settings.coastingSpeedPercent, source(state, SlicerSettings.Keys.COASTING_SPEED)) {
+                    onSettings(SlicerSettings.Keys.COASTING_SPEED) { current -> current.copy(coastingSpeedPercent = it.coerceIn(0.0001, 1000.0)) }
+                }
             }
         }
 
