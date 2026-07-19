@@ -29,6 +29,7 @@ internal object CuraSliceSettingsResolver {
         val effectivePrinter = printer.withSettings(settings)
         val effectiveStartGcode = settings.resolveStartGcode(startGcode)
         val effectiveEndGcode = settings.resolveEndGcode(endGcode)
+        val visibleValues = CuraUiSettingsOverlay.values(settings)
 
         val globalOverrides = linkedMapOf<String, String>().apply {
             putAll(profile.rawGlobalValues)
@@ -51,7 +52,7 @@ internal object CuraSliceSettingsResolver {
                 "machine_head_with_fans_polygon",
                 "[[${effectivePrinter.printheadXMinMm},${effectivePrinter.printheadYMaxMm}],[${effectivePrinter.printheadXMinMm},${effectivePrinter.printheadYMinMm}],[${effectivePrinter.printheadXMaxMm},${effectivePrinter.printheadYMinMm}],[${effectivePrinter.printheadXMaxMm},${effectivePrinter.printheadYMaxMm}]]",
             )
-            applyExplicitSettings(settings)
+            putAll(visibleValues)
         }
 
         val extruderOverrides = linkedMapOf<String, String>().apply {
@@ -59,7 +60,7 @@ internal object CuraSliceSettingsResolver {
             put("extruder_nr", "0")
             put("machine_nozzle_size", effectivePrinter.nozzleSizeMm.toString())
             put("material_diameter", effectivePrinter.filamentDiameterMm.toString())
-            applyExplicitSettings(settings)
+            putAll(visibleValues)
         }
 
         val resolved = CuraDefinitionResolver.resolve(
@@ -70,7 +71,16 @@ internal object CuraSliceSettingsResolver {
             extruderOverrides = extruderOverrides,
         )
 
+        // This assertion is intentionally part of production resolution. A
+        // future mapping or precedence change must fail before CuraEngine runs
+        // if any setting shown in the UI differs from the final engine snapshot.
+        CuraUiSettingsOverlay.requireResolvedMatch(
+            settings = settings,
+            globalValues = resolved.globalValues,
+            extruderValues = resolved.extruderValues,
+        )
         validateResolvedSettings(resolved.globalValues, resolved.extruderValues)
+
         return Result(
             globalValues = resolved.globalValues,
             extruderValues = resolved.extruderValues,
@@ -78,110 +88,6 @@ internal object CuraSliceSettingsResolver {
             expressionCount = resolved.expressionCount,
             passes = resolved.passes,
         )
-    }
-
-    private fun MutableMap<String, String>.applyExplicitSettings(settings: SlicerSettings) {
-        fun putOverride(appKey: String, curaKey: String, value: Any) {
-            if (settings.isOverridden(appKey)) put(curaKey, value.toString())
-        }
-
-        putOverride(SlicerSettings.Keys.LAYER_HEIGHT, "layer_height", settings.layerHeightMm)
-        putOverride(SlicerSettings.Keys.INITIAL_LAYER_HEIGHT, "layer_height_0", settings.initialLayerHeightMm)
-        putOverride(SlicerSettings.Keys.LINE_WIDTH, "line_width", settings.lineWidthMm)
-        putOverride(SlicerSettings.Keys.SLICING_TOLERANCE, "slicing_tolerance", settings.slicingTolerance)
-        putOverride(SlicerSettings.Keys.WALL_LINE_COUNT, "wall_line_count", settings.wallLineCount)
-        putOverride(SlicerSettings.Keys.TOP_LAYERS, "top_layers", settings.topLayers)
-        putOverride(SlicerSettings.Keys.BOTTOM_LAYERS, "bottom_layers", settings.bottomLayers)
-        putOverride(SlicerSettings.Keys.Z_SEAM_TYPE, "z_seam_type", settings.zSeamType)
-        putOverride(SlicerSettings.Keys.Z_SEAM_X, "z_seam_x", settings.zSeamXmm)
-        putOverride(SlicerSettings.Keys.Z_SEAM_Y, "z_seam_y", settings.zSeamYmm)
-        putOverride(SlicerSettings.Keys.Z_SEAM_RELATIVE, "z_seam_relative", settings.zSeamRelative)
-        putOverride(SlicerSettings.Keys.Z_SEAM_CORNER, "z_seam_corner", settings.zSeamCorner)
-        putOverride(SlicerSettings.Keys.INFILL_DENSITY, "infill_sparse_density", settings.infillDensityPercent)
-        putOverride(SlicerSettings.Keys.INFILL_PATTERN, "infill_pattern", settings.infillPattern)
-        putOverride(SlicerSettings.Keys.PRINT_SPEED, "speed_print", settings.printSpeedMmPerSecond)
-        putOverride(SlicerSettings.Keys.WALL_SPEED, "speed_wall", settings.wallSpeedMmPerSecond)
-        putOverride(SlicerSettings.Keys.OUTER_WALL_SPEED, "speed_wall_0", settings.outerWallSpeedMmPerSecond)
-        putOverride(SlicerSettings.Keys.INNER_WALL_SPEED, "speed_wall_x", settings.innerWallSpeedMmPerSecond)
-        putOverride(SlicerSettings.Keys.INFILL_SPEED, "speed_infill", settings.infillSpeedMmPerSecond)
-        putOverride(SlicerSettings.Keys.TOP_BOTTOM_SPEED, "speed_topbottom", settings.topBottomSpeedMmPerSecond)
-        putOverride(SlicerSettings.Keys.TRAVEL_SPEED, "speed_travel", settings.travelSpeedMmPerSecond)
-        putOverride(SlicerSettings.Keys.INITIAL_LAYER_SPEED, "speed_layer_0", settings.initialLayerSpeedMmPerSecond)
-        putOverride(SlicerSettings.Keys.BED_TEMPERATURE, "material_bed_temperature", settings.bedTemperatureC)
-        putOverride(SlicerSettings.Keys.BED_TEMPERATURE, "material_bed_temperature_layer_0", settings.bedTemperatureC)
-        putOverride(SlicerSettings.Keys.NOZZLE_TEMPERATURE, "material_print_temperature", settings.nozzleTemperatureC)
-        putOverride(
-            SlicerSettings.Keys.INITIAL_NOZZLE_TEMPERATURE,
-            "material_print_temperature_layer_0",
-            settings.initialNozzleTemperatureC,
-        )
-        putOverride(SlicerSettings.Keys.NOZZLE_TEMPERATURE, "material_initial_print_temperature", settings.nozzleTemperatureC)
-        putOverride(SlicerSettings.Keys.NOZZLE_TEMPERATURE, "material_final_print_temperature", settings.nozzleTemperatureC)
-        putOverride(SlicerSettings.Keys.MATERIAL_FLOW, "material_flow", settings.materialFlowPercent)
-        putOverride(SlicerSettings.Keys.FAN_SPEED, "cool_fan_speed", settings.fanSpeedPercent)
-        putOverride(SlicerSettings.Keys.INITIAL_FAN_SPEED, "cool_fan_speed_0", settings.initialFanSpeedPercent)
-        putOverride(SlicerSettings.Keys.FAN_FULL_AT_LAYER, "cool_fan_full_layer", settings.fanFullAtLayer)
-        putOverride(SlicerSettings.Keys.SUPPORTS_ENABLED, "support_enable", settings.supportsEnabled)
-        putOverride(SlicerSettings.Keys.SUPPORT_PLACEMENT, "support_type", settings.supportPlacement)
-        putOverride(SlicerSettings.Keys.SUPPORT_STRUCTURE, "support_structure", settings.supportStructure)
-        putOverride(SlicerSettings.Keys.SUPPORT_ANGLE, "support_angle", settings.supportAngleDegrees)
-        putOverride(SlicerSettings.Keys.SUPPORT_DENSITY, "support_infill_rate", settings.supportDensityPercent)
-        putOverride(SlicerSettings.Keys.SUPPORT_PATTERN, "support_pattern", settings.supportPattern)
-        putOverride(
-            SlicerSettings.Keys.SUPPORT_INTERFACE_ENABLED,
-            "support_interface_enable",
-            settings.supportInterfaceEnabled,
-        )
-        putOverride(
-            SlicerSettings.Keys.SUPPORT_INTERFACE_DENSITY,
-            "support_interface_density",
-            settings.supportInterfaceDensityPercent,
-        )
-        putOverride(SlicerSettings.Keys.SUPPORT_Z_DISTANCE, "support_z_distance", settings.supportZDistanceMm)
-        putOverride(SlicerSettings.Keys.SUPPORT_XY_DISTANCE, "support_xy_distance", settings.supportXyDistanceMm)
-        putOverride(SlicerSettings.Keys.SUPPORT_SPEED, "speed_support", settings.supportSpeedMmPerSecond)
-        putOverride(
-            SlicerSettings.Keys.SUPPORT_INTERFACE_SPEED,
-            "speed_support_interface",
-            settings.supportInterfaceSpeedMmPerSecond,
-        )
-        putOverride(SlicerSettings.Keys.RETRACTION_DISTANCE, "retraction_enable", settings.retractionDistanceMm > 0.0)
-        putOverride(SlicerSettings.Keys.RETRACTION_DISTANCE, "retraction_amount", settings.retractionDistanceMm)
-        putOverride(SlicerSettings.Keys.RETRACTION_SPEED, "retraction_speed", settings.retractionSpeedMmPerSecond)
-        putOverride(
-            SlicerSettings.Keys.RETRACTION_MINIMUM_TRAVEL,
-            "retraction_min_travel",
-            settings.retractionMinimumTravelMm,
-        )
-        putOverride(
-            SlicerSettings.Keys.RETRACT_AT_LAYER_CHANGE,
-            "retract_at_layer_change",
-            settings.retractAtLayerChange,
-        )
-        putOverride(SlicerSettings.Keys.COMBING_MODE, "retraction_combing", settings.combingMode)
-        putOverride(SlicerSettings.Keys.AVOID_PRINTED_PARTS, "travel_avoid_other_parts", settings.avoidPrintedParts)
-        putOverride(
-            SlicerSettings.Keys.TRAVEL_AVOID_DISTANCE,
-            "travel_avoid_distance",
-            settings.travelAvoidDistanceMm,
-        )
-        putOverride(SlicerSettings.Keys.Z_HOP, "retraction_hop_enabled", settings.zHopEnabled)
-        putOverride(SlicerSettings.Keys.Z_HOP_HEIGHT, "retraction_hop", settings.zHopHeightMm)
-        putOverride(SlicerSettings.Keys.FIRMWARE_RETRACTION, "machine_firmware_retract", settings.firmwareRetraction)
-        putOverride(SlicerSettings.Keys.COASTING_ENABLED, "coasting_enable", settings.coastingEnabled)
-        putOverride(SlicerSettings.Keys.COASTING_VOLUME, "coasting_volume", settings.coastingVolumeMm3)
-        putOverride(
-            SlicerSettings.Keys.COASTING_MINIMUM_VOLUME,
-            "coasting_min_volume",
-            settings.coastingMinimumVolumeMm3,
-        )
-        putOverride(SlicerSettings.Keys.COASTING_SPEED, "coasting_speed", settings.coastingSpeedPercent)
-        putOverride(SlicerSettings.Keys.ADHESION_TYPE, "adhesion_type", settings.adhesionType)
-        putOverride(SlicerSettings.Keys.SKIRT_LINE_COUNT, "skirt_line_count", settings.skirtLineCount)
-        putOverride(SlicerSettings.Keys.BRIM_WIDTH, "brim_width", settings.brimWidthMm)
-        putOverride(SlicerSettings.Keys.IRONING_ENABLED, "ironing_enabled", settings.ironingEnabled)
-        putOverride(SlicerSettings.Keys.IRONING_FLOW, "ironing_flow", settings.ironingFlowPercent)
-        putOverride(SlicerSettings.Keys.IRONING_SPEED, "speed_ironing", settings.ironingSpeedMmPerSecond)
     }
 
     private fun validateResolvedSettings(
