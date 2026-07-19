@@ -4,6 +4,7 @@ import com.tomppi.enderslicer.engine.GcodeLayerPreview
 import com.tomppi.enderslicer.model.ModelPlacement
 import com.tomppi.enderslicer.model.PrinterDefinition
 import com.tomppi.enderslicer.model.SlicerSettings
+import com.tomppi.enderslicer.profile.CuraComputedValue
 import com.tomppi.enderslicer.profile.CuraEngineProfile
 import com.tomppi.enderslicer.viewer.StlMesh
 
@@ -26,6 +27,8 @@ data class MainUiState(
     val curaVersion: String? = null,
     val settingVersion: String? = "25",
     val engineProfile: CuraEngineProfile? = null,
+    val computedCuraValues: List<CuraComputedValue> = emptyList(),
+    val computedCuraPasses: Int? = null,
     val startGcode: String = "",
     val endGcode: String = "",
     val engineStatus: String = "",
