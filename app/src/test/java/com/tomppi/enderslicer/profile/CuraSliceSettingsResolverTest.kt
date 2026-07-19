@@ -241,6 +241,17 @@ class CuraSliceSettingsResolverTest {
             "wall_line_width_x" to "=line_width",
             "wall_line_count" to "=1 if magic_spiralize else max(1, round((wall_thickness - wall_line_width_0) / wall_line_width_x) + 1) if wall_thickness != 0 else 0",
             "wall_thickness" to "=line_width*2",
+            // These mirror the flattened support expressions stored in a Cura
+            // 3MF definition. The bundled source definitions keep the same
+            // values under `overrides`, so they are not part of this synthetic
+            // imported-project fixture unless explicitly supplied here.
+            "support_infill_rate" to "=0 if support_enable and support_structure == 'tree' else 20",
+            "support_interface_enable" to "=True",
+            "support_roof_enable" to "=support_interface_enable",
+            "support_bottom_enable" to "=support_interface_enable",
+            "support_interface_density" to "=33.333",
+            "support_z_distance" to "=layer_height if layer_height >= 0.16 else layer_height * 2",
+            "support_xy_distance" to "=wall_line_width_0 * 2",
             "support_angle" to "56",
         ),
         definitionFiles = loadDefinitions(),
