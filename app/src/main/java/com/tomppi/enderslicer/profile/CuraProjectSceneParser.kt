@@ -3,7 +3,6 @@ package com.tomppi.enderslicer.profile
 import com.tomppi.enderslicer.model.ModelPlacement
 import org.w3c.dom.Element
 import java.io.InputStream
-import javax.xml.XMLConstants
 import javax.xml.parsers.DocumentBuilderFactory
 
 data class CuraProjectScene(
@@ -19,6 +18,8 @@ data class CuraProjectScene(
 
 object CuraProjectSceneParser {
     private const val MODEL_PATH = "3D/3dmodel.model"
+    private const val ACCESS_EXTERNAL_DTD = "http://javax.xml.XMLConstants/property/accessExternalDTD"
+    private const val ACCESS_EXTERNAL_SCHEMA = "http://javax.xml.XMLConstants/property/accessExternalSchema"
 
     fun parse(input: InputStream): CuraProjectScene? {
         val entries = CuraArchive.readTextEntries(input, accept = { path ->
@@ -125,7 +126,7 @@ object CuraProjectSceneParser {
         runCatching { setFeature("http://apache.org/xml/features/disallow-doctype-decl", true) }
         runCatching { setFeature("http://xml.org/sax/features/external-general-entities", false) }
         runCatching { setFeature("http://xml.org/sax/features/external-parameter-entities", false) }
-        runCatching { setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "") }
-        runCatching { setAttribute(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "") }
+        runCatching { setAttribute(ACCESS_EXTERNAL_DTD, "") }
+        runCatching { setAttribute(ACCESS_EXTERNAL_SCHEMA, "") }
     }
 }
