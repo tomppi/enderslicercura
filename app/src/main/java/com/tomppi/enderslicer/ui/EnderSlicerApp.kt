@@ -55,6 +55,7 @@ fun EnderSlicerApp(viewModel: MainViewModel = viewModel()) {
     var menuExpanded by remember { mutableStateOf(false) }
     var settingsOpen by remember { mutableStateOf(false) }
     var machineSettingsOpen by remember { mutableStateOf(false) }
+    var modelToolsOpen by remember { mutableStateOf(false) }
     var viewerMode by remember { mutableStateOf(ViewerMode.MODEL) }
     var selectedLayerIndex by remember { mutableStateOf(0) }
 
@@ -135,6 +136,14 @@ fun EnderSlicerApp(viewModel: MainViewModel = viewModel()) {
                             )
                             HorizontalDivider()
                             DropdownMenuItem(
+                                text = { Text("Model position & rotation") },
+                                onClick = {
+                                    menuExpanded = false
+                                    modelToolsOpen = true
+                                },
+                                enabled = state.mesh != null && !state.isBusy,
+                            )
+                            DropdownMenuItem(
                                 text = { Text("Print settings") },
                                 onClick = {
                                     menuExpanded = false
@@ -212,6 +221,26 @@ fun EnderSlicerApp(viewModel: MainViewModel = viewModel()) {
             )
         }
     }
+
+    if (modelToolsOpen) {
+        ModalBottomSheet(
+            onDismissRequest = { modelToolsOpen = false },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        ) {
+            ModelToolsSheet(
+                state = state,
+                onMove = viewModel::moveModel,
+                onRotate = viewModel::rotateModel,
+                onDropToBed = viewModel::dropModelToBed,
+                onLayFlat = viewModel::layModelFlat,
+                onReset = viewModel::resetModelTransform,
+                onApplyImportedTransform = viewModel::applyImportedSceneTransform,
+                modifier = Modifier
+                    .fillMaxHeight(0.94f)
+                    .navigationBarsPadding(),
+            )
+        }
+    }
 }
 
 @Composable
@@ -247,7 +276,7 @@ private fun ViewerPanel(
             modifier = Modifier
                 .align(Alignment.TopStart)
                 .padding(12.dp)
-                .widthIn(max = 360.dp),
+                .widthIn(max = 390.dp),
         ) {
             Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp)) {
                 Text(effectivePrinter.name, style = MaterialTheme.typography.titleSmall)
@@ -273,9 +302,23 @@ private fun ViewerPanel(
                         ),
                         style = MaterialTheme.typography.bodySmall,
                     )
+                    state.modelPlacement?.let { placement ->
+                        Text(
+                            "Center %.2f, %.2f · base Z %.2f mm".format(
+                                placement.centerXmm,
+                                placement.centerYmm,
+                                placement.baseZmm,
+                            ),
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        Text(placement.source, style = MaterialTheme.typography.labelSmall)
+                    }
                 }
                 state.estimatedPrintSeconds?.let { seconds ->
                     Text("Estimated print: ${formatEstimatedPrintTime(seconds)}", style = MaterialTheme.typography.bodySmall)
+                }
+                if (state.warnings.isNotEmpty()) {
+                    Text("Cura compatibility warnings: ${state.warnings.size}", style = MaterialTheme.typography.labelSmall)
                 }
             }
         }
