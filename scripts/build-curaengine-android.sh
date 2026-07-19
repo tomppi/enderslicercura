@@ -32,6 +32,12 @@ fi
 # group but constructs the loaded Mesh with only the extruder stack as parent.
 # Copy those values onto the actual Mesh after loading so support interface/roof
 # and other settable_per_mesh values reach the slicer.
+#
+# Cura project files can also contain cool_min_temperature=0 as a frontend
+# sentinel. CuraEngine's minimum-layer-time interpolation otherwise treats that
+# literal zero as a real nozzle target and can emit unsafe temperatures while
+# still extruding. Interpret only non-positive values as "stay at print temp";
+# legitimate nonzero minimum temperatures remain unchanged.
 python3 - "$ENGINE_ROOT" <<'PY'
 from pathlib import Path
 import sys
@@ -129,6 +135,28 @@ replace(
                         {
                             loaded_mesh.settings_.add(setting_key, setting_value);
                         }''',
+)
+
+layer_plan_buffer_cpp = root / "src" / "LayerPlanBuffer.cpp"
+replace(
+    layer_plan_buffer_cpp,
+    '''        if (extruder_plan.temperature_factor_ > 0) // force lower printing temperatures due to minimum layer time
+        {
+            print_temp = print_temp * (1 - extruder_plan.temperature_factor_) + extruder_plan.temperature_factor_ * extruder_settings.get<Temperature>("cool_min_temperature");
+            initial_print_temp = std::min(initial_print_temp, print_temp);
+        }''',
+    '''        if (extruder_plan.temperature_factor_ > 0) // force lower printing temperatures due to minimum layer time
+        {
+            const Temperature configured_cool_min_temperature = extruder_settings.get<Temperature>("cool_min_temperature");
+            // EnderSlicer: zero cool_min_temperature is a Cura frontend sentinel,
+            // not a valid extrusion target. Keep the current print temperature
+            // as the minimum while preserving every legitimate nonzero value.
+            const Temperature safe_cool_min_temperature
+                = configured_cool_min_temperature > 0 ? configured_cool_min_temperature : print_temp;
+            print_temp = print_temp * (1 - extruder_plan.temperature_factor_)
+                       + extruder_plan.temperature_factor_ * safe_cool_min_temperature;
+            initial_print_temp = std::min(initial_print_temp, print_temp);
+        }''',
 )
 PY
 

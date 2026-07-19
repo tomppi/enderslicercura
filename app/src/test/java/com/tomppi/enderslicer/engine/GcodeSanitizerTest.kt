@@ -38,6 +38,31 @@ class GcodeSanitizerTest {
     }
 
     @Test
+    fun rejectsNonzeroSubminimumTargetDuringExtrusion() {
+        val file = temporaryGcode(
+            """
+            ;TIME:2
+            ;Filament used: 0m
+            ;LAYER_COUNT:2
+            M82
+            M104 S210
+            ;LAYER:0
+            ;MESH:model.stl
+            G1 X10 Y20 Z0.2 E1
+            ;LAYER:1
+            M104 S137.4
+            G1 X11 Y21 Z0.4 E2
+            ;TIME_ELAPSED:2
+            """.trimIndent(),
+        )
+
+        val error = runCatching { GcodeSanitizer.validateAndRepair(file) }.exceptionOrNull()
+        assertTrue(error is GcodeSanitizer.UnsafeGcodeException)
+        assertTrue(error?.message.orEmpty().contains("137.4"))
+        assertTrue(error?.message.orEmpty().contains("layer 1"))
+    }
+
+    @Test
     fun repairsBoundsFromModelButFilamentFromWholePrintAndStampsFallbackBuild() {
         val file = temporaryGcode(
             """
@@ -89,7 +114,7 @@ class GcodeSanitizerTest {
         assertEquals(120.0, summary.maxX!!, 0.0)
         assertEquals(130.0, summary.maxY!!, 0.0)
         assertEquals(0.4, summary.maxZ!!, 0.0)
-        assertTrue(output.startsWith(";FLAVOR:Marlin\r\n;ENDERSLICER_VERSION:0.5.7-dev\r\n"))
+        assertTrue(output.startsWith(";FLAVOR:Marlin\r\n;ENDERSLICER_VERSION:0.5.8-dev\r\n"))
         assertTrue(output.contains(";ENDERSLICER_COORDINATE_TRANSPORT:staged-stl-and-fallback-offset"))
         assertTrue(output.contains(";ENDERSLICER_SETTINGS_TRANSPORT:fallback-command"))
         assertTrue(output.contains(";TIME:43"))

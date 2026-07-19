@@ -72,6 +72,7 @@ jobs:
           scripts/build-curaengine-android.sh 2>&1 | tee curaengine-android-build.log
           grep -q 'CuraEngine Android artifacts (5.11.0-beta.1)' curaengine-android-build.log
           grep -q 'EnderSlicer: resolved model values must live on the' .build/CuraEngine/src/communication/CommandLine.cpp
+          grep -q 'EnderSlicer: zero cool_min_temperature is a Cura frontend sentinel' .build/CuraEngine/src/LayerPlanBuffer.cpp
           test -s app/src/main/jniLibs/arm64-v8a/libcuraengine_exec.so
           file app/src/main/jniLibs/arm64-v8a/libcuraengine_exec.so
           readelf -d app/src/main/jniLibs/arm64-v8a/libcuraengine_exec.so | tee curaengine-needed.log
@@ -101,7 +102,7 @@ jobs:
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: EnderSlicer-0.5.7-dev-debug-apk
+          name: EnderSlicer-0.5.8-dev-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
 
       - name: Upload build logs
