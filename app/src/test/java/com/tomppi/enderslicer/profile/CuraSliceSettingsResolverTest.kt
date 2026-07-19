@@ -168,6 +168,27 @@ class CuraSliceSettingsResolverTest {
         assertNumeric(resolved.extruderValues, "cool_min_temperature", 200.0)
     }
 
+    @Test
+    fun globalTreeSupportFeedsExtruderFormulasAndMeshScope() {
+        val resolved = resolve(
+            profile(),
+            SlicerSettings(overriddenSettingKeys = emptySet()),
+        )
+
+        assertEquals("tree", resolved.extruderValues["support_structure"])
+        assertEquals("everywhere", resolved.extruderValues["support_type"])
+        assertEquals("true", resolved.extruderValues["support_enable"]?.lowercase())
+        assertNumeric(resolved.extruderValues, "support_infill_rate", 0.0)
+        assertNumeric(resolved.extruderValues, "support_interface_density", 33.333)
+
+        assertEquals("true", resolved.modelValues["support_enable"]?.lowercase())
+        assertEquals("true", resolved.modelValues["support_interface_enable"]?.lowercase())
+        assertEquals("true", resolved.modelValues["support_roof_enable"]?.lowercase())
+        assertNumeric(resolved.modelValues, "support_z_distance", 0.2)
+        assertNumeric(resolved.modelValues, "support_xy_distance", 0.8)
+        assertNumeric(resolved.modelValues, "support_angle", 56.0)
+    }
+
     private fun resolve(
         profile: CuraEngineProfile,
         settings: SlicerSettings,
@@ -220,6 +241,7 @@ class CuraSliceSettingsResolverTest {
             "wall_line_width_x" to "=line_width",
             "wall_line_count" to "=1 if magic_spiralize else max(1, round((wall_thickness - wall_line_width_0) / wall_line_width_x) + 1) if wall_thickness != 0 else 0",
             "wall_thickness" to "=line_width*2",
+            "support_angle" to "56",
         ),
         definitionFiles = loadDefinitions(),
         machineDefinitionFileName = "creality_ender3.def.json",
