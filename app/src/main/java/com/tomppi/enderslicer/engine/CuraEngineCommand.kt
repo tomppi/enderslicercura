@@ -116,6 +116,10 @@ object CuraEngineCommand {
             "machine_head_with_fans_polygon",
             "[[${effectivePrinter.printheadXMinMm},${effectivePrinter.printheadYMaxMm}],[${effectivePrinter.printheadXMinMm},${effectivePrinter.printheadYMinMm}],[${effectivePrinter.printheadXMaxMm},${effectivePrinter.printheadYMinMm}],[${effectivePrinter.printheadXMaxMm},${effectivePrinter.printheadYMaxMm}]]",
         )
+        setting("center_object", false)
+        setting("mesh_position_x", 0)
+        setting("mesh_position_y", 0)
+        setting("mesh_position_z", 0)
 
         fun applyPrintSettings() {
             setting("layer_height", settings.layerHeightMm)
@@ -193,6 +197,10 @@ object CuraEngineCommand {
         setting("material_initial_print_temperature", settings.nozzleTemperatureC)
         setting("material_final_print_temperature", settings.nozzleTemperatureC)
         setting("cool_min_temperature", settings.nozzleTemperatureC)
+        setting("center_object", false)
+        setting("mesh_position_x", 0)
+        setting("mesh_position_y", 0)
+        setting("mesh_position_z", 0)
 
         command += listOf("-l", modelPath, "-o", outputPath)
         return command
