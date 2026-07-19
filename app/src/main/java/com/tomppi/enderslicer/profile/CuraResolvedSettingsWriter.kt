@@ -19,16 +19,19 @@ internal object CuraResolvedSettingsWriter {
             "Resolved Cura STL is missing or empty: ${modelFile.absolutePath}"
         }
 
-        // EnderSlicer now writes a transformed STL whose vertices are already in
-        // final build-plate coordinates. Do not ask CuraEngine to center or drop
-        // it again: doing so discards imported 3MF translations, floating-model
-        // Z offsets, manual movement and lay-flat results.
+        // EnderSlicer writes a transformed STL whose vertices are already in
+        // final build-plate coordinates. Do not center or drop it again.
         val extruderValues = JSONObject(resolved.extruderValues)
             .put("center_object", false)
             .put("mesh_position_x", 0)
             .put("mesh_position_y", 0)
             .put("mesh_position_z", 0)
-        val modelValues = JSONObject()
+
+        // CuraEngine reads settings such as support enable, interface/roof
+        // enable, support angle and support distances from the mesh settings
+        // stack. Preserve every value marked settable_per_mesh in the imported
+        // definitions instead of leaving the model at definition defaults.
+        val modelValues = JSONObject(resolved.modelValues)
             .put("extruder_nr", 0)
             .put("center_object", false)
             .put("mesh_position_x", 0)
