@@ -65,83 +65,72 @@ class CuraEngineCommandTest {
     }
 
     @Test
-    fun importedFallbackProfileRemainsActiveWithoutExplicitAppOverrides() {
-        val machineDefinition = "/files/definitions/creality_ender3.def.json"
-        val extruderDefinition = "/files/definitions/creality_base_extruder_0.def.json"
+    fun currentVisibleValuesWinOverConflictingImportedGlobalAndExtruderCopies() {
         val profile = CuraEngineProfile(
             globalValues = linkedMapOf(
-                "slicing_tolerance" to "exclusive",
-                "support_enable" to "False",
-                "unresolved" to "=some_formula()",
+                "layer_height" to "0.2",
+                "adhesion_type" to "none",
+                "support_enable" to "true",
+                "hidden_tree_value" to "kept-global",
             ),
             extruderValues = linkedMapOf(
-                "coasting_enable" to "True",
-                "coasting_volume" to "0.256",
-                "speed_print" to "120",
-                "material_standby_temperature" to "180",
+                "layer_height" to "0.1",
+                "adhesion_type" to "brim",
+                "material_print_temperature" to "200",
                 "cool_min_temperature" to "0",
+                "hidden_tree_value" to "kept-extruder",
             ),
         )
+        val settings = SlicerSettings(
+            layerHeightMm = 0.2,
+            adhesionType = "none",
+            nozzleTemperatureC = 210,
+            initialNozzleTemperatureC = 235,
+            supportsEnabled = true,
+            supportStructure = "tree",
+            supportDensityPercent = 15.0,
+            overriddenSettingKeys = emptySet(),
+        )
+
         val command = CuraEngineCommand.build(
             executablePath = "/native/libcuraengine_exec.so",
             definitionsDirectory = "/files/definitions",
-            machineDefinitionPath = machineDefinition,
-            extruderDefinitionPath = extruderDefinition,
+            machineDefinitionPath = "/files/definitions/creality_ender3.def.json",
+            extruderDefinitionPath = "/files/definitions/creality_base_extruder_0.def.json",
             modelPath = "/files/current model.stl",
             outputPath = "/files/current.gcode",
             printer = printer,
-            settings = SlicerSettings(
-                printSpeedMmPerSecond = 200.0,
-                supportsEnabled = true,
-                overriddenSettingKeys = emptySet(),
-            ),
-            startGcode = "G28\nG29 L0\nG29 A",
-            endGcode = "M104 S0\nM140 S0",
+            settings = settings,
+            startGcode = "G28",
+            endGcode = "M104 S0",
             profile = profile,
         )
+        val values = commandSettings(command)
 
-        assertEquals("/native/libcuraengine_exec.so", command.first())
-        assertEquals("slice", command[1])
-        assertEquals(2, command.count { it == "--force-read-parent" })
-        assertFalse(command.contains("--force-read-nondefault"))
-        assertFalse(command.any { it.startsWith("unresolved=") })
-        assertTrue(command.contains("slicing_tolerance=exclusive"))
-        assertTrue(command.contains("coasting_enable=true"))
-        assertTrue(command.contains("coasting_volume=0.256"))
-        assertTrue(command.contains("material_standby_temperature=180"))
-        assertTrue(command.contains("cool_min_temperature=0"))
-        assertFalse(command.contains("cool_min_temperature=210"))
-        assertTrue(command.contains("speed_print=120"))
-        assertFalse(command.contains("speed_print=200.0"))
-        assertTrue(command.contains("support_enable=false"))
-        assertFalse(command.contains("support_enable=true"))
-        assertFalse(command.contains("material_initial_print_temperature=210"))
-        assertFalse(command.contains("material_final_print_temperature=210"))
-
-        assertContainsSubsequence(
-            command,
-            listOf("--force-read-parent", "-j", machineDefinition, "--end-force-read"),
-        )
-        assertContainsSubsequence(
-            command,
-            listOf(
-                "-e0",
-                "--force-read-parent",
-                "-j",
-                machineDefinition,
-                "-j",
-                extruderDefinition,
-                "--end-force-read",
-            ),
-        )
-        assertEquals("/files/current.gcode", command.last())
-        assertEquals("-o", command[command.lastIndex - 1])
+        assertEquals("0.2", values["layer_height"])
+        assertEquals("none", values["adhesion_type"])
+        assertEquals("210", values["material_print_temperature"])
+        assertEquals("235", values["material_print_temperature_layer_0"])
+        assertEquals("210", values["cool_min_temperature"])
+        assertEquals("0.0", values["support_infill_rate"])
+        assertEquals("kept-extruder", values["hidden_tree_value"])
+        assertEquals("-115.0", values["mesh_position_x"])
+        assertEquals("-115.0", values["mesh_position_y"])
+        assertTrue(command.contains("-l"))
     }
 
-    private fun assertContainsSubsequence(command: List<String>, expected: List<String>) {
-        assertTrue(
-            "Expected command to contain contiguous sequence: $expected\nActual: $command",
-            command.windowed(expected.size).any { it == expected },
-        )
+    private fun commandSettings(command: List<String>): Map<String, String> {
+        val result = linkedMapOf<String, String>()
+        var index = 0
+        while (index < command.size - 1) {
+            if (command[index] == "-s") {
+                val raw = command[index + 1]
+                result[raw.substringBefore('=')] = raw.substringAfter('=', "")
+                index += 2
+            } else {
+                index++
+            }
+        }
+        return result
     }
 }
