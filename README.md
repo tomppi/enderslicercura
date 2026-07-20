@@ -1,16 +1,18 @@
 <p align="center">
-  <img src="docs/esc-icon.svg" width="128" height="128" alt="EnderSlicer ESC icon">
+  <img src="docs/esc-icon.svg" width="128" height="128" alt="enderslicercura ESC icon">
 </p>
 
-# EnderSlicer
+# enderslicercura
 
-EnderSlicer is an Android-first CuraEngine front end designed for practical slicing directly on a phone or foldable. It currently targets a modified Creality Ender 3 V2, while exposing editable printer dimensions, nozzle and filament data, start/end G-code, print settings, supports, travel, cooling, adhesion, and model placement.
+enderslicercura is an Android-first CuraEngine front end designed for practical slicing directly on a phone or foldable. It currently targets a modified Creality Ender 3 V2, while exposing editable printer dimensions, nozzle and filament data, start/end G-code, print settings, supports, travel, cooling, adhesion, and model placement.
 
 The app is now fully capable of importing an STL, importing Cura configuration data, slicing with the bundled ARM64 CuraEngine, previewing the generated layers, estimating print time, and exporting printer-compatible G-code.
 
+Android application ID: `com.tomppi.enderslicercura`.
+
 ## Project status
 
-EnderSlicer is working and is already producing output very close to Cura Desktop for the current reference printer/profile. It is not yet being described as a complete Cura replacement: several more side-by-side slicing comparisons using different model shapes, support cases, infill patterns, model transforms, and profile combinations are still required before parity can be considered broadly validated.
+enderslicercura is working and is already producing output very close to Cura Desktop for the current reference printer/profile. It is not yet being described as a complete Cura replacement: several more side-by-side slicing comparisons using different model shapes, support cases, infill patterns, model transforms, and profile combinations are still required before parity can be considered broadly validated.
 
 The current development line is `0.5.13-dev` and uses CuraEngine `5.11.0-beta.1` with matching Cura resources.
 
@@ -59,11 +61,11 @@ The app can edit these machine values, but the most complete real-printer valida
 
 ## Cura comparison
 
-The following comparison used the same STL and the same Cura `5.11.0-beta.1` project/profile data in Cura Desktop and EnderSlicer.
+The following comparison used the same STL and the same Cura `5.11.0-beta.1` project/profile data in Cura Desktop and enderslicercura.
 
 ### Overall result
 
-| Metric | EnderSlicer | Cura Desktop | Difference |
+| Metric | enderslicercura | Cura Desktop | Difference |
 |---|---:|---:|---:|
 | Layers | 115 | 115 | Exact |
 | Layer height | 0.20 mm | 0.20 mm | Exact |
@@ -78,11 +80,11 @@ The following comparison used the same STL and the same Cura `5.11.0-beta.1` pro
 | Firmware retracts (`G10`) | 1352 | 1352 | Exact |
 | Firmware unretracts (`G11`) | 1351 | 1351 | Exact |
 
-The larger travel/time difference is concentrated mainly in early-layer skin travel. The printed geometry and extrusion destinations remain extremely close; Cura Desktop takes several long segmented combing detours that EnderSlicer avoids. More models are needed to determine how often this path-ordering difference appears.
+The larger travel/time difference is concentrated mainly in early-layer skin travel. The printed geometry and extrusion destinations remain extremely close; Cura Desktop takes several long segmented combing detours that enderslicercura avoids. More models are needed to determine how often this path-ordering difference appears.
 
 ### Feature extrusion
 
-| Feature | EnderSlicer | Cura Desktop | Difference |
+| Feature | enderslicercura | Cura Desktop | Difference |
 |---|---:|---:|---:|
 | Inner walls | 469.29038 mm | 469.29721 mm | −0.00683 mm (−0.00146%) |
 | Outer walls | 621.63546 mm | 621.63765 mm | −0.00219 mm (−0.00035%) |
@@ -95,7 +97,7 @@ The two files also contained identical counts of wall, skin, infill, support, su
 
 ## Remaining validation and limitations
 
-The next validation work should compare additional Cura and EnderSlicer outputs covering:
+The next validation work should compare additional Cura and enderslicercura outputs covering:
 
 - Large and small models
 - Models with many disconnected islands
@@ -136,7 +138,7 @@ GitHub Actions builds CuraEngine, runs the unit/regression tests, packages the d
 
 ## CuraEngine
 
-The repository pins CuraEngine and Cura resource data to `5.11.0-beta.1` so imported projects and the Android engine use matching setting definitions. The Android build scripts include the project-specific resolved-settings, model-transform and safety integration required by EnderSlicer.
+The repository pins CuraEngine and Cura resource data to `5.11.0-beta.1` so imported projects and the Android engine use matching setting definitions. The Android build scripts include the project-specific resolved-settings, model-transform and safety integration required by enderslicercura.
 
 ## Safety
 
@@ -146,4 +148,4 @@ Always inspect settings, machine dimensions and custom start/end G-code before p
 
 ## License
 
-EnderSlicer is intended to be distributed under GNU AGPL-3.0-or-later because it links to CuraEngine, which is AGPL-licensed. UltiMaker and Cura are trademarks of their respective owners. EnderSlicer is not an official UltiMaker or Creality application.
+enderslicercura is intended to be distributed under GNU AGPL-3.0-or-later because it links to CuraEngine, which is AGPL-licensed. UltiMaker and Cura are trademarks of their respective owners. enderslicercura is not an official UltiMaker or Creality application.
