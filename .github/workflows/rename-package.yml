@@ -1,0 +1,126 @@
+name: Rename package to enderslicercura
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/rename-package.yml
+
+permissions:
+  contents: write
+
+jobs:
+  rename:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.4.1'
+
+      - name: Rename Android package and branding
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          for source_set in main test androidTest; do
+            old_dir="app/src/${source_set}/java/com/tomppi/enderslicer"
+            new_dir="app/src/${source_set}/java/com/tomppi/enderslicercura"
+            if [[ -d "$old_dir" ]]; then
+              mkdir -p "$(dirname "$new_dir")"
+              git mv "$old_dir" "$new_dir"
+            fi
+          done
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          root = Path('.')
+          skip_parts = {'.git', '.gradle', 'build', '.build'}
+          text_suffixes = {
+              '.kt', '.kts', '.java', '.xml', '.md', '.svg', '.yml', '.yaml',
+              '.sh', '.cpp', '.cc', '.c', '.h', '.hpp', '.json', '.txt', '.properties'
+          }
+
+          for path in root.rglob('*'):
+              if not path.is_file() or any(part in skip_parts for part in path.parts):
+                  continue
+              if path.suffix.lower() not in text_suffixes and path.name not in {'README', 'LICENSE'}:
+                  continue
+              try:
+                  original = path.read_text(encoding='utf-8')
+              except UnicodeDecodeError:
+                  continue
+
+              updated = original.replace('com.tomppi.enderslicer', 'com.tomppi.enderslicercura')
+              updated = updated.replace('com/tomppi/enderslicer', 'com/tomppi/enderslicercura')
+              updated = updated.replace('Java_com_tomppi_enderslicer_', 'Java_com_tomppi_enderslicercura_')
+
+              relative = path.as_posix()
+              if relative == 'README.md':
+                  updated = updated.replace('EnderSlicer', 'enderslicercura')
+              elif relative == 'app/src/main/res/values/strings.xml':
+                  updated = updated.replace('>EnderSlicer<', '>enderslicercura<')
+              elif relative.endswith('/ui/EnderSlicerApp.kt'):
+                  updated = updated.replace('Text("EnderSlicer")', 'Text("enderslicercura")')
+              elif relative == '.github/workflows/build.yml':
+                  updated = updated.replace('name: EnderSlicer-', 'name: enderslicercura-')
+              elif relative == 'docs/esc-icon.svg':
+                  updated = updated.replace('EnderSlicer ESC icon', 'enderslicercura ESC icon')
+              elif relative.endswith('/engine/CuraEngineRunner.kt'):
+                  updated = updated.replace('EnderSlicer CuraEngine diagnostic log', 'enderslicercura CuraEngine diagnostic log')
+              elif relative.endswith('/profile/CuraProjectAudit.kt'):
+                  updated = updated.replace('not editable in EnderSlicer', 'not editable in enderslicercura')
+
+              if updated != original:
+                  path.write_text(updated, encoding='utf-8')
+
+          gradle_file = Path('app/build.gradle.kts')
+          gradle_text = gradle_file.read_text(encoding='utf-8')
+          if 'namespace = "com.tomppi.enderslicercura"' not in gradle_text:
+              raise SystemExit('Android namespace migration did not apply')
+          if 'applicationId = "com.tomppi.enderslicercura"' not in gradle_text:
+              raise SystemExit('Android applicationId migration did not apply')
+
+          strings = Path('app/src/main/res/values/strings.xml').read_text(encoding='utf-8')
+          if '<string name="app_name">enderslicercura</string>' not in strings:
+              raise SystemExit('Visible app name migration did not apply')
+
+          stale = []
+          for path in root.rglob('*'):
+              if not path.is_file() or any(part in skip_parts for part in path.parts):
+                  continue
+              try:
+                  text = path.read_text(encoding='utf-8')
+              except UnicodeDecodeError:
+                  continue
+              if 'com.tomppi.enderslicer' in text or 'Java_com_tomppi_enderslicer_' in text:
+                  stale.append(str(path))
+          if stale:
+              raise SystemExit('Stale package references remain: ' + ', '.join(stale[:20]))
+          PY
+
+          git rm .github/workflows/rename-package.yml
+          git add -A
+          git diff --cached --check
+
+      - name: Run unit tests
+        run: gradle :app:testDebugUnitTest
+
+      - name: Commit migration
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Rename app and package to enderslicercura"
+          git push origin HEAD:main
