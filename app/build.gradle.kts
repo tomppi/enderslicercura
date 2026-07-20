@@ -8,7 +8,7 @@ android {
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.tomppi.enderslicer"
+        applicationId = "com.tomppi.enderslicercura"
         minSdk = 29
         targetSdk = 36
         versionCode = 32
