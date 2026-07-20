@@ -96,7 +96,7 @@ fun EnderSlicerApp(viewModel: MainViewModel = viewModel()) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("EnderSlicer") },
+                title = { Text("enderslicercura") },
                 actions = {
                     Box {
                         TextButton(onClick = { menuExpanded = true }) { Text("Menu") }
