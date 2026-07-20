@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title description">
+  <title id="title">EnderSlicer ESC icon</title>
+  <desc id="description">Rounded dark app icon with white ESC initials and a blue, green and orange speed strip.</desc>
+  <rect width="512" height="512" rx="112" fill="#10151c"/>
+
+  <!-- E -->
+  <rect x="95" y="170" width="90" height="28" rx="4" fill="#ffffff"/>
+  <rect x="95" y="170" width="28" height="170" rx="4" fill="#ffffff"/>
+  <rect x="95" y="241" width="80" height="28" rx="4" fill="#ffffff"/>
+  <rect x="95" y="312" width="90" height="28" rx="4" fill="#ffffff"/>
+
+  <!-- S -->
+  <rect x="211" y="170" width="90" height="28" rx="4" fill="#ffffff"/>
+  <rect x="211" y="170" width="28" height="99" rx="4" fill="#ffffff"/>
+  <rect x="211" y="241" width="90" height="28" rx="4" fill="#ffffff"/>
+  <rect x="273" y="241" width="28" height="99" rx="4" fill="#ffffff"/>
+  <rect x="211" y="312" width="90" height="28" rx="4" fill="#ffffff"/>
+
+  <!-- C -->
+  <rect x="327" y="170" width="90" height="28" rx="4" fill="#ffffff"/>
+  <rect x="327" y="170" width="28" height="170" rx="4" fill="#ffffff"/>
+  <rect x="327" y="312" width="90" height="28" rx="4" fill="#ffffff"/>
+
+  <!-- Layer speed strip -->
+  <rect x="122" y="366" width="82" height="24" rx="12" fill="#3b82f6"/>
+  <rect x="215" y="366" width="82" height="24" rx="12" fill="#22c55e"/>
+  <rect x="308" y="366" width="82" height="24" rx="12" fill="#f97316"/>
+</svg>
