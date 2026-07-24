@@ -24,7 +24,7 @@ The current development line is `0.7.0-dev` and uses CuraEngine `5.11.0-beta.1` 
 - Binary and ASCII STL import
 - CuraEngine adaptive layer-height controls with fine, balanced and fast presets
 - Layer timeline with pauses, filament changes, temperatures, fan, speed, flow, retraction, camera, messages and guarded custom G-code
-- Purpose-built temperature, flow, speed, fan and firmware-retraction calibration models
+- Purpose-built support-free temperature, flow, speed, fan and firmware-retraction calibration models
 - Non-destructive layer-event editing without re-slicing
 - High-contrast current-layer ribbon preview with optional dimmed build-up context
 - Layer-height range display and timeline event markers
@@ -67,7 +67,7 @@ Adaptive layer height uses CuraEngine's native `adaptive_layer_height_*` setting
 
 After slicing, select any layer and open **Add event**. Events are inserted immediately after Cura's layer marker and are rebuilt from an untouched base G-code file, so adding or removing a pause, filament change, temperature, fan, speed, flow, firmware-retraction, camera, display-message or guarded custom-G-code event does not run CuraEngine again. Unsafe custom commands such as homing, emergency stop, EEPROM writes and motor release are blocked inside layer events.
 
-Open **Menu → Calibration generator** to create a purpose-built model for the selected test. Temperature models repeat bridges, sloped overhangs and thin fins; flow models use thin walls, top-surface coupons and measurement ribs; speed models use a sharp multi-point star; fan models repeat long bridges and progressive cantilevers; and retraction models use isolated posts that force travel moves and expose stringing. Every model schedules the matching G-code value changes automatically when sliced. Retraction models enable firmware retraction and change `M207` distance while retaining the configured retraction speed.
+Open **Menu → Calibration generator** to create a purpose-built support-free model for the selected test. Temperature models use grounded posts, bridges, stepped overhangs and a thin fin; flow models use a grounded thin-wall tube, wall-to-wall bridge coupons and measurement ribs; speed models use a continuously stacked sharp star; fan models use grounded bridge posts and stepped 45-degree brackets; and retraction models use grounded isolated posts that force travel moves and expose stringing. Every model schedules the matching G-code changes automatically. Generated support and support-interface material are disabled only for calibration slices, without changing the saved support settings. Retraction models enable firmware retraction and change `M207` distance while retaining the configured retraction speed.
 
 The layer viewer defaults to a high-contrast **Current** mode that renders the selected layer as wide colored ribbons with a dark outline. **Build-up** mode adds earlier layers at low opacity. Cyan identifies support, magenta identifies support interface, orange identifies adhesion, and normal model paths remain colored by print speed.
 
@@ -120,7 +120,7 @@ The larger travel/time difference is concentrated mainly in early-layer skin tra
 | Skin | 1352.49266 mm | 1352.58103 mm | −0.08837 mm (−0.00653%) |
 | Infill | 29.26724 mm | 29.51388 mm | −0.24664 mm (−0.83567%) |
 | Support | 47.90181 mm | 47.92595 mm | −0.02414 mm (−0.05037%) |
-| Support interface | 8.32455 mm | 8.35116 mm | −0.02661 mm (−0.31864%) |
+| Support interface | 8.32455 mm | 8.35116 mm | −0.31864% |
 
 The two files also contained identical counts of wall, skin, infill, support, support-interface and skirt sections. This is a strong parity result for one reference model, not proof that every Cura setting and geometry case is already identical.
 
