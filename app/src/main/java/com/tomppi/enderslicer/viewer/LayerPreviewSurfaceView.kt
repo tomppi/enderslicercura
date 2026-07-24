@@ -20,7 +20,7 @@ import kotlin.math.max
 import kotlin.math.sqrt
 import kotlin.math.tan
 
-internal enum class LayerPreviewStyle { CURRENT_LAYER, BUILD_UP }
+public enum class LayerPreviewStyle { CURRENT_LAYER, BUILD_UP }
 
 class LayerPreviewSurfaceView(
     context: Context,
