@@ -1,0 +1,28 @@
+name: Apply compile fix
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.ref == 'agent/advanced-slicing-tools'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/advanced-slicing-tools
+          fetch-depth: 1
+      - name: Make preview style public
+        run: |
+          set -euxo pipefail
+          sed -i 's/^internal enum class LayerPreviewStyle/public enum class LayerPreviewStyle/' app/src/main/java/com/tomppi/enderslicer/viewer/LayerPreviewSurfaceView.kt
+          grep -q '^public enum class LayerPreviewStyle' app/src/main/java/com/tomppi/enderslicer/viewer/LayerPreviewSurfaceView.kt
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add app/src/main/java/com/tomppi/enderslicer/viewer/LayerPreviewSurfaceView.kt
+          git commit -m 'Fix layer preview style visibility'
+          git push origin HEAD:agent/advanced-slicing-tools
