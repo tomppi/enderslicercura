@@ -1,12 +1,18 @@
 package com.tomppi.enderslicer.calibration
 
 import com.tomppi.enderslicer.engine.LayerEventType
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CalibrationTowerGeneratorTest {
+    @After
+    fun clearCalibrationSliceState() {
+        CalibrationSliceState.clear()
+    }
+
     @Test
     fun generatesDedicatedTemperatureModelAndEvents() {
         val levels = 5
