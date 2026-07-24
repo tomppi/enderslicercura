@@ -5,7 +5,9 @@ object CuraProjectAudit {
         "machine_name", "machine_width", "machine_depth", "machine_height", "machine_shape",
         "machine_center_is_zero", "machine_heated_bed", "machine_heated_build_volume",
         "machine_gcode_flavor", "machine_nozzle_size", "material_diameter", "gantry_height",
-        "machine_start_gcode", "machine_end_gcode", "layer_height", "layer_height_0", "line_width",
+        "machine_start_gcode", "machine_end_gcode", "layer_height", "layer_height_0",
+        "adaptive_layer_height_enabled", "adaptive_layer_height_variation",
+        "adaptive_layer_height_variation_step", "adaptive_layer_height_threshold", "line_width",
         "slicing_tolerance", "wall_line_count", "top_layers", "bottom_layers",
         "z_seam_type", "z_seam_x", "z_seam_y", "z_seam_relative", "z_seam_corner",
         "infill_sparse_density", "infill_pattern", "speed_print", "speed_wall", "speed_wall_0",
@@ -24,9 +26,6 @@ object CuraProjectAudit {
     )
 
     private val highImpactHiddenKeys = linkedMapOf(
-        "adaptive_layer_height_enabled" to "adaptive layers",
-        "adaptive_layer_height_variation" to "adaptive-layer variation",
-        "adaptive_layer_height_variation_step" to "adaptive-layer step",
         "support_interface_height" to "support-interface thickness",
         "support_roof_enable" to "support roof",
         "support_bottom_enable" to "support floor",

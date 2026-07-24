@@ -76,6 +76,10 @@ class AppStateStore(context: Context) {
             .put(SlicerSettings.Keys.CUSTOM_END_GCODE, settings.customEndGcode)
             .put(SlicerSettings.Keys.LAYER_HEIGHT, settings.layerHeightMm)
             .put(SlicerSettings.Keys.INITIAL_LAYER_HEIGHT, settings.initialLayerHeightMm)
+            .put(SlicerSettings.Keys.ADAPTIVE_LAYER_HEIGHT_ENABLED, settings.adaptiveLayerHeightEnabled)
+            .put(SlicerSettings.Keys.ADAPTIVE_LAYER_HEIGHT_VARIATION, settings.adaptiveLayerHeightVariationMm)
+            .put(SlicerSettings.Keys.ADAPTIVE_LAYER_HEIGHT_VARIATION_STEP, settings.adaptiveLayerHeightVariationStepMm)
+            .put(SlicerSettings.Keys.ADAPTIVE_LAYER_HEIGHT_THRESHOLD, settings.adaptiveLayerHeightThreshold)
             .put(SlicerSettings.Keys.LINE_WIDTH, settings.lineWidthMm)
             .put(SlicerSettings.Keys.SLICING_TOLERANCE, settings.slicingTolerance)
             .put(SlicerSettings.Keys.WALL_LINE_COUNT, settings.wallLineCount)
@@ -177,6 +181,18 @@ class AppStateStore(context: Context) {
                 SlicerSettings.Keys.CUSTOM_END_GCODE -> restored.copy(customEndGcode = values.optString(key, restored.customEndGcode))
                 SlicerSettings.Keys.LAYER_HEIGHT -> restored.copy(layerHeightMm = values.optDouble(key, restored.layerHeightMm))
                 SlicerSettings.Keys.INITIAL_LAYER_HEIGHT -> restored.copy(initialLayerHeightMm = values.optDouble(key, restored.initialLayerHeightMm))
+                SlicerSettings.Keys.ADAPTIVE_LAYER_HEIGHT_ENABLED -> restored.copy(
+                    adaptiveLayerHeightEnabled = values.optBoolean(key, restored.adaptiveLayerHeightEnabled),
+                )
+                SlicerSettings.Keys.ADAPTIVE_LAYER_HEIGHT_VARIATION -> restored.copy(
+                    adaptiveLayerHeightVariationMm = values.optDouble(key, restored.adaptiveLayerHeightVariationMm),
+                )
+                SlicerSettings.Keys.ADAPTIVE_LAYER_HEIGHT_VARIATION_STEP -> restored.copy(
+                    adaptiveLayerHeightVariationStepMm = values.optDouble(key, restored.adaptiveLayerHeightVariationStepMm),
+                )
+                SlicerSettings.Keys.ADAPTIVE_LAYER_HEIGHT_THRESHOLD -> restored.copy(
+                    adaptiveLayerHeightThreshold = values.optDouble(key, restored.adaptiveLayerHeightThreshold),
+                )
                 SlicerSettings.Keys.LINE_WIDTH -> restored.copy(lineWidthMm = values.optDouble(key, restored.lineWidthMm))
                 SlicerSettings.Keys.SLICING_TOLERANCE -> restored.copy(slicingTolerance = values.optString(key, restored.slicingTolerance))
                 SlicerSettings.Keys.WALL_LINE_COUNT -> restored.copy(wallLineCount = values.optInt(key, restored.wallLineCount))

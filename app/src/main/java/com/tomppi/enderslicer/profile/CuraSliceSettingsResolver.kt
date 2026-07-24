@@ -133,7 +133,34 @@ internal object CuraSliceSettingsResolver {
         range(global, "machine_width", 1.0, 2000.0)
         range(global, "machine_depth", 1.0, 2000.0)
         range(global, "machine_height", 1.0, 2000.0)
+        fun anyNumber(key: String): Double = number(
+            if (key in global) global else extruder,
+            key,
+        )
+        fun anyRange(key: String, minimum: Double, maximum: Double) {
+            val value = anyNumber(key)
+            require(value in minimum..maximum) {
+                "Resolved Cura setting is outside its safe range: $key=$value, expected $minimum..$maximum"
+            }
+        }
+
         range(global, "layer_height", 0.01, 5.0)
+        anyRange("adaptive_layer_height_variation", 0.0, 5.0)
+        anyRange("adaptive_layer_height_variation_step", 0.001, 5.0)
+        anyRange("adaptive_layer_height_threshold", 0.0, 1.0)
+        val adaptiveEnabled = (global["adaptive_layer_height_enabled"]
+            ?: extruder["adaptive_layer_height_enabled"])?.toBooleanStrictOrNull() == true
+        if (adaptiveEnabled) {
+            val nominal = number(global, "layer_height")
+            val variation = anyNumber("adaptive_layer_height_variation")
+            val step = anyNumber("adaptive_layer_height_variation_step")
+            require(variation < nominal) {
+                "Adaptive layer variation must be smaller than the nominal layer height"
+            }
+            require(step <= variation.coerceAtLeast(0.001)) {
+                "Adaptive layer variation step must not exceed the total variation"
+            }
+        }
         option(extruder, "slicing_tolerance", setOf("middle", "exclusive", "inclusive"))
         range(extruder, "machine_nozzle_size", 0.05, 5.0)
         range(extruder, "material_diameter", 0.5, 5.0)

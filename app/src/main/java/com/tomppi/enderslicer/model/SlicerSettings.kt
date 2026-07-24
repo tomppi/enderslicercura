@@ -23,6 +23,10 @@ data class SlicerSettings(
     val customEndGcode: String = "",
     val layerHeightMm: Double = 0.20,
     val initialLayerHeightMm: Double = 0.28,
+    val adaptiveLayerHeightEnabled: Boolean = false,
+    val adaptiveLayerHeightVariationMm: Double = 0.10,
+    val adaptiveLayerHeightVariationStepMm: Double = 0.01,
+    val adaptiveLayerHeightThreshold: Double = 0.20,
     val lineWidthMm: Double = 0.40,
     val slicingTolerance: String = "middle",
     val wallLineCount: Int = 2,
@@ -109,6 +113,10 @@ data class SlicerSettings(
         const val CUSTOM_END_GCODE = "customEndGcode"
         const val LAYER_HEIGHT = "layerHeightMm"
         const val INITIAL_LAYER_HEIGHT = "initialLayerHeightMm"
+        const val ADAPTIVE_LAYER_HEIGHT_ENABLED = "adaptiveLayerHeightEnabled"
+        const val ADAPTIVE_LAYER_HEIGHT_VARIATION = "adaptiveLayerHeightVariationMm"
+        const val ADAPTIVE_LAYER_HEIGHT_VARIATION_STEP = "adaptiveLayerHeightVariationStepMm"
+        const val ADAPTIVE_LAYER_HEIGHT_THRESHOLD = "adaptiveLayerHeightThreshold"
         const val LINE_WIDTH = "lineWidthMm"
         const val SLICING_TOLERANCE = "slicingTolerance"
         const val WALL_LINE_COUNT = "wallLineCount"

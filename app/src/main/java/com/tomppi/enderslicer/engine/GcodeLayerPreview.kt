@@ -12,12 +12,15 @@ data class GcodeLayerPreview(
     val maxY: Float,
     val minSpeedMmPerSecond: Float,
     val maxSpeedMmPerSecond: Float,
+    val minLayerHeightMm: Float,
+    val maxLayerHeightMm: Float,
     val totalSegmentCount: Int,
     val truncated: Boolean,
 ) {
     data class Layer(
         val number: Int,
         val z: Float,
+        val height: Float,
         /** Packed x1, y1, x2, y2, speed-mm/s, feature-code values. */
         val segments: FloatArray,
         val supportSegmentCount: Int,
@@ -87,6 +90,7 @@ object GcodeLayerPreviewParser {
             layers += GcodeLayerPreview.Layer(
                 number = number,
                 z = currentLayerZ,
+                height = 0f,
                 segments = currentSegments.toArray(),
                 supportSegmentCount = currentSupportCount,
                 supportInterfaceSegmentCount = currentSupportInterfaceCount,
@@ -183,18 +187,27 @@ object GcodeLayerPreviewParser {
         finishLayer()
 
         require(layers.isNotEmpty() && retainedSegments > 0) { "No printable layer paths were found in the G-code" }
+        val layersWithHeights = layers.mapIndexed { index, layer ->
+            val previousZ = if (index == 0) 0f else layers[index - 1].z
+            layer.copy(height = (layer.z - previousZ).coerceAtLeast(0f))
+        }
+        val positiveLayerHeights = layersWithHeights.map(GcodeLayerPreview.Layer::height).filter { it > 0f }
+        val minimumLayerHeight = positiveLayerHeights.minOrNull() ?: 0f
+        val maximumLayerHeight = positiveLayerHeights.maxOrNull() ?: minimumLayerHeight
         if (!minSpeed.isFinite()) minSpeed = 0f
         if (!maxSpeed.isFinite()) maxSpeed = minSpeed
         if (maxSpeed < minSpeed) maxSpeed = minSpeed
 
         return GcodeLayerPreview(
-            layers = layers,
+            layers = layersWithHeights,
             minX = minX,
             minY = minY,
             maxX = maxX,
             maxY = maxY,
             minSpeedMmPerSecond = minSpeed,
             maxSpeedMmPerSecond = maxSpeed,
+            minLayerHeightMm = minimumLayerHeight,
+            maxLayerHeightMm = maximumLayerHeight,
             totalSegmentCount = retainedSegments,
             truncated = truncated,
         )

@@ -30,6 +30,13 @@ object CuraSettingsMapper {
             gantryHeightMm = number("gantry_height") ?: base.gantryHeightMm,
             layerHeightMm = number("layer_height") ?: base.layerHeightMm,
             initialLayerHeightMm = number("layer_height_0") ?: base.initialLayerHeightMm,
+            adaptiveLayerHeightEnabled = bool("adaptive_layer_height_enabled") ?: base.adaptiveLayerHeightEnabled,
+            adaptiveLayerHeightVariationMm = number("adaptive_layer_height_variation")
+                ?: base.adaptiveLayerHeightVariationMm,
+            adaptiveLayerHeightVariationStepMm = number("adaptive_layer_height_variation_step")
+                ?: base.adaptiveLayerHeightVariationStepMm,
+            adaptiveLayerHeightThreshold = number("adaptive_layer_height_threshold")
+                ?: base.adaptiveLayerHeightThreshold,
             lineWidthMm = number("line_width") ?: base.lineWidthMm,
             slicingTolerance = values["slicing_tolerance"] ?: base.slicingTolerance,
             wallLineCount = number("wall_line_count")?.toInt() ?: base.wallLineCount,

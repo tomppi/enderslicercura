@@ -69,10 +69,12 @@ fun EnderSlicerApp(viewModel: MainViewModel = viewModel()) {
     var settingsOpen by remember { mutableStateOf(false) }
     var machineSettingsOpen by remember { mutableStateOf(false) }
     var modelToolsOpen by remember { mutableStateOf(false) }
+    var calibrationOpen by remember { mutableStateOf(false) }
+    var layerEventsOpen by remember { mutableStateOf(false) }
     var viewerMode by remember { mutableStateOf(ViewerMode.MODEL) }
     var selectedLayerIndex by remember { mutableStateOf(0) }
 
-    LaunchedEffect(state.layerPreview) {
+    LaunchedEffect(state.baseGcodePath) {
         val preview = state.layerPreview
         if (preview == null) {
             viewerMode = ViewerMode.MODEL
@@ -196,6 +198,14 @@ fun EnderSlicerApp(viewModel: MainViewModel = viewModel()) {
                                 enabled = state.mesh != null && !state.isBusy,
                             )
                             DropdownMenuItem(
+                                text = { Text("Calibration generator") },
+                                onClick = {
+                                    menuExpanded = false
+                                    calibrationOpen = true
+                                },
+                                enabled = !state.isBusy,
+                            )
+                            DropdownMenuItem(
                                 text = { Text("Print settings") },
                                 onClick = {
                                     menuExpanded = false
@@ -236,6 +246,7 @@ fun EnderSlicerApp(viewModel: MainViewModel = viewModel()) {
             selectedLayerIndex = selectedLayerIndex,
             onViewerMode = { viewerMode = it },
             onLayerSelected = { selectedLayerIndex = it },
+            onEditLayerEvents = { layerEventsOpen = true },
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding),
@@ -274,6 +285,48 @@ fun EnderSlicerApp(viewModel: MainViewModel = viewModel()) {
         }
     }
 
+    if (calibrationOpen) {
+        ModalBottomSheet(
+            onDismissRequest = { calibrationOpen = false },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        ) {
+            CalibrationGeneratorSheet(
+                isBusy = state.isBusy,
+                onGenerate = { spec ->
+                    calibrationOpen = false
+                    viewModel.generateCalibrationTower(spec)
+                },
+                modifier = Modifier
+                    .fillMaxHeight(0.94f)
+                    .navigationBarsPadding(),
+            )
+        }
+    }
+
+    if (layerEventsOpen && state.layerPreview != null) {
+        val preview = requireNotNull(state.layerPreview)
+        val layer = preview.layers[selectedLayerIndex.coerceIn(preview.layers.indices)]
+        ModalBottomSheet(
+            onDismissRequest = { layerEventsOpen = false },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        ) {
+            LayerEventsSheet(
+                layer = layer,
+                events = state.layerEvents,
+                settings = state.settings,
+                isBusy = state.isBusy,
+                onAdd = { type, value, secondary, text ->
+                    viewModel.addLayerEvent(layer.number, layer.z, type, value, secondary, text)
+                },
+                onRemove = viewModel::removeLayerEvent,
+                onClearUserEvents = viewModel::clearLayerEvents,
+                modifier = Modifier
+                    .fillMaxHeight(0.94f)
+                    .navigationBarsPadding(),
+            )
+        }
+    }
+
     if (modelToolsOpen) {
         ModalBottomSheet(
             onDismissRequest = { modelToolsOpen = false },
@@ -302,6 +355,7 @@ private fun ViewerPanel(
     selectedLayerIndex: Int,
     onViewerMode: (ViewerMode) -> Unit,
     onLayerSelected: (Int) -> Unit,
+    onEditLayerEvents: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val effectivePrinter = state.printer.withSettings(state.settings)
@@ -311,7 +365,9 @@ private fun ViewerPanel(
             LayerPreviewView(
                 preview = preview,
                 selectedLayerIndex = selectedLayerIndex,
+                events = state.layerEvents,
                 onLayerSelected = onLayerSelected,
+                onEditEvents = onEditLayerEvents,
                 modifier = Modifier.fillMaxSize(),
             )
         } else {
@@ -365,6 +421,9 @@ private fun ViewerPanel(
                         )
                         Text(placement.source, style = MaterialTheme.typography.labelSmall)
                     }
+                }
+                state.calibrationDescription?.let { description ->
+                    Text(description, style = MaterialTheme.typography.bodySmall)
                 }
                 state.estimatedPrintSeconds?.let { seconds ->
                     Text("Estimated print: ${formatEstimatedPrintTime(seconds)}", style = MaterialTheme.typography.bodySmall)
