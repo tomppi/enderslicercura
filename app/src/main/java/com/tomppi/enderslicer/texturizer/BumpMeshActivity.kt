@@ -1,6 +1,7 @@
 package com.tomppi.enderslicer.texturizer
 
 import android.annotation.SuppressLint
+import android.app.Activity
 import android.content.Intent
 import android.graphics.Color
 import android.net.Uri
@@ -139,7 +140,7 @@ class BumpMeshActivity : ComponentActivity() {
 
     private fun finishWithError(message: String) {
         Toast.makeText(this, message, Toast.LENGTH_LONG).show()
-        setResult(RESULT_CANCELED)
+        setResult(Activity.RESULT_CANCELED)
         finish()
     }
 
@@ -240,7 +241,7 @@ class BumpMeshActivity : ComponentActivity() {
                 val result = Intent()
                     .setData(uri)
                     .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                activity.setResult(RESULT_OK, result)
+                activity.setResult(Activity.RESULT_OK, result)
                 activity.finish()
             }
             return true
