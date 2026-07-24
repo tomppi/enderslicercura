@@ -36,10 +36,8 @@ jobs:
       - name: Apply patch
         run: git apply --verbose /tmp/advanced-slicing.patch
 
-      - name: Restore workflow
+      - name: Remove staging files
         run: |
-          base64 --decode .agent-patch/final-workflow.b64 > .github/workflows/build.yml
-          test -s .github/workflows/build.yml
           rm -rf .agent-patch
           git diff --check
 
