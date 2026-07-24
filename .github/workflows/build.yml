@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - agent/advanced-slicing-tools
+  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -15,6 +16,7 @@ concurrency:
 
 jobs:
   apply:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.ref == 'agent/advanced-slicing-tools'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
