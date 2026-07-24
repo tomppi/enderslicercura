@@ -1,52 +1,153 @@
-name: Apply advanced slicing patch
+name: Build Android APK
 
 on:
   push:
-    branches:
-      - agent/advanced-slicing-tools
   pull_request:
   workflow_dispatch:
 
-permissions:
-  contents: write
-
 concurrency:
-  group: advanced-slicing-bootstrap
+  group: ${{ github.workflow }}-${{ github.event.pull_request.head.ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
-  apply:
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.ref == 'agent/advanced-slicing-tools'
+  build:
     runs-on: ubuntu-24.04
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
         with:
-          ref: agent/advanced-slicing-tools
-          fetch-depth: 1
+          distribution: temurin
+          java-version: '17'
 
-      - name: Reconstruct patch
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK and native build tools
         run: |
-          cat .agent-patch/part*.b64 | base64 --decode | gzip --decompress > /tmp/advanced-slicing.patch
-          test "$(wc -c < /tmp/advanced-slicing.patch)" = "121947"
-          test "$(sha256sum /tmp/advanced-slicing.patch | cut -d' ' -f1)" = "26ea0f0b91b59061f3b5cb5e0ed6dcfcc1a596a28f34f16c717dcac61569078b"
+          yes | sdkmanager --licenses >/dev/null
+          sdkmanager \
+            "platforms;android-36" \
+            "build-tools;36.0.0" \
+            "ndk;28.2.13676358" \
+            "cmake;3.22.1" \
+            "cmake;3.31.6"
+          sudo apt-get update
+          sudo apt-get install -y ninja-build file binutils
 
-      - name: Validate patch
-        run: git apply --check --verbose /tmp/advanced-slicing.patch
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.4.1'
 
-      - name: Apply patch
-        run: git apply --verbose /tmp/advanced-slicing.patch
+      - name: Cache Conan packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.conan2/p
+          key: conan-curaengine-5.11-beta1-android-arm64-v5-${{ hashFiles('scripts/build-curaengine-android.sh', 'native/curaengine/profiles/android-arm64') }}
+          restore-keys: |
+            conan-curaengine-5.11-beta1-android-arm64-v5-
+            conan-curaengine-5.11-android-arm64-v4-
 
-      - name: Remove staging files
+      - name: Fetch and validate pinned Cura definitions
         run: |
-          rm -rf .agent-patch
-          git diff --check
+          chmod +x scripts/fetch-cura-resources.sh
+          scripts/fetch-cura-resources.sh
+          grep -q 'Cura resources: 5.11.0-beta.1' app/src/main/assets/cura/definitions/version.txt
+          for name in \
+            fdmprinter \
+            fdmextruder \
+            creality_base \
+            creality_base_extruder_0 \
+            creality_ender3; do
+            test -s "app/src/main/assets/cura/definitions/$name.def.json"
+          done
 
-      - name: Commit changes
+      - name: Prepare and validate pinned BumpMesh workspace
         run: |
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add -A
-          git commit -m "Implement advanced slicing tools"
+          gradle :app:prepareBumpMeshAssets --stacktrace
+          test -s app/src/main/assets/bumpmesh/index.html
+          test -s app/src/main/assets/bumpmesh/LICENSE
+          test -s app/src/main/assets/bumpmesh/android-bridge.js
+          test -s app/src/main/assets/bumpmesh/vendor/three/build/three.module.js
+          test -s app/src/main/assets/bumpmesh/vendor/three/LICENSE
+          test -s app/src/main/assets/bumpmesh/vendor/fflate/esm/browser.js
+          test -s app/src/main/assets/bumpmesh/vendor/fflate/LICENSE
+          test -s app/src/main/assets/bumpmesh/vendor/meshstep/dist/index.js
+          test -s app/src/main/assets/bumpmesh/vendor/meshstep/src/index.ts
+          test -s app/src/main/assets/bumpmesh/vendor/meshstep/LICENSE
+          grep -q 'format=2' app/src/main/assets/bumpmesh/.source-version
+          grep -q 'BumpMesh=a6ac179149b8a17c71a9469dd4cb6f866c0c01d1' app/src/main/assets/bumpmesh/.source-version
+          grep -q './vendor/three/build/three.module.js' app/src/main/assets/bumpmesh/index.html
+          grep -q 'android-bridge.js' app/src/main/assets/bumpmesh/index.html
+          grep -q '../vendor/meshstep/dist/index.js' app/src/main/assets/bumpmesh/js/stepWorker.js
+          grep -q '../vendor/three/build/three.module.js' app/src/main/assets/bumpmesh/js/threeCompat.js
+          ! grep -R 'https://cdn.jsdelivr.net/npm' \
+            app/src/main/assets/bumpmesh/index.html \
+            app/src/main/assets/bumpmesh/js
 
-      - name: Push changes
-        run: git push origin HEAD:agent/advanced-slicing-tools
+      - name: Build and package CuraEngine ARM64
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/28.2.13676358
+          APP_JNILIBS_DIR: ${{ github.workspace }}/app/src/main/jniLibs
+        run: |
+          chmod +x scripts/build-curaengine-android.sh
+          set -o pipefail
+          scripts/build-curaengine-android.sh 2>&1 | tee curaengine-android-build.log
+          grep -q 'CuraEngine Android artifacts (5.11.0-beta.1)' curaengine-android-build.log
+          grep -q 'EnderSlicer: Cura.*frontend applies the complete affine' .build/CuraEngine/src/communication/CommandLine.cpp
+          grep -q 'EnderSlicer: resolved model values must live on the' .build/CuraEngine/src/communication/CommandLine.cpp
+          grep -q 'EnderSlicer: zero cool_min_temperature is a Cura frontend sentinel' .build/CuraEngine/src/LayerPlanBuffer.cpp
+          test -s app/src/main/jniLibs/arm64-v8a/libcuraengine_exec.so
+          file app/src/main/jniLibs/arm64-v8a/libcuraengine_exec.so
+          readelf -d app/src/main/jniLibs/arm64-v8a/libcuraengine_exec.so | tee curaengine-needed.log
+          ! grep -q 'libc++_shared.so' curaengine-needed.log
+
+      - name: Unit tests and complete definition audit
+        run: |
+          set -o pipefail
+          gradle :app:testDebugUnitTest --stacktrace 2>&1 | tee unit-tests.log
+
+      - name: Build debug APK
+        run: |
+          set -o pipefail
+          gradle :app:assembleDebug --stacktrace 2>&1 | tee apk-build.log
+          unzip -l app/build/outputs/apk/debug/app-debug.apk | tee apk-contents.log
+          grep -q 'lib/arm64-v8a/libcuraengine_exec.so' apk-contents.log
+          grep -q 'assets/cura/definitions/version.txt' apk-contents.log
+          grep -q 'assets/bumpmesh/index.html' apk-contents.log
+          grep -q 'assets/bumpmesh/LICENSE' apk-contents.log
+          grep -q 'assets/bumpmesh/android-bridge.js' apk-contents.log
+          grep -q 'assets/bumpmesh/vendor/three/build/three.module.js' apk-contents.log
+          grep -q 'assets/bumpmesh/vendor/meshstep/src/index.ts' apk-contents.log
+          grep -q 'assets/bumpmesh/vendor/meshstep/LICENSE' apk-contents.log
+          for name in \
+            fdmprinter \
+            fdmextruder \
+            creality_base \
+            creality_base_extruder_0 \
+            creality_ender3; do
+            grep -q "assets/cura/definitions/$name.def.json" apk-contents.log
+          done
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: enderslicercura-0.7.0-dev-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Upload build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: enderslicercura-build-logs
+          path: |
+            curaengine-android-build.log
+            curaengine-needed.log
+            unit-tests.log
+            apk-build.log
+            apk-contents.log
+          if-no-files-found: ignore
