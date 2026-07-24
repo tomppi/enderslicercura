@@ -1,0 +1,131 @@
+name: Apply support-free calibration fixes
+
+on:
+  push:
+    branches:
+      - agent/advanced-slicing-tools
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: support-free-calibration-bootstrap
+  cancel-in-progress: true
+
+jobs:
+  apply:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/advanced-slicing-tools
+          fetch-depth: 1
+
+      - name: Install support-free calibration implementation
+        shell: bash
+        run: |
+          set -euxo pipefail
+          test -f .agent-supportfree/generator.b64 || exit 0
+
+          base64 --decode .agent-supportfree/generator.b64 | gzip --decompress > app/src/main/java/com/tomppi/enderslicer/calibration/CalibrationTowerGenerator.kt
+          base64 --decode .agent-supportfree/helper.b64 | gzip --decompress > app/src/main/java/com/tomppi/enderslicer/calibration/CalibrationSliceSettings.kt
+          base64 --decode .agent-supportfree/helper-test.b64 | gzip --decompress > app/src/test/java/com/tomppi/enderslicer/calibration/CalibrationSliceSettingsTest.kt
+          base64 --decode .agent-supportfree/generator-test.b64 | gzip --decompress > app/src/test/java/com/tomppi/enderslicer/calibration/CalibrationTowerGeneratorTest.kt
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('app/src/main/java/com/tomppi/enderslicer/ui/MainViewModel.kt')
+          text = path.read_text()
+          text = text.replace(
+              'import com.tomppi.enderslicer.calibration.CalibrationTowerSpec\n',
+              'import com.tomppi.enderslicer.calibration.CalibrationTowerSpec\nimport com.tomppi.enderslicer.calibration.forCalibrationSlice\n',
+              1,
+          )
+          text = text.replace(
+              '    private var plannedCalibrationEvents: List<PlannedLayerEvent> = emptyList()\n',
+              '    private var plannedCalibrationEvents: List<PlannedLayerEvent> = emptyList()\n    private var calibrationRequiresFirmwareRetraction = false\n',
+              1,
+          )
+          text = text.replace(
+              '                plannedCalibrationEvents = emptyList()\n',
+              '                plannedCalibrationEvents = emptyList()\n                calibrationRequiresFirmwareRetraction = false\n',
+              1,
+          )
+          text = text.replace(
+              '                        settings = snapshot.settings,\n',
+              '                        settings = snapshot.settings.forCalibrationSlice(\n                            active = plannedCalibrationEvents.isNotEmpty(),\n                            requiresFirmwareRetraction = calibrationRequiresFirmwareRetraction,\n                        ),\n',
+              1,
+          )
+          text = text.replace(
+              '                plannedCalibrationEvents = result.plannedEvents\n',
+              '                plannedCalibrationEvents = result.plannedEvents\n                calibrationRequiresFirmwareRetraction = result.requiresFirmwareRetraction\n',
+              1,
+          )
+          old_settings = '''                val settings = if (result.requiresFirmwareRetraction && !snapshot.settings.firmwareRetraction) {
+                    snapshot.settings.copy(
+                        firmwareRetraction = true,
+                        overriddenSettingKeys = snapshot.settings.overriddenSettingKeys + SlicerSettings.Keys.FIRMWARE_RETRACTION,
+                    ).also(stateStore::saveSettings)
+                } else {
+                    snapshot.settings
+                }
+'''
+          if old_settings not in text:
+              raise SystemExit('MainViewModel calibration settings block not found')
+          text = text.replace(old_settings, '', 1)
+          text = text.replace('                        settings = settings,\n', '', 1)
+          old_status = '''                            append("Generated ${result.description}; slice to create the stepped calibration G-code")
+                            if (result.requiresFirmwareRetraction) append(" · firmware retraction enabled")
+'''
+          new_status = '''                            append("Generated ${result.description}; slice to create the stepped calibration G-code")
+                            append(" · generated supports disabled for the calibration slice")
+                            if (result.requiresFirmwareRetraction) {
+                                append(" · firmware retraction enabled for the calibration slice")
+                            }
+'''
+          if old_status not in text:
+              raise SystemExit('MainViewModel calibration status block not found')
+          text = text.replace(old_status, new_status, 1)
+          path.write_text(text)
+
+          path = Path('app/src/main/java/com/tomppi/enderslicer/ui/CalibrationGeneratorSheet.kt')
+          text = path.read_text()
+          text = text.replace(
+              'Creates a purpose-built calibration model for the selected test and automatically schedules the matching value change at every section.',
+              'Creates a purpose-built, support-free calibration model and automatically schedules the matching value change at every section.',
+          )
+          marker = '''        Text(
+            type.designDescription,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+'''
+          addition = marker + '''        Text(
+            "Generated supports and support interface are disabled automatically only for the calibration slice. Bridges and controlled overhangs remain intentionally unsupported.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.primary,
+        )
+'''
+          if marker not in text:
+              raise SystemExit('CalibrationGeneratorSheet description block not found')
+          text = text.replace(marker, addition, 1)
+          path.write_text(text)
+
+          path = Path('README.md')
+          text = path.read_text()
+          old = 'Open **Menu → Calibration generator** to create a purpose-built model for the selected test. Temperature models repeat bridges, sloped overhangs and thin fins; flow models use thin walls, top-surface coupons and measurement ribs; speed models use a sharp multi-point star; fan models repeat long bridges and progressive cantilevers; and retraction models use isolated posts that force travel moves and expose stringing. Every model schedules the matching G-code value changes automatically when sliced. Retraction models enable firmware retraction and change `M207` distance while retaining the configured retraction speed.'
+          new = 'Open **Menu → Calibration generator** to create a purpose-built support-free model for the selected test. Temperature models use grounded posts, bridges, stepped overhangs and a thin fin; flow models use a grounded thin-wall tube, wall-to-wall bridge coupons and measurement ribs; speed models use a continuously stacked sharp star; fan models use grounded bridge posts and stepped 45-degree brackets; and retraction models use grounded isolated posts that force travel moves and expose stringing. Every model schedules the matching G-code changes automatically. Generated support and support-interface material are disabled only for calibration slices, without changing the saved profile. Retraction calibration similarly enables firmware retraction only for its slice.'
+          if old not in text:
+              raise SystemExit('README calibration paragraph not found')
+          text = text.replace(old, new, 1)
+          path.write_text(text)
+          PY
+
+          rm -rf .agent-supportfree
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add README.md app/src/main/java/com/tomppi/enderslicer app/src/test/java/com/tomppi/enderslicer .agent-supportfree
+          git commit -m "Make calibration models support-free"
+          git push origin HEAD:agent/advanced-slicing-tools
