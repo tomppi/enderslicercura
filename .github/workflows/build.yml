@@ -24,24 +24,31 @@ jobs:
           ref: agent/advanced-slicing-tools
           fetch-depth: 1
 
-      - name: Apply and publish source patch
-        shell: bash
+      - name: Reconstruct patch
         run: |
-          set -Eeuxo pipefail
-          trap 'status=$?; echo "BOOTSTRAP_FAILED status=$status line=$LINENO"; git status --short || true; test -f /tmp/advanced-slicing.patch && { wc -c /tmp/advanced-slicing.patch; tail -n 8 /tmp/advanced-slicing.patch; }; exit $status' ERR
-
-          ls -l .agent-patch
           cat .agent-patch/part*.b64 | base64 --decode | gzip --decompress > /tmp/advanced-slicing.patch
-          wc -c /tmp/advanced-slicing.patch
-          sha256sum /tmp/advanced-slicing.patch
-          git apply --check --verbose /tmp/advanced-slicing.patch
-          git apply --verbose /tmp/advanced-slicing.patch
+          test "$(wc -c < /tmp/advanced-slicing.patch)" = "121947"
+          test "$(sha256sum /tmp/advanced-slicing.patch | cut -d' ' -f1)" = "26ea0f0b91b59061f3b5cb5e0ed6dcfcc1a596a28f34f16c717dcac61569078b"
+
+      - name: Validate patch
+        run: git apply --check --verbose /tmp/advanced-slicing.patch
+
+      - name: Apply patch
+        run: git apply --verbose /tmp/advanced-slicing.patch
+
+      - name: Restore workflow
+        run: |
           base64 --decode .agent-patch/final-workflow.b64 > .github/workflows/build.yml
+          test -s .github/workflows/build.yml
           rm -rf .agent-patch
           git diff --check
 
+      - name: Commit changes
+        run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add -A
           git commit -m "Implement advanced slicing tools"
-          git push origin HEAD:agent/advanced-slicing-tools
+
+      - name: Push changes
+        run: git push origin HEAD:agent/advanced-slicing-tools
