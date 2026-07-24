@@ -1,5 +1,6 @@
 package com.tomppi.enderslicer.profile
 
+import com.tomppi.enderslicer.calibration.CalibrationSliceState
 import com.tomppi.enderslicer.model.SlicerSettings
 import kotlin.math.abs
 
@@ -20,9 +21,10 @@ internal object CuraSettingDelta {
         values(settings, includeAll = true)
 
     private fun values(
-        settings: SlicerSettings,
+        inputSettings: SlicerSettings,
         includeAll: Boolean,
     ): LinkedHashMap<String, String> = linkedMapOf<String, String>().apply {
+        val settings = CalibrationSliceState.effective(inputSettings)
         fun include(appKey: String): Boolean = includeAll || settings.isOverridden(appKey)
         fun putValue(appKey: String, curaKey: String, value: Any) {
             if (!include(appKey)) return
