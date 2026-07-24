@@ -61,7 +61,7 @@ internal fun CalibrationGeneratorSheet(
     ) {
         Text("Calibration generator", style = MaterialTheme.typography.headlineSmall)
         Text(
-            "Creates a purpose-built calibration model for the selected test and automatically schedules the matching value change at every section.",
+            "Creates a purpose-built, support-free calibration model and automatically schedules the matching value change at every section.",
             style = MaterialTheme.typography.bodyMedium,
         )
         Box(modifier = Modifier.fillMaxWidth()) {
@@ -84,6 +84,11 @@ internal fun CalibrationGeneratorSheet(
             type.designDescription,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            "Generated supports and support interface are disabled automatically for calibration slices. The bridges and controlled overhangs are intentional parts of the test.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.primary,
         )
         NumberInput("Start value (${type.unit})", start) { start = it }
         NumberInput("Step per section (${type.unit})", step) { step = it }
