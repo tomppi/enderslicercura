@@ -120,7 +120,7 @@ The larger travel/time difference is concentrated mainly in early-layer skin tra
 | Skin | 1352.49266 mm | 1352.58103 mm | −0.08837 mm (−0.00653%) |
 | Infill | 29.26724 mm | 29.51388 mm | −0.24664 mm (−0.83567%) |
 | Support | 47.90181 mm | 47.92595 mm | −0.02414 mm (−0.05037%) |
-| Support interface | 8.32455 mm | 8.35116 mm | −0.31864% |
+| Support interface | 8.32455 mm | 8.35116 mm | −0.02661 mm (−0.31864%) |
 
 The two files also contained identical counts of wall, skin, infill, support, support-interface and skirt sections. This is a strong parity result for one reference model, not proof that every Cura setting and geometry case is already identical.
 
