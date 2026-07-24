@@ -14,14 +14,15 @@ Android application ID: `com.tomppi.enderslicercura`.
 
 enderslicercura is working and is already producing output very close to Cura Desktop for the current reference printer/profile. It is not yet being described as a complete Cura replacement: several more side-by-side slicing comparisons using different model shapes, support cases, infill patterns, model transforms, textured meshes, and profile combinations are still required before parity can be considered broadly validated.
 
-The current development line is `0.7.0-dev` and uses CuraEngine `5.11.0-beta.1` with matching Cura resources. BumpMesh is pinned to upstream commit `a6ac179149b8a17c71a9469dd4cb6f866c0c01d1`.
+The current development line is `0.8.0-dev` and uses CuraEngine `5.11.0-beta.1` with matching Cura resources. BumpMesh is pinned to upstream commit `a6ac179149b8a17c71a9469dd4cb6f866c0c01d1`.
 
 ## Current capabilities
 
 - Native Android and Jetpack Compose interface
 - Foldable-friendly wide and compact layouts
 - Bundled ARM64 CuraEngine with adaptive use of up to eight workers
-- Binary and ASCII STL import
+- Binary and ASCII STL import with streamed parsing for high-density meshes
+- Persisted mesh triangle-limit presets from 1.5 million through an experimental 8 million, plus custom values
 - CuraEngine adaptive layer-height controls with fine, balanced and fast presets
 - Layer timeline with pauses, filament changes, temperatures, fan, speed, flow, retraction, camera, messages and guarded custom G-code
 - Purpose-built support-free temperature, flow, speed, fan and firmware-retraction calibration models
@@ -59,7 +60,9 @@ Import and position an STL, then open **Menu → Texture model (BumpMesh)**. The
 
 The Android bridge captures that binary STL locally, validates its exact triangle count and file length, and returns it to the normal enderslicercura model-import path. No model or texture is uploaded to a server. The embedded workspace uses packaged copies of BumpMesh, Three.js, fflate and meshStep rather than the live BumpMesh website or CDN modules.
 
-The Android integration caps BumpMesh output at 1,500,000 triangles, matching the current STL parser limit. Very fine texture settings can still consume substantial memory and processing time on a phone.
+Open **Menu → Mesh triangle limit** to choose Compatible (1.5 million), High detail (3 million), Very high detail (5 million), Extreme (8 million), or a custom value between 100,000 and 8 million triangles. The persisted value is shared by normal STL imports, the BumpMesh maximum-triangle control, and Android's validation of textured STL exports.
+
+High-density STL parsing now streams the staged file from disk instead of retaining the complete STL byte array beside the parsed vertex buffer. The app requests Android's large heap because a five-million-triangle parsed mesh alone is roughly 343 MiB, and rendering, transforms, BumpMesh, export and WebView processing may hold several additional buffers. Free system RAM and ZRAM do not guarantee that every extreme operation will fit inside the app or WebView heap, so the 8-million preset remains explicitly experimental.
 
 ## Adaptive layers, layer events and calibration
 

@@ -48,6 +48,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.tomppi.enderslicer.mesh.MeshTriangleLimits
 import com.tomppi.enderslicer.model.withSettings
 import com.tomppi.enderslicer.texturizer.BumpMeshActivity
 import com.tomppi.enderslicer.viewer.ModelSurfaceView
@@ -71,6 +72,7 @@ fun EnderSlicerApp(viewModel: MainViewModel = viewModel()) {
     var modelToolsOpen by remember { mutableStateOf(false) }
     var calibrationOpen by remember { mutableStateOf(false) }
     var layerEventsOpen by remember { mutableStateOf(false) }
+    var meshLimitOpen by remember { mutableStateOf(false) }
     var viewerMode by remember { mutableStateOf(ViewerMode.MODEL) }
     var selectedLayerIndex by remember { mutableStateOf(0) }
 
@@ -190,6 +192,14 @@ fun EnderSlicerApp(viewModel: MainViewModel = viewModel()) {
                                 enabled = state.mesh != null && !state.isBusy,
                             )
                             DropdownMenuItem(
+                                text = { Text("Mesh triangle limit") },
+                                onClick = {
+                                    menuExpanded = false
+                                    meshLimitOpen = true
+                                },
+                                enabled = !state.isBusy,
+                            )
+                            DropdownMenuItem(
                                 text = { Text("Model position & rotation") },
                                 onClick = {
                                     menuExpanded = false
@@ -262,6 +272,30 @@ fun EnderSlicerApp(viewModel: MainViewModel = viewModel()) {
                 state = state,
                 onSettings = viewModel::updateSettings,
                 onResetOverrides = viewModel::resetAllSettingOverrides,
+                modifier = Modifier
+                    .fillMaxHeight(0.94f)
+                    .navigationBarsPadding(),
+            )
+        }
+    }
+
+    if (meshLimitOpen) {
+        ModalBottomSheet(
+            onDismissRequest = { meshLimitOpen = false },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        ) {
+            MeshTriangleLimitSheet(
+                currentLimit = MeshTriangleLimits.current(),
+                currentModelTriangles = state.mesh?.triangleCount,
+                onSave = { limit ->
+                    val saved = MeshTriangleLimits.save(context, limit)
+                    meshLimitOpen = false
+                    Toast.makeText(
+                        context,
+                        "Mesh triangle limit set to ${MeshTriangleLimits.formatCount(saved)}",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                },
                 modifier = Modifier
                     .fillMaxHeight(0.94f)
                     .navigationBarsPadding(),
