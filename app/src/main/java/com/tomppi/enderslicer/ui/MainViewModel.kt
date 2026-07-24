@@ -5,9 +5,15 @@ import android.content.Intent
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.tomppi.enderslicer.calibration.CalibrationTowerGenerator
+import com.tomppi.enderslicer.calibration.CalibrationTowerSpec
 import com.tomppi.enderslicer.data.AppStateStore
 import com.tomppi.enderslicer.data.PrinterDefinitionLoader
 import com.tomppi.enderslicer.engine.CuraEngineRunner
+import com.tomppi.enderslicer.engine.LayerEvent
+import com.tomppi.enderslicer.engine.LayerEventSource
+import com.tomppi.enderslicer.engine.LayerEventType
+import com.tomppi.enderslicer.engine.PlannedLayerEvent
 import com.tomppi.enderslicer.model.ModelPlacement
 import com.tomppi.enderslicer.model.SlicerSettings
 import com.tomppi.enderslicer.profile.CuraProfileParser
@@ -28,6 +34,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
+import java.util.concurrent.atomic.AtomicLong
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
     private data class PendingImport(
@@ -53,6 +60,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var importedSettingsBaseline: SlicerSettings? = null
     private var sourceMesh: StlMesh? = null
     private var importedScene: CuraProjectScene? = null
+    private var plannedCalibrationEvents: List<PlannedLayerEvent> = emptyList()
+    private val layerEventSequence = AtomicLong(0L)
 
     private val _uiState = MutableStateFlow(
         MainUiState(
@@ -81,6 +90,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }.onSuccess { (mesh, modelFile) ->
                 sourceMesh = mesh
+                plannedCalibrationEvents = emptyList()
                 val automaticImportedPlacement = importedScene
                     ?.takeIf { scene -> scene.affine != null && modelNamesMatch(scene.modelName, mesh.displayName) }
                     ?.let { scene -> ModelPlacement.from3mf(mesh, requireNotNull(scene.affine), scene.dropToBuildPlate) }
@@ -100,7 +110,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         importedSceneTransformAvailable = importedScene?.affine != null,
                         importedSceneModelName = importedScene?.modelName,
                         gcodePath = null,
+                        baseGcodePath = null,
                         layerPreview = null,
+                        layerEvents = emptyList(),
+                        calibrationDescription = null,
                         estimatedPrintSeconds = null,
                         sliceLogPath = null,
                         sliceDurationMilliseconds = null,
@@ -169,7 +182,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             current.copy(
                 settings = changed,
                 gcodePath = null,
+                baseGcodePath = null,
                 layerPreview = null,
+                layerEvents = emptyList(),
                 estimatedPrintSeconds = null,
                 sliceLogPath = null,
                 sliceDurationMilliseconds = null,
@@ -186,7 +201,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             it.copy(
                 settings = restored,
                 gcodePath = null,
+                baseGcodePath = null,
                 layerPreview = null,
+                layerEvents = emptyList(),
                 estimatedPrintSeconds = null,
                 sliceLogPath = null,
                 sliceDurationMilliseconds = null,
@@ -263,6 +280,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         startGcode = snapshot.startGcode,
                         endGcode = snapshot.endGcode,
                         profile = snapshot.engineProfile,
+                        layerEvents = snapshot.layerEvents.filter { it.source == LayerEventSource.USER },
+                        plannedLayerEvents = plannedCalibrationEvents,
                     )
                 }
             }.onSuccess { result ->
@@ -270,7 +289,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     val printTime = result.estimatedPrintSeconds?.let(::formatPrintTime)
                     it.copy(
                         gcodePath = result.gcodeFile.absolutePath,
+                        baseGcodePath = result.baseGcodeFile.absolutePath,
                         layerPreview = result.layerPreview,
+                        layerEvents = result.layerEvents,
                         estimatedPrintSeconds = result.estimatedPrintSeconds,
                         sliceLogPath = result.logFile.absolutePath,
                         sliceDurationMilliseconds = result.elapsedMilliseconds,
@@ -279,10 +300,116 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             append("Sliced ${formatFileSize(result.gcodeFile.length())} of validated G-code in ${formatDuration(result.elapsedMilliseconds)}")
                             if (printTime != null) append(" · estimated print $printTime")
                             if (result.layerPreview == null) append(" · layer preview unavailable; see diagnostic log")
+                            if (result.layerEvents.isNotEmpty()) append(" · ${result.layerEvents.size} layer events")
                         },
                     )
                 }
             }.onFailure(::showFailure)
+        }
+    }
+
+    fun generateCalibrationTower(spec: CalibrationTowerSpec) {
+        val snapshot = _uiState.value
+        viewModelScope.launch {
+            busy("Generating calibration tower…")
+            runCatching {
+                withContext(Dispatchers.Default) {
+                    CalibrationTowerGenerator.generate(spec, snapshot.settings.retractionSpeedMmPerSecond)
+                }
+            }.onSuccess { result ->
+                val directory = File(app.filesDir, "models").apply { mkdirs() }
+                val modelFile = File(directory, "current.stl")
+                StlMeshWriter.writeBinary(result.mesh, modelFile)
+                sourceMesh = result.mesh
+                importedScene = null
+                plannedCalibrationEvents = result.plannedEvents
+                val placement = ModelPlacement.centeredOnBed(result.mesh, printer.widthMm, printer.depthMm)
+                val settings = if (result.requiresFirmwareRetraction && !snapshot.settings.firmwareRetraction) {
+                    snapshot.settings.copy(
+                        firmwareRetraction = true,
+                        overriddenSettingKeys = snapshot.settings.overriddenSettingKeys + SlicerSettings.Keys.FIRMWARE_RETRACTION,
+                    ).also(stateStore::saveSettings)
+                } else {
+                    snapshot.settings
+                }
+                _uiState.update { current ->
+                    current.copy(
+                        settings = settings,
+                        mesh = placement.transformed(result.mesh),
+                        modelPath = modelFile.absolutePath,
+                        modelPlacement = placement,
+                        importedSceneTransformAvailable = false,
+                        importedSceneModelName = null,
+                        gcodePath = null,
+                        baseGcodePath = null,
+                        layerPreview = null,
+                        layerEvents = emptyList(),
+                        calibrationDescription = result.description,
+                        estimatedPrintSeconds = null,
+                        sliceLogPath = null,
+                        sliceDurationMilliseconds = null,
+                        isBusy = false,
+                        statusMessage = buildString {
+                            append("Generated ${result.description}; slice to create the stepped calibration G-code")
+                            if (result.requiresFirmwareRetraction) append(" · firmware retraction enabled")
+                        },
+                    )
+                }
+            }.onFailure(::showFailure)
+        }
+    }
+
+    fun addLayerEvent(
+        layerNumber: Int,
+        zMm: Float,
+        type: LayerEventType,
+        value: Double? = null,
+        secondaryValue: Double? = null,
+        text: String = "",
+    ) {
+        val event = LayerEvent(
+            id = "user-${layerEventSequence.incrementAndGet()}",
+            layerNumber = layerNumber,
+            zMm = zMm,
+            type = type,
+            value = value,
+            secondaryValue = secondaryValue,
+            text = text,
+        )
+        reapplyLayerEvents(_uiState.value.layerEvents + event, "Layer event added")
+    }
+
+    fun removeLayerEvent(id: String) {
+        reapplyLayerEvents(_uiState.value.layerEvents.filterNot { it.id == id }, "Layer event removed")
+    }
+
+    fun clearLayerEvents() {
+        val retainedCalibration = _uiState.value.layerEvents.filter { it.source == LayerEventSource.CALIBRATION }
+        reapplyLayerEvents(retainedCalibration, "User layer events cleared")
+    }
+
+    private fun reapplyLayerEvents(events: List<LayerEvent>, message: String) {
+        val basePath = _uiState.value.baseGcodePath
+        if (basePath == null) {
+            showEventFailure(IllegalStateException("Slice the model before editing layer events"))
+            return
+        }
+        viewModelScope.launch {
+            busy("Applying layer events…")
+            runCatching {
+                withContext(Dispatchers.IO) { engine.applyLayerEvents(File(basePath), events) }
+            }.onSuccess { result ->
+                _uiState.update { current ->
+                    current.copy(
+                        gcodePath = result.gcodeFile.absolutePath,
+                        layerPreview = result.layerPreview,
+                        layerEvents = result.layerEvents,
+                        estimatedPrintSeconds = result.estimatedPrintSeconds,
+                        isBusy = false,
+                        statusMessage = "$message · ${result.layerEvents.size} active events",
+                    )
+                }
+            }.onFailure(::showEventFailure)
         }
     }
 
@@ -344,7 +471,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     mesh = transformed,
                     modelPlacement = changed,
                     gcodePath = null,
+                    baseGcodePath = null,
                     layerPreview = null,
+                    layerEvents = emptyList(),
                     estimatedPrintSeconds = null,
                     sliceLogPath = null,
                     sliceDurationMilliseconds = null,
@@ -500,7 +629,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 importedSceneTransformAvailable = scene?.affine != null,
                 importedSceneModelName = scene?.modelName,
                 gcodePath = null,
+                baseGcodePath = null,
                 layerPreview = null,
+                layerEvents = emptyList(),
                 estimatedPrintSeconds = null,
                 sliceLogPath = null,
                 sliceDurationMilliseconds = null,
@@ -550,9 +681,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             it.copy(
                 isBusy = false,
                 gcodePath = null,
+                baseGcodePath = null,
                 layerPreview = null,
+                layerEvents = emptyList(),
                 estimatedPrintSeconds = null,
                 sliceLogPath = (error as? CuraEngineRunner.SliceException)?.logFile?.absolutePath ?: it.sliceLogPath,
+                statusMessage = error.message ?: error::class.java.simpleName,
+            )
+        }
+    }
+
+    private fun showEventFailure(error: Throwable) {
+        _uiState.update {
+            it.copy(
+                isBusy = false,
                 statusMessage = error.message ?: error::class.java.simpleName,
             )
         }
@@ -609,6 +751,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             .put("importedValues", state.importedRawSettingCount)
             .put("appOverrideKeys", settings.overriddenSettingKeys.sorted())
             .put("estimatedPrintSeconds", state.estimatedPrintSeconds)
+            .put("calibration", state.calibrationDescription)
+            .put("layerEvents", state.layerEvents.map { event ->
+                JSONObject()
+                    .put("layer", event.layerNumber)
+                    .put("zMm", event.zMm)
+                    .put("type", event.type.name)
+                    .put("value", event.value)
+                    .put("secondaryValue", event.secondaryValue)
+                    .put("text", event.text)
+                    .put("source", event.source.name)
+            })
             .put("warnings", state.warnings)
             .put(
                 "modelPlacement",
@@ -626,6 +779,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 JSONObject()
                     .put("layerHeightMm", settings.layerHeightMm)
                     .put("initialLayerHeightMm", settings.initialLayerHeightMm)
+                    .put("adaptiveLayerHeightEnabled", settings.adaptiveLayerHeightEnabled)
+                    .put("adaptiveLayerHeightVariationMm", settings.adaptiveLayerHeightVariationMm)
+                    .put("adaptiveLayerHeightVariationStepMm", settings.adaptiveLayerHeightVariationStepMm)
+                    .put("adaptiveLayerHeightThreshold", settings.adaptiveLayerHeightThreshold)
                     .put("lineWidthMm", settings.lineWidthMm)
                     .put("printSpeedMmPerSecond", settings.printSpeedMmPerSecond)
                     .put("nozzleTemperatureC", settings.nozzleTemperatureC)

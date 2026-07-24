@@ -76,6 +76,83 @@ internal fun CategorizedSettingsSheet(
             NumberField("Initial layer height (mm)", settings.initialLayerHeightMm, source(state, SlicerSettings.Keys.INITIAL_LAYER_HEIGHT)) {
                 onSettings(SlicerSettings.Keys.INITIAL_LAYER_HEIGHT) { current -> current.copy(initialLayerHeightMm = it.coerceIn(0.01, 5.0)) }
             }
+            SwitchRow(
+                "Adaptive layer height",
+                settings.adaptiveLayerHeightEnabled,
+                source(state, SlicerSettings.Keys.ADAPTIVE_LAYER_HEIGHT_ENABLED),
+            ) {
+                onSettings(SlicerSettings.Keys.ADAPTIVE_LAYER_HEIGHT_ENABLED) { current ->
+                    current.copy(adaptiveLayerHeightEnabled = it)
+                }
+            }
+            if (settings.adaptiveLayerHeightEnabled) {
+                val minimumHeight = (settings.layerHeightMm - settings.adaptiveLayerHeightVariationMm).coerceAtLeast(0.01)
+                val maximumHeight = settings.layerHeightMm + settings.adaptiveLayerHeightVariationMm
+                Text(
+                    "Cura may vary layers from %.3f to %.3f mm around the nominal height.".format(minimumHeight, maximumHeight),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                NumberField(
+                    "Maximum variation (± mm)",
+                    settings.adaptiveLayerHeightVariationMm,
+                    source(state, SlicerSettings.Keys.ADAPTIVE_LAYER_HEIGHT_VARIATION),
+                    decimals = 3,
+                ) {
+                    onSettings(SlicerSettings.Keys.ADAPTIVE_LAYER_HEIGHT_VARIATION) { current ->
+                        current.copy(adaptiveLayerHeightVariationMm = it.coerceIn(0.001, (current.layerHeightMm - 0.01).coerceAtLeast(0.001)))
+                    }
+                }
+                NumberField(
+                    "Variation step (mm)",
+                    settings.adaptiveLayerHeightVariationStepMm,
+                    source(state, SlicerSettings.Keys.ADAPTIVE_LAYER_HEIGHT_VARIATION_STEP),
+                    decimals = 3,
+                ) {
+                    onSettings(SlicerSettings.Keys.ADAPTIVE_LAYER_HEIGHT_VARIATION_STEP) { current ->
+                        current.copy(adaptiveLayerHeightVariationStepMm = it.coerceIn(0.001, current.adaptiveLayerHeightVariationMm.coerceAtLeast(0.001)))
+                    }
+                }
+                NumberField(
+                    "Surface detail threshold",
+                    settings.adaptiveLayerHeightThreshold,
+                    source(state, SlicerSettings.Keys.ADAPTIVE_LAYER_HEIGHT_THRESHOLD),
+                    decimals = 3,
+                ) {
+                    onSettings(SlicerSettings.Keys.ADAPTIVE_LAYER_HEIGHT_THRESHOLD) { current ->
+                        current.copy(adaptiveLayerHeightThreshold = it.coerceIn(0.0, 1.0))
+                    }
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            onSettings(SlicerSettings.Keys.ADAPTIVE_LAYER_HEIGHT_VARIATION) { it.copy(adaptiveLayerHeightVariationMm = 0.06) }
+                            onSettings(SlicerSettings.Keys.ADAPTIVE_LAYER_HEIGHT_VARIATION_STEP) { it.copy(adaptiveLayerHeightVariationStepMm = 0.01) }
+                            onSettings(SlicerSettings.Keys.ADAPTIVE_LAYER_HEIGHT_THRESHOLD) { it.copy(adaptiveLayerHeightThreshold = 0.12) }
+                        },
+                        modifier = Modifier.weight(1f),
+                    ) { Text("Fine") }
+                    OutlinedButton(
+                        onClick = {
+                            onSettings(SlicerSettings.Keys.ADAPTIVE_LAYER_HEIGHT_VARIATION) { it.copy(adaptiveLayerHeightVariationMm = 0.10) }
+                            onSettings(SlicerSettings.Keys.ADAPTIVE_LAYER_HEIGHT_VARIATION_STEP) { it.copy(adaptiveLayerHeightVariationStepMm = 0.01) }
+                            onSettings(SlicerSettings.Keys.ADAPTIVE_LAYER_HEIGHT_THRESHOLD) { it.copy(adaptiveLayerHeightThreshold = 0.20) }
+                        },
+                        modifier = Modifier.weight(1f),
+                    ) { Text("Balanced") }
+                    OutlinedButton(
+                        onClick = {
+                            onSettings(SlicerSettings.Keys.ADAPTIVE_LAYER_HEIGHT_VARIATION) { it.copy(adaptiveLayerHeightVariationMm = 0.14) }
+                            onSettings(SlicerSettings.Keys.ADAPTIVE_LAYER_HEIGHT_VARIATION_STEP) { it.copy(adaptiveLayerHeightVariationStepMm = 0.02) }
+                            onSettings(SlicerSettings.Keys.ADAPTIVE_LAYER_HEIGHT_THRESHOLD) { it.copy(adaptiveLayerHeightThreshold = 0.30) }
+                        },
+                        modifier = Modifier.weight(1f),
+                    ) { Text("Fast") }
+                }
+            }
             NumberField("Line width (mm)", settings.lineWidthMm, source(state, SlicerSettings.Keys.LINE_WIDTH)) {
                 onSettings(SlicerSettings.Keys.LINE_WIDTH) { current -> current.copy(lineWidthMm = it.coerceIn(0.01, 5.0)) }
             }
