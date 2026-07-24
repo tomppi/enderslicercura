@@ -1,5 +1,6 @@
 package com.tomppi.enderslicer.engine
 
+import com.tomppi.enderslicer.calibration.CalibrationSliceState
 import com.tomppi.enderslicer.model.PrinterDefinition
 import com.tomppi.enderslicer.model.SlicerSettings
 import com.tomppi.enderslicer.model.resolveEndGcode
@@ -59,9 +60,10 @@ object CuraEngineCommand {
             outputPath,
         ).forEach(::requireSafeArgument)
 
-        val effectivePrinter = printer.withSettings(settings)
-        val effectiveStartGcode = settings.resolveStartGcode(startGcode)
-        val effectiveEndGcode = settings.resolveEndGcode(endGcode)
+        val effectiveSettings = CalibrationSliceState.effective(settings)
+        val effectivePrinter = printer.withSettings(effectiveSettings)
+        val effectiveStartGcode = effectiveSettings.resolveStartGcode(startGcode)
+        val effectiveEndGcode = effectiveSettings.resolveEndGcode(endGcode)
         val engineOffsetX = if (effectivePrinter.originAtCenter) 0.0 else -effectivePrinter.widthMm / 2.0
         val engineOffsetY = if (effectivePrinter.originAtCenter) 0.0 else -effectivePrinter.depthMm / 2.0
         requireSafeArgument(effectiveStartGcode)
@@ -91,7 +93,7 @@ object CuraEngineCommand {
         }
 
         fun applyStandaloneSettings() {
-            CuraSettingDelta.standaloneValues(settings).forEach { (key, value) -> setting(key, value) }
+            CuraSettingDelta.standaloneValues(effectiveSettings).forEach { (key, value) -> setting(key, value) }
         }
 
         setting("machine_name", effectivePrinter.name)
@@ -134,16 +136,16 @@ object CuraEngineCommand {
         setting("machine_nozzle_size", effectivePrinter.nozzleSizeMm)
         setting("material_diameter", effectivePrinter.filamentDiameterMm)
 
-        val interfaceHeight = settings.layerHeightMm * 4.0
-        val density = settings.supportInterfaceDensityPercent.coerceIn(0.0, 100.0)
-        val lineDistance = if (density <= 0.0) 0.0 else settings.lineWidthMm * 100.0 / density * 2.0
+        val interfaceHeight = effectiveSettings.layerHeightMm * 4.0
+        val density = effectiveSettings.supportInterfaceDensityPercent.coerceIn(0.0, 100.0)
+        val lineDistance = if (density <= 0.0) 0.0 else effectiveSettings.lineWidthMm * 100.0 / density * 2.0
         setting("support_interface_extruder_nr", 0)
         setting("support_roof_extruder_nr", 0)
         setting("support_bottom_extruder_nr", 0)
         setting("support_interface_height", interfaceHeight)
         setting("support_interface_pattern", "grid")
-        setting("support_roof_line_width", settings.lineWidthMm)
-        setting("support_bottom_line_width", settings.lineWidthMm)
+        setting("support_roof_line_width", effectiveSettings.lineWidthMm)
+        setting("support_bottom_line_width", effectiveSettings.lineWidthMm)
         setting("support_roof_line_distance", lineDistance)
         setting("support_bottom_line_distance", lineDistance)
 
