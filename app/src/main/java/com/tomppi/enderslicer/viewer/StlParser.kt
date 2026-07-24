@@ -3,6 +3,7 @@ package com.tomppi.enderslicer.viewer
 import android.content.ContentResolver
 import android.net.Uri
 import android.provider.OpenableColumns
+import com.tomppi.enderslicer.calibration.CalibrationSliceState
 import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -13,6 +14,7 @@ object StlParser {
     private const val MAX_TRIANGLES = 1_500_000
 
     fun parse(resolver: ContentResolver, uri: Uri): StlMesh {
+        CalibrationSliceState.clear()
         val bytes = resolver.openInputStream(uri)?.use(::readLimited)
             ?: error("Unable to open the selected STL")
         val name = displayName(resolver, uri)
