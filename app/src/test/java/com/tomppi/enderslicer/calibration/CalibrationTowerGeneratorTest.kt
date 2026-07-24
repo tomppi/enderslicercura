@@ -27,13 +27,14 @@ class CalibrationTowerGeneratorTest {
         assertEquals(listOf(225.0, 220.0, 215.0, 210.0, 205.0), result.levelValues)
         assertTrue(result.plannedEvents.all { it.type == LayerEventType.NOZZLE_TEMPERATURE })
         assertEquals(CalibrationTestType.TEMPERATURE.modelFeatures, result.modelFeatures)
+        assertTrue(CalibrationModelFeature.SUPPORT_FREE in result.modelFeatures)
         assertFalse(result.requiresFirmwareRetraction)
         assertTrue(result.mesh.bounds.height > 30f)
         assertEveryTriangleHasArea(result.mesh.interleavedVertices, result.mesh.triangleCount)
     }
 
     @Test
-    fun everyCalibrationTypeProducesItsOwnPurposeBuiltGeometry() {
+    fun everyCalibrationTypeProducesItsOwnSupportFreePurposeBuiltGeometry() {
         val results = CalibrationTestType.entries.associateWith { type ->
             CalibrationTowerGenerator.generate(
                 CalibrationTowerSpec(type = type),
@@ -44,7 +45,8 @@ class CalibrationTowerGeneratorTest {
         results.forEach { (type, result) ->
             assertEquals(type.defaultLevels, result.plannedEvents.size)
             assertEquals(type.modelFeatures, result.modelFeatures)
-            assertTrue(type.designDescription.isNotBlank())
+            assertTrue(CalibrationModelFeature.SUPPORT_FREE in result.modelFeatures)
+            assertTrue(type.designDescription.contains("support", ignoreCase = true))
             assertTrue(result.mesh.triangleCount > 100)
             assertEveryTriangleHasArea(result.mesh.interleavedVertices, result.mesh.triangleCount)
         }
@@ -81,6 +83,7 @@ class CalibrationTowerGeneratorTest {
         assertEquals(55.0, result.plannedEvents.first().secondaryValue ?: 0.0, 0.0)
         assertTrue(CalibrationModelFeature.SEPARATED_POSTS in result.modelFeatures)
         assertTrue(CalibrationModelFeature.TRAVEL_GAPS in result.modelFeatures)
+        assertTrue(CalibrationModelFeature.SUPPORT_FREE in result.modelFeatures)
         assertEveryTriangleHasArea(result.mesh.interleavedVertices, result.mesh.triangleCount)
     }
 
