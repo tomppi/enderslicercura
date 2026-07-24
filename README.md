@@ -4,17 +4,17 @@
 
 # enderslicercura
 
-enderslicercura is an Android-first CuraEngine front end designed for practical slicing directly on a phone or foldable. It currently targets a modified Creality Ender 3 V2, while exposing editable printer dimensions, nozzle and filament data, start/end G-code, print settings, supports, travel, cooling, adhesion, and model placement.
+enderslicercura is an Android-first CuraEngine front end designed for practical slicing directly on a phone or foldable. It currently targets a modified Creality Ender 3 V2, while exposing editable printer dimensions, nozzle and filament data, start/end G-code, print settings, supports, travel, cooling, adhesion, model placement, and displacement-texture editing through an embedded BumpMesh workspace.
 
-The app is now fully capable of importing an STL, importing Cura configuration data, slicing with the bundled ARM64 CuraEngine, previewing the generated layers, estimating print time, and exporting printer-compatible G-code.
+The app is capable of importing an STL, importing Cura configuration data, adding printable surface textures, slicing with the bundled ARM64 CuraEngine, previewing the generated layers, estimating print time, and exporting printer-compatible G-code.
 
 Android application ID: `com.tomppi.enderslicercura`.
 
 ## Project status
 
-enderslicercura is working and is already producing output very close to Cura Desktop for the current reference printer/profile. It is not yet being described as a complete Cura replacement: several more side-by-side slicing comparisons using different model shapes, support cases, infill patterns, model transforms, and profile combinations are still required before parity can be considered broadly validated.
+enderslicercura is working and is already producing output very close to Cura Desktop for the current reference printer/profile. It is not yet being described as a complete Cura replacement: several more side-by-side slicing comparisons using different model shapes, support cases, infill patterns, model transforms, textured meshes, and profile combinations are still required before parity can be considered broadly validated.
 
-The current development line is `0.5.13-dev` and uses CuraEngine `5.11.0-beta.1` with matching Cura resources.
+The current development line is `0.6.0-dev` and uses CuraEngine `5.11.0-beta.1` with matching Cura resources. BumpMesh is pinned to upstream commit `a6ac179149b8a17c71a9469dd4cb6f866c0c01d1`.
 
 ## Current capabilities
 
@@ -22,6 +22,11 @@ The current development line is `0.5.13-dev` and uses CuraEngine `5.11.0-beta.1`
 - Foldable-friendly wide and compact layouts
 - Bundled ARM64 CuraEngine with adaptive use of up to eight workers
 - Binary and ASCII STL import
+- Offline BumpMesh displacement-texture workspace
+- BumpMesh preset textures and custom image maps
+- Planar, cubic/triplanar, cylindrical and other BumpMesh mapping controls
+- Surface and angle masking, subdivision, displacement and decimation
+- Textured STL return directly into the slicer workflow
 - Cura `.3mf` project configuration import
 - Cura `.curaprofile` import
 - Full machine/extruder definition inheritance and formula recalculation
@@ -41,6 +46,14 @@ The current development line is `0.5.13-dev` and uses CuraEngine `5.11.0-beta.1`
 - Unique export names that always end in `.gcode`
 - Persistent configuration and app-setting restoration
 - GitHub Actions APK and CuraEngine build pipeline
+
+## BumpMesh texturing
+
+Import and position an STL, then open **Menu → Texture model (BumpMesh)**. The app stages the currently displayed mesh as a temporary binary STL and opens the bundled BumpMesh interface. Choose a preset or custom height map, adjust mapping, amplitude, masking, output resolution and triangle count, then use **Export STL**.
+
+The Android bridge captures that binary STL locally, validates its exact triangle count and file length, and returns it to the normal enderslicercura model-import path. No model or texture is uploaded to a server. The embedded workspace uses packaged copies of BumpMesh, Three.js, fflate and meshStep rather than the live BumpMesh website or CDN modules.
+
+The Android integration caps BumpMesh output at 1,500,000 triangles, matching the current STL parser limit. Very fine texture settings can still consume substantial memory and processing time on a phone.
 
 ## Reference printer
 
@@ -106,11 +119,12 @@ The next validation work should compare additional Cura and enderslicercura outp
 - Different infill patterns and densities
 - Brims, skirts and other adhesion modes
 - Rotated and translated models
+- BumpMesh textures on flat, curved, thin and overhanging surfaces
 - Overhangs, bridges and thin walls
 - Long prints that exceed the full-resolution preview memory cap
 - Multiple Cura profiles and material definitions
 
-Current functional limitations include single-model and single-extruder slicing. Duplicate/auto-arrange workflows and full Cura plugin compatibility are not implemented.
+Current functional limitations include single-model and single-extruder slicing. Duplicate/auto-arrange workflows and full Cura plugin compatibility are not implemented. The first BumpMesh integration returns the textured STL through the normal import path, so unusual manual XY placement should be checked after texturing before slicing.
 
 ## Large layer previews
 
@@ -127,6 +141,7 @@ Requirements:
 - CMake `3.31.6` for the CuraEngine cross-build pipeline
 - Gradle `9.4.1`
 - ARM64 Android device (`arm64-v8a`)
+- Network access on the first clean build to fetch pinned Cura and BumpMesh sources
 
 Build the Android app with:
 
@@ -134,7 +149,9 @@ Build the Android app with:
 gradle :app:assembleDebug
 ```
 
-GitHub Actions builds CuraEngine, runs the unit/regression tests, packages the debug APK and uploads the build artifacts.
+The app Gradle project automatically prepares the pinned BumpMesh workspace before `preBuild`. Generated BumpMesh assets are stored under `app/src/main/assets/bumpmesh/`, ignored by Git, and reused while the source marker remains unchanged.
+
+GitHub Actions builds CuraEngine, prepares the offline BumpMesh workspace, runs the unit/regression tests, packages the debug APK and uploads the build artifacts.
 
 ## CuraEngine
 
@@ -144,8 +161,12 @@ The repository pins CuraEngine and Cura resource data to `5.11.0-beta.1` so impo
 
 Generated G-code is validated before export. The validator checks active nozzle targets during extrusion, repairs key metadata, uses CRLF line endings and produces filenames where `.gcode` is always the final extension.
 
-Always inspect settings, machine dimensions and custom start/end G-code before printing. This remains development software and has not yet been validated across the full range of Cura-supported printers and profiles.
+BumpMesh output is accepted only when it is a valid binary STL whose header triangle count exactly matches its file length and remains within the 1,500,000-triangle Android limit.
+
+Always inspect settings, machine dimensions, model placement, textured geometry and custom start/end G-code before printing. This remains development software and has not yet been validated across the full range of Cura-supported printers and profiles.
 
 ## License
 
-enderslicercura is intended to be distributed under GNU AGPL-3.0-or-later because it links to CuraEngine, which is AGPL-licensed. UltiMaker and Cura are trademarks of their respective owners. enderslicercura is not an official UltiMaker or Creality application.
+enderslicercura is intended to be distributed under GNU AGPL-3.0-or-later because it links to CuraEngine, which is AGPL-licensed. The embedded BumpMesh source is retained under `AGPL-3.0-only`. See `THIRD_PARTY_NOTICES.md` and the license files included in the generated BumpMesh workspace for dependency details.
+
+UltiMaker and Cura are trademarks of their respective owners. enderslicercura is not an official UltiMaker, Creality or CNC Kitchen application.
