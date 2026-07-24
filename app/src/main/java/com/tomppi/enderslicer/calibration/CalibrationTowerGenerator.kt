@@ -28,6 +28,7 @@ object CalibrationTowerGenerator {
             require(retractionSpeedMmPerSecond in 0.1..1000.0) { "Retraction speed is outside 0.1..1000 mm/s" }
         }
 
+        CalibrationSliceState.activate(spec.type == CalibrationTestType.RETRACTION)
         val builder = MeshBuilder()
         when (spec.type) {
             CalibrationTestType.TEMPERATURE -> buildTemperatureModel(builder, spec)
