@@ -5,10 +5,10 @@ import java.io.RandomAccessFile
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.io.path.createTempDirectory
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
-import kotlin.test.assertTrue
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
+import org.junit.Test
 
 class StlParserLimitTest {
     @Test
@@ -25,8 +25,12 @@ class StlParserLimitTest {
     fun binaryModelAboveSelectedLimitIsRejectedBeforeMeshAllocation() {
         val file = createBinaryShell(100_001)
         try {
-            val error = assertFailsWith<IllegalArgumentException> {
+            val error = try {
                 StlParser.parse(file, "too-dense.stl", maxTriangles = 100_000)
+                fail("Expected the selected triangle limit to reject the STL")
+                error("unreachable")
+            } catch (expected: IllegalArgumentException) {
+                expected
             }
             assertTrue(error.message.orEmpty().contains("current limit"))
         } finally {
