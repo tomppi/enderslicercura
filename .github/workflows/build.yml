@@ -10,6 +10,19 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  source-snapshot:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Upload source snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: enderslicercura-source-snapshot
+          path: |
+            .
+            !.git
+          include-hidden-files: true
+
   build:
     runs-on: ubuntu-24.04
     timeout-minutes: 120
