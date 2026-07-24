@@ -23,14 +23,17 @@ The build packages `three.module.js` and the `examples/jsm` modules required by 
 - License: MIT
 - Copyright: 101arrowz
 
-The browser ESM build is packaged locally for BumpMesh archive and 3MF handling.
+The official npm package supplies the browser ESM build used by BumpMesh. Its package metadata, README and license are packaged beside the module.
 
 ## meshStep
 
 - Version: 0.1.0
-- License: see the upstream `CNCKitchen/meshStep` distribution
+- License: GNU Affero General Public License v3.0 only (`AGPL-3.0-only`)
+- Copyright: CNC Kitchen and contributors
 
-The pinned browser ESM build is packaged locally for BumpMesh STEP import. EnderSlicerCura's integrated workflow supplies an STL, but this dependency is localized so the embedded workspace does not require a CDN if STEP import is used.
+The official npm package supplies the browser module used for BumpMesh STEP import. Its complete published TypeScript source, generated distribution, package metadata, README and AGPL license are packaged under `assets/bumpmesh/vendor/meshstep/`.
+
+EnderSlicerCura's integrated workflow supplies an STL, but meshStep is localized so the embedded BumpMesh workspace does not require a CDN if STEP import is used.
 
 ## CuraEngine and Cura resources
 
