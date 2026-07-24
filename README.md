@@ -24,7 +24,7 @@ The current development line is `0.7.0-dev` and uses CuraEngine `5.11.0-beta.1` 
 - Binary and ASCII STL import
 - CuraEngine adaptive layer-height controls with fine, balanced and fast presets
 - Layer timeline with pauses, filament changes, temperatures, fan, speed, flow, retraction, camera, messages and guarded custom G-code
-- Built-in temperature, flow, speed, fan and firmware-retraction calibration towers
+- Purpose-built temperature, flow, speed, fan and firmware-retraction calibration models
 - Non-destructive layer-event editing without re-slicing
 - High-contrast current-layer ribbon preview with optional dimmed build-up context
 - Layer-height range display and timeline event markers
@@ -67,7 +67,7 @@ Adaptive layer height uses CuraEngine's native `adaptive_layer_height_*` setting
 
 After slicing, select any layer and open **Add event**. Events are inserted immediately after Cura's layer marker and are rebuilt from an untouched base G-code file, so adding or removing a pause, filament change, temperature, fan, speed, flow, firmware-retraction, camera, display-message or guarded custom-G-code event does not run CuraEngine again. Unsafe custom commands such as homing, emergency stop, EEPROM writes and motor release are blocked inside layer events.
 
-Open **Menu → Calibration generator** to create a stepped temperature, flow, speed-factor, fan or firmware-retraction tower. Each generated STL includes visible section markers and schedules the matching G-code value changes automatically when sliced. Retraction towers enable firmware retraction and change `M207` distance while retaining the configured retraction speed.
+Open **Menu → Calibration generator** to create a purpose-built model for the selected test. Temperature models repeat bridges, sloped overhangs and thin fins; flow models use thin walls, top-surface coupons and measurement ribs; speed models use a sharp multi-point star; fan models repeat long bridges and progressive cantilevers; and retraction models use isolated posts that force travel moves and expose stringing. Every model schedules the matching G-code value changes automatically when sliced. Retraction models enable firmware retraction and change `M207` distance while retaining the configured retraction speed.
 
 The layer viewer defaults to a high-contrast **Current** mode that renders the selected layer as wide colored ribbons with a dark outline. **Build-up** mode adds earlier layers at low opacity. Cyan identifies support, magenta identifies support interface, orange identifies adhesion, and normal model paths remain colored by print speed.
 

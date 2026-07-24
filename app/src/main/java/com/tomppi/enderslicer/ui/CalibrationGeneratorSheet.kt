@@ -35,7 +35,7 @@ internal fun CalibrationGeneratorSheet(
     var type by remember { mutableStateOf(CalibrationTestType.TEMPERATURE) }
     var start by remember(type) { mutableStateOf(format(type.defaultStart)) }
     var step by remember(type) { mutableStateOf(format(type.defaultStep)) }
-    var levels by remember { mutableStateOf("8") }
+    var levels by remember(type) { mutableStateOf(type.defaultLevels.toString()) }
     var sectionHeight by remember { mutableStateOf("8") }
     var width by remember { mutableStateOf("20") }
     var typeMenu by remember { mutableStateOf(false) }
@@ -61,7 +61,7 @@ internal fun CalibrationGeneratorSheet(
     ) {
         Text("Calibration generator", style = MaterialTheme.typography.headlineSmall)
         Text(
-            "Creates a printable stepped tower and automatically schedules the matching value change at every section.",
+            "Creates a purpose-built calibration model for the selected test and automatically schedules the matching value change at every section.",
             style = MaterialTheme.typography.bodyMedium,
         )
         Box(modifier = Modifier.fillMaxWidth()) {
@@ -80,11 +80,16 @@ internal fun CalibrationGeneratorSheet(
                 }
             }
         }
+        Text(
+            type.designDescription,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         NumberInput("Start value (${type.unit})", start) { start = it }
         NumberInput("Step per section (${type.unit})", step) { step = it }
         NumberInput("Number of sections", levels) { levels = it }
         NumberInput("Section height (mm)", sectionHeight) { sectionHeight = it }
-        NumberInput("Tower width (mm)", width) { width = it }
+        NumberInput("Model width (mm)", width) { width = it }
 
         if (values.isNotEmpty()) {
             Text(
@@ -95,7 +100,7 @@ internal fun CalibrationGeneratorSheet(
         }
         if (type == CalibrationTestType.RETRACTION) {
             Text(
-                "This tower changes M207 firmware-retraction distance. Firmware retraction will be enabled automatically.",
+                "This model changes M207 firmware-retraction distance. Firmware retraction will be enabled automatically.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -104,7 +109,7 @@ internal fun CalibrationGeneratorSheet(
             Button(
                 onClick = { spec?.let(onGenerate) },
                 enabled = spec != null && !isBusy,
-            ) { Text("Generate tower") }
+            ) { Text("Generate model") }
         }
     }
 }
