@@ -213,6 +213,17 @@ val prepareBumpMeshAssets by tasks.registering {
         check("../vendor/meshstep/index.js" in patchedStepWorker) { "Unable to localize meshStep" }
         stepWorker.writeText(patchedStepWorker)
 
+        val threeCompat = File(bumpMeshStage, "js/threeCompat.js")
+        check(threeCompat.isFile) { "Pinned BumpMesh archive did not contain threeCompat.js" }
+        val patchedThreeCompat = threeCompat.readText().replace(
+            "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+            "../vendor/three/build/three.module.js",
+        )
+        check("../vendor/three/build/three.module.js" in patchedThreeCompat) {
+            "Unable to localize the BumpMesh worker Three.js fallback"
+        }
+        threeCompat.writeText(patchedThreeCompat)
+
         bumpMeshAndroidBridge.asFile.copyTo(File(bumpMeshStage, "android-bridge.js"), overwrite = true)
         File(bumpMeshStage, ".source-version").writeText(expectedMarker)
 
