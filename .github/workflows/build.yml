@@ -66,14 +66,20 @@ jobs:
         run: |
           gradle :app:prepareBumpMeshAssets --stacktrace
           test -s app/src/main/assets/bumpmesh/index.html
+          test -s app/src/main/assets/bumpmesh/LICENSE
           test -s app/src/main/assets/bumpmesh/android-bridge.js
           test -s app/src/main/assets/bumpmesh/vendor/three/build/three.module.js
+          test -s app/src/main/assets/bumpmesh/vendor/three/LICENSE
           test -s app/src/main/assets/bumpmesh/vendor/fflate/esm/browser.js
-          test -s app/src/main/assets/bumpmesh/vendor/meshstep/index.js
+          test -s app/src/main/assets/bumpmesh/vendor/fflate/LICENSE
+          test -s app/src/main/assets/bumpmesh/vendor/meshstep/dist/index.js
+          test -s app/src/main/assets/bumpmesh/vendor/meshstep/src/index.ts
+          test -s app/src/main/assets/bumpmesh/vendor/meshstep/LICENSE
+          grep -q 'format=2' app/src/main/assets/bumpmesh/.source-version
           grep -q 'BumpMesh=a6ac179149b8a17c71a9469dd4cb6f866c0c01d1' app/src/main/assets/bumpmesh/.source-version
           grep -q './vendor/three/build/three.module.js' app/src/main/assets/bumpmesh/index.html
           grep -q 'android-bridge.js' app/src/main/assets/bumpmesh/index.html
-          grep -q '../vendor/meshstep/index.js' app/src/main/assets/bumpmesh/js/stepWorker.js
+          grep -q '../vendor/meshstep/dist/index.js' app/src/main/assets/bumpmesh/js/stepWorker.js
           grep -q '../vendor/three/build/three.module.js' app/src/main/assets/bumpmesh/js/threeCompat.js
           ! grep -R 'https://cdn.jsdelivr.net/npm' \
             app/src/main/assets/bumpmesh/index.html \
@@ -109,8 +115,11 @@ jobs:
           grep -q 'lib/arm64-v8a/libcuraengine_exec.so' apk-contents.log
           grep -q 'assets/cura/definitions/version.txt' apk-contents.log
           grep -q 'assets/bumpmesh/index.html' apk-contents.log
+          grep -q 'assets/bumpmesh/LICENSE' apk-contents.log
           grep -q 'assets/bumpmesh/android-bridge.js' apk-contents.log
           grep -q 'assets/bumpmesh/vendor/three/build/three.module.js' apk-contents.log
+          grep -q 'assets/bumpmesh/vendor/meshstep/src/index.ts' apk-contents.log
+          grep -q 'assets/bumpmesh/vendor/meshstep/LICENSE' apk-contents.log
           for name in \
             fdmprinter \
             fdmextruder \
