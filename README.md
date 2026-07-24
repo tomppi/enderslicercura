@@ -14,7 +14,7 @@ Android application ID: `com.tomppi.enderslicercura`.
 
 enderslicercura is working and is already producing output very close to Cura Desktop for the current reference printer/profile. It is not yet being described as a complete Cura replacement: several more side-by-side slicing comparisons using different model shapes, support cases, infill patterns, model transforms, textured meshes, and profile combinations are still required before parity can be considered broadly validated.
 
-The current development line is `0.6.0-dev` and uses CuraEngine `5.11.0-beta.1` with matching Cura resources. BumpMesh is pinned to upstream commit `a6ac179149b8a17c71a9469dd4cb6f866c0c01d1`.
+The current development line is `0.7.0-dev` and uses CuraEngine `5.11.0-beta.1` with matching Cura resources. BumpMesh is pinned to upstream commit `a6ac179149b8a17c71a9469dd4cb6f866c0c01d1`.
 
 ## Current capabilities
 
@@ -22,6 +22,12 @@ The current development line is `0.6.0-dev` and uses CuraEngine `5.11.0-beta.1` 
 - Foldable-friendly wide and compact layouts
 - Bundled ARM64 CuraEngine with adaptive use of up to eight workers
 - Binary and ASCII STL import
+- CuraEngine adaptive layer-height controls with fine, balanced and fast presets
+- Layer timeline with pauses, filament changes, temperatures, fan, speed, flow, retraction, camera, messages and guarded custom G-code
+- Built-in temperature, flow, speed, fan and firmware-retraction calibration towers
+- Non-destructive layer-event editing without re-slicing
+- High-contrast current-layer ribbon preview with optional dimmed build-up context
+- Layer-height range display and timeline event markers
 - Offline BumpMesh displacement-texture workspace
 - BumpMesh preset textures and custom image maps
 - Planar, cubic/triplanar, cylindrical and other BumpMesh mapping controls
@@ -54,6 +60,16 @@ Import and position an STL, then open **Menu → Texture model (BumpMesh)**. The
 The Android bridge captures that binary STL locally, validates its exact triangle count and file length, and returns it to the normal enderslicercura model-import path. No model or texture is uploaded to a server. The embedded workspace uses packaged copies of BumpMesh, Three.js, fflate and meshStep rather than the live BumpMesh website or CDN modules.
 
 The Android integration caps BumpMesh output at 1,500,000 triangles, matching the current STL parser limit. Very fine texture settings can still consume substantial memory and processing time on a phone.
+
+## Adaptive layers, layer events and calibration
+
+Adaptive layer height uses CuraEngine's native `adaptive_layer_height_*` settings. Enable it under **Print settings → Quality**, then tune the total variation, variation step and surface-detail threshold or select a preset. The layer viewer reports the actual minimum and maximum layer heights found in the generated G-code.
+
+After slicing, select any layer and open **Add event**. Events are inserted immediately after Cura's layer marker and are rebuilt from an untouched base G-code file, so adding or removing a pause, filament change, temperature, fan, speed, flow, firmware-retraction, camera, display-message or guarded custom-G-code event does not run CuraEngine again. Unsafe custom commands such as homing, emergency stop, EEPROM writes and motor release are blocked inside layer events.
+
+Open **Menu → Calibration generator** to create a stepped temperature, flow, speed-factor, fan or firmware-retraction tower. Each generated STL includes visible section markers and schedules the matching G-code value changes automatically when sliced. Retraction towers enable firmware retraction and change `M207` distance while retaining the configured retraction speed.
+
+The layer viewer defaults to a high-contrast **Current** mode that renders the selected layer as wide colored ribbons with a dark outline. **Build-up** mode adds earlier layers at low opacity. Cyan identifies support, magenta identifies support interface, orange identifies adhesion, and normal model paths remain colored by print speed.
 
 ## Reference printer
 
@@ -124,7 +140,7 @@ The next validation work should compare additional Cura and enderslicercura outp
 - Long prints that exceed the full-resolution preview memory cap
 - Multiple Cura profiles and material definitions
 
-Current functional limitations include single-model and single-extruder slicing. Duplicate/auto-arrange workflows and full Cura plugin compatibility are not implemented. The first BumpMesh integration returns the textured STL through the normal import path, so unusual manual XY placement should be checked after texturing before slicing.
+Current functional limitations include single-model and single-extruder slicing. Layer events currently target Marlin-compatible commands; verify firmware support for commands such as `M600`, `M240`, `M207`, `M220` and `M221` before printing. Duplicate/auto-arrange workflows and full Cura plugin compatibility are not implemented. The first BumpMesh integration returns the textured STL through the normal import path, so unusual manual XY placement should be checked after texturing before slicing.
 
 ## Large layer previews
 

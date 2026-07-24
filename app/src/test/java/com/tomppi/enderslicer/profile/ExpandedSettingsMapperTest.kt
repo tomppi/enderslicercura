@@ -12,6 +12,10 @@ class ExpandedSettingsMapperTest {
         val mapped = CuraSettingsMapper.apply(
             SlicerSettings(),
             mapOf(
+                "adaptive_layer_height_enabled" to "true",
+                "adaptive_layer_height_variation" to "0.08",
+                "adaptive_layer_height_variation_step" to "0.01",
+                "adaptive_layer_height_threshold" to "0.16",
                 "slicing_tolerance" to "inclusive",
                 "wall_line_count" to "4",
                 "top_layers" to "7",
@@ -48,6 +52,10 @@ class ExpandedSettingsMapperTest {
             ),
         )
 
+        assertTrue(mapped.adaptiveLayerHeightEnabled)
+        assertEquals(0.08, mapped.adaptiveLayerHeightVariationMm, 0.0)
+        assertEquals(0.01, mapped.adaptiveLayerHeightVariationStepMm, 0.0)
+        assertEquals(0.16, mapped.adaptiveLayerHeightThreshold, 0.0)
         assertEquals("inclusive", mapped.slicingTolerance)
         assertEquals(4, mapped.wallLineCount)
         assertEquals(7, mapped.topLayers)

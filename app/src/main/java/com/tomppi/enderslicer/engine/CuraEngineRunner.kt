@@ -13,10 +13,19 @@ import java.util.concurrent.TimeUnit
 class CuraEngineRunner(private val context: Context) {
     data class SliceResult(
         val gcodeFile: File,
+        val baseGcodeFile: File,
         val logFile: File,
         val elapsedMilliseconds: Long,
         val estimatedPrintSeconds: Int?,
         val layerPreview: GcodeLayerPreview?,
+        val layerEvents: List<LayerEvent>,
+    )
+
+    data class LayerEventApplyResult(
+        val gcodeFile: File,
+        val estimatedPrintSeconds: Int?,
+        val layerPreview: GcodeLayerPreview,
+        val layerEvents: List<LayerEvent>,
     )
 
     class SliceException(
@@ -51,9 +60,12 @@ class CuraEngineRunner(private val context: Context) {
         startGcode: String,
         endGcode: String,
         profile: CuraEngineProfile? = null,
+        layerEvents: List<LayerEvent> = emptyList(),
+        plannedLayerEvents: List<PlannedLayerEvent> = emptyList(),
     ): SliceResult {
         val workDirectory = File(context.cacheDir, "curaengine").apply { mkdirs() }
         val outputFile = File(workDirectory, "current.gcode")
+        val baseGcodeFile = File(workDirectory, "current-base.gcode")
         val resolvedModelFile = File(workDirectory, "current.stl")
         val resolvedSettingsFile = File(workDirectory, "resolved-settings.json")
         val logFile = File(context.filesDir, "logs/curaengine-last.log").apply {
@@ -61,6 +73,7 @@ class CuraEngineRunner(private val context: Context) {
         }
 
         outputFile.delete()
+        baseGcodeFile.delete()
         resolvedModelFile.delete()
         resolvedSettingsFile.delete()
         logFile.writeText(
@@ -74,6 +87,9 @@ class CuraEngineRunner(private val context: Context) {
                 appendLine("Build volume: ${printer.widthMm} x ${printer.depthMm} x ${printer.heightMm} mm")
                 appendLine("Nozzle: ${printer.nozzleSizeMm} mm")
                 appendLine("Layer height shown in UI: ${settings.layerHeightMm} mm")
+                appendLine("Adaptive layers: ${settings.adaptiveLayerHeightEnabled}, variation ±${settings.adaptiveLayerHeightVariationMm} mm, step ${settings.adaptiveLayerHeightVariationStepMm} mm, threshold ${settings.adaptiveLayerHeightThreshold}")
+                appendLine("Requested user layer events: ${layerEvents.size}")
+                appendLine("Planned calibration events: ${plannedLayerEvents.size}")
                 appendLine("Print speed shown in UI: ${settings.printSpeedMmPerSecond} mm/s")
                 appendLine("Supports shown in UI: ${settings.supportsEnabled} / ${settings.supportStructure} / ${settings.supportPlacement}")
                 appendLine("Explicit persisted edits: ${settings.overriddenSettingKeys.size}")
@@ -153,6 +169,7 @@ class CuraEngineRunner(private val context: Context) {
                         appendLine("Resolved extruder settings: ${resolved.extruderValues.size}")
                         appendLine("Resolved per-mesh settings: ${resolved.modelValues.size}")
                         appendLine("Resolved layer height: ${resolved.globalValues["layer_height"]}")
+                        appendLine("Resolved adaptive layers: ${resolved.globalValues["adaptive_layer_height_enabled"]}, variation ${resolved.globalValues["adaptive_layer_height_variation"]}, step ${resolved.globalValues["adaptive_layer_height_variation_step"]}, threshold ${resolved.globalValues["adaptive_layer_height_threshold"]}")
                         appendLine("Resolved adhesion type: ${resolved.globalValues["adhesion_type"] ?: resolved.extruderValues["adhesion_type"]}")
                         appendLine("Resolved wall lines: ${resolved.extruderValues["wall_line_count"]}")
                         appendLine("Resolved top/bottom layers: ${resolved.extruderValues["top_layers"]}/${resolved.extruderValues["bottom_layers"]}")
@@ -230,9 +247,24 @@ class CuraEngineRunner(private val context: Context) {
                 )
             }
 
-            val summary = GcodeSanitizer.validateAndRepair(
+            GcodeSanitizer.validateAndRepair(
                 outputFile,
                 settingsTransport = if (resolved != null) "resolved-json" else "fallback-command",
+            )
+            outputFile.copyTo(baseGcodeFile, overwrite = true)
+            check(baseGcodeFile.isFile && baseGcodeFile.length() > 0L) { "Unable to retain original sliced G-code" }
+            val basePreview = GcodeLayerPreviewParser.parse(baseGcodeFile)
+            val validLayerNumbers = basePreview.layers.mapTo(hashSetOf()) { it.number }
+            val resolvedEvents = (
+                layerEvents.filter { it.layerNumber in validLayerNumbers } +
+                    GcodeLayerEventProcessor.resolve(plannedLayerEvents, basePreview)
+                )
+                .distinctBy(LayerEvent::id)
+                .sortedWith(compareBy(LayerEvent::layerNumber, LayerEvent::source, LayerEvent::id))
+            GcodeLayerEventProcessor.materialize(baseGcodeFile, outputFile, resolvedEvents)
+            val summary = GcodeSanitizer.validateAndRepair(
+                outputFile,
+                settingsTransport = if (resolved != null) "resolved-json+layer-events" else "fallback-command+layer-events",
             )
             val previewResult = runCatching { GcodeLayerPreviewParser.parse(outputFile) }
             val layerPreview = previewResult.getOrNull()
@@ -251,6 +283,8 @@ class CuraEngineRunner(private val context: Context) {
                         appendLine("Layer preview extrusion segments: ${layerPreview.totalSegmentCount}")
                         appendLine("Layer preview speed range: ${layerPreview.minSpeedMmPerSecond}..${layerPreview.maxSpeedMmPerSecond} mm/s")
                         appendLine("Layer preview truncated: ${layerPreview.truncated}")
+                        appendLine("Layer height range: ${layerPreview.minLayerHeightMm}..${layerPreview.maxLayerHeightMm} mm")
+                        appendLine("Applied layer events: ${resolvedEvents.size}")
                     } else {
                         appendLine("Layer preview unavailable: ${previewResult.exceptionOrNull()?.message ?: "unknown parse error"}")
                     }
@@ -263,10 +297,12 @@ class CuraEngineRunner(private val context: Context) {
 
             return SliceResult(
                 gcodeFile = outputFile,
+                baseGcodeFile = baseGcodeFile,
                 logFile = logFile,
                 elapsedMilliseconds = elapsed,
                 estimatedPrintSeconds = summary.estimatedSeconds,
                 layerPreview = layerPreview,
+                layerEvents = resolvedEvents,
             )
         } catch (error: Throwable) {
             outputFile.delete()
@@ -286,6 +322,29 @@ class CuraEngineRunner(private val context: Context) {
                 error,
             )
         }
+    }
+
+    fun applyLayerEvents(
+        baseGcodeFile: File,
+        events: List<LayerEvent>,
+    ): LayerEventApplyResult {
+        require(baseGcodeFile.isFile && baseGcodeFile.length() > 0L) { "The original sliced G-code is unavailable; slice again" }
+        val workDirectory = File(context.cacheDir, "curaengine").apply { mkdirs() }
+        val outputFile = File(workDirectory, "current.gcode")
+        val preview = GcodeLayerPreviewParser.parse(baseGcodeFile)
+        val validLayerNumbers = preview.layers.mapTo(hashSetOf()) { it.number }
+        val validEvents = events
+            .filter { it.layerNumber in validLayerNumbers }
+            .distinctBy(LayerEvent::id)
+            .sortedWith(compareBy(LayerEvent::layerNumber, LayerEvent::source, LayerEvent::id))
+        GcodeLayerEventProcessor.materialize(baseGcodeFile, outputFile, validEvents)
+        val summary = GcodeSanitizer.validateAndRepair(outputFile, settingsTransport = "resolved-json+layer-events")
+        return LayerEventApplyResult(
+            gcodeFile = outputFile,
+            estimatedPrintSeconds = summary.estimatedSeconds,
+            layerPreview = GcodeLayerPreviewParser.parse(outputFile),
+            layerEvents = validEvents,
+        )
     }
 
     private fun completeDefinitionStack(profile: CuraEngineProfile): CuraEngineProfile {

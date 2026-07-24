@@ -20,6 +20,8 @@ import kotlin.math.max
 import kotlin.math.sqrt
 import kotlin.math.tan
 
+internal enum class LayerPreviewStyle { CURRENT_LAYER, BUILD_UP }
+
 class LayerPreviewSurfaceView(
     context: Context,
 ) : GLSurfaceView(context) {
@@ -40,9 +42,14 @@ class LayerPreviewSurfaceView(
         isClickable = true
     }
 
-    fun setPreview(preview: GcodeLayerPreview, selectedLayerIndex: Int) {
+    fun setPreview(
+        preview: GcodeLayerPreview,
+        selectedLayerIndex: Int,
+        style: LayerPreviewStyle,
+    ) {
         queueEvent {
             layerRenderer.setPreview(preview)
+            layerRenderer.setStyle(style)
             layerRenderer.setSelectedLayer(selectedLayerIndex)
         }
         requestRender()
@@ -157,6 +164,11 @@ private class LayerPreviewRenderer : GLSurfaceView.Renderer {
     private var cumulativeSupportVertices = IntArray(0)
     private var cumulativeInterfaceVertices = IntArray(0)
     private var maximumLayerZ = 0f
+    private var style = LayerPreviewStyle.CURRENT_LAYER
+    private var currentRibbonPositionBuffer: FloatBuffer? = null
+    private var currentRibbonColorBuffer: FloatBuffer? = null
+    private var currentHaloPositionBuffer: FloatBuffer? = null
+    private var currentRibbonVertexCount = 0
 
     private var colorProgram = 0
     private var solidProgram = 0
@@ -182,12 +194,19 @@ private class LayerPreviewRenderer : GLSurfaceView.Renderer {
         buildPathBuffers(value)
         buildGrid(value)
         selectedLayerIndex = selectedLayerIndex.coerceIn(value.layers.indices)
+        buildCurrentLayerRibbons()
         resetCamera()
     }
 
     fun setSelectedLayer(value: Int) {
         val current = preview ?: return
+        val changed = selectedLayerIndex != value.coerceIn(current.layers.indices)
         selectedLayerIndex = value.coerceIn(current.layers.indices)
+        if (changed) buildCurrentLayerRibbons()
+    }
+
+    fun setStyle(value: LayerPreviewStyle) {
+        style = value
     }
 
     fun rotate(deltaYaw: Float, deltaPitch: Float) {
@@ -259,26 +278,16 @@ private class LayerPreviewRenderer : GLSurfaceView.Renderer {
         Matrix.multiplyMM(modelView, 0, view, 0, scene, 0)
         Matrix.multiplyMM(mvp, 0, projection, 0, modelView, 0)
 
-        drawSolidLines(gridBuffer, gridVertexCount, 1f, 0.31f, 0.36f, 0.43f, 1f)
-        drawSolidLines(
-            supportPositionBuffer,
-            cumulativeVertexCount(cumulativeSupportVertices),
-            SUPPORT_OUTLINE_WIDTH,
-            1f,
-            1f,
-            1f,
-            0.55f,
-        )
-        drawSolidLines(
-            interfacePositionBuffer,
-            cumulativeVertexCount(cumulativeInterfaceVertices),
-            INTERFACE_OUTLINE_WIDTH,
-            1f,
-            1f,
-            1f,
-            0.90f,
-        )
-        drawColoredPaths(cumulativeVertexCount(cumulativePathVertices))
+        drawSolidLines(gridBuffer, gridVertexCount, 1f, 0.25f, 0.29f, 0.36f, 0.48f)
+        val previousPathVertices = if (selectedLayerIndex > 0) cumulativePathVertices[selectedLayerIndex - 1] else 0
+        if (style == LayerPreviewStyle.BUILD_UP && previousPathVertices > 0) {
+            drawColoredPaths(firstVertex = 0, vertexCount = previousPathVertices, alpha = 0.13f, mode = GLES20.GL_LINES)
+        }
+        drawSolidTriangles(currentHaloPositionBuffer, currentRibbonVertexCount, 0.005f, 0.008f, 0.012f, 0.96f)
+        drawColoredTriangles(currentRibbonPositionBuffer, currentRibbonColorBuffer, currentRibbonVertexCount)
+        val currentStart = previousPathVertices
+        val currentEnd = cumulativeVertexCount(cumulativePathVertices)
+        drawColoredPaths(currentStart, currentEnd - currentStart, 1f, GLES20.GL_LINES)
     }
 
     private fun cumulativeVertexCount(counts: IntArray): Int {
@@ -312,16 +321,35 @@ private class LayerPreviewRenderer : GLSurfaceView.Renderer {
         GLES20.glDisableVertexAttribArray(position)
     }
 
-    private fun drawColoredPaths(vertexCount: Int) {
+    private fun drawColoredPaths(firstVertex: Int, vertexCount: Int, alpha: Float, mode: Int) {
         val positions = pathPositionBuffer ?: return
         val colors = pathColorBuffer ?: return
         if (vertexCount <= 0) return
+        drawColoredBuffer(positions, colors, firstVertex, vertexCount, alpha, mode)
+    }
 
+    private fun drawColoredTriangles(
+        positions: FloatBuffer?,
+        colors: FloatBuffer?,
+        vertexCount: Int,
+    ) {
+        if (positions == null || colors == null || vertexCount <= 0) return
+        drawColoredBuffer(positions, colors, 0, vertexCount, 1f, GLES20.GL_TRIANGLES)
+    }
+
+    private fun drawColoredBuffer(
+        positions: FloatBuffer,
+        colors: FloatBuffer,
+        firstVertex: Int,
+        vertexCount: Int,
+        alpha: Float,
+        mode: Int,
+    ) {
         GLES20.glUseProgram(colorProgram)
         val position = GLES20.glGetAttribLocation(colorProgram, "aPosition")
         val color = GLES20.glGetAttribLocation(colorProgram, "aColor")
         val matrix = GLES20.glGetUniformLocation(colorProgram, "uMvpMatrix")
-
+        val opacity = GLES20.glGetUniformLocation(colorProgram, "uAlpha")
         positions.position(0)
         colors.position(0)
         GLES20.glEnableVertexAttribArray(position)
@@ -329,11 +357,34 @@ private class LayerPreviewRenderer : GLSurfaceView.Renderer {
         GLES20.glVertexAttribPointer(position, 3, GLES20.GL_FLOAT, false, 3 * 4, positions)
         GLES20.glVertexAttribPointer(color, 4, GLES20.GL_FLOAT, false, 4 * 4, colors)
         GLES20.glUniformMatrix4fv(matrix, 1, false, mvp, 0)
-        GLES20.glLineWidth(PATH_WIDTH)
-        GLES20.glDrawArrays(GLES20.GL_LINES, 0, vertexCount)
+        GLES20.glUniform1f(opacity, alpha)
+        if (mode == GLES20.GL_LINES) GLES20.glLineWidth(PATH_WIDTH)
+        GLES20.glDrawArrays(mode, firstVertex, vertexCount)
         GLES20.glLineWidth(1f)
         GLES20.glDisableVertexAttribArray(position)
         GLES20.glDisableVertexAttribArray(color)
+    }
+
+    private fun drawSolidTriangles(
+        buffer: FloatBuffer?,
+        vertexCount: Int,
+        red: Float,
+        green: Float,
+        blue: Float,
+        alpha: Float,
+    ) {
+        if (buffer == null || vertexCount <= 0) return
+        GLES20.glUseProgram(solidProgram)
+        val position = GLES20.glGetAttribLocation(solidProgram, "aPosition")
+        val matrix = GLES20.glGetUniformLocation(solidProgram, "uMvpMatrix")
+        val color = GLES20.glGetUniformLocation(solidProgram, "uColor")
+        buffer.position(0)
+        GLES20.glEnableVertexAttribArray(position)
+        GLES20.glVertexAttribPointer(position, 3, GLES20.GL_FLOAT, false, 3 * 4, buffer)
+        GLES20.glUniformMatrix4fv(matrix, 1, false, mvp, 0)
+        GLES20.glUniform4f(color, red, green, blue, alpha)
+        GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, vertexCount)
+        GLES20.glDisableVertexAttribArray(position)
     }
 
     private fun buildPathBuffers(value: GcodeLayerPreview) {
@@ -395,6 +446,69 @@ private class LayerPreviewRenderer : GLSurfaceView.Renderer {
         cumulativeSupportVertices = supportCounts
         cumulativeInterfaceVertices = interfaceCounts
         maximumLayerZ = value.layers.maxOfOrNull { it.z } ?: 0f
+    }
+
+    private fun buildCurrentLayerRibbons() {
+        val current = preview ?: return
+        if (current.layers.isEmpty()) return
+        val layer = current.layers[selectedLayerIndex.coerceIn(current.layers.indices)]
+        val segmentCount = layer.segmentCount
+        val core = allocateFloatBuffer(segmentCount * 6 * 3)
+        val halo = allocateFloatBuffer(segmentCount * 6 * 3)
+        val colors = allocateFloatBuffer(segmentCount * 6 * 4)
+        val values = layer.segments
+        var offset = 0
+        while (offset + 5 < values.size) {
+            val x1 = values[offset]
+            val y1 = values[offset + 1]
+            val x2 = values[offset + 2]
+            val y2 = values[offset + 3]
+            val speed = values[offset + 4]
+            val feature = GcodeLayerPreview.Feature.fromCode(values[offset + 5].toInt())
+            val color = when (feature) {
+                GcodeLayerPreview.Feature.SUPPORT -> floatArrayOf(0.15f, 0.95f, 1f, 1f)
+                GcodeLayerPreview.Feature.SUPPORT_INTERFACE -> floatArrayOf(1f, 0.25f, 0.9f, 1f)
+                GcodeLayerPreview.Feature.ADHESION -> floatArrayOf(1f, 0.62f, 0.08f, 1f)
+                else -> speedColor(speed, current.minSpeedMmPerSecond, current.maxSpeedMmPerSecond)
+            }
+            putRibbon(core, x1, y1, x2, y2, layer.z + 0.035f, CORE_RIBBON_WIDTH)
+            putRibbon(halo, x1, y1, x2, y2, layer.z + 0.025f, HALO_RIBBON_WIDTH)
+            repeat(6) { colors.put(color) }
+            offset += GcodeLayerPreview.VALUES_PER_SEGMENT
+        }
+        core.position(0)
+        halo.position(0)
+        colors.position(0)
+        currentRibbonPositionBuffer = core
+        currentHaloPositionBuffer = halo
+        currentRibbonColorBuffer = colors
+        currentRibbonVertexCount = segmentCount * 6
+    }
+
+    private fun putRibbon(
+        buffer: FloatBuffer,
+        x1: Float,
+        y1: Float,
+        x2: Float,
+        y2: Float,
+        z: Float,
+        width: Float,
+    ) {
+        val dx = x2 - x1
+        val dy = y2 - y1
+        val length = sqrt(dx * dx + dy * dy).coerceAtLeast(0.0001f)
+        val nx = -dy / length * width * 0.5f
+        val ny = dx / length * width * 0.5f
+        val ax = x1 + nx; val ay = y1 + ny
+        val bx = x1 - nx; val by = y1 - ny
+        val cx = x2 - nx; val cy = y2 - ny
+        val dx2 = x2 + nx; val dy2 = y2 + ny
+        buffer.put(ax).put(ay).put(z)
+        buffer.put(bx).put(by).put(z)
+        buffer.put(cx).put(cy).put(z)
+        buffer.put(ax).put(ay).put(z)
+        buffer.put(cx).put(cy).put(z)
+        buffer.put(dx2).put(dy2).put(z)
     }
 
     private fun putLine(
@@ -518,7 +632,9 @@ private class LayerPreviewRenderer : GLSurfaceView.Renderer {
         const val GRID_SPACING = 10f
         const val GRID_PADDING = 10f
         const val MIN_SCENE_SIZE = 20f
-        const val PATH_WIDTH = 1.55f
+        const val PATH_WIDTH = 2.2f
+        const val CORE_RIBBON_WIDTH = 0.46f
+        const val HALO_RIBBON_WIDTH = 0.82f
         const val SUPPORT_OUTLINE_WIDTH = 3.8f
         const val INTERFACE_OUTLINE_WIDTH = 5f
 
@@ -526,10 +642,11 @@ private class LayerPreviewRenderer : GLSurfaceView.Renderer {
             uniform mat4 uMvpMatrix;
             attribute vec3 aPosition;
             attribute vec4 aColor;
+            uniform float uAlpha;
             varying vec4 vColor;
             void main() {
                 gl_Position = uMvpMatrix * vec4(aPosition, 1.0);
-                vColor = aColor;
+                vColor = vec4(aColor.rgb, aColor.a * uAlpha);
             }
         """
         const val COLOR_FRAGMENT_SHADER = """

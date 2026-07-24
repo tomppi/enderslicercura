@@ -37,6 +37,26 @@ internal object CuraSettingDelta {
 
         putValue(SlicerSettings.Keys.LAYER_HEIGHT, "layer_height", settings.layerHeightMm)
         putValue(SlicerSettings.Keys.INITIAL_LAYER_HEIGHT, "layer_height_0", settings.initialLayerHeightMm)
+        putValue(
+            SlicerSettings.Keys.ADAPTIVE_LAYER_HEIGHT_ENABLED,
+            "adaptive_layer_height_enabled",
+            settings.adaptiveLayerHeightEnabled,
+        )
+        putValue(
+            SlicerSettings.Keys.ADAPTIVE_LAYER_HEIGHT_VARIATION,
+            "adaptive_layer_height_variation",
+            settings.adaptiveLayerHeightVariationMm,
+        )
+        putValue(
+            SlicerSettings.Keys.ADAPTIVE_LAYER_HEIGHT_VARIATION_STEP,
+            "adaptive_layer_height_variation_step",
+            settings.adaptiveLayerHeightVariationStepMm,
+        )
+        putValue(
+            SlicerSettings.Keys.ADAPTIVE_LAYER_HEIGHT_THRESHOLD,
+            "adaptive_layer_height_threshold",
+            settings.adaptiveLayerHeightThreshold,
+        )
         putValue(SlicerSettings.Keys.LINE_WIDTH, "line_width", settings.lineWidthMm)
         putValue(SlicerSettings.Keys.SLICING_TOLERANCE, "slicing_tolerance", settings.slicingTolerance)
         putValue(SlicerSettings.Keys.WALL_LINE_COUNT, "wall_line_count", settings.wallLineCount)
