@@ -1,6 +1,9 @@
 package com.tomppi.enderslicer.ui
 
+import android.app.Activity
+import android.content.Intent
 import android.net.Uri
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -36,15 +39,23 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.tomppi.enderslicer.model.withSettings
+import com.tomppi.enderslicer.texturizer.BumpMeshActivity
 import com.tomppi.enderslicer.viewer.ModelSurfaceView
+import com.tomppi.enderslicer.viewer.StlMeshWriter
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
 
 private enum class ViewerMode { MODEL, LAYERS }
 
@@ -52,6 +63,8 @@ private enum class ViewerMode { MODEL, LAYERS }
 @Composable
 fun EnderSlicerApp(viewModel: MainViewModel = viewModel()) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var menuExpanded by remember { mutableStateOf(false) }
     var settingsOpen by remember { mutableStateOf(false) }
     var machineSettingsOpen by remember { mutableStateOf(false) }
@@ -81,6 +94,11 @@ fun EnderSlicerApp(viewModel: MainViewModel = viewModel()) {
     }
     val projectPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let(viewModel::importCuraProject)
+    }
+    val textureLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            result.data?.data?.let(viewModel::importStl)
+        }
     }
     val configExportPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/json"),
@@ -135,6 +153,40 @@ fun EnderSlicerApp(viewModel: MainViewModel = viewModel()) {
                                 enabled = !state.isBusy,
                             )
                             HorizontalDivider()
+                            DropdownMenuItem(
+                                text = { Text("Texture model (BumpMesh)") },
+                                onClick = {
+                                    val mesh = state.mesh
+                                    menuExpanded = false
+                                    if (mesh != null) {
+                                        scope.launch {
+                                            runCatching {
+                                                withContext(Dispatchers.IO) {
+                                                    val source = File(
+                                                        context.cacheDir,
+                                                        "bumpmesh-source/current-displayed.stl",
+                                                    )
+                                                    StlMeshWriter.writeBinary(mesh, source)
+                                                    source
+                                                }
+                                            }.onSuccess { source ->
+                                                textureLauncher.launch(
+                                                    Intent(context, BumpMeshActivity::class.java)
+                                                        .putExtra(BumpMeshActivity.EXTRA_MODEL_PATH, source.absolutePath)
+                                                        .putExtra(BumpMeshActivity.EXTRA_MODEL_NAME, mesh.displayName),
+                                                )
+                                            }.onFailure { error ->
+                                                Toast.makeText(
+                                                    context,
+                                                    error.message ?: "Unable to prepare the model for BumpMesh",
+                                                    Toast.LENGTH_LONG,
+                                                ).show()
+                                            }
+                                        }
+                                    }
+                                },
+                                enabled = state.mesh != null && !state.isBusy,
+                            )
                             DropdownMenuItem(
                                 text = { Text("Model position & rotation") },
                                 onClick = {
