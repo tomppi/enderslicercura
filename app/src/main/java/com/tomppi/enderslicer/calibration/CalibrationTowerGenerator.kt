@@ -84,13 +84,17 @@ object CalibrationTowerGenerator {
 
             // A short front tab makes every section boundary visible and gives
             // the user an easy bottom-to-top level count without requiring text.
+            // It overlaps the tower by 0.6 mm so it is a printable connected
+            // feature rather than a shell that only touches at a zero-thickness plane.
             val markerWidth = 3.0 + (index % 5) * 2.0
+            val markerDepth = 2.4
+            val markerOverlap = 0.6
             builder.addBox(
                 centerX = -sectionWidth / 2.0 + markerWidth / 2.0,
-                centerY = sectionWidth / 2.0 + 1.1,
+                centerY = sectionWidth / 2.0 + markerDepth / 2.0 - markerOverlap,
                 minZ = sectionStart + 0.8,
                 width = markerWidth,
-                depth = 2.2,
+                depth = markerDepth,
                 height = 1.4,
             )
         }
@@ -151,43 +155,75 @@ object CalibrationTowerGenerator {
             val z0 = minZ.toFloat()
             val z1 = (minZ + height).toFloat()
 
-            face(x0, y0, z0, x1, y1, z0, 0f, 0f, -1f)
-            face(x0, y0, z1, x0, y1, z1, 0f, 0f, 1f)
-            face(x0, y0, z0, x0, y0, z1, 0f, -1f, 0f)
-            face(x1, y1, z0, x1, y1, z1, 0f, 1f, 0f)
-            face(x0, y1, z0, x0, y1, z1, -1f, 0f, 0f)
-            face(x1, y0, z0, x1, y0, z1, 1f, 0f, 0f)
+            // Bottom (-Z).
+            quad(
+                x0, y0, z0,
+                x0, y1, z0,
+                x1, y1, z0,
+                x1, y0, z0,
+                0f, 0f, -1f,
+            )
+            // Top (+Z).
+            quad(
+                x0, y0, z1,
+                x1, y0, z1,
+                x1, y1, z1,
+                x0, y1, z1,
+                0f, 0f, 1f,
+            )
+            // Front (-Y).
+            quad(
+                x0, y0, z0,
+                x1, y0, z0,
+                x1, y0, z1,
+                x0, y0, z1,
+                0f, -1f, 0f,
+            )
+            // Back (+Y).
+            quad(
+                x0, y1, z0,
+                x0, y1, z1,
+                x1, y1, z1,
+                x1, y1, z0,
+                0f, 1f, 0f,
+            )
+            // Left (-X).
+            quad(
+                x0, y0, z0,
+                x0, y0, z1,
+                x0, y1, z1,
+                x0, y1, z0,
+                -1f, 0f, 0f,
+            )
+            // Right (+X).
+            quad(
+                x1, y0, z0,
+                x1, y1, z0,
+                x1, y1, z1,
+                x1, y0, z1,
+                1f, 0f, 0f,
+            )
         }
 
-        private fun face(
+        private fun quad(
             ax: Float,
             ay: Float,
             az: Float,
             bx: Float,
             by: Float,
             bz: Float,
+            cx: Float,
+            cy: Float,
+            cz: Float,
+            dx: Float,
+            dy: Float,
+            dz: Float,
             nx: Float,
             ny: Float,
             nz: Float,
         ) {
-            when {
-                nx != 0f -> {
-                    triangle(ax, ay, az, ax, by, az, ax, by, bz, nx, ny, nz)
-                    triangle(ax, ay, az, ax, by, bz, ax, ay, bz, nx, ny, nz)
-                }
-                ny != 0f -> {
-                    triangle(ax, ay, az, bx, ay, bz, bx, ay, az, nx, ny, nz)
-                    triangle(ax, ay, az, ax, ay, bz, bx, ay, bz, nx, ny, nz)
-                }
-                nz < 0f -> {
-                    triangle(ax, ay, az, bx, by, az, bx, ay, az, nx, ny, nz)
-                    triangle(ax, ay, az, ax, by, az, bx, by, az, nx, ny, nz)
-                }
-                else -> {
-                    triangle(ax, ay, az, bx, ay, az, bx, by, az, nx, ny, nz)
-                    triangle(ax, ay, az, bx, by, az, ax, by, az, nx, ny, nz)
-                }
-            }
+            triangle(ax, ay, az, bx, by, bz, cx, cy, cz, nx, ny, nz)
+            triangle(ax, ay, az, cx, cy, cz, dx, dy, dz, nx, ny, nz)
         }
 
         private fun triangle(
@@ -214,11 +250,10 @@ object CalibrationTowerGenerator {
             var ny = abz * acx - abx * acz
             var nz = abx * acy - aby * acx
             val length = sqrt(nx * nx + ny * ny + nz * nz)
-            if (length > 1e-12f) {
-                nx /= length
-                ny /= length
-                nz /= length
-            }
+            require(length > 1e-12f) { "Calibration geometry produced a degenerate triangle" }
+            nx /= length
+            ny /= length
+            nz /= length
             if (nx * requestedNx + ny * requestedNy + nz * requestedNz < 0f) {
                 triangle(ax, ay, az, cx, cy, cz, bx, by, bz, requestedNx, requestedNy, requestedNz)
                 return
