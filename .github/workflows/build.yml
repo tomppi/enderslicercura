@@ -74,7 +74,10 @@ jobs:
           grep -q './vendor/three/build/three.module.js' app/src/main/assets/bumpmesh/index.html
           grep -q 'android-bridge.js' app/src/main/assets/bumpmesh/index.html
           grep -q '../vendor/meshstep/index.js' app/src/main/assets/bumpmesh/js/stepWorker.js
-          ! grep -R 'https://cdn.jsdelivr.net/npm/three@0.170.0' app/src/main/assets/bumpmesh/index.html
+          grep -q '../vendor/three/build/three.module.js' app/src/main/assets/bumpmesh/js/threeCompat.js
+          ! grep -R 'https://cdn.jsdelivr.net/npm' \
+            app/src/main/assets/bumpmesh/index.html \
+            app/src/main/assets/bumpmesh/js
 
       - name: Build and package CuraEngine ARM64
         env:
