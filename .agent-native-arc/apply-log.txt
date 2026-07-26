@@ -1,0 +1,12 @@
++ cat .agent-native-arc/part-00.b64 .agent-native-arc/part-01a.b64 .agent-native-arc/part-01b.b64 .agent-native-arc/part-02.b64 .agent-native-arc/part-03a1.b64 .agent-native-arc/part-03a2.b64 .agent-native-arc/part-03b.b64 .agent-native-arc/part-04a.b64 .agent-native-arc/part-04b.b64 .agent-native-arc/part-05.b64
++ tr -d '[:space:]'
++ echo '684a0eb1ca2c9ad05d064202574e225b094e5a7246578d24915577b3803c3512  .agent-native-arc/patch.b64'
++ sha256sum -c -
+.agent-native-arc/patch.b64: OK
++ base64 --decode .agent-native-arc/patch.b64
++ echo '0c06709898ed30a668e26edff374e1272c5892fac023cb6a105e7a621ba3ee46  .agent-native-arc/patch.py'
++ sha256sum -c -
+.agent-native-arc/patch.py: OK
++ python3 -m py_compile .agent-native-arc/patch.py
++ python3 .agent-native-arc/patch.py
+Expected context not found in scripts/build-curaengine-android.sh: 'layer_plan_buffer_cpp.write_text(text)\nPY'
