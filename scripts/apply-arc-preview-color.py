@@ -14,11 +14,11 @@ def replace_once(path: str, old: str, new: str) -> None:
 build_script = "scripts/build-curaengine-android.sh"
 replace_once(
     build_script,
-    '''# Install the native arc-overhang source and register it with CuraEngine.
+    """# Install the native arc-overhang source and register it with CuraEngine.
 (root / "include" / "ArcOverhang.h").write_text((arc_patch_root / "include" / "ArcOverhang.h").read_text())
 (root / "src" / "ArcOverhang.cpp").write_text((arc_patch_root / "src" / "ArcOverhang.cpp").read_text())
-''',
-    '''# Install the native arc-overhang source and register it with CuraEngine.
+""",
+    """# Install the native arc-overhang source and register it with CuraEngine.
 (root / "include" / "ArcOverhang.h").write_text((arc_patch_root / "include" / "ArcOverhang.h").read_text())
 (root / "src" / "ArcOverhang.cpp").write_text((arc_patch_root / "src" / "ArcOverhang.cpp").read_text())
 
@@ -71,7 +71,7 @@ replace(
                 update_extrusion_offset = true;
             }''',
 )
-''',
+""",
 )
 replace_once(
     build_script,
