@@ -410,13 +410,12 @@ private class LayerPreviewRenderer : GLSurfaceView.Renderer {
                 val y2 = values[offset + 3]
                 val speed = values[offset + 4]
                 val feature = GcodeLayerPreview.Feature.fromCode(values[offset + 5].toInt())
-                val color = colorCache.getOrPut(speed.toBits()) {
-                    speedColor(
-                        speed = speed,
-                        minimum = value.minSpeedMmPerSecond,
-                        maximum = value.maxSpeedMmPerSecond,
-                    )
-                }
+                val color = previewColor(
+                    feature = feature,
+                    speed = speed,
+                    minimum = value.minSpeedMmPerSecond,
+                    maximum = value.maxSpeedMmPerSecond,
+                )
 
                 putLine(positions, x1, y1, layer.z, x2, y2, layer.z)
                 repeat(2) { colors.put(color) }
@@ -465,12 +464,12 @@ private class LayerPreviewRenderer : GLSurfaceView.Renderer {
             val y2 = values[offset + 3]
             val speed = values[offset + 4]
             val feature = GcodeLayerPreview.Feature.fromCode(values[offset + 5].toInt())
-            val color = when (feature) {
-                GcodeLayerPreview.Feature.SUPPORT -> floatArrayOf(0.15f, 0.95f, 1f, 1f)
-                GcodeLayerPreview.Feature.SUPPORT_INTERFACE -> floatArrayOf(1f, 0.25f, 0.9f, 1f)
-                GcodeLayerPreview.Feature.ADHESION -> floatArrayOf(1f, 0.62f, 0.08f, 1f)
-                else -> speedColor(speed, current.minSpeedMmPerSecond, current.maxSpeedMmPerSecond)
-            }
+            val color = previewColor(
+                feature = feature,
+                speed = speed,
+                minimum = current.minSpeedMmPerSecond,
+                maximum = current.maxSpeedMmPerSecond,
+            )
             putRibbon(core, x1, y1, x2, y2, layer.z + 0.035f, CORE_RIBBON_WIDTH)
             putRibbon(halo, x1, y1, x2, y2, layer.z + 0.025f, HALO_RIBBON_WIDTH)
             repeat(6) { colors.put(color) }
@@ -555,6 +554,21 @@ private class LayerPreviewRenderer : GLSurfaceView.Renderer {
         val array = FloatArray(values.size) { values[it] }
         gridBuffer = floatBuffer(array)
         gridVertexCount = array.size / 3
+    }
+
+    private fun previewColor(
+        feature: GcodeLayerPreview.Feature,
+        speed: Float,
+        minimum: Float,
+        maximum: Float,
+    ): FloatArray = when (feature) {
+        GcodeLayerPreview.Feature.SUPPORT -> floatArrayOf(0.15f, 0.95f, 1f, 1f)
+        GcodeLayerPreview.Feature.SUPPORT_INTERFACE -> floatArrayOf(1f, 0.25f, 0.9f, 1f)
+        GcodeLayerPreview.Feature.ADHESION -> floatArrayOf(1f, 0.62f, 0.08f, 1f)
+        // Violet is outside the blue-to-red speed gradient and is not used
+        // by support, interface, or adhesion paths.
+        GcodeLayerPreview.Feature.ARC_OVERHANG -> floatArrayOf(0.72f, 0.38f, 1f, 1f)
+        else -> speedColor(speed, minimum, maximum)
     }
 
     private fun speedColor(speed: Float, minimum: Float, maximum: Float): FloatArray {

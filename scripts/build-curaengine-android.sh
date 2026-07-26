@@ -186,6 +186,56 @@ replace(
 (root / "include" / "ArcOverhang.h").write_text((arc_patch_root / "include" / "ArcOverhang.h").read_text())
 (root / "src" / "ArcOverhang.cpp").write_text((arc_patch_root / "src" / "ArcOverhang.cpp").read_text())
 
+# Keep arc overhangs as real skin for Cura's estimates and motion behaviour,
+# but carry one private flag so the G-code writer can emit an exact preview marker.
+gcode_path_config_h = root / "include" / "GCodePathConfig.h"
+replace(
+    gcode_path_config_h,
+    '''    bool is_bridge_path{ false }; //!< whether current config is used when bridging
+    double fan_speed{ FAN_SPEED_DEFAULT }; //!< fan speed override for this path, value should be within range 0-100 (inclusive) and ignored otherwise''',
+    '''    bool is_bridge_path{ false }; //!< whether current config is used when bridging
+    bool is_arc_overhang{ false }; //!< EnderSlicer native Multiplex path; used only for an exact G-code preview marker
+    double fan_speed{ FAN_SPEED_DEFAULT }; //!< fan speed override for this path, value should be within range 0-100 (inclusive) and ignored otherwise''',
+)
+
+layer_plan_cpp = root / "src" / "LayerPlan.cpp"
+replace(
+    layer_plan_cpp,
+    '''            const auto& extruder_changed = ! last_extrusion_config.has_value() || (last_extrusion_config.value().type != path.config.type);
+            if (! path.config.isTravelPath() && extruder_changed)
+            {
+                gcode.writeTypeComment(path.config.type);
+                if (path.config.isBridgePath())
+                {
+                    gcode.writeComment("BRIDGE");
+                }
+                last_extrusion_config = path.config;
+                update_extrusion_offset = true;
+            }''',
+    '''            const bool feature_changed = ! last_extrusion_config.has_value()
+                                         || last_extrusion_config.value().type != path.config.type
+                                         || last_extrusion_config.value().is_arc_overhang != path.config.is_arc_overhang;
+            if (! path.config.isTravelPath() && feature_changed)
+            {
+                if (path.config.is_arc_overhang)
+                {
+                    // App-owned semantic marker. Firmware ignores comments, while
+                    // EnderSlicer's layer preview can classify these paths exactly.
+                    gcode.writeComment("TYPE:ARC-OVERHANG");
+                }
+                else
+                {
+                    gcode.writeTypeComment(path.config.type);
+                }
+                if (path.config.isBridgePath())
+                {
+                    gcode.writeComment("BRIDGE");
+                }
+                last_extrusion_config = path.config;
+                update_extrusion_offset = true;
+            }''',
+)
+
 replace(
     cmake,
     "        src/Application.cpp\n",
@@ -247,6 +297,7 @@ replace(
                 arc_lines))
         {
             GCodePathConfig arc_config = *skin_config;
+            arc_config.is_arc_overhang = true;
             arc_config.speed_derivatives.speed = mesh.settings.get<Velocity>("enderslicer_arc_overhang_speed");
             const double arc_flow = mesh.settings.get<double>("enderslicer_arc_overhang_flow") / 100.0;
             const double arc_fan_speed = mesh.settings.get<double>("enderslicer_arc_overhang_fan_speed");

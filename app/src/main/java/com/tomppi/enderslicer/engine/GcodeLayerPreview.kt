@@ -35,6 +35,7 @@ data class GcodeLayerPreview(
         SUPPORT_INTERFACE(2),
         ADHESION(3),
         OTHER(4),
+        ARC_OVERHANG(5),
         ;
 
         companion object {
@@ -279,6 +280,9 @@ object GcodeLayerPreviewParser {
     private fun featureFromType(raw: String): GcodeLayerPreview.Feature {
         val value = raw.uppercase()
         return when {
+            value.contains("ARC-OVERHANG") || value.contains("ARC_OVERHANG") -> {
+                GcodeLayerPreview.Feature.ARC_OVERHANG
+            }
             value.contains("SUPPORT-INTERFACE") || value.contains("SUPPORT_INTERFACE") -> {
                 GcodeLayerPreview.Feature.SUPPORT_INTERFACE
             }
