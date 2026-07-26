@@ -26,6 +26,7 @@ jobs:
         shell: bash
         run: |
           set -uo pipefail
+          cp .github/workflows/build.yml /tmp/native-arc-installer.yml
           cp .agent-native-arc/build.yml.base .github/workflows/build.yml
           rm -f .agent-native-arc/diagnostics.txt
 
@@ -54,13 +55,13 @@ jobs:
             /tmp/arc-apply-status.txt
           if-no-files-found: error
 
-      - name: Commit native port
+      - name: Commit native port source
         if: steps.apply.outcome == 'success'
         shell: bash
         run: |
           set -euxo pipefail
+          cp /tmp/native-arc-installer.yml .github/workflows/build.yml
           rm -rf .agent-native-arc
-          rm -f .github/workflows/apply-native-arc-overhang.yml
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add -A
