@@ -49,6 +49,8 @@ from pathlib import Path
 import sys
 
 root = Path(sys.argv[1])
+project_root = Path.cwd()
+arc_patch_root = project_root / "native" / "curaengine" / "patches"
 
 def replace(path: Path, old: str, new: str) -> None:
     text = path.read_text()
@@ -178,6 +180,109 @@ replace(
                        + extruder_plan.temperature_factor_ * safe_cool_min_temperature;
             initial_print_temp = std::min(initial_print_temp, print_temp);
         }''',
+)
+
+# Install the native arc-overhang source and register it with CuraEngine.
+(root / "include" / "ArcOverhang.h").write_text((arc_patch_root / "include" / "ArcOverhang.h").read_text())
+(root / "src" / "ArcOverhang.cpp").write_text((arc_patch_root / "src" / "ArcOverhang.cpp").read_text())
+
+replace(
+    cmake,
+    "        src/Application.cpp\n",
+    "        src/Application.cpp\n        src/ArcOverhang.cpp\n",
+)
+
+fff_gcode_writer_cpp = root / "src" / "FffGcodeWriter.cpp"
+replace(
+    fff_gcode_writer_cpp,
+    '#include "Application.h"\n',
+    '#include "Application.h"\n#include "ArcOverhang.h"\n',
+)
+replace(
+    fff_gcode_writer_cpp,
+    '''    // helper function that detects skin regions that have no support and modifies their print settings (config, line angle, density, etc.)
+
+    auto handle_bridge_skin =''',
+    '''    // helper function that detects skin regions that have no support and modifies their print settings (config, line angle, density, etc.)
+    Shape bridge_supported_skin_regions;
+
+    auto handle_bridge_skin =''',
+)
+replace(
+    fff_gcode_writer_cpp,
+    '''        Shape supported_skin_part_regions;
+
+        const double angle = bridgeAngle(mesh.settings, skin_part.skin_fill, storage, layer_nr, bridge_layer, support_layer, supported_skin_part_regions);
+
+        if (angle > -1 || (support_threshold > 0 && (supported_skin_part_regions.area() / (skin_part.skin_fill.area() + 1) < support_threshold)))''',
+    '''        bridge_supported_skin_regions = Shape();
+
+        const double angle = bridgeAngle(mesh.settings, skin_part.skin_fill, storage, layer_nr, bridge_layer, support_layer, bridge_supported_skin_regions);
+
+        if (angle > -1 || (support_threshold > 0 && (bridge_supported_skin_regions.area() / (skin_part.skin_fill.area() + 1) < support_threshold)))d)))''',
+)
+replace(
+    fff_gcode_writer_cpp,
+    '''    const bool monotonic = mesh.settings.get<bool>("skin_monotonic");
+    processSkinPrintFeature(''',
+    '''    if (is_bridge_skin && mesh.settings.get<bool>("enderslicer_arc_overhang_enabled"))
+    {
+        ArcOverhangParameters arc_parameters;
+        arc_parameters.line_spacing = std::max<coord_t>(
+            1,
+            static_cast<coord_t>(std::llround(
+                static_cast<double>(skin_config->getLineWidth())
+                * mesh.settings.get<double>("enderslicer_arc_overhang_line_spacing")
+                / 100.0)));
+        arc_parameters.min_radius = mesh.settings.get<coord_t>("enderslicer_arc_overhang_min_radius");
+        arc_parameters.max_radius = mesh.settings.get<coord_t>("enderslicer_arc_overhang_max_radius");
+        arc_parameters.max_area_mm2 = mesh.settings.get<double>("enderslicer_arc_overhang_max_area");
+        arc_parameters.resolution = mesh.settings.get<coord_t>("enderslicer_arc_overhang_resolution");
+
+        OpenLinesSet arc_lines;
+        if (ArcOverhangGenerator::generate(
+                skin_part.skin_fill,
+                bridge_supported_skin_regions,
+                arc_parameters,
+                arc_lines))
+        {
+            GCodePathConfig arc_config = *skin_config;
+            arc_config.speed_derivatives.speed = mesh.settings.get<Velocity>("enderslicer_arc_overhang_speed");
+            const double arc_flow = mesh.settings.get<double>("enderslicer_arc_overhang_flow") / 100.0;
+            const double arc_fan_speed = mesh.settings.get<double>("enderslicer_arc_overhang_fan_speed");
+            constexpr coord_t arc_wipe_distance = 0;
+            constexpr bool optimize_arc_travel = false;
+
+            added_something = true;
+            gcode_layer.setIsInside(true);
+            // Preserve the generator's inner-to-outer order. Submitting one
+            // clipped arc at a time prevents the generic path optimizer from
+            // jumping to an unsupported outer radius first.
+            for (const OpenPolyline& arc_line : arc_lines)
+            {
+                if (! arc_line.isValid())
+                {
+                    continue;
+                }
+                OpenLinesSet ordered_arc;
+                ordered_arc.push_back(arc_line, CheckNonEmptyParam::OnlyIfValid);
+                gcode_layer.addLinesByOptimizer(
+                    ordered_arc,
+                    arc_config,
+                    SpaceFillType::PolyLines,
+                    optimize_arc_travel,
+                    arc_wipe_distance,
+                    arc_flow,
+                    std::nullopt,
+                    arc_fan_speed);
+            }
+            return;
+        }
+        // Generator rejected this island: retain Cura's normal bridge path.
+    }
+
+    const bool monotonic = mesh.settings.get<bool>("skin_monotonic");
+    processSkinPrintFeature(''',
 )
 PY
 

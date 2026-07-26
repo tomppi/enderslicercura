@@ -454,6 +454,113 @@ internal fun CategorizedSettingsSheet(
         }
 
         SettingsCategory("Experimental") {
+            SwitchRow(
+                "Arc overhangs (Multiplex)",
+                settings.arcOverhangEnabled,
+                source(state, SlicerSettings.Keys.ARC_OVERHANG_ENABLED),
+            ) {
+                onSettings(SlicerSettings.Keys.ARC_OVERHANG_ENABLED) { current ->
+                    current.copy(arcOverhangEnabled = it)
+                }
+            }
+            if (settings.arcOverhangEnabled) {
+                Text(
+                    "Native CuraEngine experiment. Unsupported bottom-skin regions are filled from one anchored centre using expanding clipped arcs. Cura's normal bridge lines are used automatically when an island has no safe anchor or exceeds the configured limits.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (settings.adaptiveLayerHeightEnabled) {
+                    Text(
+                        "Adaptive layers are accepted, but arc-overhang tuning is most predictable with a fixed layer height.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+                NumberField(
+                    "Arc speed (mm/s)",
+                    settings.arcOverhangSpeedMmPerSecond,
+                    source(state, SlicerSettings.Keys.ARC_OVERHANG_SPEED),
+                ) {
+                    onSettings(SlicerSettings.Keys.ARC_OVERHANG_SPEED) { current ->
+                        current.copy(arcOverhangSpeedMmPerSecond = it.coerceIn(0.5, 50.0))
+                    }
+                }
+                NumberField(
+                    "Arc flow (%)",
+                    settings.arcOverhangFlowPercent,
+                    source(state, SlicerSettings.Keys.ARC_OVERHANG_FLOW),
+                ) {
+                    onSettings(SlicerSettings.Keys.ARC_OVERHANG_FLOW) { current ->
+                        current.copy(arcOverhangFlowPercent = it.coerceIn(50.0, 200.0))
+                    }
+                }
+                NumberField(
+                    "Line spacing (% of bridge width)",
+                    settings.arcOverhangLineSpacingPercent,
+                    source(state, SlicerSettings.Keys.ARC_OVERHANG_LINE_SPACING),
+                ) {
+                    onSettings(SlicerSettings.Keys.ARC_OVERHANG_LINE_SPACING) { current ->
+                        current.copy(arcOverhangLineSpacingPercent = it.coerceIn(50.0, 200.0))
+                    }
+                }
+                NumberField(
+                    "Minimum arc radius (mm)",
+                    settings.arcOverhangMinRadiusMm,
+                    source(state, SlicerSettings.Keys.ARC_OVERHANG_MIN_RADIUS),
+                ) {
+                    onSettings(SlicerSettings.Keys.ARC_OVERHANG_MIN_RADIUS) { current ->
+                        val minimum = it.coerceIn(0.1, 20.0)
+                        current.copy(
+                            arcOverhangMinRadiusMm = minimum,
+                            arcOverhangMaxRadiusMm = current.arcOverhangMaxRadiusMm.coerceAtLeast(minimum),
+                        )
+                    }
+                }
+                NumberField(
+                    "Maximum arc radius (mm)",
+                    settings.arcOverhangMaxRadiusMm,
+                    source(state, SlicerSettings.Keys.ARC_OVERHANG_MAX_RADIUS),
+                ) {
+                    onSettings(SlicerSettings.Keys.ARC_OVERHANG_MAX_RADIUS) { current ->
+                        current.copy(arcOverhangMaxRadiusMm = it.coerceIn(current.arcOverhangMinRadiusMm, 100.0))
+                    }
+                }
+                NumberField(
+                    "Maximum converted island area (mm²)",
+                    settings.arcOverhangMaxAreaMm2,
+                    source(state, SlicerSettings.Keys.ARC_OVERHANG_MAX_AREA),
+                    decimals = 0,
+                ) {
+                    onSettings(SlicerSettings.Keys.ARC_OVERHANG_MAX_AREA) { current ->
+                        current.copy(arcOverhangMaxAreaMm2 = it.coerceIn(1.0, 10_000.0))
+                    }
+                }
+                NumberField(
+                    "Arc chord tolerance (mm)",
+                    settings.arcOverhangResolutionMm,
+                    source(state, SlicerSettings.Keys.ARC_OVERHANG_RESOLUTION),
+                    decimals = 3,
+                ) {
+                    onSettings(SlicerSettings.Keys.ARC_OVERHANG_RESOLUTION) { current ->
+                        current.copy(arcOverhangResolutionMm = it.coerceIn(0.02, 1.0))
+                    }
+                }
+                NumberField(
+                    "Arc fan speed (%)",
+                    settings.arcOverhangFanSpeedPercent,
+                    source(state, SlicerSettings.Keys.ARC_OVERHANG_FAN_SPEED),
+                ) {
+                    onSettings(SlicerSettings.Keys.ARC_OVERHANG_FAN_SPEED) { current ->
+                        current.copy(arcOverhangFanSpeedPercent = it.coerceIn(0.0, 100.0))
+                    }
+                }
+                Text(
+                    "This option changes only bottom skin that Cura already classifies as a bridge. It does not automatically remove generated support; disable or limit supports when testing support-free overhangs.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
             SwitchRow("Ironing", settings.ironingEnabled, source(state, SlicerSettings.Keys.IRONING_ENABLED)) {
                 onSettings(SlicerSettings.Keys.IRONING_ENABLED) { current -> current.copy(ironingEnabled = it) }
             }

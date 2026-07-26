@@ -1,5 +1,6 @@
 package com.tomppi.enderslicer.profile
 
+import com.tomppi.enderslicer.engine.ArcOverhangEngineSettings
 import com.tomppi.enderslicer.model.PrinterDefinition
 import com.tomppi.enderslicer.model.SlicerSettings
 import com.tomppi.enderslicer.model.resolveEndGcode
@@ -80,6 +81,7 @@ internal object CuraSliceSettingsResolver {
             if (coolMinimum != null && coolMinimum <= 0.0) {
                 put("cool_min_temperature", requireNotNull(get("material_print_temperature")))
             }
+            putAll(ArcOverhangEngineSettings.values(settings))
         }
 
         CuraSettingDelta.requireResolvedMatch(

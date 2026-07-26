@@ -824,7 +824,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     .put("zHopEnabled", settings.zHopEnabled)
                     .put("firmwareRetraction", settings.firmwareRetraction)
                     .put("fanSpeedPercent", settings.fanSpeedPercent)
-                    .put("materialFlowPercent", settings.materialFlowPercent),
+                    .put("materialFlowPercent", settings.materialFlowPercent)
+                    .put("arcOverhangEnabled", settings.arcOverhangEnabled)
+                    .put("arcOverhangSpeedMmPerSecond", settings.arcOverhangSpeedMmPerSecond)
+                    .put("arcOverhangFlowPercent", settings.arcOverhangFlowPercent)
+                    .put("arcOverhangLineSpacingPercent", settings.arcOverhangLineSpacingPercent)
+                    .put("arcOverhangMinRadiusMm", settings.arcOverhangMinRadiusMm)
+                    .put("arcOverhangMaxRadiusMm", settings.arcOverhangMaxRadiusMm)
+                    .put("arcOverhangMaxAreaMm2", settings.arcOverhangMaxAreaMm2)
+                    .put("arcOverhangResolutionMm", settings.arcOverhangResolutionMm)
+                    .put("arcOverhangFanSpeedPercent", settings.arcOverhangFanSpeedPercent),
             )
             .put("startGcode", state.startGcode)
             .put("endGcode", state.endGcode)

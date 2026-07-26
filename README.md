@@ -14,7 +14,7 @@ Android application ID: `com.tomppi.enderslicercura`.
 
 enderslicercura is working and is already producing output very close to Cura Desktop for the current reference printer/profile. It is not yet being described as a complete Cura replacement: several more side-by-side slicing comparisons using different model shapes, support cases, infill patterns, model transforms, textured meshes, and profile combinations are still required before parity can be considered broadly validated.
 
-The current development line is `0.8.0-dev` and uses CuraEngine `5.11.0-beta.1` with matching Cura resources. BumpMesh is pinned to upstream commit `a6ac179149b8a17c71a9469dd4cb6f866c0c01d1`.
+The current development line is `0.9.0-dev` and uses CuraEngine `5.11.0-beta.1` with matching Cura resources. BumpMesh is pinned to upstream commit `a6ac179149b8a17c71a9469dd4cb6f866c0c01d1`.
 
 ## Current capabilities
 
@@ -23,6 +23,7 @@ The current development line is `0.8.0-dev` and uses CuraEngine `5.11.0-beta.1` 
 - Bundled ARM64 CuraEngine with adaptive use of up to eight workers
 - Binary and ASCII STL import with streamed parsing for high-density meshes
 - Persisted mesh triangle-limit presets from 1.5 million through an experimental 8 million, plus custom values
+- Native experimental Multiplex arc-overhang paths for unsupported bottom skin, with automatic bridge fallback
 - CuraEngine adaptive layer-height controls with fine, balanced and fast presets
 - Layer timeline with pauses, filament changes, temperatures, fan, speed, flow, retraction, camera, messages and guarded custom G-code
 - Purpose-built support-free temperature, flow, speed, fan and firmware-retraction calibration models
@@ -73,6 +74,12 @@ After slicing, select any layer and open **Add event**. Events are inserted imme
 Open **Menu → Calibration generator** to create a purpose-built support-free model for the selected test. Temperature models use grounded posts, bridges, stepped overhangs and a thin fin; flow models use a grounded thin-wall tube, wall-to-wall bridge coupons and measurement ribs; speed models use a continuously stacked sharp star; fan models use grounded bridge posts and stepped 45-degree brackets; and retraction models use grounded isolated posts that force travel moves and expose stringing. Every model schedules the matching G-code changes automatically. Generated support and support-interface material are disabled only for calibration slices, without changing the saved support settings. Retraction models enable firmware retraction and change `M207` distance while retaining the configured retraction speed.
 
 The layer viewer defaults to a high-contrast **Current** mode that renders the selected layer as wide colored ribbons with a dark outline. **Build-up** mode adds earlier layers at low opacity. Cyan identifies support, magenta identifies support interface, orange identifies adhesion, and normal model paths remain colored by print speed.
+
+## Native arc overhangs
+
+Enable **Print settings → Experimental → Arc overhangs (Multiplex)** to replace bottom skin that Cura already classifies as a bridge with expanding native arc paths. The port runs inside CuraEngine: it uses the real sliced bottom-skin polygon, starts from material detected on the previous layer, retains one centre for the connected island, clips every radius to the island and adds the ordered paths directly to the `LayerPlan`.
+
+The implementation is derived from Steven McCulloch's arc-overhang research and SuperPleccer's Multiplex C++ implementation. It is a restricted experimental port rather than a promise of universal support-free printing. Completely floating islands, regions above the maximum radius or area, and islands without a safe supported anchor are left to Cura's normal bridge generator. Speed, flow, line spacing, radius range, area limit, chord tolerance and fan override are editable. Arc overhangs do not automatically delete generated supports, so disable or limit supports when evaluating support-free geometry.
 
 ## Reference printer
 
@@ -180,7 +187,7 @@ The repository pins CuraEngine and Cura resource data to `5.11.0-beta.1` so impo
 
 Generated G-code is validated before export. The validator checks active nozzle targets during extrusion, repairs key metadata, uses CRLF line endings and produces filenames where `.gcode` is always the final extension.
 
-BumpMesh output is accepted only when it is a valid binary STL whose header triangle count exactly matches its file length and remains within the 1,500,000-triangle Android limit.
+BumpMesh output is accepted only when it is a valid binary STL whose header triangle count exactly matches its file length and remains within the persisted mesh triangle limit.
 
 Always inspect settings, machine dimensions, model placement, textured geometry and custom start/end G-code before printing. This remains development software and has not yet been validated across the full range of Cura-supported printers and profiles.
 
