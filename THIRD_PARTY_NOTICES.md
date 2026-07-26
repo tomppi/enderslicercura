@@ -41,6 +41,14 @@ CuraEngine is developed by UltiMaker and contributors and is licensed under GNU 
 
 UltiMaker and Cura are trademarks of their respective owners.
 
+## Arc-overhang research and SuperPleccer
+
+- Original research/prototype: `stmcculloch/arc-overhang`
+- Native Multiplex reference: `rvmn/SuperPleccer`
+- Licenses: GPL-3.0 for the original prototype and AGPL-3.0 for SuperPleccer
+
+enderslicercura contains a CuraEngine-oriented native reimplementation of the Multiplex arc-overhang path-generation behavior. Attribution and implementation details are retained in `native/curaengine/patches/ARC_OVERHANG_NOTICE.md` and the native source headers.
+
 ## Android Open Source Project and AndroidX
 
 The application uses Android platform APIs and AndroidX libraries under their respective licenses.

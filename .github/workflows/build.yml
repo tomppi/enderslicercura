@@ -101,6 +101,11 @@ jobs:
           grep -q 'EnderSlicer: Cura.*frontend applies the complete affine' .build/CuraEngine/src/communication/CommandLine.cpp
           grep -q 'EnderSlicer: resolved model values must live on the' .build/CuraEngine/src/communication/CommandLine.cpp
           grep -q 'EnderSlicer: zero cool_min_temperature is a Cura frontend sentinel' .build/CuraEngine/src/LayerPlanBuffer.cpp
+          grep -q "Preserve the generator's inner-to-outer order" .build/CuraEngine/src/FffGcodeWriter.cpp
+          grep -q 'One centre is retained for the complete connected island' .build/CuraEngine/include/ArcOverhang.h
+          grep -q 'TYPE:ARC-OVERHANG' .build/CuraEngine/src/LayerPlan.cpp
+          grep -q 'is_arc_overhang' .build/CuraEngine/include/GCodePathConfig.h
+          test -s .build/CuraEngine/src/ArcOverhang.cpp
           test -s app/src/main/jniLibs/arm64-v8a/libcuraengine_exec.so
           file app/src/main/jniLibs/arm64-v8a/libcuraengine_exec.so
           readelf -d app/src/main/jniLibs/arm64-v8a/libcuraengine_exec.so | tee curaengine-needed.log
@@ -136,7 +141,7 @@ jobs:
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: enderslicercura-0.8.0-dev-debug-apk
+          name: enderslicercura-0.9.0-dev-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
 
       - name: Upload build logs

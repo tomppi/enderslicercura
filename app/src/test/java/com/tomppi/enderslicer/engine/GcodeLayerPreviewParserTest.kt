@@ -70,6 +70,30 @@ class GcodeLayerPreviewParserTest {
     }
 
     @Test
+    fun parsesArcOverhangMarkerAsDedicatedPreviewFeature() {
+        val file = kotlin.io.path.createTempFile("enderslicer-arc-preview", ".gcode")
+            .toFile()
+            .apply {
+                writeText(
+                    """
+                    G90
+                    M82
+                    G92 E0
+                    ;LAYER:0
+                    G1 X0 Y0 Z0.2 F3000
+                    ;TYPE:ARC-OVERHANG
+                    G1 X10 Y0 E1 F300
+                    """.trimIndent(),
+                )
+            }
+
+        val preview = GcodeLayerPreviewParser.parse(file)
+        val featureCode = preview.layers.single().segments[5].toInt()
+
+        assertEquals(GcodeLayerPreview.Feature.ARC_OVERHANG.code, featureCode)
+    }
+
+    @Test
     fun cappedPreviewSamplesAllLayersInsteadOfDroppingTheTopOfThePrint() {
         val file = kotlin.io.path.createTempFile("enderslicer-capped-layer-preview", ".gcode")
             .toFile()
