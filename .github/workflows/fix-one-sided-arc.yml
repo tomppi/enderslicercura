@@ -1,0 +1,100 @@
+name: Fix one-sided arc detection
+
+on:
+  push:
+    branches:
+      - agent/native-arc-overhang
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: one-sided-arc-bootstrap
+  cancel-in-progress: true
+
+jobs:
+  apply:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/native-arc-overhang
+          fetch-depth: 1
+
+      - name: Apply one-sided cantilever detection
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              file = Path(path)
+              text = file.read_text()
+              if new in text:
+                  return
+              if old not in text:
+                  raise SystemExit(f"Expected context not found in {path}: {old!r}")
+              file.write_text(text.replace(old, new, 1))
+
+          build_script = "scripts/build-curaengine-android.sh"
+          replace_once(
+              build_script,
+              '''    // helper function that detects skin regions that have no support and modifies their print settings (config, line angle, density, etc.)
+              Shape bridge_supported_skin_regions;
+
+              auto handle_bridge_skin =''',
+              '''    // helper function that detects skin regions that have no support and modifies their print settings (config, line angle, density, etc.)
+              Shape bridge_supported_skin_regions;
+
+              // Arc-overhang eligibility is intentionally independent of Cura's
+              // conventional bridge-angle heuristic. A one-sided cantilever has
+              // one valid model anchor, while Cura's classic bridge detector may
+              // require two support islands before it calls the skin a bridge.
+              Shape arc_supported_skin_regions;
+              const bool arc_overhang_enabled = layer_nr > 0 && mesh.settings.get<bool>("enderslicer_arc_overhang_enabled");
+              if (arc_overhang_enabled)
+              {
+                  // Ignore generated support here: Multiplex must be anchored to
+                  // material printed as part of the model on the previous layer.
+                  bridgeAngle(mesh.settings, skin_part.skin_fill, storage, layer_nr, 1, nullptr, arc_supported_skin_regions);
+              }
+
+              auto handle_bridge_skin =''',
+          )
+          replace_once(
+              build_script,
+              '''    if (is_bridge_skin && mesh.settings.get<bool>("enderslicer_arc_overhang_enabled"))''',
+              '''    if (arc_overhang_enabled && ! arc_supported_skin_regions.empty())''',
+          )
+          replace_once(
+              build_script,
+              '''                bridge_supported_skin_regions,
+                          arc_parameters,''',
+              '''                arc_supported_skin_regions,
+                          arc_parameters,''',
+          )
+          replace_once(
+              build_script,
+              '''        // Generator rejected this island: retain Cura's normal bridge path.''',
+              '''        // Generator rejected this island: retain Cura's normal skin or bridge path.''',
+          )
+
+          ui = "app/src/main/java/com/tomppi/enderslicer/ui/CategorizedSettingsSheet.kt"
+          replace_once(
+              ui,
+              '''                    "This option changes only bottom skin that Cura already classifies as a bridge. It does not automatically remove generated support; disable or limit supports when testing support-free overhangs.",''',
+              '''                    "This option evaluates bottom skin against the previous model layer, including one-sided cantilevers that Cura may not classify as conventional bridges. It does not automatically remove generated support; disable or limit supports when testing support-free overhangs.",''',
+          )
+          PY
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add scripts/build-curaengine-android.sh app/src/main/java/com/tomppi/enderslicer/ui/CategorizedSettingsSheet.kt
+          if git diff --cached --quiet; then
+            echo "One-sided arc fix already applied."
+            exit 0
+          fi
+          git commit -m "Detect one-sided arc-overhang candidates"
+          git push origin HEAD:agent/native-arc-overhang
