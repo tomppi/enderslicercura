@@ -555,7 +555,7 @@ internal fun CategorizedSettingsSheet(
                     }
                 }
                 Text(
-                    "This option changes only bottom skin that Cura already classifies as a bridge. It does not automatically remove generated support; disable or limit supports when testing support-free overhangs.",
+                    "This option evaluates bottom skin against the previous model layer, including one-sided cantilevers that Cura may not classify as conventional bridges. It does not automatically remove generated support; disable or limit supports when testing support-free overhangs.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

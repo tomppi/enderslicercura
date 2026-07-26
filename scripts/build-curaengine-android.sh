@@ -256,6 +256,19 @@ replace(
     '''    // helper function that detects skin regions that have no support and modifies their print settings (config, line angle, density, etc.)
     Shape bridge_supported_skin_regions;
 
+    // Arc-overhang eligibility is intentionally independent of Cura's
+    // conventional bridge-angle heuristic. A one-sided cantilever has
+    // one valid model anchor, while Cura's classic bridge detector may
+    // require two support islands before it calls the skin a bridge.
+    Shape arc_supported_skin_regions;
+    const bool arc_overhang_enabled = layer_nr > 0 && mesh.settings.get<bool>("enderslicer_arc_overhang_enabled");
+    if (arc_overhang_enabled)
+    {
+        // Ignore generated support here: Multiplex must be anchored to
+        // material printed as part of the model on the previous layer.
+        bridgeAngle(mesh.settings, skin_part.skin_fill, storage, layer_nr, 1, nullptr, arc_supported_skin_regions);
+    }
+
     auto handle_bridge_skin =''',
 )
 replace(
@@ -275,7 +288,7 @@ replace(
     fff_gcode_writer_cpp,
     '''    const bool monotonic = mesh.settings.get<bool>("skin_monotonic");
     processSkinPrintFeature(''',
-    '''    if (is_bridge_skin && mesh.settings.get<bool>("enderslicer_arc_overhang_enabled"))
+    '''    if (arc_overhang_enabled && ! arc_supported_skin_regions.empty())
     {
         ArcOverhangParameters arc_parameters;
         arc_parameters.line_spacing = std::max<coord_t>(
@@ -292,7 +305,7 @@ replace(
         OpenLinesSet arc_lines;
         if (ArcOverhangGenerator::generate(
                 skin_part.skin_fill,
-                bridge_supported_skin_regions,
+                arc_supported_skin_regions,
                 arc_parameters,
                 arc_lines))
         {
@@ -329,7 +342,7 @@ replace(
             }
             return;
         }
-        // Generator rejected this island: retain Cura's normal bridge path.
+        // Generator rejected this island: retain Cura's normal skin or bridge path.
     }
 
     const bool monotonic = mesh.settings.get<bool>("skin_monotonic");
