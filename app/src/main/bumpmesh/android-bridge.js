@@ -1,7 +1,7 @@
 /*
  * Android host integration for the vendored BumpMesh workspace.
  * BumpMesh itself remains pinned and unmodified; this adapter only loads the
- * current EnderSlicerCura STL and hands exported STL bytes back to Android.
+ * current enderslicercura STL and hands exported STL bytes back to Android.
  */
 (() => {
   'use strict';
@@ -9,7 +9,11 @@
   const nativeBridge = window.EnderSlicerAndroid;
   if (!nativeBridge) return;
 
-  const MAX_OUTPUT_TRIANGLES = 1_500_000;
+  const fallbackLimit = 1_500_000;
+  const reportedLimit = Number(nativeBridge.maxOutputTriangles?.());
+  const MAX_OUTPUT_TRIANGLES = Number.isFinite(reportedLimit) && reportedLimit > 0
+    ? Math.floor(reportedLimit)
+    : fallbackLimit;
   const BRIDGE_CHUNK_BYTES = 48 * 1024;
   let modelLoadStarted = false;
   let exportInProgress = false;
@@ -30,12 +34,14 @@
     const triangleSlider = document.getElementById('max-triangles');
     if (triangleSlider) {
       triangleSlider.max = String(MAX_OUTPUT_TRIANGLES);
+      triangleSlider.step = '10000';
       const current = Number.parseInt(triangleSlider.value, 10);
       if (Number.isFinite(current) && current > MAX_OUTPUT_TRIANGLES) {
         triangleSlider.value = String(MAX_OUTPUT_TRIANGLES);
         triangleSlider.dispatchEvent(new Event('input', { bubbles: true }));
         triangleSlider.dispatchEvent(new Event('change', { bubbles: true }));
       }
+      triangleSlider.title = `Android export limit: ${MAX_OUTPUT_TRIANGLES.toLocaleString()} triangles`;
     }
 
     const export3mf = document.getElementById('export-3mf-btn');
@@ -72,7 +78,9 @@
     exportInProgress = true;
     try {
       const accepted = nativeBridge.beginExport(filename || 'textured.stl', blob.size);
-      if (!accepted) throw new Error('Android rejected the STL export');
+      if (!accepted) {
+        throw new Error(`Android rejected the STL export. The active limit is ${MAX_OUTPUT_TRIANGLES.toLocaleString()} triangles.`);
+      }
 
       const reader = blob.stream().getReader();
       while (true) {
@@ -88,7 +96,7 @@
       if (!nativeBridge.finishExport()) throw new Error('Android could not finalize the STL export');
     } catch (error) {
       nativeBridge.cancelExport();
-      alert(`Could not return the textured STL to EnderSlicerCura: ${error.message || error}`);
+      alert(`Could not return the textured STL to enderslicercura: ${error.message || error}`);
     } finally {
       exportInProgress = false;
     }

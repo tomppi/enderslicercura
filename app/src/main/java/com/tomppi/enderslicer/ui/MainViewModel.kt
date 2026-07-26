@@ -14,6 +14,7 @@ import com.tomppi.enderslicer.engine.LayerEvent
 import com.tomppi.enderslicer.engine.LayerEventSource
 import com.tomppi.enderslicer.engine.LayerEventType
 import com.tomppi.enderslicer.engine.PlannedLayerEvent
+import com.tomppi.enderslicer.mesh.MeshTriangleLimits
 import com.tomppi.enderslicer.model.ModelPlacement
 import com.tomppi.enderslicer.model.SlicerSettings
 import com.tomppi.enderslicer.profile.CuraProfileParser
@@ -84,8 +85,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             busy("Reading STL…")
             runCatching {
                 withContext(Dispatchers.IO) {
-                    val mesh = StlParser.parse(app.contentResolver, uri)
-                    val modelFile = materializeModel(uri)
+                    val triangleLimit = MeshTriangleLimits.current()
+                    val modelFile = materializeModel(uri, triangleLimit)
+                    val mesh = StlParser.parse(modelFile, displayName(uri), triangleLimit)
                     mesh to modelFile
                 }
             }.onSuccess { (mesh, modelFile) ->
@@ -647,13 +649,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun materializeModel(uri: Uri): File {
+    private fun materializeModel(uri: Uri, maxTriangles: Int): File {
         val directory = File(app.filesDir, "models").apply { mkdirs() }
         val target = File(directory, "current.stl")
         val temporary = File(directory, "current.stl.tmp")
+        val maxBytes = MeshTriangleLimits.maxInputFileBytes(maxTriangles)
         temporary.delete()
         app.contentResolver.openInputStream(uri)?.buffered()?.use { input ->
-            temporary.outputStream().buffered().use { output -> input.copyTo(output) }
+            temporary.outputStream().buffered().use { output ->
+                val buffer = ByteArray(128 * 1024)
+                var total = 0L
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    total += count
+                    require(total <= maxBytes) {
+                        "STL is larger than ${MeshTriangleLimits.formatBytes(maxBytes)} for the ${MeshTriangleLimits.formatCount(maxTriangles)}-triangle limit"
+                    }
+                    output.write(buffer, 0, count)
+                }
+            }
         } ?: error("Unable to copy the selected STL")
         check(temporary.length() > 0L) { "The selected STL is empty" }
         if (target.exists()) target.delete()
@@ -752,6 +767,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             .put("appOverrideKeys", settings.overriddenSettingKeys.sorted())
             .put("estimatedPrintSeconds", state.estimatedPrintSeconds)
             .put("calibration", state.calibrationDescription)
+            .put("maxMeshTriangles", MeshTriangleLimits.current())
             .put("layerEvents", state.layerEvents.map { event ->
                 JSONObject()
                     .put("layer", event.layerNumber)

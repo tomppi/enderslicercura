@@ -22,6 +22,7 @@ import androidx.activity.ComponentActivity
 import androidx.core.content.FileProvider
 import androidx.webkit.WebViewAssetLoader
 import com.tomppi.enderslicer.BuildConfig
+import com.tomppi.enderslicer.mesh.MeshTriangleLimits
 import java.io.BufferedOutputStream
 import java.io.File
 import java.io.OutputStream
@@ -32,10 +33,12 @@ import java.nio.ByteOrder
 class BumpMeshActivity : ComponentActivity() {
     private lateinit var sourceFile: File
     private lateinit var webView: WebView
+    private var maxOutputTriangles: Int = MeshTriangleLimits.DEFAULT_TRIANGLES
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        maxOutputTriangles = MeshTriangleLimits.initialize(this)
 
         val sourcePath = intent.getStringExtra(EXTRA_MODEL_PATH)
         sourceFile = sourcePath?.let(::File) ?: run {
@@ -58,7 +61,7 @@ class BumpMeshActivity : ComponentActivity() {
         }
         toolbar.addView(
             TextView(this).apply {
-                text = "Texture model with BumpMesh"
+                text = "BumpMesh · ${MeshTriangleLimits.formatCount(maxOutputTriangles)} triangle limit"
                 textSize = 17f
                 setTextColor(Color.WHITE)
             },
@@ -95,6 +98,7 @@ class BumpMeshActivity : ComponentActivity() {
                 ExportBridge(
                     activity = this@BumpMeshActivity,
                     sourceName = intent.getStringExtra(EXTRA_MODEL_NAME) ?: sourceFile.name,
+                    maxOutputTriangles = maxOutputTriangles,
                 ),
                 JS_BRIDGE_NAME,
             )
@@ -149,7 +153,9 @@ class BumpMeshActivity : ComponentActivity() {
     private class ExportBridge(
         private val activity: BumpMeshActivity,
         private val sourceName: String,
+        private val maxOutputTriangles: Int,
     ) {
+        private val maxExportBytes = STL_HEADER_BYTES + maxOutputTriangles.toLong() * STL_TRIANGLE_BYTES
         private var output: File? = null
         private var stream: OutputStream? = null
         private var expectedBytes: Long = 0
@@ -162,12 +168,15 @@ class BumpMeshActivity : ComponentActivity() {
             .let { name -> if (name.lowercase().endsWith(".stl")) name else "$name.stl" }
 
         @JavascriptInterface
+        fun maxOutputTriangles(): Double = maxOutputTriangles.toDouble()
+
+        @JavascriptInterface
         @Synchronized
         fun beginExport(filename: String, sizeBytes: Double): Boolean {
             cancelLocked()
             if (!sizeBytes.isFinite()) return false
             val size = sizeBytes.toLong()
-            if (size !in STL_HEADER_BYTES..MAX_EXPORT_BYTES) return false
+            if (size !in STL_HEADER_BYTES..maxExportBytes) return false
 
             val directory = File(activity.cacheDir, "bumpmesh-exports").apply { mkdirs() }
             val safeBase = filename
@@ -197,7 +206,7 @@ class BumpMeshActivity : ComponentActivity() {
             return runCatching {
                 val bytes = Base64.decode(encoded, Base64.NO_WRAP)
                 check(writtenBytes + bytes.size <= expectedBytes)
-                check(writtenBytes + bytes.size <= MAX_EXPORT_BYTES)
+                check(writtenBytes + bytes.size <= maxExportBytes)
                 active.write(bytes)
                 writtenBytes += bytes.size
                 true
@@ -263,7 +272,7 @@ class BumpMeshActivity : ComponentActivity() {
         }
 
         private fun isValidBinaryStl(file: File): Boolean {
-            if (!file.isFile || file.length() < STL_HEADER_BYTES || file.length() > MAX_EXPORT_BYTES) return false
+            if (!file.isFile || file.length() < STL_HEADER_BYTES || file.length() > maxExportBytes) return false
             return runCatching {
                 RandomAccessFile(file, "r").use { input ->
                     input.seek(80)
@@ -273,7 +282,7 @@ class BumpMeshActivity : ComponentActivity() {
                         .order(ByteOrder.LITTLE_ENDIAN)
                         .int
                         .toLong() and 0xffffffffL
-                    triangleCount in 1..MAX_OUTPUT_TRIANGLES &&
+                    triangleCount in 1L..maxOutputTriangles.toLong() &&
                         file.length() == STL_HEADER_BYTES + triangleCount * STL_TRIANGLE_BYTES
                 }
             }.getOrDefault(false)
@@ -287,9 +296,7 @@ class BumpMeshActivity : ComponentActivity() {
         private const val JS_BRIDGE_NAME = "EnderSlicerAndroid"
         private const val BUMPMESH_URL =
             "https://${WebViewAssetLoader.DEFAULT_DOMAIN}/assets/bumpmesh/index.html?android=1"
-        private const val MAX_OUTPUT_TRIANGLES = 1_500_000L
         private const val STL_HEADER_BYTES = 84L
         private const val STL_TRIANGLE_BYTES = 50L
-        private const val MAX_EXPORT_BYTES = STL_HEADER_BYTES + MAX_OUTPUT_TRIANGLES * STL_TRIANGLE_BYTES
     }
 }
