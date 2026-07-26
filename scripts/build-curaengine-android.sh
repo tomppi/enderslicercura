@@ -219,7 +219,7 @@ replace(
 
         const double angle = bridgeAngle(mesh.settings, skin_part.skin_fill, storage, layer_nr, bridge_layer, support_layer, bridge_supported_skin_regions);
 
-        if (angle > -1 || (support_threshold > 0 && (bridge_supported_skin_regions.area() / (skin_part.skin_fill.area() + 1) < support_threshold)))d)))''',
+        if (angle > -1 || (support_threshold > 0 && (bridge_supported_skin_regions.area() / (skin_part.skin_fill.area() + 1) < support_threshold)))''',
 )
 replace(
     fff_gcode_writer_cpp,
