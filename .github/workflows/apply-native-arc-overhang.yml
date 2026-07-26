@@ -1,0 +1,41 @@
+name: Apply native arc overhang
+
+on:
+  push:
+    branches:
+      - agent/native-arc-overhang
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: native-arc-overhang-bootstrap
+  cancel-in-progress: true
+
+jobs:
+  apply:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/native-arc-overhang
+          fetch-depth: 1
+
+      - name: Apply native Multiplex port
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cat .agent-native-arc/part-*.b64 | tr -d '[:space:]' > .agent-native-arc/patch.b64
+          echo '684a0eb1ca2c9ad05d064202574e225b094e5a7246578d24915577b3803c3512  .agent-native-arc/patch.b64' | sha256sum -c -
+          base64 --decode .agent-native-arc/patch.b64 > .agent-native-arc/patch.py
+          echo '0c06709898ed30a668e26edff374e1272c5892fac023cb6a105e7a621ba3ee46  .agent-native-arc/patch.py' | sha256sum -c -
+          python3 .agent-native-arc/patch.py
+          rm -rf .agent-native-arc
+          rm -f .github/workflows/apply-native-arc-overhang.yml
+
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m 'Port native Multiplex arc overhangs to CuraEngine'
+          git push origin HEAD:agent/native-arc-overhang
