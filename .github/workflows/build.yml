@@ -37,9 +37,9 @@ jobs:
           {
             set -x
             cat .agent-native-arc/part-*.b64 | tr -d '[:space:]' > .agent-native-arc/patch.b64
-            echo '684a0eb1ca2c9ad05d064202574e225b094e5a7246578d24915577b3803c3512  .agent-native-arc/patch.b64' | sha256sum -c -
+            echo '6f97c63d73e0805c6caa80df38a1d2ef604825a750e61654b350f1480130f988  .agent-native-arc/patch.b64' | sha256sum -c -
             base64 --decode .agent-native-arc/patch.b64 > .agent-native-arc/patch.py
-            echo '0c06709898ed30a668e26edff374e1272c5892fac023cb6a105e7a621ba3ee46  .agent-native-arc/patch.py' | sha256sum -c -
+            echo '26a3bb83757e977771b44c0f4177f905221763d3db165c5c6369a7d83c601085  .agent-native-arc/patch.py' | sha256sum -c -
             python3 -m py_compile .agent-native-arc/patch.py
             python3 .agent-native-arc/patch.py
           } > /tmp/arc-apply-log.txt 2>&1
