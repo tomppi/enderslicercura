@@ -156,7 +156,12 @@ object GcodeLayerEventProcessor {
             LayerEventType.BED_TEMPERATURE -> listOf("M140 S${format(requireNotNull(event.value))}")
             LayerEventType.FAN_SPEED -> {
                 val percent = requireNotNull(event.value).coerceIn(0.0, 100.0)
-                if (percent <= 0.0) listOf("M107") else listOf("M106 S${(percent * 2.55).roundToInt().coerceIn(0, 255)}")
+                if (percent <= 0.0) {
+                    listOf("M107")
+                } else {
+                    val pwm = (percent * 255.0 / 100.0).roundToInt().coerceIn(0, 255)
+                    listOf("M106 S$pwm")
+                }
             }
 
             LayerEventType.SPEED_FACTOR -> listOf("M220 S${format(requireNotNull(event.value))}")
