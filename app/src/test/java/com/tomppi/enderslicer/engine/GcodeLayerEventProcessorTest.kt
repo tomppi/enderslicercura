@@ -129,6 +129,48 @@ class GcodeLayerEventProcessorTest {
         assertTrue(result.contains("M107 ; enderslicercura fan calibration safety shutdown"))
     }
 
+    @Test
+    fun speedAndFlowCalibrationRestoreFirmwareFactorsAtEnd() {
+        val base = kotlin.io.path.createTempFile("enderslicer-factor-events", ".gcode").toFile().apply {
+            writeText(
+                """
+                ;FLAVOR:Marlin
+                M82
+                ;LAYER:0
+                G1 X1 E1
+                ;LAYER:1
+                G1 X2 E2
+                ;End of Gcode
+                """.trimIndent(),
+            )
+        }
+        val events = listOf(
+            LayerEvent(
+                id = "speed-cal",
+                layerNumber = 1,
+                zMm = 0.4f,
+                type = LayerEventType.SPEED_FACTOR,
+                value = 70.0,
+                source = LayerEventSource.CALIBRATION,
+            ),
+            LayerEvent(
+                id = "flow-cal",
+                layerNumber = 1,
+                zMm = 0.4f,
+                type = LayerEventType.FLOW_FACTOR,
+                value = 95.0,
+                source = LayerEventSource.CALIBRATION,
+            ),
+        )
+        val output = kotlin.io.path.createTempFile("enderslicer-factor-output", ".gcode").toFile()
+        GcodeLayerEventProcessor.materialize(base, output, events)
+        val result = output.readText()
+        assertTrue(result.contains("M220 S70"))
+        assertTrue(result.contains("M221 S95"))
+        assertTrue(result.contains("M220 S100 ; enderslicercura restore speed factor"))
+        assertTrue(result.contains("M221 S100 ; enderslicercura restore flow factor"))
+    }
+
     @Test(expected = IllegalArgumentException::class)
     fun blocksUnsafeCustomGcode() {
         GcodeLayerEventProcessor.commands(
