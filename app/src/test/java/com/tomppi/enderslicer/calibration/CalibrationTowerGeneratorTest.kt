@@ -69,6 +69,18 @@ class CalibrationTowerGeneratorTest {
     }
 
     @Test
+    fun defaultCalibrationModelsStayCompact() {
+        CalibrationTestType.entries.forEach { type ->
+            val result = CalibrationTowerGenerator.generate(
+                CalibrationTowerSpec(type = type),
+                retractionSpeedMmPerSecond = 40.0,
+            )
+            assertTrue("${type.displayName} is unexpectedly tall", result.mesh.bounds.height < 35f)
+            assertTrue("${type.displayName} is unexpectedly wide", result.mesh.bounds.width <= 26.1f)
+        }
+    }
+
+    @Test
     fun fanDefaultsReachOneHundredPercentWithoutExceedingRange() {
         val result = CalibrationTowerGenerator.generate(
             CalibrationTowerSpec(type = CalibrationTestType.FAN),
@@ -85,7 +97,7 @@ class CalibrationTowerGeneratorTest {
             CalibrationTowerSpec(type = CalibrationTestType.RETRACTION, levels = 3),
             retractionSpeedMmPerSecond = 55.0,
         )
-        assertTrue(result.requiresFirmwareRetraction)
+        assertFalse(result.requiresFirmwareRetraction)
         assertEquals(55.0, result.plannedEvents.first().secondaryValue ?: 0.0, 0.0)
         assertTrue(CalibrationModelFeature.SEPARATED_POSTS in result.modelFeatures)
         assertTrue(CalibrationModelFeature.TRAVEL_GAPS in result.modelFeatures)

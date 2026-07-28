@@ -36,6 +36,141 @@ class GcodeLayerEventProcessorTest {
         assertTrue(text.contains(";ENDERSLICER_LAYER_EVENT"))
     }
 
+    @Test
+    fun calibrationHeightSkipsEmptyTransitionLayer() {
+        val base = kotlin.io.path.createTempFile("enderslicer-empty-layer", ".gcode").toFile().apply {
+            writeText(
+                """
+                ;FLAVOR:Marlin
+                M82
+                ;LAYER:0
+                G1 Z0.2 X1 E1
+                ;LAYER:1
+                G0 Z0.4
+                ;LAYER:2
+                G1 Z0.6 X2 E2
+                """.trimIndent(),
+            )
+        }
+        val preview = GcodeLayerPreviewParser.parse(base)
+        val event = GcodeLayerEventProcessor.resolve(
+            listOf(PlannedLayerEvent(0.35f, LayerEventType.FLOW_FACTOR, value = 100.0)),
+            preview,
+        ).single()
+        assertEquals(2, event.layerNumber)
+    }
+
+    @Test
+    fun retractionChangeWaitsUntilFirmwareRecover() {
+        val base = kotlin.io.path.createTempFile("enderslicer-retract-events", ".gcode").toFile().apply {
+            writeText(
+                """
+                ;FLAVOR:Marlin
+                M82
+                ;LAYER:0
+                G1 X1 E1
+                G10
+                ;LAYER:1
+                G11
+                G1 X2 E2
+                G10
+                """.trimIndent(),
+            )
+        }
+        val event = LayerEvent(
+            id = "retract-safe",
+            layerNumber = 1,
+            zMm = 0.4f,
+            type = LayerEventType.RETRACTION,
+            value = 1.25,
+            secondaryValue = 40.0,
+            source = LayerEventSource.CALIBRATION,
+        )
+        val output = kotlin.io.path.createTempFile("enderslicer-retract-output", ".gcode").toFile()
+        GcodeLayerEventProcessor.materialize(base, output, listOf(event))
+        val result = output.readText()
+        val layer = result.indexOf(";LAYER:1")
+        val recover = result.indexOf("G11", layer)
+        val setting = result.indexOf("M207 S1.25 F2400", layer)
+        val extrusion = result.indexOf("G1 X2 E2", layer)
+        assertTrue(layer >= 0 && recover > layer && setting > recover && extrusion > setting)
+    }
+
+    @Test
+    fun fanCalibrationSuppressesCuraFanChangesAndRestoresShutdown() {
+        val base = kotlin.io.path.createTempFile("enderslicer-fan-events", ".gcode").toFile().apply {
+            writeText(
+                """
+                ;FLAVOR:Marlin
+                M82
+                ;LAYER:0
+                G1 X1 E1
+                ;LAYER:1
+                M106 S255
+                G1 X2 E2
+                M107
+                ;End of Gcode
+                """.trimIndent(),
+            )
+        }
+        val event = LayerEvent(
+            id = "fan-cal",
+            layerNumber = 1,
+            zMm = 0.4f,
+            type = LayerEventType.FAN_SPEED,
+            value = 50.0,
+            source = LayerEventSource.CALIBRATION,
+        )
+        val output = kotlin.io.path.createTempFile("enderslicer-fan-output", ".gcode").toFile()
+        GcodeLayerEventProcessor.materialize(base, output, listOf(event))
+        val result = output.readText()
+        assertTrue(result.contains("M106 S128"))
+        assertTrue(!result.contains("M106 S255"))
+        assertTrue(result.contains("M107 ; enderslicercura fan calibration safety shutdown"))
+    }
+
+    @Test
+    fun speedAndFlowCalibrationRestoreFirmwareFactorsAtEnd() {
+        val base = kotlin.io.path.createTempFile("enderslicer-factor-events", ".gcode").toFile().apply {
+            writeText(
+                """
+                ;FLAVOR:Marlin
+                M82
+                ;LAYER:0
+                G1 X1 E1
+                ;LAYER:1
+                G1 X2 E2
+                ;End of Gcode
+                """.trimIndent(),
+            )
+        }
+        val events = listOf(
+            LayerEvent(
+                id = "speed-cal",
+                layerNumber = 1,
+                zMm = 0.4f,
+                type = LayerEventType.SPEED_FACTOR,
+                value = 70.0,
+                source = LayerEventSource.CALIBRATION,
+            ),
+            LayerEvent(
+                id = "flow-cal",
+                layerNumber = 1,
+                zMm = 0.4f,
+                type = LayerEventType.FLOW_FACTOR,
+                value = 95.0,
+                source = LayerEventSource.CALIBRATION,
+            ),
+        )
+        val output = kotlin.io.path.createTempFile("enderslicer-factor-output", ".gcode").toFile()
+        GcodeLayerEventProcessor.materialize(base, output, events)
+        val result = output.readText()
+        assertTrue(result.contains("M220 S70"))
+        assertTrue(result.contains("M221 S95"))
+        assertTrue(result.contains("M220 S100 ; enderslicercura restore speed factor"))
+        assertTrue(result.contains("M221 S100 ; enderslicercura restore flow factor"))
+    }
+
     @Test(expected = IllegalArgumentException::class)
     fun blocksUnsafeCustomGcode() {
         GcodeLayerEventProcessor.commands(

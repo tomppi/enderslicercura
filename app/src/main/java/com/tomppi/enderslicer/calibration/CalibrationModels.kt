@@ -125,8 +125,8 @@ data class CalibrationTowerSpec(
     val startValue: Double = type.defaultStart,
     val stepValue: Double = type.defaultStep,
     val levels: Int = type.defaultLevels,
-    val sectionHeightMm: Double = 8.0,
-    val towerWidthMm: Double = 20.0,
+    val sectionHeightMm: Double = 4.0,
+    val towerWidthMm: Double = 16.0,
 )
 
 data class CalibrationTowerResult(

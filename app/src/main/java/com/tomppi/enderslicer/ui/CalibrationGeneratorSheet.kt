@@ -36,8 +36,8 @@ internal fun CalibrationGeneratorSheet(
     var start by remember(type) { mutableStateOf(format(type.defaultStart)) }
     var step by remember(type) { mutableStateOf(format(type.defaultStep)) }
     var levels by remember(type) { mutableStateOf(type.defaultLevels.toString()) }
-    var sectionHeight by remember { mutableStateOf("8") }
-    var width by remember { mutableStateOf("20") }
+    var sectionHeight by remember { mutableStateOf("4") }
+    var width by remember { mutableStateOf("16") }
     var typeMenu by remember { mutableStateOf(false) }
 
     val spec = runCatching {
@@ -61,7 +61,7 @@ internal fun CalibrationGeneratorSheet(
     ) {
         Text("Calibration generator", style = MaterialTheme.typography.headlineSmall)
         Text(
-            "Creates a purpose-built, support-free calibration model and automatically schedules the matching value change at every section.",
+            "Creates a compact purpose-built, support-free calibration model and automatically schedules the matching value change at every section.",
             style = MaterialTheme.typography.bodyMedium,
         )
         Box(modifier = Modifier.fillMaxWidth()) {
@@ -86,7 +86,7 @@ internal fun CalibrationGeneratorSheet(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Text(
-            "Generated supports and support interface are disabled automatically for calibration slices. The bridges and controlled overhangs are intentional parts of the test.",
+            "Calibration slices disable generated support, adaptive layers, arc overhangs, ironing, coasting and Cura's minimum-layer-time slowdown so the requested test value is what is actually being exercised.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.primary,
         )
@@ -105,7 +105,7 @@ internal fun CalibrationGeneratorSheet(
         }
         if (type == CalibrationTestType.RETRACTION) {
             Text(
-                "This model changes M207 firmware-retraction distance. Firmware retraction will be enabled automatically.",
+                "This model changes M207 firmware-retraction distance. Firmware retraction is enabled only for this calibration slice.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

@@ -1,5 +1,6 @@
 package com.tomppi.enderslicer.profile
 
+import com.tomppi.enderslicer.calibration.CalibrationSliceState
 import com.tomppi.enderslicer.viewer.StlMeshWriter
 import com.tomppi.enderslicer.viewer.StlSliceTransform
 import org.json.JSONObject
@@ -69,8 +70,13 @@ internal object CuraResolvedSettingsWriter {
         // from the extruder stack. Copy all resolved per-mesh values into that
         // stack as well as retaining the model section. The native resolved-model
         // patch also copies the model section onto the actual Mesh.
+        val calibrationOverrides = CalibrationSliceState.engineOverrides()
         val extruderValues = JSONObject(resolved.extruderValues)
         resolved.modelValues.forEach { (key, value) -> extruderValues.put(key, value) }
+        // Some calibration-sensitive values (notably bridge fan settings) are
+        // settable per mesh. Re-apply temporary calibration overrides after the
+        // normal model-to-extruder copy so model scope cannot undo the test.
+        calibrationOverrides.forEach { (key, value) -> extruderValues.put(key, value) }
         extruderValues
             .put("center_object", false)
             .put("mesh_rotation_matrix", rotationMatrix)
@@ -82,6 +88,10 @@ internal object CuraResolvedSettingsWriter {
             .put("mesh_position_z", enginePositionZ)
 
         val modelValues = JSONObject(resolved.modelValues)
+        calibrationOverrides.forEach { (key, value) ->
+            if (resolved.modelValues.containsKey(key)) modelValues.put(key, value)
+        }
+        modelValues
             .put("extruder_nr", 0)
             .put("center_object", false)
             .put("mesh_rotation_matrix", rotationMatrix)

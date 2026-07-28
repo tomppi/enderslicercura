@@ -1,5 +1,6 @@
 package com.tomppi.enderslicer.profile
 
+import com.tomppi.enderslicer.calibration.CalibrationSliceState
 import com.tomppi.enderslicer.engine.ArcOverhangEngineSettings
 import com.tomppi.enderslicer.model.PrinterDefinition
 import com.tomppi.enderslicer.model.SlicerSettings
@@ -27,10 +28,11 @@ internal object CuraSliceSettingsResolver {
             "A complete Cura definition stack is required for dependency resolution"
         }
 
-        val effectivePrinter = printer.withSettings(settings)
-        val effectiveStartGcode = settings.resolveStartGcode(startGcode)
-        val effectiveEndGcode = settings.resolveEndGcode(endGcode)
-        val explicitDelta = CuraSettingDelta.explicitValues(settings)
+        val effectiveSettings = CalibrationSliceState.effective(settings)
+        val effectivePrinter = printer.withSettings(effectiveSettings)
+        val effectiveStartGcode = effectiveSettings.resolveStartGcode(startGcode)
+        val effectiveEndGcode = effectiveSettings.resolveEndGcode(endGcode)
+        val explicitDelta = CuraSettingDelta.explicitValues(effectiveSettings)
         val canonical = CuraSettingScopeResolver.canonicalize(profile, explicitDelta)
 
         val globalOverrides = linkedMapOf<String, String>().apply {
@@ -75,20 +77,28 @@ internal object CuraSliceSettingsResolver {
         // Normalize it in the temporary slice snapshot, never in the persisted
         // baseline, so future dependency recalculation still starts from the
         // original imported project.
-        val resolvedExtruder = linkedMapOf<String, String>().apply {
+        val parityExtruder = linkedMapOf<String, String>().apply {
             putAll(rawResolved.extruderValues)
             val coolMinimum = get("cool_min_temperature")?.toDoubleOrNull()
             if (coolMinimum != null && coolMinimum <= 0.0) {
                 put("cool_min_temperature", requireNotNull(get("material_print_temperature")))
             }
-            putAll(ArcOverhangEngineSettings.values(settings))
+            putAll(ArcOverhangEngineSettings.values(effectiveSettings))
         }
 
+        // First verify that the resolved Cura dependency graph still matches all
+        // explicit user/app inputs. Calibration engine overrides intentionally
+        // differ from some profile values and therefore belong after this check.
         CuraSettingDelta.requireResolvedMatch(
-            settings = settings,
+            settings = effectiveSettings,
             globalValues = rawResolved.globalValues,
-            extruderValues = resolvedExtruder,
+            extruderValues = parityExtruder,
         )
+
+        val resolvedExtruder = linkedMapOf<String, String>().apply {
+            putAll(parityExtruder)
+            putAll(CalibrationSliceState.engineOverrides())
+        }
         validateResolvedSettings(rawResolved.globalValues, resolvedExtruder)
 
         return Result(
