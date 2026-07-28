@@ -51,15 +51,31 @@ class CalibrationSliceSettingsTest {
         CalibrationSliceState.activate(CalibrationTestType.RETRACTION, 0.5)
         try {
             val effective = CalibrationSliceState.effective(original)
+            val overrides = CalibrationSliceState.engineOverrides()
             assertFalse(effective.supportsEnabled)
             assertFalse(effective.adaptiveLayerHeightEnabled)
             assertFalse(effective.arcOverhangEnabled)
             assertFalse(effective.ironingEnabled)
             assertFalse(effective.coastingEnabled)
             assertTrue(effective.firmwareRetraction)
-            assertEquals("0", CalibrationSliceState.engineOverrides()["cool_min_layer_time"])
+            assertEquals("0", overrides["cool_min_layer_time"])
+            assertEquals("true", overrides["retraction_enable"])
+            assertEquals("0", overrides["retraction_min_travel"])
+            assertEquals("off", overrides["retraction_combing"])
             assertTrue(original.supportsEnabled)
             assertFalse(original.firmwareRetraction)
+        } finally {
+            CalibrationSliceState.clear()
+        }
+    }
+
+    @Test
+    fun retractionCalibrationCanRestoreConfiguredFirmwareSettings() {
+        val original = SlicerSettings(retractionDistanceMm = 1.5, retractionSpeedMmPerSecond = 42.0)
+        CalibrationSliceState.activate(CalibrationTestType.RETRACTION, 0.5)
+        try {
+            CalibrationSliceState.effective(original)
+            assertEquals("M207 S1.5 F2520", CalibrationSliceState.retractionRestoreCommand())
         } finally {
             CalibrationSliceState.clear()
         }
