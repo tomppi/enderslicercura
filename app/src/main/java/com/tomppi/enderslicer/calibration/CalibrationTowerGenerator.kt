@@ -28,7 +28,6 @@ object CalibrationTowerGenerator {
             require(retractionSpeedMmPerSecond in 0.1..1000.0) { "Retraction speed is outside 0.1..1000 mm/s" }
         }
 
-        CalibrationSliceState.activate(spec.type, values.first())
         val builder = MeshBuilder()
         when (spec.type) {
             CalibrationTestType.TEMPERATURE -> buildTemperatureModel(builder, spec)
@@ -54,11 +53,18 @@ object CalibrationTowerGenerator {
 
         val first = format(values.first())
         val last = format(values.last())
+        val mesh = builder.finish("${spec.type.name.lowercase(Locale.US)}-calibration-$first-to-$last.stl")
+        // Do not activate calibration behavior until mesh generation has
+        // succeeded. A rejected/failed model must never affect a later slice.
+        CalibrationSliceState.activate(spec.type, values.first())
         return CalibrationTowerResult(
-            mesh = builder.finish("${spec.type.name.lowercase(Locale.US)}-calibration-$first-to-$last.stl"),
+            mesh = mesh,
             plannedEvents = events,
             description = "${spec.type.displayName}: ${spec.levels} levels, $first to $last ${spec.type.unit}. ${spec.type.designDescription}",
-            requiresFirmwareRetraction = spec.type == CalibrationTestType.RETRACTION,
+            // CalibrationSliceState enables firmware retraction in the temporary
+            // slice snapshot. Returning false here prevents the legacy UI path
+            // from persisting that temporary requirement into user settings.
+            requiresFirmwareRetraction = false,
             levelValues = values,
             modelFeatures = spec.type.modelFeatures,
         )
