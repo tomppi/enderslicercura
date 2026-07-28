@@ -50,8 +50,6 @@ internal object CalibrationSliceState {
             add(SlicerSettings.Keys.ARC_OVERHANG_ENABLED)
             add(SlicerSettings.Keys.IRONING_ENABLED)
             add(SlicerSettings.Keys.COASTING_ENABLED)
-            add(SlicerSettings.Keys.ADHESION_TYPE)
-            add(SlicerSettings.Keys.SKIRT_LINE_COUNT)
             if (type == CalibrationTestType.RETRACTION) {
                 add(SlicerSettings.Keys.FIRMWARE_RETRACTION)
             }
@@ -71,8 +69,6 @@ internal object CalibrationSliceState {
             arcOverhangEnabled = false,
             ironingEnabled = false,
             coastingEnabled = false,
-            adhesionType = "none",
-            skirtLineCount = 0,
             firmwareRetraction = settings.firmwareRetraction || type == CalibrationTestType.RETRACTION,
             nozzleTemperatureC = firstTemperature ?: settings.nozzleTemperatureC,
             initialNozzleTemperatureC = firstTemperature ?: settings.initialNozzleTemperatureC,
@@ -99,6 +95,15 @@ internal object CalibrationSliceState {
                 put("bridge_fan_speed", "0")
                 put("bridge_fan_speed_2", "0")
                 put("bridge_fan_speed_3", "0")
+            }
+            if (type == CalibrationTestType.RETRACTION) {
+                // The retraction model consists of isolated posts. Guarantee
+                // that Cura emits a firmware retract for the travel gaps even
+                // if the imported profile normally combs or requires a longer
+                // minimum travel before retracting.
+                put("retraction_enable", "true")
+                put("retraction_min_travel", "0")
+                put("retraction_combing", "off")
             }
         }
     }
