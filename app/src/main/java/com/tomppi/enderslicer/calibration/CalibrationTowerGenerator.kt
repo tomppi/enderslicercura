@@ -8,8 +8,8 @@ import kotlin.math.max
 import kotlin.math.sin
 
 object CalibrationTowerGenerator {
-    private const val BASE_HEIGHT_MM = 1.2
-    private const val SOLID_OVERLAP_MM = 0.25
+    private const val BASE_HEIGHT_MM = 0.8
+    private const val SOLID_OVERLAP_MM = 0.20
 
     fun generate(
         spec: CalibrationTowerSpec,
@@ -28,7 +28,7 @@ object CalibrationTowerGenerator {
             require(retractionSpeedMmPerSecond in 0.1..1000.0) { "Retraction speed is outside 0.1..1000 mm/s" }
         }
 
-        CalibrationSliceState.activate(spec.type == CalibrationTestType.RETRACTION)
+        CalibrationSliceState.activate(spec.type, values.first())
         val builder = MeshBuilder()
         when (spec.type) {
             CalibrationTestType.TEMPERATURE -> buildTemperatureModel(builder, spec)
@@ -70,7 +70,7 @@ object CalibrationTowerGenerator {
         val post = max(1.8, spec.towerWidthMm * 0.09)
         val span = max(9.0, spec.towerWidthMm * 0.62)
         val bridgeY = core / 2.0 + max(4.0, spec.towerWidthMm * 0.22)
-        val baseExtent = max(32.0, span + post + 8.0)
+        val baseExtent = max(24.0, span + post + 5.0)
         addBase(builder, baseExtent, max(baseExtent, bridgeY * 2.0 + post + 5.0))
 
         builder.addBox(0.0, 0.0, BASE_HEIGHT_MM - SOLID_OVERLAP_MM, core, core, totalHeight - BASE_HEIGHT_MM + SOLID_OVERLAP_MM)
@@ -159,7 +159,7 @@ object CalibrationTowerGenerator {
         val span = max(10.0, spec.towerWidthMm * 0.72)
         val post = max(1.8, spec.towerWidthMm * 0.09)
         val bridgeY = core / 2.0 + max(4.5, spec.towerWidthMm * 0.24)
-        val baseExtent = max(34.0, span + post + 8.0)
+        val baseExtent = max(26.0, span + post + 5.0)
         addBase(builder, baseExtent, max(baseExtent, bridgeY * 2.0 + post + 5.0))
 
         builder.addBox(0.0, 0.0, BASE_HEIGHT_MM - SOLID_OVERLAP_MM, core, core, totalHeight - BASE_HEIGHT_MM + SOLID_OVERLAP_MM)
