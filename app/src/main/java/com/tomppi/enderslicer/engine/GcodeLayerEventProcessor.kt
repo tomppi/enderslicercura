@@ -11,7 +11,9 @@ object GcodeLayerEventProcessor {
     ): List<LayerEvent> {
         if (planned.isEmpty()) return emptyList()
         return planned.mapIndexed { index, event ->
-            val layer = preview.layers.firstOrNull { it.z + Z_EPSILON >= event.targetZMm }
+            val layer = preview.layers.firstOrNull {
+                it.segmentCount > 0 && it.z + Z_EPSILON >= event.targetZMm
+            } ?: preview.layers.lastOrNull { it.segmentCount > 0 }
                 ?: preview.layers.last()
             LayerEvent(
                 id = "calibration-$index-${layer.number}",
@@ -37,30 +39,82 @@ object GcodeLayerEventProcessor {
             .onEach(::validate)
             .groupBy(LayerEvent::layerNumber)
             .mapValues { (_, values) -> values.sortedWith(compareBy(LayerEvent::source, LayerEvent::id)) }
+        val fanCalibration = events.any {
+            it.source == LayerEventSource.CALIBRATION && it.type == LayerEventType.FAN_SPEED
+        }
 
         destination.parentFile?.mkdirs()
         val temporary = File(destination.parentFile, "${destination.name}.events.tmp")
         temporary.delete()
         temporary.bufferedWriter().use { writer ->
+            var firmwareRetracted = false
+            var calibrationFanStarted = false
+            val deferredRetraction = mutableListOf<LayerEvent>()
+
+            fun writeEvent(event: LayerEvent) {
+                writer.write(";ENDERSLICER_LAYER_EVENT:${safeMarker(event.id)}:${event.type.name}:${event.source.name}")
+                writer.newLine()
+                val label = event.label.takeIf(String::isNotBlank) ?: event.displayName()
+                writer.write(";ENDERSLICER_LAYER_EVENT_LABEL:${safeMarker(label)}")
+                writer.newLine()
+                commands(event).forEach { command ->
+                    writer.write(command)
+                    writer.newLine()
+                }
+                if (event.source == LayerEventSource.CALIBRATION && event.type == LayerEventType.FAN_SPEED) {
+                    calibrationFanStarted = true
+                }
+            }
+
             baseFile.bufferedReader().useLines { lines ->
                 lines.forEach { line ->
+                    val command = line.substringBefore(';').trim()
+                    val opcode = command.substringBefore(' ').uppercase(Locale.US)
+
+                    // Cura cannot know about fan changes inserted after slicing.
+                    // Once a fan calibration begins, its M106/M107 events own the
+                    // fan until the safety shutdown written at EOF.
+                    if (fanCalibration && calibrationFanStarted && (opcode == "M106" || opcode == "M107")) {
+                        return@forEach
+                    }
+
                     writer.write(line)
                     writer.newLine()
+
+                    when (opcode) {
+                        "G10" -> firmwareRetracted = true
+                        "G11" -> {
+                            firmwareRetracted = false
+                            if (deferredRetraction.isNotEmpty()) {
+                                deferredRetraction.forEach(::writeEvent)
+                                deferredRetraction.clear()
+                            }
+                        }
+                    }
+
                     if (!line.startsWith(";LAYER:")) return@forEach
                     val layerNumber = line.substringAfter(':').trim().toIntOrNull() ?: return@forEach
                     grouped[layerNumber].orEmpty().forEach { event ->
-                        writer.write(";ENDERSLICER_LAYER_EVENT:${safeMarker(event.id)}:${event.type.name}:${event.source.name}")
-                        writer.newLine()
-                        val label = event.label.takeIf(String::isNotBlank) ?: event.displayName()
-                        writer.write(";ENDERSLICER_LAYER_EVENT_LABEL:${safeMarker(label)}")
-                        writer.newLine()
-                        commands(event).forEach { command ->
-                            writer.write(command)
-                            writer.newLine()
+                        // M207 changes the length G11 recovers. Changing M207
+                        // after G10 but before its matching G11 can recover a
+                        // different amount than was retracted, so wait until
+                        // firmware retraction is balanced again.
+                        if (event.type == LayerEventType.RETRACTION && firmwareRetracted) {
+                            deferredRetraction += event
+                        } else {
+                            writeEvent(event)
                         }
                     }
                 }
             }
+
+            if (fanCalibration && calibrationFanStarted) {
+                writer.write("M107 ; enderslicercura fan calibration safety shutdown")
+                writer.newLine()
+            }
+            // A manual event placed at the very end may not see another G11.
+            // Keep it visible in the output rather than silently dropping it.
+            deferredRetraction.forEach(::writeEvent)
         }
         check(temporary.isFile && temporary.length() > 0L) { "Layer-event G-code output is empty" }
         if (destination.exists()) destination.delete()
