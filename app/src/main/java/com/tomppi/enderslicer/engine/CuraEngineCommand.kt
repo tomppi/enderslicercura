@@ -95,6 +95,7 @@ object CuraEngineCommand {
         fun applyStandaloneSettings() {
             CuraSettingDelta.standaloneValues(effectiveSettings).forEach { (key, value) -> setting(key, value) }
             ArcOverhangEngineSettings.values(effectiveSettings).forEach { (key, value) -> setting(key, value) }
+            CalibrationSliceState.engineOverrides().forEach { (key, value) -> setting(key, value) }
         }
 
         setting("machine_name", effectivePrinter.name)
