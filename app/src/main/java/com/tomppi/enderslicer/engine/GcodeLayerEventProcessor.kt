@@ -1,5 +1,6 @@
 package com.tomppi.enderslicer.engine
 
+import com.tomppi.enderslicer.calibration.CalibrationSliceState
 import java.io.File
 import java.util.Locale
 import kotlin.math.roundToInt
@@ -39,9 +40,10 @@ object GcodeLayerEventProcessor {
             .onEach(::validate)
             .groupBy(LayerEvent::layerNumber)
             .mapValues { (_, values) -> values.sortedWith(compareBy(LayerEvent::source, LayerEvent::id)) }
-        val fanCalibration = events.any {
-            it.source == LayerEventSource.CALIBRATION && it.type == LayerEventType.FAN_SPEED
-        }
+        val calibrationTypes = events
+            .filter { it.source == LayerEventSource.CALIBRATION }
+            .mapTo(linkedSetOf()) { it.type }
+        val fanCalibration = LayerEventType.FAN_SPEED in calibrationTypes
 
         destination.parentFile?.mkdirs()
         val temporary = File(destination.parentFile, "${destination.name}.events.tmp")
@@ -108,13 +110,31 @@ object GcodeLayerEventProcessor {
                 }
             }
 
+            // A manual event placed at the very end may not see another G11.
+            // Keep it visible in the output rather than silently dropping it.
+            deferredRetraction.forEach(::writeEvent)
+
+            // Calibration modifiers are firmware state, not file-local state.
+            // Restore safe/default values after the print so the calibration
+            // cannot leak into the next file printed from the same machine.
+            if (LayerEventType.SPEED_FACTOR in calibrationTypes) {
+                writer.write("M220 S100 ; enderslicercura restore speed factor")
+                writer.newLine()
+            }
+            if (LayerEventType.FLOW_FACTOR in calibrationTypes) {
+                writer.write("M221 S100 ; enderslicercura restore flow factor")
+                writer.newLine()
+            }
+            if (LayerEventType.RETRACTION in calibrationTypes) {
+                CalibrationSliceState.retractionRestoreCommand()?.let { command ->
+                    writer.write("$command ; enderslicercura restore firmware retraction")
+                    writer.newLine()
+                }
+            }
             if (fanCalibration && calibrationFanStarted) {
                 writer.write("M107 ; enderslicercura fan calibration safety shutdown")
                 writer.newLine()
             }
-            // A manual event placed at the very end may not see another G11.
-            // Keep it visible in the output rather than silently dropping it.
-            deferredRetraction.forEach(::writeEvent)
         }
         check(temporary.isFile && temporary.length() > 0L) { "Layer-event G-code output is empty" }
         if (destination.exists()) destination.delete()
