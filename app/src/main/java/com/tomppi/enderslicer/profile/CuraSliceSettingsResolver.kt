@@ -77,21 +77,28 @@ internal object CuraSliceSettingsResolver {
         // Normalize it in the temporary slice snapshot, never in the persisted
         // baseline, so future dependency recalculation still starts from the
         // original imported project.
-        val resolvedExtruder = linkedMapOf<String, String>().apply {
+        val parityExtruder = linkedMapOf<String, String>().apply {
             putAll(rawResolved.extruderValues)
             val coolMinimum = get("cool_min_temperature")?.toDoubleOrNull()
             if (coolMinimum != null && coolMinimum <= 0.0) {
                 put("cool_min_temperature", requireNotNull(get("material_print_temperature")))
             }
             putAll(ArcOverhangEngineSettings.values(effectiveSettings))
-            putAll(CalibrationSliceState.engineOverrides())
         }
 
+        // First verify that the resolved Cura dependency graph still matches all
+        // explicit user/app inputs. Calibration engine overrides intentionally
+        // differ from some profile values and therefore belong after this check.
         CuraSettingDelta.requireResolvedMatch(
             settings = effectiveSettings,
             globalValues = rawResolved.globalValues,
-            extruderValues = resolvedExtruder,
+            extruderValues = parityExtruder,
         )
+
+        val resolvedExtruder = linkedMapOf<String, String>().apply {
+            putAll(parityExtruder)
+            putAll(CalibrationSliceState.engineOverrides())
+        }
         validateResolvedSettings(rawResolved.globalValues, resolvedExtruder)
 
         return Result(
