@@ -1,6 +1,7 @@
 package com.tomppi.enderslicer.calibration
 
 import com.tomppi.enderslicer.model.SlicerSettings
+import java.util.Locale
 import kotlin.math.roundToInt
 
 /**
@@ -15,18 +16,32 @@ internal object CalibrationSliceState {
     @Volatile
     private var firstValue: Double? = null
 
+    @Volatile
+    private var restoreRetractionDistanceMm: Double? = null
+
+    @Volatile
+    private var restoreRetractionSpeedMmPerSecond: Double? = null
+
     fun activate(type: CalibrationTestType, firstLevelValue: Double) {
         activeType = type
         firstValue = firstLevelValue
+        restoreRetractionDistanceMm = null
+        restoreRetractionSpeedMmPerSecond = null
     }
 
     fun clear() {
         activeType = null
         firstValue = null
+        restoreRetractionDistanceMm = null
+        restoreRetractionSpeedMmPerSecond = null
     }
 
     fun effective(settings: SlicerSettings): SlicerSettings {
         val type = activeType ?: return settings
+        if (type == CalibrationTestType.RETRACTION) {
+            restoreRetractionDistanceMm = settings.retractionDistanceMm
+            restoreRetractionSpeedMmPerSecond = settings.retractionSpeedMmPerSecond
+        }
         val forcedKeys = buildSet {
             addAll(settings.overriddenSettingKeys)
             add(SlicerSettings.Keys.SUPPORTS_ENABLED)
@@ -87,6 +102,16 @@ internal object CalibrationSliceState {
             }
         }
     }
+
+    fun retractionRestoreCommand(): String? {
+        if (activeType != CalibrationTestType.RETRACTION) return null
+        val distance = restoreRetractionDistanceMm ?: return null
+        val speed = restoreRetractionSpeedMmPerSecond ?: return null
+        return "M207 S${format(distance)} F${format(speed * 60.0)}"
+    }
+
+    private fun format(value: Double): String =
+        String.format(Locale.US, "%.5f", value).trimEnd('0').trimEnd('.')
 }
 
 /**
