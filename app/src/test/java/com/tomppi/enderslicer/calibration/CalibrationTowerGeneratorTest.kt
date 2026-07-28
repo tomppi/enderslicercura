@@ -69,6 +69,18 @@ class CalibrationTowerGeneratorTest {
     }
 
     @Test
+    fun defaultCalibrationModelsStayCompact() {
+        CalibrationTestType.entries.forEach { type ->
+            val result = CalibrationTowerGenerator.generate(
+                CalibrationTowerSpec(type = type),
+                retractionSpeedMmPerSecond = 40.0,
+            )
+            assertTrue("${type.displayName} is unexpectedly tall", result.mesh.bounds.height < 35f)
+            assertTrue("${type.displayName} is unexpectedly wide", result.mesh.bounds.width <= 26.1f)
+        }
+    }
+
+    @Test
     fun fanDefaultsReachOneHundredPercentWithoutExceedingRange() {
         val result = CalibrationTowerGenerator.generate(
             CalibrationTowerSpec(type = CalibrationTestType.FAN),
