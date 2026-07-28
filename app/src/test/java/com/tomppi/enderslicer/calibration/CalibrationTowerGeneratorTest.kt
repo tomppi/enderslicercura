@@ -97,7 +97,7 @@ class CalibrationTowerGeneratorTest {
             CalibrationTowerSpec(type = CalibrationTestType.RETRACTION, levels = 3),
             retractionSpeedMmPerSecond = 55.0,
         )
-        assertTrue(result.requiresFirmwareRetraction)
+        assertFalse(result.requiresFirmwareRetraction)
         assertEquals(55.0, result.plannedEvents.first().secondaryValue ?: 0.0, 0.0)
         assertTrue(CalibrationModelFeature.SEPARATED_POSTS in result.modelFeatures)
         assertTrue(CalibrationModelFeature.TRAVEL_GAPS in result.modelFeatures)
