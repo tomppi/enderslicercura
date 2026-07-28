@@ -1,5 +1,6 @@
 package com.tomppi.enderslicer.profile
 
+import com.tomppi.enderslicer.calibration.CalibrationSliceState
 import com.tomppi.enderslicer.engine.ArcOverhangEngineSettings
 import com.tomppi.enderslicer.model.PrinterDefinition
 import com.tomppi.enderslicer.model.SlicerSettings
@@ -27,10 +28,11 @@ internal object CuraSliceSettingsResolver {
             "A complete Cura definition stack is required for dependency resolution"
         }
 
-        val effectivePrinter = printer.withSettings(settings)
-        val effectiveStartGcode = settings.resolveStartGcode(startGcode)
-        val effectiveEndGcode = settings.resolveEndGcode(endGcode)
-        val explicitDelta = CuraSettingDelta.explicitValues(settings)
+        val effectiveSettings = CalibrationSliceState.effective(settings)
+        val effectivePrinter = printer.withSettings(effectiveSettings)
+        val effectiveStartGcode = effectiveSettings.resolveStartGcode(startGcode)
+        val effectiveEndGcode = effectiveSettings.resolveEndGcode(endGcode)
+        val explicitDelta = CuraSettingDelta.explicitValues(effectiveSettings)
         val canonical = CuraSettingScopeResolver.canonicalize(profile, explicitDelta)
 
         val globalOverrides = linkedMapOf<String, String>().apply {
@@ -81,11 +83,12 @@ internal object CuraSliceSettingsResolver {
             if (coolMinimum != null && coolMinimum <= 0.0) {
                 put("cool_min_temperature", requireNotNull(get("material_print_temperature")))
             }
-            putAll(ArcOverhangEngineSettings.values(settings))
+            putAll(ArcOverhangEngineSettings.values(effectiveSettings))
+            putAll(CalibrationSliceState.engineOverrides())
         }
 
         CuraSettingDelta.requireResolvedMatch(
-            settings = settings,
+            settings = effectiveSettings,
             globalValues = rawResolved.globalValues,
             extruderValues = resolvedExtruder,
         )
