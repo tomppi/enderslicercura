@@ -15,7 +15,6 @@ object StlParser {
         displayName: String = file.name,
         maxTriangles: Int = MeshTriangleLimits.current(),
     ): StlMesh {
-        CalibrationSliceState.clear()
         require(file.isFile && file.length() > 0L) { "The selected STL is empty or unavailable" }
         val limit = MeshTriangleLimits.sanitize(maxTriangles)
         require(file.length() <= MeshTriangleLimits.maxInputFileBytes(limit)) {
@@ -23,7 +22,7 @@ object StlParser {
         }
 
         val binaryCount = binaryTriangleCount(file)
-        return if (binaryCount != null) {
+        val parsed = if (binaryCount != null) {
             require(binaryCount in 1L..limit.toLong()) {
                 "STL contains ${MeshTriangleLimits.formatCount(binaryCount)} triangles; the current limit is ${MeshTriangleLimits.formatCount(limit)}"
             }
@@ -31,6 +30,11 @@ object StlParser {
         } else {
             parseAscii(displayName, file, limit)
         }
+        // A failed import must leave the currently loaded calibration model fully
+        // functional. Clear its temporary state only after a replacement STL has
+        // been parsed and is safe to commit.
+        CalibrationSliceState.clear()
+        return parsed
     }
 
     internal fun binaryTriangleCount(file: File): Long? {
