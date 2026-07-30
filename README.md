@@ -26,7 +26,8 @@ The current development line is `0.9.0-dev` and uses CuraEngine `5.11.0-beta.1` 
 - Native experimental Multiplex arc-overhang paths for unsupported bottom skin, with automatic bridge fallback
 - CuraEngine adaptive layer-height controls with fine, balanced and fast presets
 - Layer timeline with pauses, filament changes, temperatures, fan, speed, flow, retraction, camera, messages and guarded custom G-code
-- Purpose-built support-free temperature, flow, speed, fan and firmware-retraction calibration models
+- Purpose-built support-free temperature, flow, speed, fan, firmware-retraction, pressure-advance and junction-deviation calibration models
+- Type-specific calibration overrides that preserve normal profile behavior unless it directly invalidates the selected test
 - Non-destructive layer-event editing without re-slicing
 - High-contrast current-layer ribbon preview with optional dimmed build-up context
 - Layer-height range display and timeline event markers
@@ -71,7 +72,9 @@ Adaptive layer height uses CuraEngine's native `adaptive_layer_height_*` setting
 
 After slicing, select any layer and open **Add event**. Events are inserted immediately after Cura's layer marker and are rebuilt from an untouched base G-code file, so adding or removing a pause, filament change, temperature, fan, speed, flow, firmware-retraction, camera, display-message or guarded custom-G-code event does not run CuraEngine again. Unsafe custom commands such as homing, emergency stop, EEPROM writes and motor release are blocked inside layer events.
 
-Open **Menu → Calibration generator** to create a purpose-built support-free model for the selected test. Temperature models use grounded posts, bridges, stepped overhangs and a thin fin; flow models use a grounded thin-wall tube, wall-to-wall bridge coupons and measurement ribs; speed models use a continuously stacked sharp star; fan models use grounded bridge posts and stepped 45-degree brackets; and retraction models use grounded isolated posts that force travel moves and expose stringing. Every model schedules the matching G-code changes automatically. Generated support and support-interface material are disabled only for calibration slices, without changing the saved support settings. Retraction models enable firmware retraction and change `M207` distance while retaining the configured retraction speed.
+Open **Menu → Calibration generator** to create a compact support-free model for the selected test. Temperature models use grounded posts, bridges, stepped overhangs and a thin fin; flow models use a grounded thin-wall tube, wall-to-wall bridge coupons and measurement ribs; speed and junction-deviation tests use a continuously stacked sharp star; fan models use grounded bridge posts and stepped 45-degree brackets; and firmware-retraction and pressure-advance tests use grounded isolated posts that force travel moves and expose restart/stringing behavior. Pressure advance steps Marlin `M900 K`, while junction deviation steps Marlin `M205 J`.
+
+Calibration slicing uses a minimal type-specific override policy instead of disabling every advanced setting. Supports are disabled for all generated calibration models. Temperature keeps normal cooling and coasting but disables adaptive layers and arc-overhang replacement. Flow disables adaptive layers, ironing and coasting. Speed, pressure advance and junction deviation bypass minimum-layer-time slowdown so their commanded motion can be reached. Fan owns the fan commands and disables other cooling throttles that would mask the comparison. Retraction keeps normal cooling, coasting, wipe, hop and travel behavior while forcing firmware retraction on eligible post-to-post moves. These temporary overrides never modify the saved profile.
 
 The layer viewer defaults to a high-contrast **Current** mode that renders the selected layer as wide colored ribbons with a dark outline. **Build-up** mode adds earlier layers at low opacity. Cyan identifies support, magenta identifies support interface, orange identifies adhesion, and normal model paths remain colored by print speed.
 
@@ -150,7 +153,7 @@ The next validation work should compare additional Cura and enderslicercura outp
 - Long prints that exceed the full-resolution preview memory cap
 - Multiple Cura profiles and material definitions
 
-Current functional limitations include single-model and single-extruder slicing. Layer events currently target Marlin-compatible commands; verify firmware support for commands such as `M600`, `M240`, `M207`, `M220` and `M221` before printing. Duplicate/auto-arrange workflows and full Cura plugin compatibility are not implemented. The first BumpMesh integration returns the textured STL through the normal import path, so unusual manual XY placement should be checked after texturing before slicing.
+Current functional limitations include single-model and single-extruder slicing. Layer events and calibration files currently target Marlin-compatible commands; verify firmware support for commands such as `M600`, `M240`, `M207`, `M220`, `M221`, `M900 K` and `M205 J` before printing. Junction-deviation calibration only applies when Marlin is built without `CLASSIC_JERK`, and pressure-advance calibration requires Marlin Linear Advance or compatible FT Motion support. Duplicate/auto-arrange workflows and full Cura plugin compatibility are not implemented. The first BumpMesh integration returns the textured STL through the normal import path, so unusual manual XY placement should be checked after texturing before slicing.
 
 ## Large layer previews
 
