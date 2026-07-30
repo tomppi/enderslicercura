@@ -82,6 +82,26 @@ class CalibrationSliceSettingsTest {
     }
 
     @Test
+    fun pressureAdvanceCalibrationRestoresFirstKValue() {
+        CalibrationSliceState.activate(CalibrationTestType.PRESSURE_ADVANCE, 0.02)
+        try {
+            assertEquals("M900 K0.02", CalibrationSliceState.pressureAdvanceRestoreCommand())
+        } finally {
+            CalibrationSliceState.clear()
+        }
+    }
+
+    @Test
+    fun junctionDeviationCalibrationRestoresFirstValue() {
+        CalibrationSliceState.activate(CalibrationTestType.JUNCTION_DEVIATION, 0.005)
+        try {
+            assertEquals("M205 J0.005", CalibrationSliceState.junctionDeviationRestoreCommand())
+        } finally {
+            CalibrationSliceState.clear()
+        }
+    }
+
+    @Test
     fun temperatureCalibrationStartsAtItsFirstRequestedTemperature() {
         val original = SlicerSettings(nozzleTemperatureC = 210, initialNozzleTemperatureC = 235)
         CalibrationSliceState.activate(CalibrationTestType.TEMPERATURE, 225.0)
