@@ -1,5 +1,6 @@
 package com.tomppi.enderslicer.engine
 
+import com.tomppi.enderslicer.BuildConfig
 import java.io.File
 import kotlin.math.ceil
 
@@ -26,21 +27,14 @@ object GcodeSanitizer {
         require('\n' !in settingsTransport && '\r' !in settingsTransport) {
             "Settings transport marker contains a line break"
         }
+        require(file.isFile && file.length() > 0L) { "Generated G-code is empty" }
         val resolvedSettingsTransport = when {
             !settingsTransport.equals("auto", ignoreCase = true) -> settingsTransport
             File(file.parentFile, "resolved-settings.json").isFile -> "resolved-json"
             else -> "fallback-command"
         }
-        val original = file.readLines()
-        require(original.isNotEmpty()) { "Generated G-code is empty" }
 
-        val layerCount = original.firstNotNullOfOrNull { line ->
-            line.takeIf { it.startsWith(";LAYER_COUNT:") }
-                ?.substringAfter(':')
-                ?.trim()
-                ?.toIntOrNull()
-        } ?: 0
-
+        var layerCount = 0
         var currentLayer: Int? = null
         var lastElapsed: Double? = null
         var absoluteExtrusion = true
@@ -61,137 +55,130 @@ object GcodeSanitizer {
         var explicitNozzleTarget: Double? = null
         var nozzleTargetLine: Int? = null
         var nozzleTargetLayer: Int? = null
+        var lineNumber = 0
 
-        original.forEachIndexed { index, line ->
-            when {
-                line.startsWith(";LAYER:") -> {
-                    currentLayer = line.substringAfter(':').trim().toIntOrNull()
+        file.bufferedReader().useLines { lines ->
+            lines.forEach { rawLine ->
+                lineNumber++
+                val line = rawLine.trimStart()
+                when {
+                    line.startsWith(";LAYER_COUNT:") -> {
+                        line.substringAfter(':').trim().toIntOrNull()?.let { layerCount = it }
+                    }
+                    line.startsWith(";LAYER:") -> {
+                        currentLayer = line.substringAfter(':').trim().toIntOrNull()
+                    }
+                    line.startsWith(";TIME_ELAPSED:") -> {
+                        lastElapsed = line.substringAfter(':').trim().toDoubleOrNull() ?: lastElapsed
+                    }
+                    line.startsWith(";MESH:") -> {
+                        val meshName = line.substringAfter(':').trim()
+                        inModelMesh = meshName.isNotEmpty() && !meshName.equals("NONMESH", ignoreCase = true)
+                    }
                 }
 
-                line.startsWith(";TIME_ELAPSED:") -> {
-                    lastElapsed = line.substringAfter(':').trim().toDoubleOrNull() ?: lastElapsed
-                }
-
-                line.startsWith(";MESH:") -> {
-                    val meshName = line.substringAfter(':').trim()
-                    inModelMesh = meshName.isNotEmpty() && !meshName.equals("NONMESH", ignoreCase = true)
-                }
-            }
-
-            val command = line.substringBefore(';').trim()
-            if (command.isEmpty()) return@forEachIndexed
-            val opcode = command.substringBefore(' ').uppercase()
-
-            if (opcode == "M82") absoluteExtrusion = true
-            if (opcode == "M83") absoluteExtrusion = false
-            if (opcode == "G90") absolutePosition = true
-            if (opcode == "G91") absolutePosition = false
-
-            if (opcode == "G92") {
-                value(command, 'E')?.let { currentE = it }
-                value(command, 'X')?.let { x = it }
-                value(command, 'Y')?.let { y = it }
-                value(command, 'Z')?.let { z = it }
-            }
-
-            if (opcode == "M104" || opcode == "M109") {
-                val target = value(command, 'S') ?: value(command, 'R')
-                if (target != null) {
-                    explicitNozzleTarget = target
-                    nozzleTargetLine = index + 1
-                    nozzleTargetLayer = currentLayer
-                }
-            }
-
-            if (opcode == "G0" || opcode == "G1") {
-                value(command, 'X')?.let { x = if (absolutePosition) it else x + it }
-                value(command, 'Y')?.let { y = if (absolutePosition) it else y + it }
-                value(command, 'Z')?.let { z = if (absolutePosition) it else z + it }
-                var positiveExtrusion = 0.0
-                value(command, 'E')?.let { requested ->
-                    val nextE = if (absoluteExtrusion) requested else currentE + requested
-                    val delta = nextE - currentE
-                    if (delta > 0.0) {
-                        positiveExtrusion = delta
-                        val target = explicitNozzleTarget
-                        if (target != null && target in 0.0..<MINIMUM_ACTIVE_NOZZLE_C) {
-                            val extrusionLayer = currentLayer?.let { "layer $it" } ?: "startup"
-                            val targetLocation = buildString {
-                                append("target set")
-                                nozzleTargetLine?.let { append(" at line $it") }
-                                nozzleTargetLayer?.let { append(", layer $it") }
-                            }
-                            throw UnsafeGcodeException(
-                                "Unsafe nozzle target ${format(target)} C while extruding at $extrusionLayer " +
-                                    "(extrusion line ${index + 1}; $targetLocation). " +
-                                    "The G-code was not made available for export.",
-                            )
+                val command = GcodeCommand.parse(rawLine) ?: return@forEach
+                when (command.opcode) {
+                    "M82" -> absoluteExtrusion = true
+                    "M83" -> absoluteExtrusion = false
+                    "G90" -> absolutePosition = true
+                    "G91" -> absolutePosition = false
+                    "G92" -> {
+                        command.value('E')?.let { currentE = it }
+                        command.value('X')?.let { x = it }
+                        command.value('Y')?.let { y = it }
+                        command.value('Z')?.let { z = it }
+                    }
+                    "M104", "M109" -> {
+                        val target = command.value('S') ?: command.value('R')
+                        if (target != null) {
+                            explicitNozzleTarget = target
+                            nozzleTargetLine = lineNumber
+                            nozzleTargetLayer = currentLayer
                         }
                     }
-                    currentE = nextE
-                }
+                    "G0", "G1" -> {
+                        command.value('X')?.let { x = if (absolutePosition) it else x + it }
+                        command.value('Y')?.let { y = if (absolutePosition) it else y + it }
+                        command.value('Z')?.let { z = if (absolutePosition) it else z + it }
+                        var positiveExtrusion = 0.0
+                        command.value('E')?.let { requested ->
+                            val nextE = if (absoluteExtrusion) requested else currentE + requested
+                            val delta = nextE - currentE
+                            if (delta > 0.0) {
+                                positiveExtrusion = delta
+                                val target = explicitNozzleTarget
+                                if (target != null && target in 0.0..<MINIMUM_ACTIVE_NOZZLE_C) {
+                                    val extrusionLayer = currentLayer?.let { "layer $it" } ?: "startup"
+                                    val targetLocation = buildString {
+                                        append("target set")
+                                        nozzleTargetLine?.let { append(" at line $it") }
+                                        nozzleTargetLayer?.let { append(", layer $it") }
+                                    }
+                                    throw UnsafeGcodeException(
+                                        "Unsafe nozzle target ${format(target)} C while extruding at $extrusionLayer " +
+                                            "(extrusion line $lineNumber; $targetLocation). " +
+                                            "The G-code was not made available for export.",
+                                    )
+                                }
+                            }
+                            currentE = nextE
+                        }
 
-                if (currentLayer != null && positiveExtrusion > 0.0) {
-                    totalFilament += positiveExtrusion
-                }
-
-                if (inModelMesh && currentLayer != null && positiveExtrusion > 0.0) {
-                    modelFilament += positiveExtrusion
-                    minX = minX?.let { minOf(it, x) } ?: x
-                    minY = minY?.let { minOf(it, y) } ?: y
-                    minZ = minZ?.let { minOf(it, z) } ?: z
-                    maxX = maxX?.let { maxOf(it, x) } ?: x
-                    maxY = maxY?.let { maxOf(it, y) } ?: y
-                    maxZ = maxZ?.let { maxOf(it, z) } ?: z
+                        if (currentLayer != null && positiveExtrusion > 0.0) {
+                            totalFilament += positiveExtrusion
+                        }
+                        if (inModelMesh && currentLayer != null && positiveExtrusion > 0.0) {
+                            modelFilament += positiveExtrusion
+                            minX = minX?.let { minOf(it, x) } ?: x
+                            minY = minY?.let { minOf(it, y) } ?: y
+                            minZ = minZ?.let { minOf(it, z) } ?: z
+                            maxX = maxX?.let { maxOf(it, x) } ?: x
+                            maxY = maxY?.let { maxOf(it, y) } ?: y
+                            maxZ = maxZ?.let { maxOf(it, z) } ?: z
+                        }
+                    }
                 }
             }
         }
 
         val estimatedSeconds = lastElapsed?.let { ceil(it).toInt() }
-        val resolvedMinX = minX
-        val resolvedMinY = minY
-        val resolvedMinZ = minZ
-        val resolvedMaxX = maxX
-        val resolvedMaxY = maxY
-        val resolvedMaxZ = maxZ
-        val repairedBody = original
-            .filterNot { line ->
-                line.startsWith(";ENDERSLICER_VERSION:") ||
-                    line.startsWith(";ENDERSLICER_COORDINATE_TRANSPORT:") ||
-                    line.startsWith(";ENDERSLICER_SETTINGS_TRANSPORT:")
-            }
-            .map { line ->
-                when {
-                    line.startsWith(";TIME:") && estimatedSeconds != null -> ";TIME:$estimatedSeconds"
-                    line.startsWith(";Filament used:") -> ";Filament used: ${format(totalFilament / 1000.0)}m"
-                    line.startsWith(";MINX:") && resolvedMinX != null -> ";MINX:${format(resolvedMinX)}"
-                    line.startsWith(";MINY:") && resolvedMinY != null -> ";MINY:${format(resolvedMinY)}"
-                    line.startsWith(";MINZ:") && resolvedMinZ != null -> ";MINZ:${format(resolvedMinZ)}"
-                    line.startsWith(";MAXX:") && resolvedMaxX != null -> ";MAXX:${format(resolvedMaxX)}"
-                    line.startsWith(";MAXY:") && resolvedMaxY != null -> ";MAXY:${format(resolvedMaxY)}"
-                    line.startsWith(";MAXZ:") && resolvedMaxZ != null -> ";MAXZ:${format(resolvedMaxZ)}"
-                    else -> line
-                }
-            }
-        val repaired = buildList(repairedBody.size + 3) {
-            repairedBody.forEachIndexed { index, line ->
-                add(line)
-                if (index == 0) {
-                    add(";ENDERSLICER_VERSION:$ENDERSLICER_VERSION")
-                    add(";ENDERSLICER_COORDINATE_TRANSPORT:original-stl-full-affine-pre-round")
-                    add(";ENDERSLICER_SETTINGS_TRANSPORT:$resolvedSettingsTransport")
-                }
-            }
-        }
-
         val temporary = File(file.parentFile, "${file.name}.validated")
-        temporary.bufferedWriter().use { writer ->
-            repaired.forEach { line ->
-                writer.write(line)
-                writer.write(PRINTER_LINE_ENDING)
+        temporary.delete()
+        temporary.outputStream().buffered().writer(Charsets.UTF_8).buffered().use { writer ->
+            var insertedMarkers = false
+            file.bufferedReader().useLines { lines ->
+                lines.forEach { originalLine ->
+                    val line = when {
+                        originalLine.startsWith(";ENDERSLICER_VERSION:") ||
+                            originalLine.startsWith(";ENDERSLICER_COORDINATE_TRANSPORT:") ||
+                            originalLine.startsWith(";ENDERSLICER_SETTINGS_TRANSPORT:") -> return@forEach
+                        originalLine.startsWith(";TIME:") && estimatedSeconds != null -> ";TIME:$estimatedSeconds"
+                        originalLine.startsWith(";Filament used:") -> ";Filament used: ${format(totalFilament / 1000.0)}m"
+                        originalLine.startsWith(";MINX:") && minX != null -> ";MINX:${format(requireNotNull(minX))}"
+                        originalLine.startsWith(";MINY:") && minY != null -> ";MINY:${format(requireNotNull(minY))}"
+                        originalLine.startsWith(";MINZ:") && minZ != null -> ";MINZ:${format(requireNotNull(minZ))}"
+                        originalLine.startsWith(";MAXX:") && maxX != null -> ";MAXX:${format(requireNotNull(maxX))}"
+                        originalLine.startsWith(";MAXY:") && maxY != null -> ";MAXY:${format(requireNotNull(maxY))}"
+                        originalLine.startsWith(";MAXZ:") && maxZ != null -> ";MAXZ:${format(requireNotNull(maxZ))}"
+                        else -> originalLine
+                    }
+                    writer.write(line)
+                    writer.write(PRINTER_LINE_ENDING)
+                    if (!insertedMarkers) {
+                        writer.write(";ENDERSLICER_VERSION:${BuildConfig.VERSION_NAME}")
+                        writer.write(PRINTER_LINE_ENDING)
+                        writer.write(";ENDERSLICER_COORDINATE_TRANSPORT:original-stl-full-affine-pre-round")
+                        writer.write(PRINTER_LINE_ENDING)
+                        writer.write(";ENDERSLICER_SETTINGS_TRANSPORT:$resolvedSettingsTransport")
+                        writer.write(PRINTER_LINE_ENDING)
+                        insertedMarkers = true
+                    }
+                }
             }
         }
         check(temporary.length() > 0L) { "Validated G-code output is empty" }
+        if (file.exists()) file.delete()
         check(temporary.renameTo(file) || temporary.copyTo(file, overwrite = true).let { temporary.delete(); true }) {
             "Unable to replace generated G-code with the validated output"
         }
@@ -210,14 +197,8 @@ object GcodeSanitizer {
         )
     }
 
-    private fun value(command: String, letter: Char): Double? {
-        val pattern = Regex("(?:^|\\s)${letter.uppercaseChar()}(-?\\d+(?:\\.\\d+)?(?:[eE][+-]?\\d+)?)")
-        return pattern.find(command)?.groupValues?.get(1)?.toDoubleOrNull()
-    }
-
     private fun format(value: Double): String = "%.5f".format(java.util.Locale.US, value).trimEnd('0').trimEnd('.')
 
-    private const val ENDERSLICER_VERSION = "0.5.13-dev"
     private const val MINIMUM_ACTIVE_NOZZLE_C = 150.0
     private const val PRINTER_LINE_ENDING = "\r\n"
 }
