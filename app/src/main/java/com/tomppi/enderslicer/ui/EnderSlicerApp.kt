@@ -76,7 +76,7 @@ fun EnderSlicerApp(viewModel: MainViewModel = viewModel()) {
     var viewerMode by remember { mutableStateOf(ViewerMode.MODEL) }
     var selectedLayerIndex by remember { mutableStateOf(0) }
 
-    LaunchedEffect(state.baseGcodePath) {
+    LaunchedEffect(state.layerPreview) {
         val preview = state.layerPreview
         if (preview == null) {
             viewerMode = ViewerMode.MODEL
@@ -221,6 +221,7 @@ fun EnderSlicerApp(viewModel: MainViewModel = viewModel()) {
                                     menuExpanded = false
                                     settingsOpen = true
                                 },
+                                enabled = !state.isBusy,
                             )
                             DropdownMenuItem(
                                 text = { Text("Printer & G-code") },
@@ -228,6 +229,7 @@ fun EnderSlicerApp(viewModel: MainViewModel = viewModel()) {
                                     menuExpanded = false
                                     machineSettingsOpen = true
                                 },
+                                enabled = !state.isBusy,
                             )
                             DropdownMenuItem(
                                 text = { Text("Export configuration snapshot") },
