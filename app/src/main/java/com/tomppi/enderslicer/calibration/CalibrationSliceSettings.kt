@@ -42,6 +42,7 @@ internal object CalibrationSliceState {
             restoreRetractionDistanceMm = settings.retractionDistanceMm
             restoreRetractionSpeedMmPerSecond = settings.retractionSpeedMmPerSecond
         }
+        val disableCoasting = type == CalibrationTestType.FLOW || type == CalibrationTestType.PRESSURE_ADVANCE
         val forcedKeys = buildSet {
             addAll(settings.overriddenSettingKeys)
             add(SlicerSettings.Keys.SUPPORTS_ENABLED)
@@ -49,7 +50,7 @@ internal object CalibrationSliceState {
             add(SlicerSettings.Keys.ADAPTIVE_LAYER_HEIGHT_ENABLED)
             add(SlicerSettings.Keys.ARC_OVERHANG_ENABLED)
             add(SlicerSettings.Keys.IRONING_ENABLED)
-            add(SlicerSettings.Keys.COASTING_ENABLED)
+            if (disableCoasting) add(SlicerSettings.Keys.COASTING_ENABLED)
             if (type == CalibrationTestType.RETRACTION) {
                 add(SlicerSettings.Keys.FIRMWARE_RETRACTION)
             }
@@ -68,7 +69,7 @@ internal object CalibrationSliceState {
             adaptiveLayerHeightEnabled = false,
             arcOverhangEnabled = false,
             ironingEnabled = false,
-            coastingEnabled = false,
+            coastingEnabled = if (disableCoasting) false else settings.coastingEnabled,
             firmwareRetraction = settings.firmwareRetraction || type == CalibrationTestType.RETRACTION,
             nozzleTemperatureC = firstTemperature ?: settings.nozzleTemperatureC,
             initialNozzleTemperatureC = firstTemperature ?: settings.initialNozzleTemperatureC,
@@ -77,15 +78,22 @@ internal object CalibrationSliceState {
     }
 
     /**
-     * Cura's small-layer slowdown makes compact calibration towers both slow
-     * and misleading (especially speed, pressure-advance and junction tests).
-     * These values exist only in the temporary engine snapshot.
+     * Only tests that require commanded speed or extrusion-pressure transitions
+     * bypass Cura's minimum-layer-time slowdown. Temperature, fan and retraction
+     * tests keep the profile's normal cooling and small-layer behavior.
      */
     fun engineOverrides(): Map<String, String> {
         val type = activeType ?: return emptyMap()
         return linkedMapOf<String, String>().apply {
-            put("cool_min_layer_time", "0")
-            put("cool_lift_head", "false")
+            if (
+                type == CalibrationTestType.FLOW ||
+                type == CalibrationTestType.SPEED ||
+                type == CalibrationTestType.PRESSURE_ADVANCE ||
+                type == CalibrationTestType.JUNCTION_DEVIATION
+            ) {
+                put("cool_min_layer_time", "0")
+                put("cool_lift_head", "false")
+            }
             if (type == CalibrationTestType.FAN) {
                 // Post-slice calibration events own the fan after the base.
                 put("cool_fan_enabled", "false")
@@ -97,13 +105,11 @@ internal object CalibrationSliceState {
                 put("bridge_fan_speed_3", "0")
             }
             if (type == CalibrationTestType.RETRACTION) {
-                // The retraction model consists of isolated posts. Guarantee
-                // that Cura emits a firmware retract for the travel gaps even
-                // if the imported profile normally combs or requires a longer
-                // minimum travel before retracting.
+                // Guarantee that even short travel gaps are eligible for a
+                // firmware retract, while preserving the profile's normal
+                // combing, cooling, coasting, wipe, hop and travel behavior.
                 put("retraction_enable", "true")
                 put("retraction_min_travel", "0")
-                put("retraction_combing", "off")
             }
         }
     }
