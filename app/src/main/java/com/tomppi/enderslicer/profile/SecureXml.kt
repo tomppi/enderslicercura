@@ -1,6 +1,5 @@
 package com.tomppi.enderslicer.profile
 
-import java.lang.Boolean.TRUE
 import javax.xml.XMLConstants
 import javax.xml.parsers.DocumentBuilderFactory
 
@@ -16,6 +15,5 @@ internal object SecureXml {
         runCatching { setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false) }
         runCatching { setAttribute(XMLConstants.ACCESS_EXTERNAL_DTD, "") }
         runCatching { setAttribute(XMLConstants.ACCESS_EXTERNAL_SCHEMA, "") }
-        runCatching { setAttribute("http://www.oracle.com/xml/jaxp/properties/entityExpansionLimit", "0") }
     }
 }
