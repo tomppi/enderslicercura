@@ -98,6 +98,9 @@ object GcodeSanitizer {
                         }
                     }
                     "G0", "G1" -> {
+                        val startX = x
+                        val startY = y
+                        val startZ = z
                         command.value('X')?.let { x = if (absolutePosition) it else x + it }
                         command.value('Y')?.let { y = if (absolutePosition) it else y + it }
                         command.value('Z')?.let { z = if (absolutePosition) it else z + it }
@@ -130,12 +133,12 @@ object GcodeSanitizer {
                         }
                         if (inModelMesh && currentLayer != null && positiveExtrusion > 0.0) {
                             modelFilament += positiveExtrusion
-                            minX = minX?.let { minOf(it, x) } ?: x
-                            minY = minY?.let { minOf(it, y) } ?: y
-                            minZ = minZ?.let { minOf(it, z) } ?: z
-                            maxX = maxX?.let { maxOf(it, x) } ?: x
-                            maxY = maxY?.let { maxOf(it, y) } ?: y
-                            maxZ = maxZ?.let { maxOf(it, z) } ?: z
+                            minX = minX?.let { minOf(it, startX, x) } ?: minOf(startX, x)
+                            minY = minY?.let { minOf(it, startY, y) } ?: minOf(startY, y)
+                            minZ = minZ?.let { minOf(it, startZ, z) } ?: minOf(startZ, z)
+                            maxX = maxX?.let { maxOf(it, startX, x) } ?: maxOf(startX, x)
+                            maxY = maxY?.let { maxOf(it, startY, y) } ?: maxOf(startY, y)
+                            maxZ = maxZ?.let { maxOf(it, startZ, z) } ?: maxOf(startZ, z)
                         }
                     }
                 }
