@@ -11,8 +11,9 @@ import kotlin.math.sqrt
 
 /**
  * A model-space linear transform followed by placement using the transformed
- * XY bounds center and minimum Z. This keeps move/drop controls intuitive while
- * retaining imported Cura rotation, scaling and mirroring matrices.
+ * XY bounds center and minimum Z. Transformations use streaming passes over the
+ * interleaved source vertices so large meshes do not require a second full
+ * DoubleArray beside the rendered output.
  */
 data class ModelPlacement(
     val linear: List<Double> = IDENTITY,
@@ -41,51 +42,80 @@ data class ModelPlacement(
         init {
             require(linear.size == 9) { "3MF transform must contain nine linear values" }
             require(linear.all(Double::isFinite)) { "3MF transform contains a non-finite linear value" }
-            require(
-                listOf(translationXmm, translationYmm, translationZmm)
-                    .all(Double::isFinite),
-            ) { "3MF transform contains a non-finite translation" }
-            require(
-                listOfNotNull(targetCenterXmm, targetCenterYmm, targetBaseZmm)
-                    .all(Double::isFinite),
-            ) { "3MF target bounds contain a non-finite value" }
+            require(listOf(translationXmm, translationYmm, translationZmm).all(Double::isFinite)) {
+                "3MF transform contains a non-finite translation"
+            }
+            require(listOfNotNull(targetCenterXmm, targetCenterYmm, targetBaseZmm).all(Double::isFinite)) {
+                "3MF target bounds contain a non-finite value"
+            }
         }
     }
 
     fun transformed(mesh: StlMesh): StlMesh {
-        val raw = transformedPositions(mesh)
-        val bounds = boundsOf(raw)
-        val dx = centerXmm - bounds.centerX
-        val dy = centerYmm - bounds.centerY
-        val dz = baseZmm - bounds.minZ
-        val output = FloatArray(mesh.triangleCount * 18)
-        var out = 0
-        var position = 0
+        val rawBounds = boundsFor(mesh, linear)
+        val dx = centerXmm - rawBounds.centerX
+        val dy = centerYmm - rawBounds.centerY
+        val dz = baseZmm - rawBounds.minZ
+        val output = FloatArray(Math.multiplyExact(mesh.triangleCount, 18))
+        val input = mesh.interleavedVertices
+        var inputOffset = 0
+        var outputOffset = 0
+        val outputBounds = FloatBoundsAccumulator()
+
         repeat(mesh.triangleCount) {
-            val vertices = FloatArray(9)
-            repeat(3) { vertex ->
-                val base = position + vertex * 3
-                vertices[vertex * 3] = (raw[base] + dx).toFloat()
-                vertices[vertex * 3 + 1] = (raw[base + 1] + dy).toFloat()
-                vertices[vertex * 3 + 2] = (raw[base + 2] + dz).toFloat()
+            val x0 = transformX(linear, input[inputOffset].toDouble(), input[inputOffset + 1].toDouble(), input[inputOffset + 2].toDouble()) + dx
+            val y0 = transformY(linear, input[inputOffset].toDouble(), input[inputOffset + 1].toDouble(), input[inputOffset + 2].toDouble()) + dy
+            val z0 = transformZ(linear, input[inputOffset].toDouble(), input[inputOffset + 1].toDouble(), input[inputOffset + 2].toDouble()) + dz
+            val x1 = transformX(linear, input[inputOffset + 6].toDouble(), input[inputOffset + 7].toDouble(), input[inputOffset + 8].toDouble()) + dx
+            val y1 = transformY(linear, input[inputOffset + 6].toDouble(), input[inputOffset + 7].toDouble(), input[inputOffset + 8].toDouble()) + dy
+            val z1 = transformZ(linear, input[inputOffset + 6].toDouble(), input[inputOffset + 7].toDouble(), input[inputOffset + 8].toDouble()) + dz
+            val x2 = transformX(linear, input[inputOffset + 12].toDouble(), input[inputOffset + 13].toDouble(), input[inputOffset + 14].toDouble()) + dx
+            val y2 = transformY(linear, input[inputOffset + 12].toDouble(), input[inputOffset + 13].toDouble(), input[inputOffset + 14].toDouble()) + dy
+            val z2 = transformZ(linear, input[inputOffset + 12].toDouble(), input[inputOffset + 13].toDouble(), input[inputOffset + 14].toDouble()) + dz
+
+            val ax = x1 - x0
+            val ay = y1 - y0
+            val az = z1 - z0
+            val bx = x2 - x0
+            val by = y2 - y0
+            val bz = z2 - z0
+            var nx = ay * bz - az * by
+            var ny = az * bx - ax * bz
+            var nz = ax * by - ay * bx
+            val normalLength = sqrt(nx * nx + ny * ny + nz * nz)
+            if (normalLength > 1e-12) {
+                nx /= normalLength
+                ny /= normalLength
+                nz /= normalLength
+            } else {
+                nx = 0.0
+                ny = 0.0
+                nz = 0.0
             }
-            val normal = normal(vertices)
-            repeat(3) { vertex ->
-                val base = vertex * 3
-                output[out++] = vertices[base]
-                output[out++] = vertices[base + 1]
-                output[out++] = vertices[base + 2]
-                output[out++] = normal[0]
-                output[out++] = normal[1]
-                output[out++] = normal[2]
+
+            fun writeVertex(x: Double, y: Double, z: Double) {
+                val xf = x.toFloat()
+                val yf = y.toFloat()
+                val zf = z.toFloat()
+                output[outputOffset++] = xf
+                output[outputOffset++] = yf
+                output[outputOffset++] = zf
+                output[outputOffset++] = nx.toFloat()
+                output[outputOffset++] = ny.toFloat()
+                output[outputOffset++] = nz.toFloat()
+                outputBounds.include(xf, yf, zf)
             }
-            position += 9
+            writeVertex(x0, y0, z0)
+            writeVertex(x1, y1, z1)
+            writeVertex(x2, y2, z2)
+            inputOffset += 18
         }
+
         return StlMesh(
             displayName = mesh.displayName,
             interleavedVertices = output,
             triangleCount = mesh.triangleCount,
-            bounds = boundsOfInterleaved(output),
+            bounds = outputBounds.finish(),
             slicingSourceInterleavedVertices = mesh.interleavedVertices,
             slicingTransform = StlSliceTransform(
                 linear = linear.toList(),
@@ -96,8 +126,11 @@ data class ModelPlacement(
         )
     }
 
-    fun moved(centerXmm: Double = this.centerXmm, centerYmm: Double = this.centerYmm, baseZmm: Double = this.baseZmm): ModelPlacement =
-        copy(centerXmm = centerXmm, centerYmm = centerYmm, baseZmm = baseZmm, source = "Manual placement")
+    fun moved(
+        centerXmm: Double = this.centerXmm,
+        centerYmm: Double = this.centerYmm,
+        baseZmm: Double = this.baseZmm,
+    ): ModelPlacement = copy(centerXmm = centerXmm, centerYmm = centerYmm, baseZmm = baseZmm, source = "Manual placement")
 
     fun droppedToBed(): ModelPlacement = copy(baseZmm = 0.0, source = "Dropped to build plate")
 
@@ -115,43 +148,49 @@ data class ModelPlacement(
     }
 
     fun layFlat(mesh: StlMesh): ModelPlacement {
-        val current = transformedPositions(mesh)
-        var bestBase = 0
+        val values = mesh.interleavedVertices
+        var bestInputOffset = -1
         var bestAreaSquared = -1.0
-        var index = 0
+        var bestNormal = doubleArrayOf(0.0, 0.0, 0.0)
+        var offset = 0
         repeat(mesh.triangleCount) {
-            val ax = current[index + 3] - current[index]
-            val ay = current[index + 4] - current[index + 1]
-            val az = current[index + 5] - current[index + 2]
-            val bx = current[index + 6] - current[index]
-            val by = current[index + 7] - current[index + 1]
-            val bz = current[index + 8] - current[index + 2]
+            val x0 = transformX(linear, values[offset].toDouble(), values[offset + 1].toDouble(), values[offset + 2].toDouble())
+            val y0 = transformY(linear, values[offset].toDouble(), values[offset + 1].toDouble(), values[offset + 2].toDouble())
+            val z0 = transformZ(linear, values[offset].toDouble(), values[offset + 1].toDouble(), values[offset + 2].toDouble())
+            val x1 = transformX(linear, values[offset + 6].toDouble(), values[offset + 7].toDouble(), values[offset + 8].toDouble())
+            val y1 = transformY(linear, values[offset + 6].toDouble(), values[offset + 7].toDouble(), values[offset + 8].toDouble())
+            val z1 = transformZ(linear, values[offset + 6].toDouble(), values[offset + 7].toDouble(), values[offset + 8].toDouble())
+            val x2 = transformX(linear, values[offset + 12].toDouble(), values[offset + 13].toDouble(), values[offset + 14].toDouble())
+            val y2 = transformY(linear, values[offset + 12].toDouble(), values[offset + 13].toDouble(), values[offset + 14].toDouble())
+            val z2 = transformZ(linear, values[offset + 12].toDouble(), values[offset + 13].toDouble(), values[offset + 14].toDouble())
+            val ax = x1 - x0
+            val ay = y1 - y0
+            val az = z1 - z0
+            val bx = x2 - x0
+            val by = y2 - y0
+            val bz = z2 - z0
             val nx = ay * bz - az * by
             val ny = az * bx - ax * bz
             val nz = ax * by - ay * bx
             val areaSquared = nx * nx + ny * ny + nz * nz
             if (areaSquared > bestAreaSquared) {
                 bestAreaSquared = areaSquared
-                bestBase = index
+                bestInputOffset = offset
+                bestNormal = doubleArrayOf(nx, ny, nz)
             }
-            index += 9
+            offset += 18
         }
-        require(bestAreaSquared > 1e-18) { "No usable triangle face was found for lay flat" }
+        require(bestInputOffset >= 0 && bestAreaSquared > 1e-18) { "No usable triangle face was found for lay flat" }
 
-        val normal = triangleNormal(current, bestBase)
+        val normal = normalized(bestNormal)
         val candidates = listOf(
             alignVector(normal, doubleArrayOf(0.0, 0.0, 1.0)),
             alignVector(normal, doubleArrayOf(0.0, 0.0, -1.0)),
         )
         val selected = candidates.minBy { candidate ->
             val candidateLinear = multiply(candidate, linear)
-            val candidatePositions = transformedPositions(mesh, candidateLinear)
-            val faceZ = (
-                candidatePositions[bestBase + 2] +
-                    candidatePositions[bestBase + 5] +
-                    candidatePositions[bestBase + 8]
-                ) / 3.0
-            val candidateBounds = boundsOf(candidatePositions)
+            val candidateBounds = boundsFor(mesh, candidateLinear)
+            val faceZ = triangleAverageZ(mesh, bestInputOffset, candidateLinear)
             abs(faceZ - candidateBounds.minZ)
         }
         return copy(
@@ -159,22 +198,6 @@ data class ModelPlacement(
             baseZmm = 0.0,
             source = "Laid flat on largest face",
         )
-    }
-
-    private fun transformedPositions(mesh: StlMesh, matrix: List<Double> = linear): DoubleArray {
-        val output = DoubleArray(mesh.triangleCount * 9)
-        var input = 0
-        var out = 0
-        repeat(mesh.triangleCount * 3) {
-            val x = mesh.interleavedVertices[input].toDouble()
-            val y = mesh.interleavedVertices[input + 1].toDouble()
-            val z = mesh.interleavedVertices[input + 2].toDouble()
-            output[out++] = matrix[0] * x + matrix[1] * y + matrix[2] * z
-            output[out++] = matrix[3] * x + matrix[4] * y + matrix[5] * z
-            output[out++] = matrix[6] * x + matrix[7] * y + matrix[8] * z
-            input += 6
-        }
-        return output
     }
 
     enum class Axis { X, Y, Z }
@@ -194,17 +217,9 @@ data class ModelPlacement(
             dropToBuildPlate: Boolean,
         ): ModelPlacement {
             require(affine.linear.size == 9)
-
-            // Cura's build-item translation is defined against the mesh stored
-            // inside the 3MF. An independently imported STL may contain the same
-            // geometry in a different coordinate frame (for example already
-            // centred at X/Y=115). Use the final bounds calculated from the
-            // embedded 3MF object instead of adding the translation to the
-            // external STL's existing centre a second time.
             val targetCenterX = affine.targetCenterXmm ?: affine.translationXmm
             val targetCenterY = affine.targetCenterYmm ?: affine.translationYmm
             val targetBaseZ = affine.targetBaseZmm ?: affine.translationZmm
-
             return ModelPlacement(
                 linear = affine.linear,
                 centerXmm = targetCenterX,
@@ -213,6 +228,52 @@ data class ModelPlacement(
                 source = if (dropToBuildPlate) "Imported Cura transform · drop to bed" else "Imported Cura transform",
             )
         }
+
+        private fun boundsFor(mesh: StlMesh, matrix: List<Double>): BoundsDouble {
+            val values = mesh.interleavedVertices
+            var minX = Double.POSITIVE_INFINITY
+            var minY = Double.POSITIVE_INFINITY
+            var minZ = Double.POSITIVE_INFINITY
+            var maxX = Double.NEGATIVE_INFINITY
+            var maxY = Double.NEGATIVE_INFINITY
+            var maxZ = Double.NEGATIVE_INFINITY
+            var offset = 0
+            repeat(mesh.triangleCount * 3) {
+                val x = values[offset].toDouble()
+                val y = values[offset + 1].toDouble()
+                val z = values[offset + 2].toDouble()
+                val tx = transformX(matrix, x, y, z)
+                val ty = transformY(matrix, x, y, z)
+                val tz = transformZ(matrix, x, y, z)
+                minX = minOf(minX, tx)
+                maxX = maxOf(maxX, tx)
+                minY = minOf(minY, ty)
+                maxY = maxOf(maxY, ty)
+                minZ = minOf(minZ, tz)
+                maxZ = maxOf(maxZ, tz)
+                offset += 6
+            }
+            require(minX.isFinite()) { "Model bounds could not be calculated" }
+            return BoundsDouble(minX, minY, minZ, maxX, maxY, maxZ)
+        }
+
+        private fun triangleAverageZ(mesh: StlMesh, offset: Int, matrix: List<Double>): Double {
+            val values = mesh.interleavedVertices
+            return (
+                transformZ(matrix, values[offset].toDouble(), values[offset + 1].toDouble(), values[offset + 2].toDouble()) +
+                    transformZ(matrix, values[offset + 6].toDouble(), values[offset + 7].toDouble(), values[offset + 8].toDouble()) +
+                    transformZ(matrix, values[offset + 12].toDouble(), values[offset + 13].toDouble(), values[offset + 14].toDouble())
+                ) / 3.0
+        }
+
+        private fun transformX(matrix: List<Double>, x: Double, y: Double, z: Double): Double =
+            matrix[0] * x + matrix[1] * y + matrix[2] * z
+
+        private fun transformY(matrix: List<Double>, x: Double, y: Double, z: Double): Double =
+            matrix[3] * x + matrix[4] * y + matrix[5] * z
+
+        private fun transformZ(matrix: List<Double>, x: Double, y: Double, z: Double): Double =
+            matrix[6] * x + matrix[7] * y + matrix[8] * z
 
         private fun multiply(a: List<Double>, b: List<Double>): List<Double> = List(9) { index ->
             val row = index / 3
@@ -259,73 +320,6 @@ data class ModelPlacement(
             return doubleArrayOf(value[0] / length, value[1] / length, value[2] / length)
         }
 
-        private fun triangleNormal(values: DoubleArray, base: Int): DoubleArray {
-            val ax = values[base + 3] - values[base]
-            val ay = values[base + 4] - values[base + 1]
-            val az = values[base + 5] - values[base + 2]
-            val bx = values[base + 6] - values[base]
-            val by = values[base + 7] - values[base + 1]
-            val bz = values[base + 8] - values[base + 2]
-            return normalized(doubleArrayOf(ay * bz - az * by, az * bx - ax * bz, ax * by - ay * bx))
-        }
-
-        private fun normal(vertices: FloatArray): FloatArray {
-            val ax = vertices[3] - vertices[0]
-            val ay = vertices[4] - vertices[1]
-            val az = vertices[5] - vertices[2]
-            val bx = vertices[6] - vertices[0]
-            val by = vertices[7] - vertices[1]
-            val bz = vertices[8] - vertices[2]
-            var nx = ay * bz - az * by
-            var ny = az * bx - ax * bz
-            var nz = ax * by - ay * bx
-            val length = sqrt(nx * nx + ny * ny + nz * nz)
-            if (length > 1e-12f) {
-                nx /= length; ny /= length; nz /= length
-            }
-            return floatArrayOf(nx, ny, nz)
-        }
-
-        private fun boundsOf(values: DoubleArray): BoundsDouble {
-            var minX = Double.POSITIVE_INFINITY
-            var minY = Double.POSITIVE_INFINITY
-            var minZ = Double.POSITIVE_INFINITY
-            var maxX = Double.NEGATIVE_INFINITY
-            var maxY = Double.NEGATIVE_INFINITY
-            var maxZ = Double.NEGATIVE_INFINITY
-            var index = 0
-            while (index < values.size) {
-                val x = values[index]
-                val y = values[index + 1]
-                val z = values[index + 2]
-                minX = minOf(minX, x); maxX = maxOf(maxX, x)
-                minY = minOf(minY, y); maxY = maxOf(maxY, y)
-                minZ = minOf(minZ, z); maxZ = maxOf(maxZ, z)
-                index += 3
-            }
-            return BoundsDouble(minX, minY, minZ, maxX, maxY, maxZ)
-        }
-
-        private fun boundsOfInterleaved(values: FloatArray): MeshBounds {
-            var minX = Float.POSITIVE_INFINITY
-            var minY = Float.POSITIVE_INFINITY
-            var minZ = Float.POSITIVE_INFINITY
-            var maxX = Float.NEGATIVE_INFINITY
-            var maxY = Float.NEGATIVE_INFINITY
-            var maxZ = Float.NEGATIVE_INFINITY
-            var index = 0
-            while (index < values.size) {
-                val x = values[index]
-                val y = values[index + 1]
-                val z = values[index + 2]
-                minX = minOf(minX, x); maxX = maxOf(maxX, x)
-                minY = minOf(minY, y); maxY = maxOf(maxY, y)
-                minZ = minOf(minZ, z); maxZ = maxOf(maxZ, z)
-                index += 6
-            }
-            return MeshBounds(minX, minY, minZ, maxX, maxY, maxZ)
-        }
-
         private data class BoundsDouble(
             val minX: Double,
             val minY: Double,
@@ -336,6 +330,29 @@ data class ModelPlacement(
         ) {
             val centerX: Double get() = (minX + maxX) / 2.0
             val centerY: Double get() = (minY + maxY) / 2.0
+        }
+
+        private class FloatBoundsAccumulator {
+            private var minX = Float.POSITIVE_INFINITY
+            private var minY = Float.POSITIVE_INFINITY
+            private var minZ = Float.POSITIVE_INFINITY
+            private var maxX = Float.NEGATIVE_INFINITY
+            private var maxY = Float.NEGATIVE_INFINITY
+            private var maxZ = Float.NEGATIVE_INFINITY
+
+            fun include(x: Float, y: Float, z: Float) {
+                minX = minOf(minX, x)
+                minY = minOf(minY, y)
+                minZ = minOf(minZ, z)
+                maxX = maxOf(maxX, x)
+                maxY = maxOf(maxY, y)
+                maxZ = maxOf(maxZ, z)
+            }
+
+            fun finish(): MeshBounds {
+                require(minX.isFinite()) { "Transformed model bounds could not be calculated" }
+                return MeshBounds(minX, minY, minZ, maxX, maxY, maxZ)
+            }
         }
     }
 }

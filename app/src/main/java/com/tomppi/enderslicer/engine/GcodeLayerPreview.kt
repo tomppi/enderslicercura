@@ -103,42 +103,41 @@ object GcodeLayerPreviewParser {
 
         file.bufferedReader().useLines { lines ->
             lines.forEach { rawLine ->
-                if (rawLine.startsWith(";LAYER:")) {
+                val line = rawLine.trimStart()
+                if (line.startsWith(";LAYER:")) {
                     finishLayer()
-                    currentLayerNumber = rawLine.substringAfter(':').trim().toIntOrNull()
+                    currentLayerNumber = line.substringAfter(':').trim().toIntOrNull()
                     currentLayerZ = z.toFloat()
                     feature = GcodeLayerPreview.Feature.OTHER
                     return@forEach
                 }
-                if (rawLine.startsWith(";TYPE:")) {
-                    feature = featureFromType(rawLine.substringAfter(':').trim())
+                if (line.startsWith(";TYPE:")) {
+                    feature = featureFromType(line.substringAfter(':').trim())
                     return@forEach
                 }
 
-                val command = rawLine.substringBefore(';').trim()
-                if (command.isEmpty()) return@forEach
-                val opcode = command.substringBefore(' ').uppercase()
-                when (opcode) {
+                val command = GcodeCommand.parse(rawLine) ?: return@forEach
+                when (command.opcode) {
                     "G90" -> absolutePosition = true
                     "G91" -> absolutePosition = false
                     "M82" -> absoluteExtrusion = true
                     "M83" -> absoluteExtrusion = false
                     "G92" -> {
-                        value(command, 'X')?.let { x = it }
-                        value(command, 'Y')?.let { y = it }
-                        value(command, 'Z')?.let { z = it }
-                        value(command, 'E')?.let { e = it }
+                        command.value('X')?.let { x = it }
+                        command.value('Y')?.let { y = it }
+                        command.value('Z')?.let { z = it }
+                        command.value('E')?.let { e = it }
                     }
                     "G0", "G1" -> {
                         val startX = x
                         val startY = y
-                        val nextX = value(command, 'X')?.let { if (absolutePosition) it else x + it } ?: x
-                        val nextY = value(command, 'Y')?.let { if (absolutePosition) it else y + it } ?: y
-                        val nextZ = value(command, 'Z')?.let { if (absolutePosition) it else z + it } ?: z
-                        val requestedE = value(command, 'E')
+                        val nextX = command.value('X')?.let { if (absolutePosition) it else x + it } ?: x
+                        val nextY = command.value('Y')?.let { if (absolutePosition) it else y + it } ?: y
+                        val nextZ = command.value('Z')?.let { if (absolutePosition) it else z + it } ?: z
+                        val requestedE = command.value('E')
                         val nextE = requestedE?.let { if (absoluteExtrusion) it else e + it } ?: e
                         val deltaE = nextE - e
-                        value(command, 'F')?.let { feedRateMmPerMinute = it }
+                        command.value('F')?.let { feedRateMmPerMinute = it }
 
                         x = nextX
                         y = nextY
@@ -225,30 +224,29 @@ object GcodeLayerPreviewParser {
 
         file.bufferedReader().useLines { lines ->
             lines.forEach { rawLine ->
-                if (rawLine.startsWith(";LAYER:")) {
-                    currentLayerNumber = rawLine.substringAfter(':').trim().toIntOrNull()
+                val line = rawLine.trimStart()
+                if (line.startsWith(";LAYER:")) {
+                    currentLayerNumber = line.substringAfter(':').trim().toIntOrNull()
                     return@forEach
                 }
 
-                val command = rawLine.substringBefore(';').trim()
-                if (command.isEmpty()) return@forEach
-                val opcode = command.substringBefore(' ').uppercase()
-                when (opcode) {
+                val command = GcodeCommand.parse(rawLine) ?: return@forEach
+                when (command.opcode) {
                     "G90" -> absolutePosition = true
                     "G91" -> absolutePosition = false
                     "M82" -> absoluteExtrusion = true
                     "M83" -> absoluteExtrusion = false
                     "G92" -> {
-                        value(command, 'X')?.let { x = it }
-                        value(command, 'Y')?.let { y = it }
-                        value(command, 'E')?.let { e = it }
+                        command.value('X')?.let { x = it }
+                        command.value('Y')?.let { y = it }
+                        command.value('E')?.let { e = it }
                     }
                     "G0", "G1" -> {
                         val startX = x
                         val startY = y
-                        val nextX = value(command, 'X')?.let { if (absolutePosition) it else x + it } ?: x
-                        val nextY = value(command, 'Y')?.let { if (absolutePosition) it else y + it } ?: y
-                        val requestedE = value(command, 'E')
+                        val nextX = command.value('X')?.let { if (absolutePosition) it else x + it } ?: x
+                        val nextY = command.value('Y')?.let { if (absolutePosition) it else y + it } ?: y
+                        val requestedE = command.value('E')
                         val nextE = requestedE?.let { if (absoluteExtrusion) it else e + it } ?: e
                         val deltaE = nextE - e
 
@@ -280,35 +278,14 @@ object GcodeLayerPreviewParser {
     private fun featureFromType(raw: String): GcodeLayerPreview.Feature {
         val value = raw.uppercase()
         return when {
-            value.contains("ARC-OVERHANG") || value.contains("ARC_OVERHANG") -> {
-                GcodeLayerPreview.Feature.ARC_OVERHANG
-            }
-            value.contains("SUPPORT-INTERFACE") || value.contains("SUPPORT_INTERFACE") -> {
-                GcodeLayerPreview.Feature.SUPPORT_INTERFACE
-            }
+            value.contains("ARC-OVERHANG") || value.contains("ARC_OVERHANG") -> GcodeLayerPreview.Feature.ARC_OVERHANG
+            value.contains("SUPPORT-INTERFACE") || value.contains("SUPPORT_INTERFACE") -> GcodeLayerPreview.Feature.SUPPORT_INTERFACE
             value.contains("SUPPORT") -> GcodeLayerPreview.Feature.SUPPORT
-            value.contains("SKIRT") || value.contains("BRIM") || value.contains("RAFT") -> {
-                GcodeLayerPreview.Feature.ADHESION
-            }
+            value.contains("SKIRT") || value.contains("BRIM") || value.contains("RAFT") -> GcodeLayerPreview.Feature.ADHESION
             value.contains("WALL") || value.contains("SKIN") || value.contains("FILL") ||
                 value.contains("INFILL") || value.contains("BRIDGE") -> GcodeLayerPreview.Feature.MODEL
             else -> GcodeLayerPreview.Feature.OTHER
         }
-    }
-
-    private fun value(command: String, letter: Char): Double? {
-        val target = letter.uppercaseChar()
-        var index = 0
-        while (index < command.length) {
-            while (index < command.length && command[index].isWhitespace()) index++
-            if (index >= command.length) break
-            val tokenStart = index
-            while (index < command.length && !command[index].isWhitespace()) index++
-            if (command[tokenStart].uppercaseChar() == target && tokenStart + 1 < index) {
-                return command.substring(tokenStart + 1, index).toDoubleOrNull()
-            }
-        }
-        return null
     }
 
     private class FloatAccumulator(initialCapacity: Int = 6 * 2048) {

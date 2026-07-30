@@ -3,7 +3,6 @@ package com.tomppi.enderslicer.profile
 import com.tomppi.enderslicer.model.ModelPlacement
 import org.w3c.dom.Element
 import java.io.InputStream
-import javax.xml.parsers.DocumentBuilderFactory
 
  data class CuraProjectScene(
     val modelName: String?,
@@ -24,7 +23,7 @@ object CuraProjectSceneParser {
             path == MODEL_PATH || path.endsWith(".global.cfg")
         })
         val modelXml = entries[MODEL_PATH] ?: return null
-        val document = secureFactory().newDocumentBuilder()
+        val document = SecureXml.factory().newDocumentBuilder()
             .parse(modelXml.byteInputStream(Charsets.UTF_8))
         document.documentElement.normalize()
 
@@ -148,11 +147,5 @@ object CuraProjectSceneParser {
             }
         }
         return null
-    }
-
-    private fun secureFactory(): DocumentBuilderFactory = DocumentBuilderFactory.newInstance().apply {
-        isNamespaceAware = true
-        runCatching { isXIncludeAware = false }
-        runCatching { setExpandEntityReferences(false) }
     }
 }

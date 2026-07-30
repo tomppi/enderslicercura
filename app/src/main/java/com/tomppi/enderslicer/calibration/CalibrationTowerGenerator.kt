@@ -66,9 +66,8 @@ object CalibrationTowerGenerator {
         val first = format(values.first())
         val last = format(values.last())
         val mesh = builder.finish("${spec.type.name.lowercase(Locale.US)}-calibration-$first-to-$last.stl")
-        // Do not activate calibration behavior until mesh generation has
-        // succeeded. A rejected/failed model must never affect a later slice.
-        CalibrationSliceState.activate(spec.type, values.first())
+        // MainViewModel activates temporary calibration behavior only after the
+        // mesh, transformed preview and local STL have all been committed.
         return CalibrationTowerResult(
             mesh = mesh,
             plannedEvents = events,

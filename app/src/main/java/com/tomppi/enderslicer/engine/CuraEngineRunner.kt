@@ -331,20 +331,63 @@ class CuraEngineRunner(private val context: Context) {
         require(baseGcodeFile.isFile && baseGcodeFile.length() > 0L) { "The original sliced G-code is unavailable; slice again" }
         val workDirectory = File(context.cacheDir, "curaengine").apply { mkdirs() }
         val outputFile = File(workDirectory, "current.gcode")
-        val preview = GcodeLayerPreviewParser.parse(baseGcodeFile)
-        val validLayerNumbers = preview.layers.mapTo(hashSetOf()) { it.number }
-        val validEvents = events
-            .filter { it.layerNumber in validLayerNumbers }
-            .distinctBy(LayerEvent::id)
-            .sortedWith(compareBy(LayerEvent::layerNumber, LayerEvent::source, LayerEvent::id))
-        GcodeLayerEventProcessor.materialize(baseGcodeFile, outputFile, validEvents)
-        val summary = GcodeSanitizer.validateAndRepair(outputFile, settingsTransport = "resolved-json+layer-events")
-        return LayerEventApplyResult(
-            gcodeFile = outputFile,
-            estimatedPrintSeconds = summary.estimatedSeconds,
-            layerPreview = GcodeLayerPreviewParser.parse(outputFile),
-            layerEvents = validEvents,
-        )
+        val temporaryFile = File(workDirectory, "current-events-${System.nanoTime()}.gcode")
+        val backupFile = File(workDirectory, "current.gcode.previous")
+        temporaryFile.delete()
+        backupFile.delete()
+
+        try {
+            val preview = GcodeLayerPreviewParser.parse(baseGcodeFile)
+            val validLayerNumbers = preview.layers.mapTo(hashSetOf()) { it.number }
+            val validEvents = events
+                .filter { it.layerNumber in validLayerNumbers }
+                .distinctBy(LayerEvent::id)
+                .sortedWith(compareBy(LayerEvent::layerNumber, LayerEvent::source, LayerEvent::id))
+            val baseTransport = baseGcodeFile.bufferedReader().useLines { lines ->
+                lines.firstOrNull { it.startsWith(";ENDERSLICER_SETTINGS_TRANSPORT:") }
+                    ?.substringAfter(':')
+                    ?.trim()
+                    ?.removeSuffix("+layer-events")
+            } ?: "resolved-json"
+
+            GcodeLayerEventProcessor.materialize(baseGcodeFile, temporaryFile, validEvents)
+            val summary = GcodeSanitizer.validateAndRepair(
+                temporaryFile,
+                settingsTransport = "$baseTransport+layer-events",
+            )
+            val layerPreview = GcodeLayerPreviewParser.parse(temporaryFile)
+
+            if (outputFile.exists()) {
+                check(
+                    outputFile.renameTo(backupFile) ||
+                        outputFile.copyTo(backupFile, overwrite = true).let { outputFile.delete(); true },
+                ) { "Unable to preserve the previous layer-event G-code" }
+            }
+            try {
+                check(
+                    temporaryFile.renameTo(outputFile) ||
+                        temporaryFile.copyTo(outputFile, overwrite = true).let { temporaryFile.delete(); true },
+                ) { "Unable to publish the updated layer-event G-code" }
+            } catch (error: Throwable) {
+                outputFile.delete()
+                if (backupFile.exists()) {
+                    backupFile.renameTo(outputFile) ||
+                        backupFile.copyTo(outputFile, overwrite = true).let { backupFile.delete(); true }
+                }
+                throw error
+            }
+            backupFile.delete()
+
+            return LayerEventApplyResult(
+                gcodeFile = outputFile,
+                estimatedPrintSeconds = summary.estimatedSeconds,
+                layerPreview = layerPreview,
+                layerEvents = validEvents,
+            )
+        } finally {
+            temporaryFile.delete()
+            if (backupFile.exists() && outputFile.exists()) backupFile.delete()
+        }
     }
 
     private fun completeDefinitionStack(profile: CuraEngineProfile): CuraEngineProfile {
