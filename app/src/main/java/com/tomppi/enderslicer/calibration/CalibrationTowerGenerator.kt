@@ -32,10 +32,13 @@ object CalibrationTowerGenerator {
         when (spec.type) {
             CalibrationTestType.TEMPERATURE -> buildTemperatureModel(builder, spec)
             CalibrationTestType.FLOW -> buildFlowModel(builder, spec)
-            CalibrationTestType.SPEED -> buildSpeedModel(builder, spec)
-            CalibrationTestType.PRESSURE_ADVANCE -> buildPressureAdvanceModel(builder, spec)
+            CalibrationTestType.SPEED,
+            CalibrationTestType.JUNCTION_DEVIATION,
+            -> buildSpeedModel(builder, spec)
+            CalibrationTestType.PRESSURE_ADVANCE,
+            CalibrationTestType.RETRACTION,
+            -> buildRetractionModel(builder, spec)
             CalibrationTestType.FAN -> buildFanModel(builder, spec)
-            CalibrationTestType.RETRACTION -> buildRetractionModel(builder, spec)
         }
 
         val events = values.mapIndexed { index, value ->
@@ -154,20 +157,6 @@ object CalibrationTowerGenerator {
             val scale = if (index % 2 == 0) 1.0 else 0.94
             builder.addPolygonPrism(
                 points = starPoints(outer * scale, inner * scale, 8, PI / 8.0),
-                minZ = sectionStart(spec, index) - SOLID_OVERLAP_MM,
-                height = spec.sectionHeightMm + SOLID_OVERLAP_MM * 2.0,
-            )
-        }
-    }
-
-    private fun buildPressureAdvanceModel(builder: MeshBuilder, spec: CalibrationTowerSpec) {
-        val outer = spec.towerWidthMm / 2.0
-        val inner = spec.towerWidthMm * 0.22
-        addBase(builder, spec.towerWidthMm + 5.0, spec.towerWidthMm + 5.0)
-        repeat(spec.levels) { index ->
-            val scale = if (index % 2 == 0) 1.0 else 0.96
-            builder.addPolygonPrism(
-                points = starPoints(outer * scale, inner * scale, 6, 0.0),
                 minZ = sectionStart(spec, index) - SOLID_OVERLAP_MM,
                 height = spec.sectionHeightMm + SOLID_OVERLAP_MM * 2.0,
             )
