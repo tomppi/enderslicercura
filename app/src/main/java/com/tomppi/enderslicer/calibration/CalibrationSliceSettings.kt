@@ -78,8 +78,8 @@ internal object CalibrationSliceState {
 
     /**
      * Cura's small-layer slowdown makes compact calibration towers both slow
-     * and misleading (especially speed tests). These values exist only in the
-     * temporary engine snapshot.
+     * and misleading (especially speed and pressure-advance tests). These
+     * values exist only in the temporary engine snapshot.
      */
     fun engineOverrides(): Map<String, String> {
         val type = activeType ?: return emptyMap()
@@ -113,6 +113,12 @@ internal object CalibrationSliceState {
         val distance = restoreRetractionDistanceMm ?: return null
         val speed = restoreRetractionSpeedMmPerSecond ?: return null
         return "M207 S${format(distance)} F${format(speed * 60.0)}"
+    }
+
+    fun pressureAdvanceRestoreCommand(): String? {
+        if (activeType != CalibrationTestType.PRESSURE_ADVANCE) return null
+        val baseline = firstValue ?: return null
+        return "M900 K${format(baseline)}"
     }
 
     private fun format(value: Double): String =
