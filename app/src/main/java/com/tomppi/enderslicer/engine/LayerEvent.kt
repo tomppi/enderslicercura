@@ -11,6 +11,7 @@ enum class LayerEventType {
     SPEED_FACTOR,
     FLOW_FACTOR,
     RETRACTION,
+    PRESSURE_ADVANCE,
     CAMERA_TRIGGER,
     MESSAGE,
     CUSTOM_GCODE,
@@ -46,6 +47,7 @@ data class LayerEvent(
         LayerEventType.SPEED_FACTOR -> "Speed ${format(value)}%"
         LayerEventType.FLOW_FACTOR -> "Flow ${format(value)}%"
         LayerEventType.RETRACTION -> "Retraction ${format(value)} mm"
+        LayerEventType.PRESSURE_ADVANCE -> "Pressure advance K${format(value)}"
         LayerEventType.CAMERA_TRIGGER -> "Camera trigger"
         LayerEventType.MESSAGE -> "Message: ${text.take(36)}"
         LayerEventType.CUSTOM_GCODE -> "Custom G-code"
