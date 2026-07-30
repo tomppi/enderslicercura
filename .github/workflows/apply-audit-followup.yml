@@ -1,0 +1,229 @@
+name: Apply audit follow-up
+
+on:
+  push:
+    branches:
+      - fix/app-bug-audit
+    paths:
+      - .github/workflows/apply-audit-followup.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/app-bug-audit
+          fetch-depth: 0
+      - name: Apply remaining audit fixes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace(path, old, new):
+              file = Path(path)
+              text = file.read_text()
+              if old not in text:
+                  raise SystemExit(f"expected source block missing in {path}")
+              file.write_text(text.replace(old, new, 1))
+
+          replace(
+              "app/src/main/java/com/tomppi/enderslicer/calibration/CalibrationTowerGenerator.kt",
+              '''        // Do not activate calibration behavior until mesh generation has
+                  // succeeded. A rejected/failed model must never affect a later slice.
+                  CalibrationSliceState.activate(spec.type, values.first())
+          ''',
+              '''        // Calibration state is activated by MainViewModel only after the
+                  // generated mesh, transformed preview and local STL have all succeeded.
+          ''',
+          )
+
+          replace(
+              "app/src/main/java/com/tomppi/enderslicer/viewer/StlParser.kt",
+              '''import com.tomppi.enderslicer.calibration.CalibrationSliceState
+          ''',
+              '''''',
+          )
+          replace(
+              "app/src/main/java/com/tomppi/enderslicer/viewer/StlParser.kt",
+              '''        // A failed import must leave the currently loaded calibration model fully
+                  // functional. Clear its temporary state only after a replacement STL has
+                  // been parsed and is safe to commit.
+                  CalibrationSliceState.clear()
+                  return parsed
+          ''',
+              '''        return parsed
+          ''',
+          )
+
+          replace(
+              "app/src/main/java/com/tomppi/enderslicer/data/AppStateStore.kt",
+              '''    fun stageImport(input: InputStream): File {
+                  val temporary = File(stateDirectory, "current-cura-import.tmp")
+                  temporary.delete()
+                  input.buffered().use { source ->
+                      temporary.outputStream().buffered().use { destination -> source.copyTo(destination) }
+                  }
+                  check(temporary.isFile && temporary.length() > 0L) { "The imported Cura file is empty" }
+                  return temporary
+              }
+          ''',
+              '''    fun stageImport(input: InputStream): File {
+                  val temporary = File(stateDirectory, "current-cura-import.tmp")
+                  temporary.delete()
+                  try {
+                      input.buffered().use { source ->
+                          temporary.outputStream().buffered().use { destination ->
+                              val buffer = ByteArray(128 * 1024)
+                              var total = 0L
+                              while (true) {
+                                  val count = source.read(buffer)
+                                  if (count < 0) break
+                                  total += count
+                                  require(total <= MAX_CURA_IMPORT_BYTES) {
+                                      "The imported Cura file exceeds the 128 MiB safety limit"
+                                  }
+                                  destination.write(buffer, 0, count)
+                              }
+                          }
+                      }
+                      check(temporary.isFile && temporary.length() > 0L) { "The imported Cura file is empty" }
+                      return temporary
+                  } catch (error: Throwable) {
+                      temporary.delete()
+                      throw error
+                  }
+              }
+          ''',
+          )
+          replace(
+              "app/src/main/java/com/tomppi/enderslicer/data/AppStateStore.kt",
+              '''        private const val KEY_OVERRIDES_JSON = "overrides"
+          ''',
+              '''        private const val KEY_OVERRIDES_JSON = "overrides"
+                  private const val MAX_CURA_IMPORT_BYTES = 128L * 1024L * 1024L
+          ''',
+          )
+
+          replace(
+              "app/src/main/java/com/tomppi/enderslicer/engine/CuraEngineRunner.kt",
+              '''    fun applyLayerEvents(
+                  baseGcodeFile: File,
+                  events: List<LayerEvent>,
+              ): LayerEventApplyResult {
+                  require(baseGcodeFile.isFile && baseGcodeFile.length() > 0L) { "The original sliced G-code is unavailable; slice again" }
+                  val workDirectory = File(context.cacheDir, "curaengine").apply { mkdirs() }
+                  val outputFile = File(workDirectory, "current.gcode")
+                  val preview = GcodeLayerPreviewParser.parse(baseGcodeFile)
+                  val validLayerNumbers = preview.layers.mapTo(hashSetOf()) { it.number }
+                  val validEvents = events
+                      .filter { it.layerNumber in validLayerNumbers }
+                      .distinctBy(LayerEvent::id)
+                      .sortedWith(compareBy(LayerEvent::layerNumber, LayerEvent::source, LayerEvent::id))
+                  GcodeLayerEventProcessor.materialize(baseGcodeFile, outputFile, validEvents)
+                  val summary = GcodeSanitizer.validateAndRepair(outputFile, settingsTransport = "resolved-json+layer-events")
+                  return LayerEventApplyResult(
+                      gcodeFile = outputFile,
+                      estimatedPrintSeconds = summary.estimatedSeconds,
+                      layerPreview = GcodeLayerPreviewParser.parse(outputFile),
+                      layerEvents = validEvents,
+                  )
+              }
+          ''',
+              '''    fun applyLayerEvents(
+                  baseGcodeFile: File,
+                  events: List<LayerEvent>,
+              ): LayerEventApplyResult {
+                  require(baseGcodeFile.isFile && baseGcodeFile.length() > 0L) { "The original sliced G-code is unavailable; slice again" }
+                  val workDirectory = File(context.cacheDir, "curaengine").apply { mkdirs() }
+                  val outputFile = File(workDirectory, "current.gcode")
+                  val temporaryFile = File(workDirectory, "current-events-${System.nanoTime()}.gcode")
+                  val previousFile = File(workDirectory, "current.gcode.previous")
+                  temporaryFile.delete()
+                  previousFile.delete()
+
+                  try {
+                      val preview = GcodeLayerPreviewParser.parse(baseGcodeFile)
+                      val validLayerNumbers = preview.layers.mapTo(hashSetOf()) { it.number }
+                      val validEvents = events
+                          .filter { it.layerNumber in validLayerNumbers }
+                          .distinctBy(LayerEvent::id)
+                          .sortedWith(compareBy(LayerEvent::layerNumber, LayerEvent::source, LayerEvent::id))
+                      val baseTransport = baseGcodeFile.bufferedReader().useLines { lines ->
+                          lines.firstOrNull { it.startsWith(";ENDERSLICER_SETTINGS_TRANSPORT:") }
+                              ?.substringAfter(':')
+                              ?.trim()
+                              ?.removeSuffix("+layer-events")
+                      } ?: "resolved-json"
+
+                      GcodeLayerEventProcessor.materialize(baseGcodeFile, temporaryFile, validEvents)
+                      val summary = GcodeSanitizer.validateAndRepair(
+                          temporaryFile,
+                          settingsTransport = "$baseTransport+layer-events",
+                      )
+                      val layerPreview = GcodeLayerPreviewParser.parse(temporaryFile)
+
+                      if (outputFile.exists()) {
+                          check(
+                              outputFile.renameTo(previousFile) ||
+                                  outputFile.copyTo(previousFile, overwrite = true).let { outputFile.delete(); true },
+                          ) { "Unable to preserve the previous layer-event G-code" }
+                      }
+                      try {
+                          check(
+                              temporaryFile.renameTo(outputFile) ||
+                                  temporaryFile.copyTo(outputFile, overwrite = true).let { temporaryFile.delete(); true },
+                          ) { "Unable to publish the updated layer-event G-code" }
+                      } catch (error: Throwable) {
+                          outputFile.delete()
+                          if (previousFile.exists()) {
+                              previousFile.renameTo(outputFile) || previousFile.copyTo(outputFile, overwrite = true).let { previousFile.delete(); true }
+                          }
+                          throw error
+                      }
+                      previousFile.delete()
+
+                      return LayerEventApplyResult(
+                          gcodeFile = outputFile,
+                          estimatedPrintSeconds = summary.estimatedSeconds,
+                          layerPreview = layerPreview,
+                          layerEvents = validEvents,
+                      )
+                  } finally {
+                      temporaryFile.delete()
+                      if (previousFile.exists() && outputFile.exists()) previousFile.delete()
+                  }
+              }
+          ''',
+          )
+
+          replace(
+              ".github/workflows/build.yml",
+              '''  audit-source:
+                  runs-on: ubuntu-24.04
+                  steps:
+                    - uses: actions/checkout@v4
+                    - name: Upload audit source snapshot
+                      uses: actions/upload-artifact@v4
+                      with:
+                        name: enderslicercura-audit-source
+                        path: |
+                          app/src/main/java/com/tomppi/enderslicer/ui/MainViewModel.kt
+                          app/src/main/java/com/tomppi/enderslicer/ui/EnderSlicerApp.kt
+                        if-no-files-found: error
+
+          ''',
+              '''''',
+          )
+          PY
+          rm .github/workflows/apply-audit-followup.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Finish transactional app audit fixes"
+          git push origin HEAD:fix/app-bug-audit
