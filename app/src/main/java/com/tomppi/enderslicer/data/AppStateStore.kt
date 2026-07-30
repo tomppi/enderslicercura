@@ -48,14 +48,46 @@ class AppStateStore(context: Context) {
 
     fun commitImport(staged: File, kind: String, displayName: String) {
         require(kind == KIND_PROJECT || kind == KIND_PROFILE) { "Unsupported Cura import kind: $kind" }
-        if (importFile.exists()) importFile.delete()
-        check(staged.renameTo(importFile) || staged.copyTo(importFile, overwrite = true).let { staged.delete(); true }) {
-            "Unable to persist the imported Cura configuration"
+        require(staged.isFile && staged.length() > 0L) { "The staged Cura configuration is unavailable" }
+        val next = File(stateDirectory, "current-cura-import.next")
+        val backup = File(stateDirectory, "current-cura-import.previous")
+        next.delete()
+        backup.delete()
+
+        check(staged.renameTo(next) || staged.copyTo(next, overwrite = true).let { staged.delete(); true }) {
+            "Unable to stage the imported Cura configuration for commit"
         }
-        preferences.edit()
-            .putString(KEY_IMPORT_KIND, kind)
-            .putString(KEY_IMPORT_NAME, displayName)
-            .apply()
+        try {
+            if (importFile.exists()) {
+                check(
+                    importFile.renameTo(backup) ||
+                        importFile.copyTo(backup, overwrite = true).let { importFile.delete(); true },
+                ) { "Unable to preserve the previous Cura configuration" }
+            }
+            try {
+                check(
+                    next.renameTo(importFile) ||
+                        next.copyTo(importFile, overwrite = true).let { next.delete(); true },
+                ) { "Unable to persist the imported Cura configuration" }
+                check(
+                    preferences.edit()
+                        .putString(KEY_IMPORT_KIND, kind)
+                        .putString(KEY_IMPORT_NAME, displayName)
+                        .commit(),
+                ) { "Unable to persist the Cura configuration metadata" }
+            } catch (error: Throwable) {
+                importFile.delete()
+                if (backup.exists()) {
+                    backup.renameTo(importFile) ||
+                        backup.copyTo(importFile, overwrite = true).let { backup.delete(); true }
+                }
+                throw error
+            }
+            backup.delete()
+        } finally {
+            next.delete()
+            if (backup.exists() && importFile.exists()) backup.delete()
+        }
     }
 
     fun savedImport(): SavedImport? {
