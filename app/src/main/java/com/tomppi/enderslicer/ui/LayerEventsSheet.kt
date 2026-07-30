@@ -165,6 +165,8 @@ private fun LayerEventType.requiresValue(): Boolean = this in setOf(
     LayerEventType.SPEED_FACTOR,
     LayerEventType.FLOW_FACTOR,
     LayerEventType.RETRACTION,
+    LayerEventType.PRESSURE_ADVANCE,
+    LayerEventType.JUNCTION_DEVIATION,
 )
 
 private fun defaultValue(type: LayerEventType, settings: SlicerSettings): String = format(
@@ -174,6 +176,8 @@ private fun defaultValue(type: LayerEventType, settings: SlicerSettings): String
         LayerEventType.FAN_SPEED -> settings.fanSpeedPercent
         LayerEventType.SPEED_FACTOR, LayerEventType.FLOW_FACTOR -> 100.0
         LayerEventType.RETRACTION -> settings.retractionDistanceMm
+        LayerEventType.PRESSURE_ADVANCE -> 0.0
+        LayerEventType.JUNCTION_DEVIATION -> 0.013
         else -> 0.0
     },
 )
@@ -198,6 +202,8 @@ private fun valueLabel(type: LayerEventType): String = when (type) {
     LayerEventType.SPEED_FACTOR -> "Speed factor (%)"
     LayerEventType.FLOW_FACTOR -> "Flow factor (%)"
     LayerEventType.RETRACTION -> "Retraction distance (mm)"
+    LayerEventType.PRESSURE_ADVANCE -> "Linear Advance K"
+    LayerEventType.JUNCTION_DEVIATION -> "Junction deviation (mm)"
     else -> "Value"
 }
 
@@ -210,6 +216,8 @@ private fun eventTypeLabel(type: LayerEventType): String = when (type) {
     LayerEventType.SPEED_FACTOR -> "Speed factor"
     LayerEventType.FLOW_FACTOR -> "Flow factor"
     LayerEventType.RETRACTION -> "Firmware retraction (M207)"
+    LayerEventType.PRESSURE_ADVANCE -> "Pressure advance (M900 K)"
+    LayerEventType.JUNCTION_DEVIATION -> "Junction deviation (M205 J)"
     LayerEventType.CAMERA_TRIGGER -> "Camera trigger (M240)"
     LayerEventType.MESSAGE -> "Printer display message"
     LayerEventType.CUSTOM_GCODE -> "Custom G-code"

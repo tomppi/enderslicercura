@@ -22,23 +22,72 @@ class AppStateStore(context: Context) {
     fun stageImport(input: InputStream): File {
         val temporary = File(stateDirectory, "current-cura-import.tmp")
         temporary.delete()
-        input.buffered().use { source ->
-            temporary.outputStream().buffered().use { destination -> source.copyTo(destination) }
+        try {
+            input.buffered().use { source ->
+                temporary.outputStream().buffered().use { destination ->
+                    val buffer = ByteArray(128 * 1024)
+                    var total = 0L
+                    while (true) {
+                        val count = source.read(buffer)
+                        if (count < 0) break
+                        total += count
+                        require(total <= MAX_CURA_IMPORT_BYTES) {
+                            "The imported Cura file exceeds the 128 MiB safety limit"
+                        }
+                        destination.write(buffer, 0, count)
+                    }
+                }
+            }
+            check(temporary.isFile && temporary.length() > 0L) { "The imported Cura file is empty" }
+            return temporary
+        } catch (error: Throwable) {
+            temporary.delete()
+            throw error
         }
-        check(temporary.isFile && temporary.length() > 0L) { "The imported Cura file is empty" }
-        return temporary
     }
 
     fun commitImport(staged: File, kind: String, displayName: String) {
         require(kind == KIND_PROJECT || kind == KIND_PROFILE) { "Unsupported Cura import kind: $kind" }
-        if (importFile.exists()) importFile.delete()
-        check(staged.renameTo(importFile) || staged.copyTo(importFile, overwrite = true).let { staged.delete(); true }) {
-            "Unable to persist the imported Cura configuration"
+        require(staged.isFile && staged.length() > 0L) { "The staged Cura configuration is unavailable" }
+        val next = File(stateDirectory, "current-cura-import.next")
+        val backup = File(stateDirectory, "current-cura-import.previous")
+        next.delete()
+        backup.delete()
+
+        check(staged.renameTo(next) || staged.copyTo(next, overwrite = true).let { staged.delete(); true }) {
+            "Unable to stage the imported Cura configuration for commit"
         }
-        preferences.edit()
-            .putString(KEY_IMPORT_KIND, kind)
-            .putString(KEY_IMPORT_NAME, displayName)
-            .apply()
+        try {
+            if (importFile.exists()) {
+                check(
+                    importFile.renameTo(backup) ||
+                        importFile.copyTo(backup, overwrite = true).let { importFile.delete(); true },
+                ) { "Unable to preserve the previous Cura configuration" }
+            }
+            try {
+                check(
+                    next.renameTo(importFile) ||
+                        next.copyTo(importFile, overwrite = true).let { next.delete(); true },
+                ) { "Unable to persist the imported Cura configuration" }
+                check(
+                    preferences.edit()
+                        .putString(KEY_IMPORT_KIND, kind)
+                        .putString(KEY_IMPORT_NAME, displayName)
+                        .commit(),
+                ) { "Unable to persist the Cura configuration metadata" }
+            } catch (error: Throwable) {
+                importFile.delete()
+                if (backup.exists()) {
+                    backup.renameTo(importFile) ||
+                        backup.copyTo(importFile, overwrite = true).let { backup.delete(); true }
+                }
+                throw error
+            }
+            backup.delete()
+        } finally {
+            next.delete()
+            if (backup.exists() && importFile.exists()) backup.delete()
+        }
     }
 
     fun savedImport(): SavedImport? {
@@ -285,5 +334,6 @@ class AppStateStore(context: Context) {
         private const val KEY_IMPORT_NAME = "import-name"
         private const val KEY_SETTINGS = "settings-json"
         private const val KEY_OVERRIDES_JSON = "overrides"
+        private const val MAX_CURA_IMPORT_BYTES = 128L * 1024L * 1024L
     }
 }

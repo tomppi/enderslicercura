@@ -1,6 +1,7 @@
 package com.tomppi.enderslicer.calibration
 
 import com.tomppi.enderslicer.engine.PlannedLayerEvent
+import java.math.BigDecimal
 import java.util.Locale
 import kotlin.math.PI
 import kotlin.math.cos
@@ -18,7 +19,14 @@ object CalibrationTowerGenerator {
         require(spec.levels in 2..20) { "Calibration tower levels must be between 2 and 20" }
         require(spec.sectionHeightMm in 3.0..30.0) { "Section height must be between 3 and 30 mm" }
         require(spec.towerWidthMm in 12.0..45.0) { "Tower width must be between 12 and 45 mm" }
-        val values = List(spec.levels) { index -> spec.startValue + spec.stepValue * index }
+        val start = BigDecimal.valueOf(spec.startValue)
+        val step = BigDecimal.valueOf(spec.stepValue)
+        val values = List(spec.levels) { index ->
+            start
+                .add(step.multiply(BigDecimal.valueOf(index.toLong())))
+                .stripTrailingZeros()
+                .toDouble()
+        }
         values.forEach { value ->
             require(value in spec.type.minimum..spec.type.maximum) {
                 "${spec.type.displayName} value ${format(value)} ${spec.type.unit} is outside ${spec.type.minimum}..${spec.type.maximum}"
@@ -32,9 +40,13 @@ object CalibrationTowerGenerator {
         when (spec.type) {
             CalibrationTestType.TEMPERATURE -> buildTemperatureModel(builder, spec)
             CalibrationTestType.FLOW -> buildFlowModel(builder, spec)
-            CalibrationTestType.SPEED -> buildSpeedModel(builder, spec)
+            CalibrationTestType.SPEED,
+            CalibrationTestType.JUNCTION_DEVIATION,
+            -> buildSpeedModel(builder, spec)
+            CalibrationTestType.PRESSURE_ADVANCE,
+            CalibrationTestType.RETRACTION,
+            -> buildRetractionModel(builder, spec)
             CalibrationTestType.FAN -> buildFanModel(builder, spec)
-            CalibrationTestType.RETRACTION -> buildRetractionModel(builder, spec)
         }
 
         val events = values.mapIndexed { index, value ->
@@ -54,9 +66,8 @@ object CalibrationTowerGenerator {
         val first = format(values.first())
         val last = format(values.last())
         val mesh = builder.finish("${spec.type.name.lowercase(Locale.US)}-calibration-$first-to-$last.stl")
-        // Do not activate calibration behavior until mesh generation has
-        // succeeded. A rejected/failed model must never affect a later slice.
-        CalibrationSliceState.activate(spec.type, values.first())
+        // MainViewModel activates temporary calibration behavior only after the
+        // mesh, transformed preview and local STL have all been committed.
         return CalibrationTowerResult(
             mesh = mesh,
             plannedEvents = events,

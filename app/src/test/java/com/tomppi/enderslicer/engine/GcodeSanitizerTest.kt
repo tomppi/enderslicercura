@@ -1,5 +1,6 @@
 package com.tomppi.enderslicer.engine
 
+import com.tomppi.enderslicer.BuildConfig
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -63,7 +64,27 @@ class GcodeSanitizerTest {
     }
 
     @Test
-    fun repairsBoundsFromModelButFilamentFromWholePrintAndStampsFallbackBuild() {
+    fun rejectsLowercaseTabSeparatedUnsafeExtrusion() {
+        val file = temporaryGcode(
+            listOf(
+                ";FLAVOR:Marlin",
+                ";LAYER_COUNT:1",
+                "m82",
+                "m104\ts137.4",
+                ";LAYER:0",
+                ";MESH:model.stl",
+                "g1\tx10\ty20\tz0.2\te1",
+                ";TIME_ELAPSED:1",
+            ).joinToString("\n"),
+        )
+
+        val error = runCatching { GcodeSanitizer.validateAndRepair(file) }.exceptionOrNull()
+        assertTrue(error is GcodeSanitizer.UnsafeGcodeException)
+        assertTrue(error?.message.orEmpty().contains("137.4"))
+    }
+
+    @Test
+    fun repairsBoundsFromCompleteModelSegmentsAndFilamentFromWholePrint() {
         val file = temporaryGcode(
             """
             ;FLAVOR:Marlin
@@ -108,18 +129,18 @@ class GcodeSanitizerTest {
         assertEquals(43, summary.estimatedSeconds)
         assertEquals(2.0, summary.filamentMillimeters, 0.0001)
         assertEquals(3.5, summary.totalFilamentMillimeters, 0.0001)
-        assertEquals(100.0, summary.minX!!, 0.0)
-        assertEquals(110.0, summary.minY!!, 0.0)
+        assertEquals(7.0, summary.minX!!, 0.0)
+        assertEquals(7.0, summary.minY!!, 0.0)
         assertEquals(0.2, summary.minZ!!, 0.0)
         assertEquals(120.0, summary.maxX!!, 0.0)
         assertEquals(130.0, summary.maxY!!, 0.0)
         assertEquals(0.4, summary.maxZ!!, 0.0)
-        assertTrue(output.startsWith(";FLAVOR:Marlin\r\n;ENDERSLICER_VERSION:0.5.13-dev\r\n"))
+        assertTrue(output.startsWith(";FLAVOR:Marlin\r\n;ENDERSLICER_VERSION:${BuildConfig.VERSION_NAME}\r\n"))
         assertTrue(output.contains(";ENDERSLICER_COORDINATE_TRANSPORT:original-stl-full-affine-pre-round"))
         assertTrue(output.contains(";ENDERSLICER_SETTINGS_TRANSPORT:fallback-command"))
         assertTrue(output.contains(";TIME:43"))
         assertTrue(output.contains(";Filament used: 0.0035m"))
-        assertTrue(output.contains(";MINX:100"))
+        assertTrue(output.contains(";MINX:7"))
         assertTrue(output.contains(";MAXY:130"))
         assertTrue(output.contains(";MAXZ:0.4"))
 

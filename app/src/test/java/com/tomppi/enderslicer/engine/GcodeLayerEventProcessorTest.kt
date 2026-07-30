@@ -1,10 +1,18 @@
 package com.tomppi.enderslicer.engine
 
+import com.tomppi.enderslicer.calibration.CalibrationSliceState
+import com.tomppi.enderslicer.calibration.CalibrationTestType
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GcodeLayerEventProcessorTest {
+    @After
+    fun clearCalibrationState() {
+        CalibrationSliceState.clear()
+    }
+
     @Test
     fun resolvesCalibrationHeightAndInsertsCommandsAfterLayerMarker() {
         val base = kotlin.io.path.createTempFile("enderslicer-events-base", ".gcode").toFile().apply {
@@ -171,6 +179,44 @@ class GcodeLayerEventProcessorTest {
         assertTrue(result.contains("M221 S100 ; enderslicercura restore flow factor"))
     }
 
+    @Test
+    fun pressureAdvanceCalibrationEmitsM900AndRestoresFirstK() {
+        CalibrationSliceState.activate(CalibrationTestType.PRESSURE_ADVANCE, 0.02)
+        val base = simpleTwoLayerGcode("enderslicer-pressure-events")
+        val event = LayerEvent(
+            id = "pressure-cal",
+            layerNumber = 1,
+            zMm = 0.4f,
+            type = LayerEventType.PRESSURE_ADVANCE,
+            value = 0.12,
+            source = LayerEventSource.CALIBRATION,
+        )
+        val output = kotlin.io.path.createTempFile("enderslicer-pressure-output", ".gcode").toFile()
+        GcodeLayerEventProcessor.materialize(base, output, listOf(event))
+        val result = output.readText()
+        assertTrue(result.contains("M900 K0.12"))
+        assertTrue(result.contains("M900 K0.02 ; enderslicercura restore pressure advance"))
+    }
+
+    @Test
+    fun junctionDeviationCalibrationEmitsM205JAndRestoresFirstValue() {
+        CalibrationSliceState.activate(CalibrationTestType.JUNCTION_DEVIATION, 0.005)
+        val base = simpleTwoLayerGcode("enderslicer-junction-events")
+        val event = LayerEvent(
+            id = "junction-cal",
+            layerNumber = 1,
+            zMm = 0.4f,
+            type = LayerEventType.JUNCTION_DEVIATION,
+            value = 0.025,
+            source = LayerEventSource.CALIBRATION,
+        )
+        val output = kotlin.io.path.createTempFile("enderslicer-junction-output", ".gcode").toFile()
+        GcodeLayerEventProcessor.materialize(base, output, listOf(event))
+        val result = output.readText()
+        assertTrue(result.contains("M205 J0.025"))
+        assertTrue(result.contains("M205 J0.005 ; enderslicercura restore junction deviation"))
+    }
+
     @Test(expected = IllegalArgumentException::class)
     fun blocksUnsafeCustomGcode() {
         GcodeLayerEventProcessor.commands(
@@ -181,6 +227,20 @@ class GcodeLayerEventProcessorTest {
                 type = LayerEventType.CUSTOM_GCODE,
                 text = "G28",
             ),
+        )
+    }
+
+    private fun simpleTwoLayerGcode(prefix: String) = kotlin.io.path.createTempFile(prefix, ".gcode").toFile().apply {
+        writeText(
+            """
+            ;FLAVOR:Marlin
+            M82
+            ;LAYER:0
+            G1 X1 E1
+            ;LAYER:1
+            G1 X2 E2
+            ;End of Gcode
+            """.trimIndent(),
         )
     }
 }

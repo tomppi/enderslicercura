@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.tomppi.enderslicer.calibration.CalibrationSliceState
 import com.tomppi.enderslicer.calibration.CalibrationTowerGenerator
 import com.tomppi.enderslicer.calibration.CalibrationTowerSpec
 import com.tomppi.enderslicer.data.AppStateStore
@@ -52,6 +53,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val scene: CuraProjectScene?,
     )
 
+    private data class PreparedModelImport(
+        val source: StlMesh,
+        val transformed: StlMesh,
+        val modelFile: File,
+        val placement: ModelPlacement,
+        val automaticImportedPlacement: Boolean,
+        val mismatchWarning: String?,
+    )
+
+    private data class PreparedCalibration(
+        val result: com.tomppi.enderslicer.calibration.CalibrationTowerResult,
+        val transformed: StlMesh,
+        val modelFile: File,
+        val placement: ModelPlacement,
+    )
+
     private val app = application
     private val printer = PrinterDefinitionLoader.loadModifiedEnder3V2(app.assets)
     private val engine = CuraEngineRunner(app)
@@ -80,37 +97,54 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun importStl(uri: Uri) {
+        if (!beginOperation("Reading STL…")) return
         retainReadPermission(uri)
+        val sceneSnapshot = importedScene
+        val previousModelPath = _uiState.value.modelPath
         viewModelScope.launch {
-            busy("Reading STL…")
             runCatching {
-                withContext(Dispatchers.IO) {
+                val (mesh, modelFile) = withContext(Dispatchers.IO) {
                     val triangleLimit = MeshTriangleLimits.current()
-                    val modelFile = materializeModel(uri, triangleLimit)
-                    val mesh = StlParser.parse(modelFile, displayName(uri), triangleLimit)
-                    mesh to modelFile
-                }
-            }.onSuccess { (mesh, modelFile) ->
-                sourceMesh = mesh
-                plannedCalibrationEvents = emptyList()
-                val automaticImportedPlacement = importedScene
-                    ?.takeIf { scene -> scene.affine != null && modelNamesMatch(scene.modelName, mesh.displayName) }
-                    ?.let { scene -> ModelPlacement.from3mf(mesh, requireNotNull(scene.affine), scene.dropToBuildPlate) }
-                val placement = automaticImportedPlacement
-                    ?: ModelPlacement.centeredOnBed(mesh, printer.widthMm, printer.depthMm)
-                val transformed = placement.transformed(mesh)
-                val mismatchWarning = importedScene
-                    ?.takeIf { it.affine != null && !modelNamesMatch(it.modelName, mesh.displayName) }
-                    ?.let { scene ->
-                        "Imported Cura transform is for ${scene.modelName ?: "another model"}; it was not applied automatically to ${mesh.displayName}"
+                    val file = materializeModel(uri, triangleLimit)
+                    try {
+                        StlParser.parse(file, displayName(uri), triangleLimit) to file
+                    } catch (error: Throwable) {
+                        file.delete()
+                        throw error
                     }
+                }
+                withContext(Dispatchers.Default) {
+                    val automaticPlacement = sceneSnapshot
+                        ?.takeIf { scene -> scene.affine != null && modelNamesMatch(scene.modelName, mesh.displayName) }
+                        ?.let { scene -> ModelPlacement.from3mf(mesh, requireNotNull(scene.affine), scene.dropToBuildPlate) }
+                    val placement = automaticPlacement
+                        ?: ModelPlacement.centeredOnBed(mesh, printer.widthMm, printer.depthMm)
+                    val transformed = placement.transformed(mesh)
+                    val mismatchWarning = sceneSnapshot
+                        ?.takeIf { it.affine != null && !modelNamesMatch(it.modelName, mesh.displayName) }
+                        ?.let { scene ->
+                            "Imported Cura transform is for ${scene.modelName ?: "another model"}; it was not applied automatically to ${mesh.displayName}"
+                        }
+                    PreparedModelImport(
+                        source = mesh,
+                        transformed = transformed,
+                        modelFile = modelFile,
+                        placement = placement,
+                        automaticImportedPlacement = automaticPlacement != null,
+                        mismatchWarning = mismatchWarning,
+                    )
+                }
+            }.onSuccess { prepared ->
+                CalibrationSliceState.clear()
+                sourceMesh = prepared.source
+                plannedCalibrationEvents = emptyList()
                 _uiState.update { current ->
                     current.copy(
-                        mesh = transformed,
-                        modelPath = modelFile.absolutePath,
-                        modelPlacement = placement,
-                        importedSceneTransformAvailable = importedScene?.affine != null,
-                        importedSceneModelName = importedScene?.modelName,
+                        mesh = prepared.transformed,
+                        modelPath = prepared.modelFile.absolutePath,
+                        modelPlacement = prepared.placement,
+                        importedSceneTransformAvailable = sceneSnapshot?.affine != null,
+                        importedSceneModelName = sceneSnapshot?.modelName,
                         gcodePath = null,
                         baseGcodePath = null,
                         layerPreview = null,
@@ -119,23 +153,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         estimatedPrintSeconds = null,
                         sliceLogPath = null,
                         sliceDurationMilliseconds = null,
-                        warnings = (current.warnings.filterNot { it.startsWith("Imported Cura transform is for") } + listOfNotNull(mismatchWarning)).distinct(),
+                        warnings = (current.warnings.filterNot { it.startsWith("Imported Cura transform is for") } + listOfNotNull(prepared.mismatchWarning)).distinct(),
                         isBusy = false,
                         statusMessage = buildString {
-                            append("Loaded ${mesh.displayName}: ${mesh.triangleCount} triangles")
-                            if (automaticImportedPlacement != null) append(" · imported Cura scene transform applied")
+                            append("Loaded ${prepared.source.displayName}: ${prepared.source.triangleCount} triangles")
+                            if (prepared.automaticImportedPlacement) append(" · imported Cura scene transform applied")
                         },
                     )
                 }
-            }.onFailure(::showFailure)
+                previousModelPath
+                    ?.takeIf { it != prepared.modelFile.absolutePath }
+                    ?.let(::File)
+                    ?.takeIf { it.parentFile == prepared.modelFile.parentFile }
+                    ?.delete()
+            }.onFailure(::showOperationFailure)
         }
     }
 
     fun importCuraProfile(uri: Uri) {
+        if (!beginOperation("Importing Cura profile…")) return
         retainReadPermission(uri)
         val sourceName = displayName(uri)
         viewModelScope.launch {
-            busy("Importing Cura profile…")
             runCatching {
                 withContext(Dispatchers.IO) {
                     stageAndParseImport(uri, AppStateStore.KIND_PROFILE, sourceName) { file ->
@@ -144,16 +183,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         }
                     }
                 }
-            }.onSuccess(::commitImportedConfig)
-                .onFailure(::showFailure)
+            }.onSuccess { pending -> commitImportedConfig(pending) }
+                .onFailure(::showOperationFailure)
         }
     }
 
     fun importCuraProject(uri: Uri) {
+        if (!beginOperation("Importing Cura project…")) return
         retainReadPermission(uri)
         val sourceName = displayName(uri)
         viewModelScope.launch {
-            busy("Importing Cura project…")
             runCatching {
                 withContext(Dispatchers.IO) {
                     stageAndParseImport(
@@ -167,8 +206,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         }
                     }
                 }
-            }.onSuccess(::commitImportedConfig)
-                .onFailure(::showFailure)
+            }.onSuccess { pending -> commitImportedConfig(pending) }
+                .onFailure(::showOperationFailure)
         }
     }
 
@@ -176,6 +215,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         key: String,
         transform: (SlicerSettings) -> SlicerSettings,
     ) {
+        if (_uiState.value.isBusy) return
         _uiState.update { current ->
             val changed = transform(current.settings).copy(
                 overriddenSettingKeys = current.settings.overriddenSettingKeys + key,
@@ -196,6 +236,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun resetAllSettingOverrides() {
+        if (_uiState.value.isBusy) return
         val baseline = importedSettingsBaseline ?: SlicerSettings()
         val restored = baseline.copy(overriddenSettingKeys = emptySet())
         stateStore.saveSettings(restored)
@@ -248,7 +289,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val scene = importedScene
         val affine = scene?.affine
         if (scene == null || affine == null) {
-            showFailure(IllegalStateException("The imported Cura project has no object transform"))
+            showOperationFailure(IllegalStateException("The imported Cura project has no object transform"))
             return
         }
         changePlacement("Imported Cura scene transform applied") { _, mesh ->
@@ -261,16 +302,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val originalPath = snapshot.modelPath
         val transformedMesh = snapshot.mesh
         if (originalPath == null || transformedMesh == null) {
-            showFailure(IllegalStateException("Import an STL before slicing"))
+            showOperationFailure(IllegalStateException("Import an STL before slicing"))
             return
         }
         if (!engine.isAvailable()) {
-            showFailure(IllegalStateException(engine.status()))
+            showOperationFailure(IllegalStateException(engine.status()))
             return
         }
+        if (!beginOperation("CuraEngine is slicing…")) return
+        val plannedEventsSnapshot = plannedCalibrationEvents.toList()
 
         viewModelScope.launch {
-            busy("CuraEngine is slicing…")
             runCatching {
                 withContext(Dispatchers.IO) {
                     val transformedFile = File(app.cacheDir, "model-placement/current-transformed.stl")
@@ -283,13 +325,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         endGcode = snapshot.endGcode,
                         profile = snapshot.engineProfile,
                         layerEvents = snapshot.layerEvents.filter { it.source == LayerEventSource.USER },
-                        plannedLayerEvents = plannedCalibrationEvents,
+                        plannedLayerEvents = plannedEventsSnapshot,
                     )
                 }
             }.onSuccess { result ->
-                _uiState.update {
+                _uiState.update { current ->
                     val printTime = result.estimatedPrintSeconds?.let(::formatPrintTime)
-                    it.copy(
+                    current.copy(
                         gcodePath = result.gcodeFile.absolutePath,
                         baseGcodePath = result.baseGcodeFile.absolutePath,
                         layerPreview = result.layerPreview,
@@ -306,58 +348,58 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         },
                     )
                 }
-            }.onFailure(::showFailure)
+            }.onFailure(::showSliceFailure)
         }
     }
 
     fun generateCalibrationTower(spec: CalibrationTowerSpec) {
+        if (!beginOperation("Generating calibration tower…")) return
         val snapshot = _uiState.value
+        val previousModelPath = snapshot.modelPath
         viewModelScope.launch {
-            busy("Generating calibration tower…")
             runCatching {
-                withContext(Dispatchers.Default) {
+                val result = withContext(Dispatchers.Default) {
                     CalibrationTowerGenerator.generate(spec, snapshot.settings.retractionSpeedMmPerSecond)
                 }
-            }.onSuccess { result ->
-                val directory = File(app.filesDir, "models").apply { mkdirs() }
-                val modelFile = File(directory, "current.stl")
-                StlMeshWriter.writeBinary(result.mesh, modelFile)
-                sourceMesh = result.mesh
-                importedScene = null
-                plannedCalibrationEvents = result.plannedEvents
                 val placement = ModelPlacement.centeredOnBed(result.mesh, printer.widthMm, printer.depthMm)
-                val settings = if (result.requiresFirmwareRetraction && !snapshot.settings.firmwareRetraction) {
-                    snapshot.settings.copy(
-                        firmwareRetraction = true,
-                        overriddenSettingKeys = snapshot.settings.overriddenSettingKeys + SlicerSettings.Keys.FIRMWARE_RETRACTION,
-                    ).also(stateStore::saveSettings)
-                } else {
-                    snapshot.settings
+                val transformed = withContext(Dispatchers.Default) { placement.transformed(result.mesh) }
+                val modelFile = withContext(Dispatchers.IO) {
+                    val directory = File(app.filesDir, "models").apply { mkdirs() }
+                    val target = File(directory, "calibration-${System.nanoTime()}.stl")
+                    StlMeshWriter.writeBinary(result.mesh, target)
+                    target
                 }
+                PreparedCalibration(result, transformed, modelFile, placement)
+            }.onSuccess { prepared ->
+                CalibrationSliceState.activate(spec.type, prepared.result.levelValues.first())
+                sourceMesh = prepared.result.mesh
+                importedScene = null
+                plannedCalibrationEvents = prepared.result.plannedEvents
                 _uiState.update { current ->
                     current.copy(
-                        settings = settings,
-                        mesh = placement.transformed(result.mesh),
-                        modelPath = modelFile.absolutePath,
-                        modelPlacement = placement,
+                        mesh = prepared.transformed,
+                        modelPath = prepared.modelFile.absolutePath,
+                        modelPlacement = prepared.placement,
                         importedSceneTransformAvailable = false,
                         importedSceneModelName = null,
                         gcodePath = null,
                         baseGcodePath = null,
                         layerPreview = null,
                         layerEvents = emptyList(),
-                        calibrationDescription = result.description,
+                        calibrationDescription = prepared.result.description,
                         estimatedPrintSeconds = null,
                         sliceLogPath = null,
                         sliceDurationMilliseconds = null,
                         isBusy = false,
-                        statusMessage = buildString {
-                            append("Generated ${result.description}; slice to create the stepped calibration G-code")
-                            if (result.requiresFirmwareRetraction) append(" · firmware retraction enabled")
-                        },
+                        statusMessage = "Generated ${prepared.result.description}; slice to create the stepped calibration G-code",
                     )
                 }
-            }.onFailure(::showFailure)
+                previousModelPath
+                    ?.takeIf { it != prepared.modelFile.absolutePath }
+                    ?.let(::File)
+                    ?.takeIf { it.parentFile == prepared.modelFile.parentFile }
+                    ?.delete()
+            }.onFailure(::showOperationFailure)
         }
     }
 
@@ -396,8 +438,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             showEventFailure(IllegalStateException("Slice the model before editing layer events"))
             return
         }
+        if (!beginOperation("Applying layer events…")) return
         viewModelScope.launch {
-            busy("Applying layer events…")
             runCatching {
                 withContext(Dispatchers.IO) { engine.applyLayerEvents(File(basePath), events) }
             }.onSuccess { result ->
@@ -418,12 +460,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun exportGcode(uri: Uri) {
         val sourcePath = _uiState.value.gcodePath
         if (sourcePath == null) {
-            showFailure(IllegalStateException("Slice the model before exporting G-code"))
+            showOperationFailure(IllegalStateException("Slice the model before exporting G-code"))
             return
         }
 
+        if (!beginOperation("Exporting G-code…")) return
         viewModelScope.launch {
-            busy("Exporting G-code…")
             runCatching {
                 withContext(Dispatchers.IO) {
                     val source = File(sourcePath)
@@ -434,13 +476,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }.onSuccess {
                 _uiState.update { it.copy(isBusy = false, statusMessage = "G-code exported") }
-            }.onFailure(::showFailure)
+            }.onFailure(::showOperationFailure)
         }
     }
 
     fun exportConfiguration(uri: Uri) {
+        if (!beginOperation("Exporting configuration…")) return
         viewModelScope.launch {
-            busy("Exporting configuration…")
             runCatching {
                 withContext(Dispatchers.IO) {
                     val snapshot = configurationJson(_uiState.value)
@@ -450,7 +492,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }.onSuccess {
                 _uiState.update { it.copy(isBusy = false, statusMessage = "Configuration exported") }
-            }.onFailure(::showFailure)
+            }.onFailure(::showOperationFailure)
         }
     }
 
@@ -461,28 +503,34 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val original = sourceMesh
         val current = _uiState.value.modelPlacement
         if (original == null || current == null) {
-            showFailure(IllegalStateException("Import an STL before changing model placement"))
+            showOperationFailure(IllegalStateException("Import an STL before changing model placement"))
             return
         }
-        runCatching {
-            val changed = transform(current, original)
-            changed to changed.transformed(original)
-        }.onSuccess { (changed, transformed) ->
-            _uiState.update {
-                it.copy(
-                    mesh = transformed,
-                    modelPlacement = changed,
-                    gcodePath = null,
-                    baseGcodePath = null,
-                    layerPreview = null,
-                    layerEvents = emptyList(),
-                    estimatedPrintSeconds = null,
-                    sliceLogPath = null,
-                    sliceDurationMilliseconds = null,
-                    statusMessage = "$message; slice again to export G-code",
-                )
-            }
-        }.onFailure(::showFailure)
+        if (!beginOperation("Updating model placement…")) return
+        viewModelScope.launch {
+            runCatching {
+                withContext(Dispatchers.Default) {
+                    val changed = transform(current, original)
+                    changed to changed.transformed(original)
+                }
+            }.onSuccess { (changed, transformed) ->
+                _uiState.update { state ->
+                    state.copy(
+                        mesh = transformed,
+                        modelPlacement = changed,
+                        gcodePath = null,
+                        baseGcodePath = null,
+                        layerPreview = null,
+                        layerEvents = emptyList(),
+                        estimatedPrintSeconds = null,
+                        sliceLogPath = null,
+                        sliceDurationMilliseconds = null,
+                        isBusy = false,
+                        statusMessage = "$message; slice again to export G-code",
+                    )
+                }
+            }.onFailure(::showOperationFailure)
+        }
     }
 
     private fun restorePersistedState() {
@@ -565,12 +613,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun commitImportedConfig(pending: PendingImport) {
+    private suspend fun commitImportedConfig(pending: PendingImport) {
         runCatching {
             stateStore.commitImport(pending.stagedFile, pending.kind, pending.displayName)
             stateStore.clearSavedSettings()
         }.onFailure {
-            showFailure(it)
+            showOperationFailure(it)
             return
         }
         importedScene = pending.scene
@@ -584,7 +632,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
 
-    private fun applyImportedConfig(
+    private suspend fun applyImportedConfig(
         config: ImportedCuraConfig,
         settings: SlicerSettings,
         scene: CuraProjectScene?,
@@ -597,6 +645,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             original != null && scene?.affine != null && modelNamesMatch(scene.modelName, original.displayName)
         ) {
             ModelPlacement.from3mf(original, scene.affine, scene.dropToBuildPlate)
+        } else {
+            null
+        }
+        val transformed = if (autoPlacement != null && original != null) {
+            withContext(Dispatchers.Default) { autoPlacement.transformed(original) }
         } else {
             null
         }
@@ -626,7 +679,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 engineProfile = config.engineProfile,
                 startGcode = config.startGcode ?: current.startGcode,
                 endGcode = config.endGcode ?: current.endGcode,
-                mesh = if (autoPlacement != null && original != null) autoPlacement.transformed(original) else current.mesh,
+                mesh = transformed ?: current.mesh,
                 modelPlacement = autoPlacement ?: current.modelPlacement,
                 importedSceneTransformAvailable = scene?.affine != null,
                 importedSceneModelName = scene?.modelName,
@@ -651,29 +704,36 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun materializeModel(uri: Uri, maxTriangles: Int): File {
         val directory = File(app.filesDir, "models").apply { mkdirs() }
-        val target = File(directory, "current.stl")
-        val temporary = File(directory, "current.stl.tmp")
+        val target = File(directory, "model-${System.nanoTime()}.stl")
+        val temporary = File(directory, "${target.name}.tmp")
         val maxBytes = MeshTriangleLimits.maxInputFileBytes(maxTriangles)
         temporary.delete()
-        app.contentResolver.openInputStream(uri)?.buffered()?.use { input ->
-            temporary.outputStream().buffered().use { output ->
-                val buffer = ByteArray(128 * 1024)
-                var total = 0L
-                while (true) {
-                    val count = input.read(buffer)
-                    if (count < 0) break
-                    total += count
-                    require(total <= maxBytes) {
-                        "STL is larger than ${MeshTriangleLimits.formatBytes(maxBytes)} for the ${MeshTriangleLimits.formatCount(maxTriangles)}-triangle limit"
+        try {
+            app.contentResolver.openInputStream(uri)?.buffered()?.use { input ->
+                temporary.outputStream().buffered().use { output ->
+                    val buffer = ByteArray(128 * 1024)
+                    var total = 0L
+                    while (true) {
+                        val count = input.read(buffer)
+                        if (count < 0) break
+                        total += count
+                        require(total <= maxBytes) {
+                            "STL is larger than ${MeshTriangleLimits.formatBytes(maxBytes)} for the ${MeshTriangleLimits.formatCount(maxTriangles)}-triangle limit"
+                        }
+                        output.write(buffer, 0, count)
                     }
-                    output.write(buffer, 0, count)
                 }
+            } ?: error("Unable to copy the selected STL")
+            check(temporary.length() > 0L) { "The selected STL is empty" }
+            check(temporary.renameTo(target) || temporary.copyTo(target, overwrite = false).let { temporary.delete(); true }) {
+                "Unable to store the selected STL locally"
             }
-        } ?: error("Unable to copy the selected STL")
-        check(temporary.length() > 0L) { "The selected STL is empty" }
-        if (target.exists()) target.delete()
-        check(temporary.renameTo(target)) { "Unable to store the selected STL locally" }
-        return target
+            return target
+        } catch (error: Throwable) {
+            temporary.delete()
+            target.delete()
+            throw error
+        }
     }
 
     private fun modelNamesMatch(projectName: String?, stlName: String): Boolean {
@@ -687,33 +747,37 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         return normalize(projectName) == normalize(stlName)
     }
 
-    private fun busy(message: String) {
+    private fun beginOperation(message: String): Boolean {
+        if (_uiState.value.isBusy) return false
         _uiState.update { it.copy(isBusy = true, statusMessage = message) }
+        return true
     }
 
-    private fun showFailure(error: Throwable) {
-        _uiState.update {
-            it.copy(
+    private fun showOperationFailure(error: Throwable) {
+        _uiState.update { current ->
+            current.copy(
+                isBusy = false,
+                statusMessage = error.message ?: error::class.java.simpleName,
+            )
+        }
+    }
+
+    private fun showSliceFailure(error: Throwable) {
+        _uiState.update { current ->
+            current.copy(
                 isBusy = false,
                 gcodePath = null,
                 baseGcodePath = null,
                 layerPreview = null,
                 layerEvents = emptyList(),
                 estimatedPrintSeconds = null,
-                sliceLogPath = (error as? CuraEngineRunner.SliceException)?.logFile?.absolutePath ?: it.sliceLogPath,
+                sliceLogPath = (error as? CuraEngineRunner.SliceException)?.logFile?.absolutePath ?: current.sliceLogPath,
                 statusMessage = error.message ?: error::class.java.simpleName,
             )
         }
     }
 
-    private fun showEventFailure(error: Throwable) {
-        _uiState.update {
-            it.copy(
-                isBusy = false,
-                statusMessage = error.message ?: error::class.java.simpleName,
-            )
-        }
-    }
+    private fun showEventFailure(error: Throwable) = showOperationFailure(error)
 
     private fun retainReadPermission(uri: Uri) {
         runCatching {

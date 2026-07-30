@@ -1,17 +1,21 @@
 # Calibration audit
 
-This branch fixes the calibration-generator issues found while inspecting a generated firmware-retraction G-code file.
+The calibration pipeline uses compact support-free models, inserts the requested firmware or slicer value at each section, and keeps ordinary printer/profile behavior unless it directly invalidates the selected test.
 
 - Compact defaults: 4 mm sections and 16 mm nominal width.
 - Smaller bases for temperature and fan models.
-- Calibration-only support, adaptive-layer, arc-overhang, ironing and coasting overrides; normal adhesion settings remain available.
-- Cura minimum-layer-time slowdown is disabled only for calibration slices, so compact speed tests exercise the requested speed rather than a cooling throttle.
-- Temperature tests start at their requested first temperature.
-- Fan tests own fan commands after the first calibration event instead of being overwritten by Cura cooling/bridge commands.
-- Retraction tests force real retracting travel between isolated posts by disabling combing and the minimum-travel gate for that temporary slice.
+- Generated support and support-interface material are disabled for every calibration model.
+- Overrides are type-specific rather than globally disabling core print behavior.
+- Temperature tests disable adaptive layers and arc-overhang replacement, retain normal cooling/coasting, and start at the requested first temperature.
+- Flow tests disable adaptive layers, ironing and coasting so wall extrusion remains measurable; other profile behavior remains active.
+- Speed tests disable adaptive layers and Cura minimum-layer-time slowdown so the requested speed factor can actually be reached.
+- Fan tests disable adaptive layers, arc-overhang replacement and minimum-layer-time slowdown, and own fan commands after the first event instead of being overwritten by Cura cooling or bridge commands.
+- Retraction tests retain profile cooling, coasting, wipe, hop and travel behavior. They force firmware retraction, allow short travel to retract, and disable combing so every post-to-post move exercises the selected M207 distance.
+- Pressure-advance tests reuse the isolated-post model, disable adaptive layers, coasting and minimum-layer-time slowdown, and step Marlin `M900 K`.
+- Junction-deviation tests reuse the sharp-corner speed star, disable adaptive layers and minimum-layer-time slowdown, and step Marlin `M205 J`.
 - Empty Cura transition layers are skipped when resolving calibration heights.
 - M207 changes are deferred until after a matching G11 when Cura ended the previous layer with G10.
-- Speed and flow factors are restored to 100% at EOF, fan is forced off, and retraction restores the configured M207 distance/speed.
-- Firmware retraction for the generated retraction model remains slice-local instead of being written into the user's persisted printer/profile settings.
-- Calibration mode is armed only after the generated geometry validates successfully.
-- Regression coverage includes event ordering, empty layers, fan ownership, forced retraction travel, modifier restoration and compact geometry.
+- Speed and flow factors are restored to 100% at EOF; fan is forced off; retraction restores the configured M207 distance/speed; pressure advance and junction deviation restore their first requested values.
+- Firmware retraction for the generated retraction model remains slice-local instead of being written into persisted printer/profile settings.
+- Calibration mode is armed only after generated geometry validates successfully.
+- Regression coverage includes event ordering, empty layers, fan ownership, type-specific override policies, firmware-state restoration, intentional geometry reuse and compact geometry.

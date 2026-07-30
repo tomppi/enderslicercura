@@ -1,6 +1,5 @@
 package com.tomppi.enderslicer.viewer
 
-import com.tomppi.enderslicer.calibration.CalibrationSliceState
 import com.tomppi.enderslicer.mesh.MeshTriangleLimits
 import java.io.File
 import java.io.RandomAccessFile
@@ -15,7 +14,6 @@ object StlParser {
         displayName: String = file.name,
         maxTriangles: Int = MeshTriangleLimits.current(),
     ): StlMesh {
-        CalibrationSliceState.clear()
         require(file.isFile && file.length() > 0L) { "The selected STL is empty or unavailable" }
         val limit = MeshTriangleLimits.sanitize(maxTriangles)
         require(file.length() <= MeshTriangleLimits.maxInputFileBytes(limit)) {

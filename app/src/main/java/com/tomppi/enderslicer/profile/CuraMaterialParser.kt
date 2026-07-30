@@ -2,20 +2,10 @@ package com.tomppi.enderslicer.profile
 
 import org.w3c.dom.Element
 import java.io.ByteArrayInputStream
-import javax.xml.parsers.DocumentBuilderFactory
 
 internal object CuraMaterialParser {
     fun parse(xml: String, machineProduct: String?): Map<String, String> {
-        val factory = DocumentBuilderFactory.newInstance().apply {
-            isNamespaceAware = true
-            runCatching { setFeature("http://apache.org/xml/features/disallow-doctype-decl", true) }
-            runCatching { setFeature("http://xml.org/sax/features/external-general-entities", false) }
-            runCatching { setFeature("http://xml.org/sax/features/external-parameter-entities", false) }
-            runCatching { setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false) }
-            runCatching { setAttribute("http://javax.xml.XMLConstants/property/accessExternalDTD", "") }
-            runCatching { setAttribute("http://javax.xml.XMLConstants/property/accessExternalSchema", "") }
-        }
-        val document = factory.newDocumentBuilder()
+        val document = SecureXml.factory().newDocumentBuilder()
             .parse(ByteArrayInputStream(xml.toByteArray(Charsets.UTF_8)))
         val result = linkedMapOf<String, String>()
 

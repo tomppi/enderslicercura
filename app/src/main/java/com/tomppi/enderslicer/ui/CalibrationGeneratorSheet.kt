@@ -86,7 +86,7 @@ internal fun CalibrationGeneratorSheet(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Text(
-            "Calibration slices disable generated support, adaptive layers, arc overhangs, ironing, coasting and Cura's minimum-layer-time slowdown so the requested test value is what is actually being exercised.",
+            "Calibration slices keep normal profile behavior unless it directly invalidates the selected test. Support, adaptive layers, arc overhangs and ironing are disabled; speed-sensitive tests also bypass minimum-layer-time slowdown.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.primary,
         )
@@ -103,12 +103,23 @@ internal fun CalibrationGeneratorSheet(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        if (type == CalibrationTestType.RETRACTION) {
-            Text(
-                "This model changes M207 firmware-retraction distance. Firmware retraction is enabled only for this calibration slice.",
+        when (type) {
+            CalibrationTestType.RETRACTION -> Text(
+                "This model changes M207 firmware-retraction distance. Firmware retraction is enabled only for this slice, while your normal cooling, coasting, combing, wipe, hop and travel settings remain active.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            CalibrationTestType.PRESSURE_ADVANCE -> Text(
+                "This model changes Marlin Linear Advance with M900 K. The firmware must be built with LIN_ADVANCE or FT_MOTION support. The first K value is restored after the print.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            CalibrationTestType.JUNCTION_DEVIATION -> Text(
+                "This model changes Marlin junction deviation with M205 J. It only applies when the firmware uses junction deviation instead of CLASSIC_JERK. The first value is restored after the print.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            else -> Unit
         }
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
             Button(
