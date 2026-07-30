@@ -50,6 +50,23 @@ class CuraInputSecurityTest {
     }
 
     @Test
+    fun ignoredEntriesDoNotConsumeAcceptedDataLimit() {
+        val archive = zip(
+            "ignored.bin" to "x".repeat(512),
+            "Cura/a.cfg" to "hello",
+        )
+
+        val entries = CuraArchive.readTextEntries(
+            input = ByteArrayInputStream(archive),
+            maximumEntryBytes = 16,
+            maximumTotalBytes = 16,
+            accept = { it.startsWith("Cura/") },
+        )
+
+        assertEquals(mapOf("Cura/a.cfg" to "hello"), entries)
+    }
+
+    @Test
     fun secureXmlRejectsDoctypeEntities() {
         val xml = """
             <?xml version="1.0"?>
