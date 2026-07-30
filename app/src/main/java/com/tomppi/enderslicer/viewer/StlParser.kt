@@ -1,6 +1,5 @@
 package com.tomppi.enderslicer.viewer
 
-import com.tomppi.enderslicer.calibration.CalibrationSliceState
 import com.tomppi.enderslicer.mesh.MeshTriangleLimits
 import java.io.File
 import java.io.RandomAccessFile
@@ -22,7 +21,7 @@ object StlParser {
         }
 
         val binaryCount = binaryTriangleCount(file)
-        val parsed = if (binaryCount != null) {
+        return if (binaryCount != null) {
             require(binaryCount in 1L..limit.toLong()) {
                 "STL contains ${MeshTriangleLimits.formatCount(binaryCount)} triangles; the current limit is ${MeshTriangleLimits.formatCount(limit)}"
             }
@@ -30,11 +29,6 @@ object StlParser {
         } else {
             parseAscii(displayName, file, limit)
         }
-        // A failed import must leave the currently loaded calibration model fully
-        // functional. Clear its temporary state only after a replacement STL has
-        // been parsed and is safe to commit.
-        CalibrationSliceState.clear()
-        return parsed
     }
 
     internal fun binaryTriangleCount(file: File): Long? {
