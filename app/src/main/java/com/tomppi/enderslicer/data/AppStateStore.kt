@@ -22,11 +22,28 @@ class AppStateStore(context: Context) {
     fun stageImport(input: InputStream): File {
         val temporary = File(stateDirectory, "current-cura-import.tmp")
         temporary.delete()
-        input.buffered().use { source ->
-            temporary.outputStream().buffered().use { destination -> source.copyTo(destination) }
+        try {
+            input.buffered().use { source ->
+                temporary.outputStream().buffered().use { destination ->
+                    val buffer = ByteArray(128 * 1024)
+                    var total = 0L
+                    while (true) {
+                        val count = source.read(buffer)
+                        if (count < 0) break
+                        total += count
+                        require(total <= MAX_CURA_IMPORT_BYTES) {
+                            "The imported Cura file exceeds the 128 MiB safety limit"
+                        }
+                        destination.write(buffer, 0, count)
+                    }
+                }
+            }
+            check(temporary.isFile && temporary.length() > 0L) { "The imported Cura file is empty" }
+            return temporary
+        } catch (error: Throwable) {
+            temporary.delete()
+            throw error
         }
-        check(temporary.isFile && temporary.length() > 0L) { "The imported Cura file is empty" }
-        return temporary
     }
 
     fun commitImport(staged: File, kind: String, displayName: String) {
@@ -285,5 +302,6 @@ class AppStateStore(context: Context) {
         private const val KEY_IMPORT_NAME = "import-name"
         private const val KEY_SETTINGS = "settings-json"
         private const val KEY_OVERRIDES_JSON = "overrides"
+        private const val MAX_CURA_IMPORT_BYTES = 128L * 1024L * 1024L
     }
 }
