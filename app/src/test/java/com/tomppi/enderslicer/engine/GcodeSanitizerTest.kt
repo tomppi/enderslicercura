@@ -1,5 +1,6 @@
 package com.tomppi.enderslicer.engine
 
+import com.tomppi.enderslicer.BuildConfig
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -63,6 +64,26 @@ class GcodeSanitizerTest {
     }
 
     @Test
+    fun rejectsLowercaseTabSeparatedUnsafeExtrusion() {
+        val file = temporaryGcode(
+            listOf(
+                ";FLAVOR:Marlin",
+                ";LAYER_COUNT:1",
+                "m82",
+                "m104\ts137.4",
+                ";LAYER:0",
+                ";MESH:model.stl",
+                "g1\tx10\ty20\tz0.2\te1",
+                ";TIME_ELAPSED:1",
+            ).joinToString("\n"),
+        )
+
+        val error = runCatching { GcodeSanitizer.validateAndRepair(file) }.exceptionOrNull()
+        assertTrue(error is GcodeSanitizer.UnsafeGcodeException)
+        assertTrue(error?.message.orEmpty().contains("137.4"))
+    }
+
+    @Test
     fun repairsBoundsFromModelButFilamentFromWholePrintAndStampsFallbackBuild() {
         val file = temporaryGcode(
             """
@@ -114,7 +135,7 @@ class GcodeSanitizerTest {
         assertEquals(120.0, summary.maxX!!, 0.0)
         assertEquals(130.0, summary.maxY!!, 0.0)
         assertEquals(0.4, summary.maxZ!!, 0.0)
-        assertTrue(output.startsWith(";FLAVOR:Marlin\r\n;ENDERSLICER_VERSION:0.5.13-dev\r\n"))
+        assertTrue(output.startsWith(";FLAVOR:Marlin\r\n;ENDERSLICER_VERSION:${BuildConfig.VERSION_NAME}\r\n"))
         assertTrue(output.contains(";ENDERSLICER_COORDINATE_TRANSPORT:original-stl-full-affine-pre-round"))
         assertTrue(output.contains(";ENDERSLICER_SETTINGS_TRANSPORT:fallback-command"))
         assertTrue(output.contains(";TIME:43"))
