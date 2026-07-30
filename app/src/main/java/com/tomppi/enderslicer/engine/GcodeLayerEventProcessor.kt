@@ -40,9 +40,10 @@ object GcodeLayerEventProcessor {
             .onEach(::validate)
             .groupBy(LayerEvent::layerNumber)
             .mapValues { (_, values) -> values.sortedWith(compareBy(LayerEvent::source, LayerEvent::id)) }
+        val eventTypes = events.mapTo(linkedSetOf(), LayerEvent::type)
         val calibrationTypes = events
             .filter { it.source == LayerEventSource.CALIBRATION }
-            .mapTo(linkedSetOf()) { it.type }
+            .mapTo(linkedSetOf(), LayerEvent::type)
         val fanCalibration = LayerEventType.FAN_SPEED in calibrationTypes
 
         destination.parentFile?.mkdirs()
@@ -70,12 +71,11 @@ object GcodeLayerEventProcessor {
 
             baseFile.bufferedReader().useLines { lines ->
                 lines.forEach { line ->
-                    val command = line.substringBefore(';').trim()
-                    val opcode = command.substringBefore(' ').uppercase(Locale.US)
+                    val opcode = GcodeCommand.parse(line)?.opcode
 
                     // Cura cannot know about fan changes inserted after slicing.
-                    // Once a fan calibration begins, its M106/M107 events own the
-                    // fan until the safety shutdown written at EOF.
+                    // Once a fan calibration begins, its events own the fan until
+                    // the safety shutdown written at EOF.
                     if (fanCalibration && calibrationFanStarted && (opcode == "M106" || opcode == "M107")) {
                         return@forEach
                     }
@@ -114,14 +114,13 @@ object GcodeLayerEventProcessor {
             // Keep it visible in the output rather than silently dropping it.
             deferredRetraction.forEach(::writeEvent)
 
-            // Calibration modifiers are firmware state, not file-local state.
-            // Restore safe/default values after the print so the calibration
-            // cannot leak into the next file printed from the same machine.
-            if (LayerEventType.SPEED_FACTOR in calibrationTypes) {
+            // M220 and M221 are persistent printer state regardless of whether
+            // they came from a generated calibration or a manually added event.
+            if (LayerEventType.SPEED_FACTOR in eventTypes) {
                 writer.write("M220 S100 ; enderslicercura restore speed factor")
                 writer.newLine()
             }
-            if (LayerEventType.FLOW_FACTOR in calibrationTypes) {
+            if (LayerEventType.FLOW_FACTOR in eventTypes) {
                 writer.write("M221 S100 ; enderslicercura restore flow factor")
                 writer.newLine()
             }
@@ -235,8 +234,9 @@ object GcodeLayerEventProcessor {
             }
             require(!line.startsWith(";LAYER:", ignoreCase = true)) { "Custom G-code cannot create layer markers" }
             require(!line.startsWith(";ENDERSLICER", ignoreCase = true)) { "Custom G-code cannot create EnderSlicer markers" }
-            val opcode = line.substringBefore(' ').substringBefore(';').uppercase(Locale.US)
-            require(opcode !in BLOCKED_OPCODES) { "$opcode is blocked inside layer events" }
+            GcodeCommand.parse(line)?.opcode?.let { opcode ->
+                require(opcode !in BLOCKED_OPCODES) { "$opcode is blocked inside layer events" }
+            }
         }
         return lines
     }
