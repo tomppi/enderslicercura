@@ -1,6 +1,7 @@
 package com.tomppi.enderslicer.calibration
 
 import com.tomppi.enderslicer.engine.PlannedLayerEvent
+import java.math.BigDecimal
 import java.util.Locale
 import kotlin.math.PI
 import kotlin.math.cos
@@ -18,7 +19,14 @@ object CalibrationTowerGenerator {
         require(spec.levels in 2..20) { "Calibration tower levels must be between 2 and 20" }
         require(spec.sectionHeightMm in 3.0..30.0) { "Section height must be between 3 and 30 mm" }
         require(spec.towerWidthMm in 12.0..45.0) { "Tower width must be between 12 and 45 mm" }
-        val values = List(spec.levels) { index -> spec.startValue + spec.stepValue * index }
+        val start = BigDecimal.valueOf(spec.startValue)
+        val step = BigDecimal.valueOf(spec.stepValue)
+        val values = List(spec.levels) { index ->
+            start
+                .add(step.multiply(BigDecimal.valueOf(index.toLong())))
+                .stripTrailingZeros()
+                .toDouble()
+        }
         values.forEach { value ->
             require(value in spec.type.minimum..spec.type.maximum) {
                 "${spec.type.displayName} value ${format(value)} ${spec.type.unit} is outside ${spec.type.minimum}..${spec.type.maximum}"
