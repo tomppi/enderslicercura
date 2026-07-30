@@ -36,7 +36,7 @@ internal object GcodeCommand {
 
     private val LINE_NUMBER = Regex("^[Nn]\\d+\\s*")
     private val OPCODE = Regex("^[A-Za-z][+-]?\\d+(?:\\.\\d+)?")
-    private val PARAMETER = Regex(
-        "([A-Za-z])\\s*([+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?)",
-    )
+    // Scientific notation is intentionally excluded here: in compact G-code,
+    // E starts the extrusion parameter (for example Y-2E1.25), not an exponent.
+    private val PARAMETER = Regex("([A-Za-z])\\s*([+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+))")
 }
