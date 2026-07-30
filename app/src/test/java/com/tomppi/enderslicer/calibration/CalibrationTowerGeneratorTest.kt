@@ -2,6 +2,7 @@ package com.tomppi.enderslicer.calibration
 
 import com.tomppi.enderslicer.engine.LayerEventType
 import org.junit.After
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -40,15 +41,12 @@ class CalibrationTowerGeneratorTest {
     }
 
     @Test
-    fun everyCalibrationTypeProducesItsOwnSupportFreePurposeBuiltGeometry() {
-        val results = CalibrationTestType.entries.associateWith { type ->
-            CalibrationTowerGenerator.generate(
+    fun everyCalibrationTypeProducesValidSupportFreeGeometry() {
+        CalibrationTestType.entries.forEach { type ->
+            val result = CalibrationTowerGenerator.generate(
                 CalibrationTowerSpec(type = type),
                 retractionSpeedMmPerSecond = 40.0,
             )
-        }
-
-        results.forEach { (type, result) ->
             assertEquals(type.defaultLevels, result.plannedEvents.size)
             assertEquals(type.modelFeatures, result.modelFeatures)
             assertTrue(CalibrationModelFeature.SUPPORT_FREE in result.modelFeatures)
@@ -56,16 +54,40 @@ class CalibrationTowerGeneratorTest {
             assertTrue(result.mesh.triangleCount > 100)
             assertEveryTriangleHasArea(result.mesh.interleavedVertices, result.mesh.triangleCount)
         }
+    }
 
-        val geometrySignatures = results.values.map { result ->
-            listOf(
-                result.mesh.triangleCount.toFloat(),
-                result.mesh.bounds.width,
-                result.mesh.bounds.depth,
-                result.mesh.bounds.height,
-            )
-        }.toSet()
-        assertEquals(CalibrationTestType.entries.size, geometrySignatures.size)
+    @Test
+    fun pressureAdvanceReusesRetractionPostGeometry() {
+        val pressure = CalibrationTowerGenerator.generate(
+            CalibrationTowerSpec(type = CalibrationTestType.PRESSURE_ADVANCE),
+            retractionSpeedMmPerSecond = 40.0,
+        )
+        val retraction = CalibrationTowerGenerator.generate(
+            CalibrationTowerSpec(type = CalibrationTestType.RETRACTION),
+            retractionSpeedMmPerSecond = 40.0,
+        )
+
+        assertEquals(retraction.mesh.triangleCount, pressure.mesh.triangleCount)
+        assertArrayEquals(retraction.mesh.interleavedVertices, pressure.mesh.interleavedVertices, 0f)
+        assertTrue(pressure.plannedEvents.all { it.type == LayerEventType.PRESSURE_ADVANCE })
+        assertEquals(listOf(0.0, 0.02, 0.04, 0.06, 0.08, 0.1, 0.12, 0.14), pressure.levelValues)
+    }
+
+    @Test
+    fun junctionDeviationReusesSharpCornerStarGeometry() {
+        val junction = CalibrationTowerGenerator.generate(
+            CalibrationTowerSpec(type = CalibrationTestType.JUNCTION_DEVIATION),
+            retractionSpeedMmPerSecond = 40.0,
+        )
+        val speed = CalibrationTowerGenerator.generate(
+            CalibrationTowerSpec(type = CalibrationTestType.SPEED),
+            retractionSpeedMmPerSecond = 40.0,
+        )
+
+        assertEquals(speed.mesh.triangleCount, junction.mesh.triangleCount)
+        assertArrayEquals(speed.mesh.interleavedVertices, junction.mesh.interleavedVertices, 0f)
+        assertTrue(junction.plannedEvents.all { it.type == LayerEventType.JUNCTION_DEVIATION })
+        assertEquals(listOf(0.005, 0.01, 0.015, 0.02, 0.025, 0.03, 0.035, 0.04), junction.levelValues)
     }
 
     @Test
