@@ -131,6 +131,18 @@ object GcodeLayerEventProcessor {
                     writer.newLine()
                 }
             }
+            if (LayerEventType.PRESSURE_ADVANCE in calibrationTypes) {
+                CalibrationSliceState.pressureAdvanceRestoreCommand()?.let { command ->
+                    writer.write("$command ; enderslicercura restore pressure advance")
+                    writer.newLine()
+                }
+            }
+            if (LayerEventType.JUNCTION_DEVIATION in calibrationTypes) {
+                CalibrationSliceState.junctionDeviationRestoreCommand()?.let { command ->
+                    writer.write("$command ; enderslicercura restore junction deviation")
+                    writer.newLine()
+                }
+            }
             if (fanCalibration && calibrationFanStarted) {
                 writer.write("M107 ; enderslicercura fan calibration safety shutdown")
                 writer.newLine()
@@ -169,6 +181,8 @@ object GcodeLayerEventProcessor {
             LayerEventType.RETRACTION -> listOf(
                 "M207 S${format(requireNotNull(event.value))} F${format(requireNotNull(event.secondaryValue) * 60.0)}",
             )
+            LayerEventType.PRESSURE_ADVANCE -> listOf("M900 K${format(requireNotNull(event.value))}")
+            LayerEventType.JUNCTION_DEVIATION -> listOf("M205 J${format(requireNotNull(event.value))}")
 
             LayerEventType.CAMERA_TRIGGER -> listOf("M240")
             LayerEventType.MESSAGE -> listOf("M117 ${safeMessage(event.text)}")
@@ -193,6 +207,8 @@ object GcodeLayerEventProcessor {
                 val speed = requireNotNull(event.secondaryValue) { "Retraction event requires a speed" }
                 require(speed in 0.1..1000.0) { "Retraction speed is outside 0.1..1000 mm/s" }
             }
+            LayerEventType.PRESSURE_ADVANCE -> requireValue(event, 0.0, 10.0, "pressure advance K")
+            LayerEventType.JUNCTION_DEVIATION -> requireValue(event, 0.0, 1.0, "junction deviation")
 
             LayerEventType.MESSAGE -> require(safeMessage(event.text).isNotBlank()) { "Display message cannot be blank" }
             LayerEventType.CUSTOM_GCODE -> customLines(event.text)
