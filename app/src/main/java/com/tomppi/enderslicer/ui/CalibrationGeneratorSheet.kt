@@ -103,12 +103,23 @@ internal fun CalibrationGeneratorSheet(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        if (type == CalibrationTestType.RETRACTION) {
-            Text(
+        when (type) {
+            CalibrationTestType.RETRACTION -> Text(
                 "This model changes M207 firmware-retraction distance. Firmware retraction is enabled only for this calibration slice.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            CalibrationTestType.PRESSURE_ADVANCE -> Text(
+                "This model changes Marlin Linear Advance with M900 K. The firmware must be built with LIN_ADVANCE or FT_MOTION support. The first K value is restored after the print.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            CalibrationTestType.JUNCTION_DEVIATION -> Text(
+                "This model changes Marlin junction deviation with M205 J. It only applies when the firmware uses junction deviation instead of CLASSIC_JERK. The first value is restored after the print.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            else -> Unit
         }
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
             Button(
