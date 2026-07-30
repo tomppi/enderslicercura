@@ -86,7 +86,7 @@ internal fun CalibrationGeneratorSheet(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Text(
-            "Calibration slices disable generated support, adaptive layers, arc overhangs, ironing, coasting and Cura's minimum-layer-time slowdown so the requested test value is what is actually being exercised.",
+            "Calibration slices keep normal profile behavior unless it directly invalidates the selected test. Support, adaptive layers, arc overhangs and ironing are disabled; speed-sensitive tests also bypass minimum-layer-time slowdown.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.primary,
         )
@@ -105,7 +105,7 @@ internal fun CalibrationGeneratorSheet(
         }
         when (type) {
             CalibrationTestType.RETRACTION -> Text(
-                "This model changes M207 firmware-retraction distance. Firmware retraction is enabled only for this calibration slice.",
+                "This model changes M207 firmware-retraction distance. Firmware retraction is enabled only for this slice, while your normal cooling, coasting, combing, wipe, hop and travel settings remain active.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
