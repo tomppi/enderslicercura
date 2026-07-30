@@ -3,9 +3,9 @@ package com.tomppi.enderslicer.engine
 import java.util.Locale
 
 /**
- * Small, allocation-bounded parser for the command forms Cura and user G-code
- * normally emit. It accepts mixed case, tabs, repeated whitespace, optional
- * RepRap line numbers and trailing checksums.
+ * Small parser for command forms Cura, Marlin and user G-code commonly emit.
+ * It accepts mixed case, tabs, repeated or absent parameter whitespace,
+ * optional RepRap line numbers, and trailing checksums.
  */
 internal object GcodeCommand {
     data class Parsed(
@@ -16,29 +16,27 @@ internal object GcodeCommand {
     }
 
     fun parse(rawLine: String): Parsed? {
-        val command = rawLine.substringBefore(';').substringBefore('*').trim()
+        var command = rawLine.substringBefore(';').substringBefore('*').trim()
         if (command.isEmpty()) return null
 
-        val tokens = command.split(WHITESPACE).filter(String::isNotEmpty)
-        if (tokens.isEmpty()) return null
-        var opcodeIndex = 0
-        if (LINE_NUMBER.matches(tokens[0])) opcodeIndex++
-        if (opcodeIndex >= tokens.size) return null
-
-        val opcode = tokens[opcodeIndex].uppercase(Locale.US)
-        if (!OPCODE.matches(opcode)) return null
+        LINE_NUMBER.find(command)?.takeIf { it.range.first == 0 }?.let { match ->
+            command = command.substring(match.range.last + 1).trimStart()
+        }
+        val opcodeMatch = OPCODE.find(command)?.takeIf { it.range.first == 0 } ?: return null
+        val opcode = opcodeMatch.value.uppercase(Locale.US)
         val parameters = linkedMapOf<Char, Double>()
-        for (index in opcodeIndex + 1 until tokens.size) {
-            val token = tokens[index]
-            if (token.length < 2 || !token[0].isLetter()) continue
-            token.substring(1).toDoubleOrNull()?.let { value ->
-                if (value.isFinite()) parameters[token[0].uppercaseChar()] = value
-            }
+        val remainder = command.substring(opcodeMatch.range.last + 1)
+        PARAMETER.findAll(remainder).forEach { match ->
+            val letter = match.groupValues[1].single().uppercaseChar()
+            val value = match.groupValues[2].toDoubleOrNull()
+            if (value != null && value.isFinite()) parameters[letter] = value
         }
         return Parsed(opcode, parameters)
     }
 
-    private val WHITESPACE = Regex("\\s+")
-    private val LINE_NUMBER = Regex("[Nn]\\d+")
-    private val OPCODE = Regex("[A-Z][0-9]+(?:\\.[0-9]+)?")
+    private val LINE_NUMBER = Regex("^[Nn]\\d+\\s*")
+    private val OPCODE = Regex("^[A-Za-z][+-]?\\d+(?:\\.\\d+)?")
+    private val PARAMETER = Regex(
+        "([A-Za-z])\\s*([+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?)",
+    )
 }
