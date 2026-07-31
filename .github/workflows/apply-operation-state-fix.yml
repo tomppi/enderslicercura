@@ -1,0 +1,32 @@
+name: Apply operation state fix
+
+on:
+  push:
+    branches:
+      - agent/full-octoprint-integration
+    paths:
+      - scripts/apply_operation_state_fix.py
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/full-octoprint-integration
+          fetch-depth: 0
+      - name: Apply operation state fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! -f scripts/apply_operation_state_fix.py ]]; then exit 0; fi
+          python3 scripts/apply_operation_state_fix.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm -- scripts/apply_operation_state_fix.py
+          git add -- app/src/main/java/com/tomppi/enderslicer/octoprint/OctoPrintRepository.kt docs/bug-audit.md
+          git commit -m "Fix OctoPrint concurrent operation state"
+          git push origin HEAD:agent/full-octoprint-integration
