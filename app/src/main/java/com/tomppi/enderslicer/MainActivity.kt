@@ -5,13 +5,15 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
-import com.tomppi.enderslicer.ui.EnderSlicerApp
-import com.tomppi.enderslicer.ui.EnderSlicerTheme
-import com.tomppi.enderslicer.ui.MainViewModel
 import com.tomppi.enderslicer.mesh.MeshTriangleLimits
+import com.tomppi.enderslicer.octoprint.OctoPrintViewModel
+import com.tomppi.enderslicer.ui.EnderSlicerTheme
+import com.tomppi.enderslicer.ui.IntegratedEnderSlicerApp
+import com.tomppi.enderslicer.ui.MainViewModel
 
 class MainActivity : ComponentActivity() {
-    private val viewModel by viewModels<MainViewModel>()
+    private val slicerViewModel by viewModels<MainViewModel>()
+    private val octoPrintViewModel by viewModels<OctoPrintViewModel>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -19,7 +21,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             EnderSlicerTheme {
-                EnderSlicerApp(viewModel)
+                IntegratedEnderSlicerApp(slicerViewModel, octoPrintViewModel)
             }
         }
     }
