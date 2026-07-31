@@ -76,9 +76,24 @@ class OctoPrintClient(
 
     fun fetchWebcamSnapshot(url: String): ByteArray {
         val resolved = resolveServerUrl(url) ?: error("Invalid OctoPrint webcam snapshot URL")
-        val connection = openConnection(resolved, "GET", authenticated = true)
+        return fetchWebcamSnapshot(resolved, redirectCount = 0)
+    }
+
+    private fun fetchWebcamSnapshot(url: URI, redirectCount: Int): ByteArray {
+        require(redirectCount <= MAX_SNAPSHOT_REDIRECTS) { "Too many webcam redirects" }
+        val connection = openConnection(url, "GET", authenticated = true)
         return try {
             val code = connection.responseCode
+            if (code in 300..399) {
+                val location = connection.getHeaderField("Location")
+                    ?: throw OctoPrintHttpException(code, "Webcam redirect did not include a Location header")
+                val next = runCatching { url.resolve(URI(location)) }.getOrNull()
+                    ?: error("Invalid webcam redirect URL")
+                require(next.scheme == "http" || next.scheme == "https") {
+                    "Webcam redirect must use HTTP or HTTPS"
+                }
+                return fetchWebcamSnapshot(next, redirectCount + 1)
+            }
             if (code !in 200..299) throw httpError(connection, code)
             val declared = connection.contentLengthLong
             require(declared < 0L || declared <= MAX_SNAPSHOT_BYTES) { "Webcam snapshot is too large" }
@@ -459,12 +474,12 @@ class OctoPrintClient(
             requestMethod = method
             connectTimeout = CONNECT_TIMEOUT_MILLIS
             readTimeout = if (method == "POST") WRITE_OPERATION_TIMEOUT_MILLIS else READ_TIMEOUT_MILLIS
-            instanceFollowRedirects = true
+            instanceFollowRedirects = false
             useCaches = false
             doInput = true
             setRequestProperty("Accept", "application/json")
             setRequestProperty("User-Agent", "$OCTOPRINT_APP_NAME Android")
-            if (authenticated) {
+            if (authenticated && isSameOrigin(url)) {
                 apiKey?.takeIf(String::isNotBlank)?.let { setRequestProperty("X-Api-Key", it) }
             }
             contentType?.let { setRequestProperty("Content-Type", it) }
@@ -474,6 +489,11 @@ class OctoPrintClient(
             }
         }
     }
+
+    private fun isSameOrigin(url: URI): Boolean =
+        base.scheme.equals(url.scheme, ignoreCase = true) &&
+            base.host.equals(url.host, ignoreCase = true) &&
+            effectivePort(base) == effectivePort(url)
 
     private fun httpError(connection: HttpURLConnection, code: Int): OctoPrintHttpException {
         val bytes = readBody(connection, success = false, MAX_ERROR_BODY_BYTES)
@@ -549,6 +569,7 @@ class OctoPrintClient(
         private const val CONNECT_TIMEOUT_MILLIS = 12_000
         private const val READ_TIMEOUT_MILLIS = 30_000
         private const val WRITE_OPERATION_TIMEOUT_MILLIS = 15 * 60 * 1_000
+        private const val MAX_SNAPSHOT_REDIRECTS = 3
         private const val MAX_SNAPSHOT_BYTES = 10L * 1024L * 1024L
         private const val MAX_JSON_BODY_BYTES = 8L * 1024L * 1024L
         private const val MAX_ERROR_BODY_BYTES = 32L * 1024L
@@ -568,6 +589,12 @@ class OctoPrintClient(
                 else -> "${parsed.path}/"
             }
             return URI(parsed.scheme, null, parsed.host, parsed.port, normalizedPath, null, null)
+        }
+
+        private fun effectivePort(uri: URI): Int = when {
+            uri.port >= 0 -> uri.port
+            uri.scheme.equals("https", ignoreCase = true) -> 443
+            else -> 80
         }
 
         private fun encodePathSegment(value: String): String = URLEncoder
