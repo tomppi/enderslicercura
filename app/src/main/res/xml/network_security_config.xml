@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!--
+      OctoPrint commonly runs on trusted home LANs over plain HTTP. The app
+      supports those installations, while the UI warns that HTTP is not
+      encrypted and recommends HTTPS for remote or untrusted networks.
+    -->
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="user" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>
