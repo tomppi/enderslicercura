@@ -41,6 +41,8 @@ fun IntegratedEnderSlicerApp(
         val url = octoPrintState.authorizationDialogUrl ?: return@LaunchedEffect
         runCatching {
             context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+        }.onSuccess {
+            octoPrintViewModel.acknowledgeAuthorizationDialog()
         }.onFailure { error ->
             Toast.makeText(
                 context,
@@ -48,7 +50,6 @@ fun IntegratedEnderSlicerApp(
                 Toast.LENGTH_LONG,
             ).show()
         }
-        octoPrintViewModel.acknowledgeAuthorizationDialog()
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
