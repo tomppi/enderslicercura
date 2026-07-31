@@ -226,6 +226,10 @@ class OctoPrintRepository(
             setError(IllegalStateException("Slice the model before sending G-code to OctoPrint"))
             return
         }
+        if (_state.value.isUploading) {
+            setError(IllegalStateException("A G-code upload is already in progress"))
+            return
+        }
         val remoteName = sanitizeGcodeName(suggestedName.ifBlank { source.name })
         scope.launch {
             _state.update {
@@ -327,7 +331,14 @@ class OctoPrintRepository(
         connect(port, baudrate, printerProfile, save, autoConnect)
     }
 
-    fun disconnect() = operation("Disconnecting printer…") { disconnect() }
+    fun disconnect() {
+        val current = _state.value
+        if (current.isPrinting || current.isPaused) {
+            setError(IllegalStateException("Cancel or finish the active print before disconnecting the printer"))
+            return
+        }
+        operation("Disconnecting printer…") { disconnect() }
+    }
 
     fun jog(x: Double? = null, y: Double? = null, z: Double? = null) {
         if (!requireIdlePrinterAction("Jogging")) return
@@ -356,7 +367,10 @@ class OctoPrintRepository(
 
     fun setFeedRate(percent: Int) = operation("Setting feed rate…") { setFeedRate(percent) }
     fun setFlowRate(percent: Int) = operation("Setting flow rate…") { setFlowRate(percent) }
-    fun sendGcode(command: String) = operation("Sending G-code command…") { sendGcode(command) }
+    fun sendGcode(command: String) {
+        if (!requireIdlePrinterAction("Terminal commands")) return
+        operation("Sending G-code command…") { sendGcode(command) }
+    }
 
     fun setWebcamVisible(visible: Boolean) {
         webcamVisible = visible
@@ -578,7 +592,7 @@ class OctoPrintRepository(
         val snapshot = File.createTempFile("validated-", ".gcode", directory)
         try {
             source.inputStream().buffered().use { input ->
-                snapshot.outputStream().buffered().use(input::copyTo)
+                snapshot.outputStream().buffered().use { output -> input.copyTo(output) }
             }
             check(
                 source.isFile &&

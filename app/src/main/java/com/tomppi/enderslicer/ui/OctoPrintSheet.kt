@@ -553,7 +553,7 @@ private fun FilesPage(
                     )
                     Button(
                         onClick = { viewModel.createFolder(parentPath, folderName) },
-                        enabled = folderName.isNotBlank(),
+                        enabled = state.isReady && folderName.isNotBlank(),
                     ) {
                         Text("Create")
                     }
@@ -569,13 +569,13 @@ private fun FilesPage(
                     )
                     OutlinedButton(
                         onClick = { selected?.let { viewModel.copyFile(it.path, destination) } },
-                        enabled = selected != null,
+                        enabled = state.isReady && selected != null,
                     ) {
                         Text("Copy")
                     }
                     OutlinedButton(
                         onClick = { selected?.let { viewModel.moveFile(it.path, destination) } },
-                        enabled = selected != null,
+                        enabled = state.isReady && selected != null,
                     ) {
                         Text("Move")
                     }
