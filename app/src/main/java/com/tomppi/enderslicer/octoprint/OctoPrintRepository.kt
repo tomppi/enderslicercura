@@ -25,19 +25,22 @@ class OctoPrintRepository(
     context: Context,
     private val scope: CoroutineScope,
 ) {
-    private val store = OctoPrintSecretStore(context.applicationContext)
+    private val appContext = context.applicationContext
+    private val store = OctoPrintSecretStore(appContext)
     private val refreshMutex = Mutex()
+    private val commandMutex = Mutex()
     private var pollingJob: Job? = null
     private var authorizationJob: Job? = null
     private var webcamJob: Job? = null
     private var webcamVisible: Boolean = false
 
     private val initialConfig = store.loadConfig()
+    private val initialApiKey = store.loadApiKey()
     private val _state = MutableStateFlow(
         OctoPrintUiState(
             config = initialConfig,
-            hasApiKey = store.hasApiKey(),
-            statusMessage = if (initialConfig.isConfigured && store.hasApiKey()) {
+            hasApiKey = initialApiKey != null,
+            statusMessage = if (initialConfig.isConfigured && initialApiKey != null) {
                 "Connecting to OctoPrint…"
             } else {
                 "Configure OctoPrint to begin"
@@ -152,7 +155,7 @@ class OctoPrintRepository(
                 }
                 pollAuthorization(config, authorization.pollingUrl)
             }.onFailure { error ->
-                if (error is CancellationException && authorizationJob?.isCancelled == true) return@onFailure
+                if (error is CancellationException) return@onFailure
                 setError(error)
             }
         }
@@ -236,13 +239,18 @@ class OctoPrintRepository(
             }
             runCatching {
                 withContext(Dispatchers.IO) {
-                    requireClient().upload(source, remoteName, remoteDirectory, action) { sent, total ->
-                        val progress = if (total <= 0L) {
-                            null
-                        } else {
-                            (sent.toDouble() / total.toDouble()).toFloat().coerceIn(0f, 1f)
+                    val uploadSource = snapshotGcodeForUpload(source)
+                    try {
+                        requireClient().upload(uploadSource, remoteName, remoteDirectory, action) { sent, total ->
+                            val progress = if (total <= 0L) {
+                                null
+                            } else {
+                                (sent.toDouble() / total.toDouble()).toFloat().coerceIn(0f, 1f)
+                            }
+                            _state.update { current -> current.copy(uploadProgress = progress) }
                         }
-                        _state.update { current -> current.copy(uploadProgress = progress) }
+                    } finally {
+                        uploadSource.delete()
                     }
                 }
             }.onSuccess { response ->
@@ -321,12 +329,14 @@ class OctoPrintRepository(
 
     fun disconnect() = operation("Disconnecting printer…") { disconnect() }
 
-    fun jog(x: Double? = null, y: Double? = null, z: Double? = null) = operation("Jogging printer…") {
-        jog(x, y, z)
+    fun jog(x: Double? = null, y: Double? = null, z: Double? = null) {
+        if (!requireIdlePrinterAction("Jogging")) return
+        operation("Jogging printer…") { jog(x, y, z) }
     }
 
-    fun home(axes: Set<String>) = operation("Homing ${axes.joinToString("").uppercase(Locale.US)}…") {
-        home(axes)
+    fun home(axes: Set<String>) {
+        if (!requireIdlePrinterAction("Homing")) return
+        operation("Homing ${axes.joinToString("").uppercase(Locale.US)}…") { home(axes) }
     }
 
     fun setToolTemperature(tool: String, target: Int) = operation("Setting nozzle target…") {
@@ -337,10 +347,11 @@ class OctoPrintRepository(
         setBedTemperature(target)
     }
 
-    fun extrude(amountMm: Double) = operation(
-        if (amountMm > 0) "Extruding filament…" else "Retracting filament…",
-    ) {
-        extrude(amountMm)
+    fun extrude(amountMm: Double) {
+        if (!requireIdlePrinterAction(if (amountMm > 0) "Extrusion" else "Retraction")) return
+        operation(if (amountMm > 0) "Extruding filament…" else "Retracting filament…") {
+            extrude(amountMm)
+        }
     }
 
     fun setFeedRate(percent: Int) = operation("Setting feed rate…") { setFeedRate(percent) }
@@ -392,7 +403,7 @@ class OctoPrintRepository(
             }
             restartPolling(immediate = true)
         }.onFailure { error ->
-            if (error is CancellationException && authorizationJob?.isCancelled == true) return@onFailure
+            if (error is CancellationException) return@onFailure
             _state.update { it.copy(authorizationPending = false, authorizationDialogUrl = null) }
             setError(error)
         }
@@ -493,20 +504,47 @@ class OctoPrintRepository(
         block: OctoPrintClient.() -> Unit,
     ) {
         scope.launch {
-            setStatus(message)
-            runCatching {
-                withContext(Dispatchers.IO) { requireClient().block() }
-            }.onSuccess {
-                if (refreshFileList) refreshFiles(force = true)
-                refreshAll(showSpinner = false)
-            }.onFailure(::setError)
+            commandMutex.withLock {
+                setStatus(message)
+                runCatching {
+                    withContext(Dispatchers.IO) { requireClient().block() }
+                }.onSuccess {
+                    if (refreshFileList) refreshFiles(force = true)
+                    refreshAll(showSpinner = false)
+                }.onFailure(::setError)
+            }
         }
+    }
+
+    private fun requireIdlePrinterAction(action: String): Boolean {
+        val current = _state.value
+        if (!current.isReady) {
+            setError(IllegalStateException("Configure and connect OctoPrint before $action"))
+            return false
+        }
+        if (!current.printer.operational || current.isPrinting || current.isPaused) {
+            setError(IllegalStateException("$action is only available while the printer is operational and idle"))
+            return false
+        }
+        return true
     }
 
     private fun requireClient(): OctoPrintClient {
         val current = _state.value
         require(current.config.isConfigured) { "Configure the OctoPrint server first" }
-        val key = store.loadApiKey() ?: error("OctoPrint API key is missing; authorize the app again")
+        val key = store.loadApiKey()
+        if (key == null) {
+            val message = "OctoPrint API key is missing or unreadable; authorize the app again"
+            _state.update {
+                it.copy(
+                    hasApiKey = false,
+                    authorizationPending = false,
+                    statusMessage = message,
+                    errorMessage = message,
+                )
+            }
+            error(message)
+        }
         return OctoPrintClient(current.config.baseUrl, key)
     }
 
@@ -521,10 +559,37 @@ class OctoPrintRepository(
                 isRefreshing = false,
                 isFileListRefreshing = false,
                 isUploading = false,
-                authorizationPending = false,
                 statusMessage = message,
                 errorMessage = message,
             )
+        }
+    }
+
+    private fun snapshotGcodeForUpload(source: File): File {
+        require(source.isFile && source.length() > 0L) { "The validated G-code is unavailable; slice again" }
+        val beforeLength = source.length()
+        val beforeModified = source.lastModified()
+        val directory = File(appContext.cacheDir, "octoprint-uploads").apply { mkdirs() }
+        directory.listFiles()?.forEach { candidate ->
+            if (candidate.isFile && System.currentTimeMillis() - candidate.lastModified() > UPLOAD_SNAPSHOT_MAX_AGE_MILLIS) {
+                candidate.delete()
+            }
+        }
+        val snapshot = File.createTempFile("validated-", ".gcode", directory)
+        try {
+            source.inputStream().buffered().use { input ->
+                snapshot.outputStream().buffered().use(input::copyTo)
+            }
+            check(
+                source.isFile &&
+                    source.length() == beforeLength &&
+                    source.lastModified() == beforeModified &&
+                    snapshot.length() == beforeLength,
+            ) { "The G-code changed while preparing the upload; try again" }
+            return snapshot
+        } catch (error: Throwable) {
+            snapshot.delete()
+            throw error
         }
     }
 
@@ -552,5 +617,6 @@ class OctoPrintRepository(
     private companion object {
         const val ACTIVE_PRINT_POLL_SECONDS = 2
         const val AUTHORIZATION_TIMEOUT_MILLIS = 5L * 60L * 1_000L
+        const val UPLOAD_SNAPSHOT_MAX_AGE_MILLIS = 24L * 60L * 60L * 1_000L
     }
 }

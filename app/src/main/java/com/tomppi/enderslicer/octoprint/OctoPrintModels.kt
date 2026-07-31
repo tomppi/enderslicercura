@@ -2,6 +2,8 @@ package com.tomppi.enderslicer.octoprint
 
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.Locale
+import kotlin.math.roundToLong
 
 internal const val OCTOPRINT_APP_NAME = "enderslicercura"
 
@@ -224,7 +226,7 @@ internal object OctoPrintJson {
     fun parseFiles(root: JSONObject): Pair<List<OctoPrintFileEntry>, Long?> {
         val output = mutableListOf<OctoPrintFileEntry>()
         flattenFiles(root.optJSONArray("files") ?: JSONArray(), output, depth = 0, defaultOrigin = "local")
-        return output to root.optLongOrNull("free")
+        return output to parseByteCount(root.opt("free"))
     }
 
     fun parseWebcam(root: JSONObject): OctoPrintWebcamConfig {
@@ -270,6 +272,37 @@ internal object OctoPrintJson {
                 flattenFiles(item.optJSONArray("children") ?: JSONArray(), output, depth + 1, origin)
             }
         }
+    }
+
+    private fun parseByteCount(raw: Any?): Long? {
+        if (raw == null || raw == JSONObject.NULL) return null
+        if (raw is Number) return raw.toLong().takeIf { it >= 0L }
+        val value = raw.toString().trim()
+        value.toLongOrNull()?.let { return it.takeIf { bytes -> bytes >= 0L } }
+        val match = Regex(
+            pattern = "^([0-9]+(?:\.[0-9]+)?)\s*([KMGTPE]?I?B)$",
+            option = RegexOption.IGNORE_CASE,
+        ).matchEntire(value) ?: return null
+        val amount = match.groupValues[1].toDoubleOrNull() ?: return null
+        val unit = match.groupValues[2].uppercase(Locale.US)
+        val multiplier = when (unit) {
+            "B" -> 1.0
+            "KB" -> 1_000.0
+            "MB" -> 1_000_000.0
+            "GB" -> 1_000_000_000.0
+            "TB" -> 1_000_000_000_000.0
+            "PB" -> 1_000_000_000_000_000.0
+            "EB" -> 1_000_000_000_000_000_000.0
+            "KIB" -> 1_024.0
+            "MIB" -> 1_048_576.0
+            "GIB" -> 1_073_741_824.0
+            "TIB" -> 1_099_511_627_776.0
+            "PIB" -> 1_125_899_906_842_624.0
+            "EIB" -> 1_152_921_504_606_846_976.0
+            else -> return null
+        }
+        val bytes = amount * multiplier
+        return bytes.takeIf { it.isFinite() && it >= 0.0 && it <= Long.MAX_VALUE.toDouble() }?.roundToLong()
     }
 
     private fun parseTemperature(root: JSONObject): OctoPrintTemperature = OctoPrintTemperature(

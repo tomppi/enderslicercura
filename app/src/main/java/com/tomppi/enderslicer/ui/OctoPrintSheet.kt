@@ -1,5 +1,6 @@
 package com.tomppi.enderslicer.ui
 
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
@@ -34,6 +35,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -49,6 +51,8 @@ import com.tomppi.enderslicer.octoprint.OctoPrintUiState
 import com.tomppi.enderslicer.octoprint.OctoPrintUploadAction
 import com.tomppi.enderslicer.octoprint.OctoPrintViewModel
 import java.util.Locale
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 private enum class OctoPrintPage(val label: String) {
     STATUS("Status"),
@@ -67,6 +71,8 @@ fun OctoPrintSheet(
 ) {
     var page by remember { mutableStateOf(if (state.isReady) OctoPrintPage.STATUS else OctoPrintPage.SETUP) }
     var pendingUploadPrintDirectory by remember { mutableStateOf<String?>(null) }
+    var confirmStart by remember { mutableStateOf(false) }
+    var confirmRestart by remember { mutableStateOf(false) }
     var confirmCancel by remember { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf<OctoPrintFileEntry?>(null) }
     var pendingPrint by remember { mutableStateOf<OctoPrintFileEntry?>(null) }
@@ -113,6 +119,8 @@ fun OctoPrintSheet(
                 suggestedFileName = suggestedFileName,
                 viewModel = viewModel,
                 onConfirmUploadPrint = { pendingUploadPrintDirectory = it },
+                onConfirmStart = { confirmStart = true },
+                onConfirmRestart = { confirmRestart = true },
                 onConfirmCancel = { confirmCancel = true },
                 modifier = Modifier.weight(1f),
             )
@@ -154,6 +162,32 @@ fun OctoPrintSheet(
                     remoteDirectory = remoteDirectory,
                     action = OctoPrintUploadAction.UPLOAD_AND_PRINT,
                 )
+            },
+        )
+    }
+
+    if (confirmStart) {
+        ConfirmDialog(
+            title = "Start the selected print?",
+            text = "OctoPrint will start the selected G-code immediately. Verify the printer, bed, filament and first layer.",
+            confirmLabel = "Start print",
+            onDismiss = { confirmStart = false },
+            onConfirm = {
+                confirmStart = false
+                viewModel.startJob()
+            },
+        )
+    }
+
+    if (confirmRestart) {
+        ConfirmDialog(
+            title = "Restart the current print?",
+            text = "OctoPrint will restart the selected job from the beginning.",
+            confirmLabel = "Restart print",
+            onDismiss = { confirmRestart = false },
+            onConfirm = {
+                confirmRestart = false
+                viewModel.restartJob()
             },
         )
     }
@@ -259,6 +293,8 @@ private fun StatusPage(
     suggestedFileName: String,
     viewModel: OctoPrintViewModel,
     onConfirmUploadPrint: (String) -> Unit,
+    onConfirmStart: () -> Unit,
+    onConfirmRestart: () -> Unit,
     onConfirmCancel: () -> Unit,
     modifier: Modifier,
 ) {
@@ -321,7 +357,7 @@ private fun StatusPage(
                         state.isPaused -> Button(onClick = viewModel::resumeJob, modifier = Modifier.weight(1f)) {
                             Text("Resume")
                         }
-                        state.job.fileName != null -> Button(onClick = viewModel::startJob, modifier = Modifier.weight(1f)) {
+                        state.job.fileName != null -> Button(onClick = onConfirmStart, modifier = Modifier.weight(1f)) {
                             Text("Start")
                         }
                     }
@@ -331,7 +367,7 @@ private fun StatusPage(
                         }
                     }
                     if (state.isPaused) {
-                        OutlinedButton(onClick = viewModel::restartJob, modifier = Modifier.weight(1f)) {
+                        OutlinedButton(onClick = onConfirmRestart, modifier = Modifier.weight(1f)) {
                             Text("Restart")
                         }
                     }
@@ -405,8 +441,10 @@ private fun StatusPage(
 @Composable
 private fun WebcamCard(state: OctoPrintUiState) {
     val bytes = state.webcamFrame
-    val bitmap = remember(bytes) {
-        bytes?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }
+    val bitmap by produceState<Bitmap?>(initialValue = null, key1 = bytes) {
+        value = withContext(Dispatchers.Default) {
+            bytes?.let { BitmapFactory.decodeByteArray(it, 0, it.size) }
+        }
     }
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
@@ -607,6 +645,7 @@ private fun ControlPage(
     var profile by remember { mutableStateOf("") }
     var saveConnection by remember { mutableStateOf(false) }
     var autoConnect by remember { mutableStateOf(false) }
+    var autoConnectEdited by remember { mutableStateOf(false) }
     var jogStep by remember { mutableStateOf(1.0) }
     var toolTarget by remember { mutableStateOf("200") }
     var bedTarget by remember { mutableStateOf("60") }
@@ -623,7 +662,7 @@ private fun ControlPage(
         if (profile.isBlank()) {
             profile = state.connection.printerProfilePreference ?: state.connection.printerProfile.orEmpty()
         }
-        autoConnect = state.connection.autoConnect
+        if (!autoConnectEdited) autoConnect = state.connection.autoConnect
     }
 
     Column(
@@ -671,7 +710,7 @@ private fun ControlPage(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Checkbox(checked = saveConnection, onCheckedChange = { saveConnection = it })
                     Text("Save settings")
-                    Checkbox(checked = autoConnect, onCheckedChange = { autoConnect = it })
+                    Checkbox(checked = autoConnect, onCheckedChange = { autoConnect = it; autoConnectEdited = true })
                     Text("Auto-connect")
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

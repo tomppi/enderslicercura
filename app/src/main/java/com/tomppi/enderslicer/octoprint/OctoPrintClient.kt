@@ -292,8 +292,10 @@ class OctoPrintClient(
             ?: error("OctoPrint did not return an authorization polling URL")
         val authDialog = body.optString("auth_dialog").takeIf(String::isNotBlank)
             ?: error("OctoPrint did not return an authorization dialog URL")
+        val polling = resolveServerUrl(location) ?: error("Invalid authorization polling URL")
+        require(isSameOrigin(polling)) { "OctoPrint authorization polling must stay on the configured server" }
         return AppKeyAuthorization(
-            pollingUrl = resolveServerUrl(location)?.toString() ?: error("Invalid authorization polling URL"),
+            pollingUrl = polling.toString(),
             dialogUrl = resolveServerUrl(authDialog)?.toString() ?: error("Invalid authorization dialog URL"),
         )
     }
@@ -301,6 +303,7 @@ class OctoPrintClient(
     fun pollApplicationKey(pollingUrl: String): AppKeyPollResult {
         val url = runCatching { URI(pollingUrl) }.getOrNull()?.takeIf(URI::isAbsolute)
             ?: error("Invalid authorization polling URL")
+        require(isSameOrigin(url)) { "OctoPrint authorization polling must stay on the configured server" }
         val response = execute(
             url = url,
             method = "GET",
@@ -403,6 +406,7 @@ class OctoPrintClient(
             authenticated = true,
             contentType = "multipart/form-data; boundary=$boundary",
             contentLength = totalLength,
+            readTimeoutMillis = UPLOAD_TIMEOUT_MILLIS,
         )
         return try {
             connection.outputStream.buffered().use { output ->
@@ -468,12 +472,13 @@ class OctoPrintClient(
         authenticated: Boolean,
         contentType: String? = null,
         contentLength: Long? = null,
+        readTimeoutMillis: Int = READ_TIMEOUT_MILLIS,
     ): HttpURLConnection {
         require(url.scheme == "http" || url.scheme == "https") { "OctoPrint URL must use HTTP or HTTPS" }
         return (url.toURL().openConnection() as HttpURLConnection).apply {
             requestMethod = method
             connectTimeout = CONNECT_TIMEOUT_MILLIS
-            readTimeout = if (method == "POST") WRITE_OPERATION_TIMEOUT_MILLIS else READ_TIMEOUT_MILLIS
+            readTimeout = readTimeoutMillis
             instanceFollowRedirects = false
             useCaches = false
             doInput = true
@@ -568,7 +573,7 @@ class OctoPrintClient(
         private const val JSON_CONTENT_TYPE = "application/json; charset=utf-8"
         private const val CONNECT_TIMEOUT_MILLIS = 12_000
         private const val READ_TIMEOUT_MILLIS = 30_000
-        private const val WRITE_OPERATION_TIMEOUT_MILLIS = 15 * 60 * 1_000
+        private const val UPLOAD_TIMEOUT_MILLIS = 15 * 60 * 1_000
         private const val MAX_SNAPSHOT_REDIRECTS = 3
         private const val MAX_SNAPSHOT_BYTES = 10L * 1024L * 1024L
         private const val MAX_JSON_BODY_BYTES = 8L * 1024L * 1024L

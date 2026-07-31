@@ -99,7 +99,7 @@ class OctoPrintClientTest {
             JSONObject(
                 """
                 {
-                  "free": 999999,
+                  "free": "3.2GB",
                   "files": [
                     {
                       "name": "calibration",
@@ -124,11 +124,26 @@ class OctoPrintClientTest {
             ),
         )
 
-        assertEquals(999999L, freeBytes)
+        assertEquals(3_200_000_000L, freeBytes)
         assertEquals(2, files.size)
         assertTrue(files[0].isFolder)
         assertFalse(files[1].isFolder)
         assertEquals(1, files[1].depth)
         assertEquals("calibration/pa.gcode", files[1].path)
+    }
+
+    @Test
+    fun parsesNumericAndBinaryFreeSpaceValues() {
+        assertEquals(
+            999_999L,
+            OctoPrintJson.parseFiles(JSONObject("{\"free\":999999,\"files\":[]}" )).second,
+        )
+        assertEquals(
+            1_610_612_736L,
+            OctoPrintJson.parseFiles(JSONObject("{\"free\":\"1.5GiB\",\"files\":[]}" )).second,
+        )
+        assertNull(
+            OctoPrintJson.parseFiles(JSONObject("{\"free\":\"unknown\",\"files\":[]}" )).second,
+        )
     }
 }
