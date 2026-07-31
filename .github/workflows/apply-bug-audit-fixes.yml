@@ -1,0 +1,45 @@
+name: Apply bug audit fixes
+
+on:
+  push:
+    branches:
+      - agent/full-octoprint-integration
+    paths:
+      - scripts/apply_bug_audit_fixes.py
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/full-octoprint-integration
+          fetch-depth: 0
+      - name: Apply and commit audited fixes
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! -f scripts/apply_bug_audit_fixes.py ]]; then
+            echo "Patch script already consumed"
+            exit 0
+          fi
+          python3 scripts/apply_bug_audit_fixes.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm -- scripts/apply_bug_audit_fixes.py
+          git add -- \
+            app/src/main/AndroidManifest.xml \
+            app/src/main/java/com/tomppi/enderslicer/octoprint/OctoPrintClient.kt \
+            app/src/main/java/com/tomppi/enderslicer/octoprint/OctoPrintModels.kt \
+            app/src/main/java/com/tomppi/enderslicer/octoprint/OctoPrintRepository.kt \
+            app/src/main/java/com/tomppi/enderslicer/ui/MainViewModel.kt \
+            app/src/main/java/com/tomppi/enderslicer/ui/OctoPrintSheet.kt \
+            app/src/main/res/xml/backup_rules.xml \
+            app/src/main/res/xml/data_extraction_rules.xml \
+            app/src/test/java/com/tomppi/enderslicer/octoprint/OctoPrintClientTest.kt \
+            docs/bug-audit.md
+          git commit -m "Harden OctoPrint integration and app lifecycle"
+          git push origin HEAD:agent/full-octoprint-integration
