@@ -58,17 +58,16 @@ fun IntegratedEnderSlicerApp(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(end = 16.dp, bottom = 94.dp),
-            text = {
-                Text(
-                    when {
-                        octoPrintState.isPrinting -> "OctoPrint ${octoPrintState.job.completionPercent?.toInt() ?: 0}%"
-                        octoPrintState.isPaused -> "OctoPrint paused"
-                        octoPrintState.isReady -> "OctoPrint"
-                        else -> "Set up OctoPrint"
-                    },
-                )
-            },
-        )
+        ) {
+            Text(
+                when {
+                    octoPrintState.isPrinting -> "OctoPrint ${octoPrintState.job.completionPercent?.toInt() ?: 0}%"
+                    octoPrintState.isPaused -> "OctoPrint paused"
+                    octoPrintState.isReady -> "OctoPrint"
+                    else -> "Set up OctoPrint"
+                },
+            )
+        }
     }
 
     if (octoPrintOpen) {
