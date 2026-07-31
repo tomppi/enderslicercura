@@ -3,12 +3,10 @@ package com.tomppi.enderslicer.ui
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -17,8 +15,8 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -50,8 +48,6 @@ import com.tomppi.enderslicer.octoprint.OctoPrintFileEntry
 import com.tomppi.enderslicer.octoprint.OctoPrintUiState
 import com.tomppi.enderslicer.octoprint.OctoPrintUploadAction
 import com.tomppi.enderslicer.octoprint.OctoPrintViewModel
-import java.text.DateFormat
-import java.util.Date
 import java.util.Locale
 
 private enum class OctoPrintPage(val label: String) {
@@ -70,7 +66,7 @@ fun OctoPrintSheet(
     modifier: Modifier = Modifier,
 ) {
     var page by remember { mutableStateOf(if (state.isReady) OctoPrintPage.STATUS else OctoPrintPage.SETUP) }
-    var confirmUploadPrint by remember { mutableStateOf(false) }
+    var pendingUploadPrintDirectory by remember { mutableStateOf<String?>(null) }
     var confirmCancel by remember { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf<OctoPrintFileEntry?>(null) }
     var pendingPrint by remember { mutableStateOf<OctoPrintFileEntry?>(null) }
@@ -116,7 +112,7 @@ fun OctoPrintSheet(
                 localGcodePath = localGcodePath,
                 suggestedFileName = suggestedFileName,
                 viewModel = viewModel,
-                onConfirmUploadPrint = { confirmUploadPrint = true },
+                onConfirmUploadPrint = { pendingUploadPrintDirectory = it },
                 onConfirmCancel = { confirmCancel = true },
                 modifier = Modifier.weight(1f),
             )
@@ -140,18 +136,22 @@ fun OctoPrintSheet(
         }
     }
 
-    if (confirmUploadPrint) {
+    pendingUploadPrintDirectory?.let { remoteDirectory ->
         ConfirmDialog(
             title = "Upload and start printing?",
-            text = "The current validated G-code will be uploaded to OctoPrint and printing will start immediately if the printer is operational.",
+            text = buildString {
+                append("The current validated G-code will be uploaded to OctoPrint")
+                if (remoteDirectory.isNotBlank()) append(" in folder ‘${remoteDirectory.trim('/')}’")
+                append(" and printing will start immediately if the printer is operational.")
+            },
             confirmLabel = "Upload & print",
-            onDismiss = { confirmUploadPrint = false },
+            onDismiss = { pendingUploadPrintDirectory = null },
             onConfirm = {
-                confirmUploadPrint = false
+                pendingUploadPrintDirectory = null
                 viewModel.uploadGcode(
                     localGcodePath,
                     suggestedFileName,
-                    remoteDirectory = "",
+                    remoteDirectory = remoteDirectory,
                     action = OctoPrintUploadAction.UPLOAD_AND_PRINT,
                 )
             },
@@ -174,7 +174,11 @@ fun OctoPrintSheet(
     pendingDelete?.let { entry ->
         ConfirmDialog(
             title = "Delete ${entry.name}?",
-            text = if (entry.isFolder) "The OctoPrint folder must be empty before it can be deleted." else "This removes the file from OctoPrint storage.",
+            text = if (entry.isFolder) {
+                "The OctoPrint folder must be empty before it can be deleted."
+            } else {
+                "This removes the file from OctoPrint storage."
+            },
             confirmLabel = "Delete",
             onDismiss = { pendingDelete = null },
             onConfirm = {
@@ -254,7 +258,7 @@ private fun StatusPage(
     localGcodePath: String?,
     suggestedFileName: String,
     viewModel: OctoPrintViewModel,
-    onConfirmUploadPrint: () -> Unit,
+    onConfirmUploadPrint: (String) -> Unit,
     onConfirmCancel: () -> Unit,
     modifier: Modifier,
 ) {
@@ -277,7 +281,10 @@ private fun StatusPage(
                 Text("Printer", style = MaterialTheme.typography.titleMedium)
                 Text("${state.printer.text} · serial ${state.connection.state}")
                 state.connection.port?.let { port ->
-                    Text("$port · ${state.connection.baudrate ?: 0} baud · ${state.connection.printerProfile.orEmpty()}", style = MaterialTheme.typography.bodySmall)
+                    Text(
+                        "$port · ${state.connection.baudrate ?: 0} baud · ${state.connection.printerProfile.orEmpty()}",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
                 }
                 state.printer.tools.forEach { (name, temperature) ->
                     TemperatureLine(name.uppercase(Locale.US), temperature.actual, temperature.target)
@@ -308,15 +315,25 @@ private fun StatusPage(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     when {
-                        state.isPrinting -> Button(onClick = viewModel::pauseJob, modifier = Modifier.weight(1f)) { Text("Pause") }
-                        state.isPaused -> Button(onClick = viewModel::resumeJob, modifier = Modifier.weight(1f)) { Text("Resume") }
-                        state.job.fileName != null -> Button(onClick = viewModel::startJob, modifier = Modifier.weight(1f)) { Text("Start") }
+                        state.isPrinting -> Button(onClick = viewModel::pauseJob, modifier = Modifier.weight(1f)) {
+                            Text("Pause")
+                        }
+                        state.isPaused -> Button(onClick = viewModel::resumeJob, modifier = Modifier.weight(1f)) {
+                            Text("Resume")
+                        }
+                        state.job.fileName != null -> Button(onClick = viewModel::startJob, modifier = Modifier.weight(1f)) {
+                            Text("Start")
+                        }
                     }
                     if (state.isPrinting || state.isPaused) {
-                        OutlinedButton(onClick = onConfirmCancel, modifier = Modifier.weight(1f)) { Text("Cancel") }
+                        OutlinedButton(onClick = onConfirmCancel, modifier = Modifier.weight(1f)) {
+                            Text("Cancel")
+                        }
                     }
                     if (state.isPaused) {
-                        OutlinedButton(onClick = viewModel::restartJob, modifier = Modifier.weight(1f)) { Text("Restart") }
+                        OutlinedButton(onClick = viewModel::restartJob, modifier = Modifier.weight(1f)) {
+                            Text("Restart")
+                        }
                     }
                 }
             }
@@ -348,7 +365,9 @@ private fun StatusPage(
                         },
                         enabled = localGcodePath != null && !state.isUploading,
                         modifier = Modifier.weight(1f),
-                    ) { Text("Upload") }
+                    ) {
+                        Text("Upload")
+                    }
                     OutlinedButton(
                         onClick = {
                             viewModel.uploadGcode(
@@ -360,26 +379,19 @@ private fun StatusPage(
                         },
                         enabled = localGcodePath != null && !state.isUploading,
                         modifier = Modifier.weight(1f),
-                    ) { Text("Select") }
+                    ) {
+                        Text("Select")
+                    }
                     Button(
-                        onClick = {
-                            if (remoteDirectory.isBlank()) {
-                                onConfirmUploadPrint()
-                            } else {
-                                viewModel.uploadGcode(
-                                    localGcodePath,
-                                    suggestedFileName,
-                                    remoteDirectory,
-                                    OctoPrintUploadAction.UPLOAD_AND_PRINT,
-                                )
-                            }
-                        },
+                        onClick = { onConfirmUploadPrint(remoteDirectory) },
                         enabled = localGcodePath != null && !state.isUploading && !state.isPrinting,
                         modifier = Modifier.weight(1f),
-                    ) { Text("Print") }
+                    ) {
+                        Text("Print")
+                    }
                 }
                 Text(
-                    "Printing always requires confirmation when uploading to the OctoPrint root. Verify the printer, bed, filament and first layer before starting remotely.",
+                    "Printing always requires confirmation. Verify the printer, bed, filament and first layer before starting remotely.",
                     style = MaterialTheme.typography.labelSmall,
                 )
             }
@@ -461,7 +473,9 @@ private fun FilesPage(
                 Text("Reload")
             }
         }
-        state.freeBytes?.let { Text("Free space: ${formatBytes(it)}", style = MaterialTheme.typography.bodySmall) }
+        state.freeBytes?.let {
+            Text("Free space: ${formatBytes(it)}", style = MaterialTheme.typography.bodySmall)
+        }
 
         LazyColumn(
             modifier = Modifier
@@ -502,7 +516,9 @@ private fun FilesPage(
                     Button(
                         onClick = { viewModel.createFolder(parentPath, folderName) },
                         enabled = folderName.isNotBlank(),
-                    ) { Text("Create") }
+                    ) {
+                        Text("Create")
+                    }
                 }
                 Text("Selected: ${selected?.path ?: "none"}", style = MaterialTheme.typography.bodySmall)
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -516,11 +532,15 @@ private fun FilesPage(
                     OutlinedButton(
                         onClick = { selected?.let { viewModel.copyFile(it.path, destination) } },
                         enabled = selected != null,
-                    ) { Text("Copy") }
+                    ) {
+                        Text("Copy")
+                    }
                     OutlinedButton(
                         onClick = { selected?.let { viewModel.moveFile(it.path, destination) } },
                         enabled = selected != null,
-                    ) { Text("Move") }
+                    ) {
+                        Text("Move")
+                    }
                 }
             }
         }
@@ -562,10 +582,16 @@ private fun FileRow(
                 )
             }
             if (!entry.isFolder) {
-                TextButton(onClick = onSelect) { Text("Select") }
-                TextButton(onClick = onPrint) { Text("Print") }
+                TextButton(onClick = onSelect) {
+                    Text("Select")
+                }
+                TextButton(onClick = onPrint) {
+                    Text("Print")
+                }
             }
-            TextButton(onClick = onDelete) { Text("Delete") }
+            TextButton(onClick = onDelete) {
+                Text("Delete")
+            }
         }
     }
 }
@@ -591,8 +617,12 @@ private fun ControlPage(
 
     LaunchedEffect(state.connection) {
         if (port.isBlank()) port = state.connection.portPreference ?: state.connection.port.orEmpty()
-        if (baudrate.isBlank()) baudrate = (state.connection.baudratePreference ?: state.connection.baudrate)?.toString().orEmpty()
-        if (profile.isBlank()) profile = state.connection.printerProfilePreference ?: state.connection.printerProfile.orEmpty()
+        if (baudrate.isBlank()) {
+            baudrate = (state.connection.baudratePreference ?: state.connection.baudrate)?.toString().orEmpty()
+        }
+        if (profile.isBlank()) {
+            profile = state.connection.printerProfilePreference ?: state.connection.printerProfile.orEmpty()
+        }
         autoConnect = state.connection.autoConnect
     }
 
@@ -606,19 +636,37 @@ private fun ControlPage(
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
                 Text("Serial connection", style = MaterialTheme.typography.titleMedium)
-                Text("Available ports: ${state.connection.ports.joinToString().ifBlank { "not reported" }}", style = MaterialTheme.typography.labelSmall)
-                Text("Available baud rates: ${state.connection.baudrates.joinToString().ifBlank { "not reported" }}", style = MaterialTheme.typography.labelSmall)
+                Text(
+                    "Available ports: ${state.connection.ports.joinToString().ifBlank { "not reported" }}",
+                    style = MaterialTheme.typography.labelSmall,
+                )
+                Text(
+                    "Available baud rates: ${state.connection.baudrates.joinToString().ifBlank { "not reported" }}",
+                    style = MaterialTheme.typography.labelSmall,
+                )
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    OutlinedTextField(port, { port = it }, label = { Text("Port / AUTO") }, singleLine = true, modifier = Modifier.weight(1f))
                     OutlinedTextField(
-                        baudrate,
-                        { baudrate = it.filter(Char::isDigit) },
+                        value = port,
+                        onValueChange = { port = it },
+                        label = { Text("Port / AUTO") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                    )
+                    OutlinedTextField(
+                        value = baudrate,
+                        onValueChange = { baudrate = it.filter(Char::isDigit) },
                         label = { Text("Baud") },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         modifier = Modifier.weight(1f),
                     )
-                    OutlinedTextField(profile, { profile = it }, label = { Text("Profile") }, singleLine = true, modifier = Modifier.weight(1f))
+                    OutlinedTextField(
+                        value = profile,
+                        onValueChange = { profile = it },
+                        label = { Text("Profile") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                    )
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Checkbox(checked = saveConnection, onCheckedChange = { saveConnection = it })
@@ -638,8 +686,12 @@ private fun ControlPage(
                             )
                         },
                         modifier = Modifier.weight(1f),
-                    ) { Text("Connect") }
-                    OutlinedButton(onClick = viewModel::disconnect, modifier = Modifier.weight(1f)) { Text("Disconnect") }
+                    ) {
+                        Text("Connect")
+                    }
+                    OutlinedButton(onClick = viewModel::disconnect, modifier = Modifier.weight(1f)) {
+                        Text("Disconnect")
+                    }
                 }
             }
         }
@@ -649,8 +701,15 @@ private fun ControlPage(
                 Text("Motion", style = MaterialTheme.typography.titleMedium)
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     listOf(0.1, 1.0, 10.0).forEach { step ->
-                        if (jogStep == step) Button(onClick = { jogStep = step }) { Text("$step mm") }
-                        else OutlinedButton(onClick = { jogStep = step }) { Text("$step mm") }
+                        if (jogStep == step) {
+                            Button(onClick = { jogStep = step }) {
+                                Text("$step mm")
+                            }
+                        } else {
+                            OutlinedButton(onClick = { jogStep = step }) {
+                                Text("$step mm")
+                            }
+                        }
                     }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -675,34 +734,46 @@ private fun ControlPage(
                 Text("Temperature and extrusion", style = MaterialTheme.typography.titleMedium)
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                     OutlinedTextField(
-                        toolTarget,
-                        { toolTarget = it.filter { ch -> ch.isDigit() || ch == '-' } },
+                        value = toolTarget,
+                        onValueChange = { toolTarget = it.filter { ch -> ch.isDigit() || ch == '-' } },
                         label = { Text("Tool 0 °C") },
                         singleLine = true,
                         modifier = Modifier.weight(1f),
                     )
-                    Button(onClick = { toolTarget.toIntOrNull()?.let { viewModel.setToolTemperature("tool0", it) } }) { Text("Set") }
-                    OutlinedButton(onClick = { viewModel.setToolTemperature("tool0", 0) }) { Text("Off") }
+                    Button(onClick = { toolTarget.toIntOrNull()?.let { viewModel.setToolTemperature("tool0", it) } }) {
+                        Text("Set")
+                    }
+                    OutlinedButton(onClick = { viewModel.setToolTemperature("tool0", 0) }) {
+                        Text("Off")
+                    }
                     OutlinedTextField(
-                        bedTarget,
-                        { bedTarget = it.filter { ch -> ch.isDigit() || ch == '-' } },
+                        value = bedTarget,
+                        onValueChange = { bedTarget = it.filter { ch -> ch.isDigit() || ch == '-' } },
                         label = { Text("Bed °C") },
                         singleLine = true,
                         modifier = Modifier.weight(1f),
                     )
-                    Button(onClick = { bedTarget.toIntOrNull()?.let(viewModel::setBedTemperature) }) { Text("Set") }
-                    OutlinedButton(onClick = { viewModel.setBedTemperature(0) }) { Text("Off") }
+                    Button(onClick = { bedTarget.toIntOrNull()?.let(viewModel::setBedTemperature) }) {
+                        Text("Set")
+                    }
+                    OutlinedButton(onClick = { viewModel.setBedTemperature(0) }) {
+                        Text("Off")
+                    }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                     OutlinedTextField(
-                        extrusion,
-                        { extrusion = it.filter { ch -> ch.isDigit() || ch == '.' || ch == '-' } },
+                        value = extrusion,
+                        onValueChange = { extrusion = it.filter { ch -> ch.isDigit() || ch == '.' || ch == '-' } },
                         label = { Text("Filament mm") },
                         singleLine = true,
                         modifier = Modifier.widthIn(max = 180.dp),
                     )
-                    Button(onClick = { extrusion.toDoubleOrNull()?.let { viewModel.extrude(kotlin.math.abs(it)) } }) { Text("Extrude") }
-                    OutlinedButton(onClick = { extrusion.toDoubleOrNull()?.let { viewModel.extrude(-kotlin.math.abs(it)) } }) { Text("Retract") }
+                    Button(onClick = { extrusion.toDoubleOrNull()?.let { viewModel.extrude(kotlin.math.abs(it)) } }) {
+                        Text("Extrude")
+                    }
+                    OutlinedButton(onClick = { extrusion.toDoubleOrNull()?.let { viewModel.extrude(-kotlin.math.abs(it)) } }) {
+                        Text("Retract")
+                    }
                 }
             }
         }
@@ -711,10 +782,26 @@ private fun ControlPage(
             Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
                 Text("Live overrides", style = MaterialTheme.typography.titleMedium)
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedTextField(feedRate, { feedRate = it.filter(Char::isDigit) }, label = { Text("Feed %") }, singleLine = true, modifier = Modifier.weight(1f))
-                    Button(onClick = { feedRate.toIntOrNull()?.let(viewModel::setFeedRate) }) { Text("Apply") }
-                    OutlinedTextField(flowRate, { flowRate = it.filter(Char::isDigit) }, label = { Text("Flow %") }, singleLine = true, modifier = Modifier.weight(1f))
-                    Button(onClick = { flowRate.toIntOrNull()?.let(viewModel::setFlowRate) }) { Text("Apply") }
+                    OutlinedTextField(
+                        value = feedRate,
+                        onValueChange = { feedRate = it.filter(Char::isDigit) },
+                        label = { Text("Feed %") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Button(onClick = { feedRate.toIntOrNull()?.let(viewModel::setFeedRate) }) {
+                        Text("Apply")
+                    }
+                    OutlinedTextField(
+                        value = flowRate,
+                        onValueChange = { flowRate = it.filter(Char::isDigit) },
+                        label = { Text("Flow %") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Button(onClick = { flowRate.toIntOrNull()?.let(viewModel::setFlowRate) }) {
+                        Text("Apply")
+                    }
                 }
             }
         }
@@ -730,8 +817,13 @@ private fun ControlPage(
                     textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
                     modifier = Modifier.fillMaxWidth(),
                 )
-                Button(onClick = { viewModel.sendGcode(command) }, enabled = command.isNotBlank()) { Text("Send command") }
-                Text("Raw commands can move axes, heat the printer, alter EEPROM or stop a print. Send only commands you understand.", style = MaterialTheme.typography.labelSmall)
+                Button(onClick = { viewModel.sendGcode(command) }, enabled = command.isNotBlank()) {
+                    Text("Send command")
+                }
+                Text(
+                    "Raw commands can move axes, heat the printer, alter EEPROM or stop a print. Send only commands you understand.",
+                    style = MaterialTheme.typography.labelSmall,
+                )
             }
         }
         Spacer(modifier = Modifier.height(24.dp))
@@ -821,7 +913,9 @@ private fun SetupPage(
                 onClick = { viewModel.testConnection(baseUrl, apiKey.takeIf(String::isNotBlank)) },
                 enabled = baseUrl.isNotBlank(),
                 modifier = Modifier.weight(1f),
-            ) { Text("Test server") }
+            ) {
+                Text("Test server")
+            }
             Button(
                 onClick = {
                     viewModel.beginApplicationAuthorization(
@@ -833,7 +927,9 @@ private fun SetupPage(
                 },
                 enabled = baseUrl.isNotBlank() && !state.authorizationPending,
                 modifier = Modifier.weight(1f),
-            ) { Text("Authorize app") }
+            ) {
+                Text("Authorize app")
+            }
             OutlinedButton(
                 onClick = {
                     viewModel.saveManualConfiguration(
@@ -846,13 +942,17 @@ private fun SetupPage(
                 },
                 enabled = baseUrl.isNotBlank() && apiKey.isNotBlank(),
                 modifier = Modifier.weight(1f),
-            ) { Text("Save API key") }
+            ) {
+                Text("Save API key")
+            }
         }
         if (state.authorizationPending) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 CircularProgressIndicator(modifier = Modifier.height(24.dp))
                 Text("Waiting for approval in OctoPrint…")
-                TextButton(onClick = viewModel::cancelAuthorization) { Text("Cancel") }
+                TextButton(onClick = viewModel::cancelAuthorization) {
+                    Text("Cancel")
+                }
             }
         }
         if (state.isReady) {
@@ -861,9 +961,16 @@ private fun SetupPage(
             Text("Server: ${state.config.baseUrl}")
             Text("User: ${state.serverInfo.userName ?: state.config.username.ifBlank { "unknown" }}")
             Text("Server version: ${state.serverInfo.serverVersion ?: "unknown"}")
-            Text("API permissions: ${state.serverInfo.permissions.sorted().joinToString().ifBlank { "not reported" }}", style = MaterialTheme.typography.bodySmall)
-            Button(onClick = { viewModel.saveSnapshotOverride(snapshotUrl) }) { Text("Save webcam override") }
-            OutlinedButton(onClick = { confirmClear = true }) { Text("Remove OctoPrint configuration") }
+            Text(
+                "API permissions: ${state.serverInfo.permissions.sorted().joinToString().ifBlank { "not reported" }}",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Button(onClick = { viewModel.saveSnapshotOverride(snapshotUrl) }) {
+                Text("Save webcam override")
+            }
+            OutlinedButton(onClick = { confirmClear = true }) {
+                Text("Remove OctoPrint configuration")
+            }
         }
         Spacer(modifier = Modifier.height(24.dp))
     }
@@ -902,8 +1009,16 @@ private fun ConfirmDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = { Text(text) },
-        confirmButton = { Button(onClick = onConfirm) { Text(confirmLabel) } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Back") } },
+        confirmButton = {
+            Button(onClick = onConfirm) {
+                Text(confirmLabel)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Back")
+            }
+        },
     )
 }
 
