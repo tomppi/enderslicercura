@@ -90,10 +90,11 @@ fun IntegratedEnderSlicerApp(
 }
 
 private fun suggestedOctoPrintName(state: MainUiState): String {
-    val source = state.mesh?.displayName
+    val rawName = state.mesh?.displayName
         ?.substringAfterLast('/')
         ?.substringAfterLast('\\')
-        ?.substringBeforeLast('.', state.mesh.displayName)
+    val source = rawName
+        ?.let { name -> name.substringBeforeLast('.', name) }
         ?.takeIf(String::isNotBlank)
         ?: "enderslicercura"
     return "$source.gcode"
