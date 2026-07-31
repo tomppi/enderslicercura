@@ -227,20 +227,21 @@ class OctoPrintRepository(
             return
         }
         if (_state.value.isUploading) {
-            setError(IllegalStateException("A G-code upload is already in progress"))
+            val message = "A G-code upload is already in progress"
+            _state.update { it.copy(statusMessage = message, errorMessage = message) }
             return
         }
         val remoteName = sanitizeGcodeName(suggestedName.ifBlank { source.name })
+        _state.update {
+            it.copy(
+                isUploading = true,
+                uploadProgress = 0f,
+                uploadFileName = remoteName,
+                statusMessage = "Uploading $remoteName to OctoPrint…",
+                errorMessage = null,
+            )
+        }
         scope.launch {
-            _state.update {
-                it.copy(
-                    isUploading = true,
-                    uploadProgress = 0f,
-                    uploadFileName = remoteName,
-                    statusMessage = "Uploading $remoteName to OctoPrint…",
-                    errorMessage = null,
-                )
-            }
             runCatching {
                 withContext(Dispatchers.IO) {
                     val uploadSource = snapshotGcodeForUpload(source)
@@ -570,9 +571,6 @@ class OctoPrintRepository(
         val message = error.message ?: error::class.java.simpleName
         _state.update {
             it.copy(
-                isRefreshing = false,
-                isFileListRefreshing = false,
-                isUploading = false,
                 statusMessage = message,
                 errorMessage = message,
             )

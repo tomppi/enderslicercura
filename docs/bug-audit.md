@@ -10,7 +10,7 @@ This audit covers the current slicer, Cura import and persistence paths, model a
 - Use the long timeout only for G-code uploads; ordinary commands return to the normal API timeout.
 - Copy validated G-code to a checked immutable upload snapshot so re-slicing or editing layer events cannot alter a file while it is being transmitted.
 - Serialize printer commands and reject motion, homing, extrusion, retraction and manual terminal commands unless the printer is operational and idle. Active jobs also block serial disconnects.
-- Reject duplicate upload requests while a transfer is already active.
+- Claim upload state before launching the transfer, reject duplicate requests, and keep unrelated command errors from clearing active upload or refresh indicators.
 - Require confirmation for status-page start and restart actions, not only file-browser and upload print starts.
 - Decode webcam frames away from the Compose main thread.
 - Preserve a user's edited auto-connect checkbox instead of overwriting it on every status poll.
