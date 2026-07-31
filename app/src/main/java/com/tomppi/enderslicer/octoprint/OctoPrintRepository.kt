@@ -1,6 +1,7 @@
 package com.tomppi.enderslicer.octoprint
 
 import android.content.Context
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -17,10 +18,8 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
-import org.json.JSONObject
 import java.io.File
 import java.util.Locale
-import kotlin.math.roundToInt
 
 class OctoPrintRepository(
     context: Context,
@@ -133,7 +132,6 @@ class OctoPrintRepository(
                         pollIntervalSeconds = pollIntervalSeconds.coerceIn(1, 30),
                     )
                     val client = OctoPrintClient(config.baseUrl)
-                    client.version()
                     require(client.probeApplicationKeys()) {
                         "This OctoPrint server does not expose the Application Keys workflow; use a user API key instead"
                     }
@@ -153,7 +151,10 @@ class OctoPrintRepository(
                     )
                 }
                 pollAuthorization(config, authorization.pollingUrl)
-            }.onFailure(::setError)
+            }.onFailure { error ->
+                if (error is CancellationException && authorizationJob?.isCancelled == true) return@onFailure
+                setError(error)
+            }
         }
     }
 
@@ -169,6 +170,7 @@ class OctoPrintRepository(
                 authorizationPending = false,
                 authorizationDialogUrl = null,
                 statusMessage = "OctoPrint authorization cancelled",
+                errorMessage = null,
             )
         }
     }
@@ -177,6 +179,9 @@ class OctoPrintRepository(
         pollingJob?.cancel()
         authorizationJob?.cancel()
         webcamJob?.cancel()
+        pollingJob = null
+        authorizationJob = null
+        webcamJob = null
         store.clearAll()
         _state.value = OctoPrintUiState(statusMessage = "OctoPrint configuration removed")
     }
@@ -232,7 +237,11 @@ class OctoPrintRepository(
             runCatching {
                 withContext(Dispatchers.IO) {
                     requireClient().upload(source, remoteName, remoteDirectory, action) { sent, total ->
-                        val progress = if (total <= 0L) null else (sent.toDouble() / total.toDouble()).toFloat().coerceIn(0f, 1f)
+                        val progress = if (total <= 0L) {
+                            null
+                        } else {
+                            (sent.toDouble() / total.toDouble()).toFloat().coerceIn(0f, 1f)
+                        }
                         _state.update { current -> current.copy(uploadProgress = progress) }
                     }
                 }
@@ -262,19 +271,35 @@ class OctoPrintRepository(
 
     fun selectFile(path: String, print: Boolean) = operation(
         if (print) "Starting OctoPrint file…" else "Selecting OctoPrint file…",
-    ) { selectFile(path, print) }
+    ) {
+        selectFile(path, print)
+    }
 
-    fun deleteFile(path: String) = operation("Deleting OctoPrint file…", refreshFiles = true) { deleteFile(path) }
+    fun deleteFile(path: String) = operation(
+        message = "Deleting OctoPrint file…",
+        refreshFileList = true,
+    ) {
+        deleteFile(path)
+    }
 
-    fun createFolder(parentPath: String, name: String) = operation("Creating OctoPrint folder…", refreshFiles = true) {
+    fun createFolder(parentPath: String, name: String) = operation(
+        message = "Creating OctoPrint folder…",
+        refreshFileList = true,
+    ) {
         createFolder(parentPath, name)
     }
 
-    fun moveFile(path: String, destination: String) = operation("Moving OctoPrint file…", refreshFiles = true) {
+    fun moveFile(path: String, destination: String) = operation(
+        message = "Moving OctoPrint file…",
+        refreshFileList = true,
+    ) {
         moveFile(path, destination)
     }
 
-    fun copyFile(path: String, destination: String) = operation("Copying OctoPrint file…", refreshFiles = true) {
+    fun copyFile(path: String, destination: String) = operation(
+        message = "Copying OctoPrint file…",
+        refreshFileList = true,
+    ) {
         copyFile(path, destination)
     }
 
@@ -295,18 +320,38 @@ class OctoPrintRepository(
     }
 
     fun disconnect() = operation("Disconnecting printer…") { disconnect() }
-    fun jog(x: Double? = null, y: Double? = null, z: Double? = null) = operation("Jogging printer…") { jog(x, y, z) }
-    fun home(axes: Set<String>) = operation("Homing ${axes.joinToString("").uppercase(Locale.US)}…") { home(axes) }
-    fun setToolTemperature(tool: String, target: Int) = operation("Setting nozzle target…") { setToolTemperature(tool, target) }
-    fun setBedTemperature(target: Int) = operation("Setting bed target…") { setBedTemperature(target) }
-    fun extrude(amountMm: Double) = operation(if (amountMm > 0) "Extruding filament…" else "Retracting filament…") { extrude(amountMm) }
+
+    fun jog(x: Double? = null, y: Double? = null, z: Double? = null) = operation("Jogging printer…") {
+        jog(x, y, z)
+    }
+
+    fun home(axes: Set<String>) = operation("Homing ${axes.joinToString("").uppercase(Locale.US)}…") {
+        home(axes)
+    }
+
+    fun setToolTemperature(tool: String, target: Int) = operation("Setting nozzle target…") {
+        setToolTemperature(tool, target)
+    }
+
+    fun setBedTemperature(target: Int) = operation("Setting bed target…") {
+        setBedTemperature(target)
+    }
+
+    fun extrude(amountMm: Double) = operation(
+        if (amountMm > 0) "Extruding filament…" else "Retracting filament…",
+    ) {
+        extrude(amountMm)
+    }
+
     fun setFeedRate(percent: Int) = operation("Setting feed rate…") { setFeedRate(percent) }
     fun setFlowRate(percent: Int) = operation("Setting flow rate…") { setFlowRate(percent) }
     fun sendGcode(command: String) = operation("Sending G-code command…") { sendGcode(command) }
 
     fun setWebcamVisible(visible: Boolean) {
         webcamVisible = visible
-        if (visible) restartWebcamPolling() else {
+        if (visible) {
+            restartWebcamPolling()
+        } else {
             webcamJob?.cancel()
             webcamJob = null
             _state.update { it.copy(webcamFrame = null) }
@@ -347,6 +392,7 @@ class OctoPrintRepository(
             }
             restartPolling(immediate = true)
         }.onFailure { error ->
+            if (error is CancellationException && authorizationJob?.isCancelled == true) return@onFailure
             _state.update { it.copy(authorizationPending = false, authorizationDialogUrl = null) }
             setError(error)
         }
@@ -443,7 +489,7 @@ class OctoPrintRepository(
 
     private fun operation(
         message: String,
-        refreshFiles: Boolean = false,
+        refreshFileList: Boolean = false,
         block: OctoPrintClient.() -> Unit,
     ) {
         scope.launch {
@@ -451,7 +497,7 @@ class OctoPrintRepository(
             runCatching {
                 withContext(Dispatchers.IO) { requireClient().block() }
             }.onSuccess {
-                if (refreshFiles) refreshFiles(force = true)
+                if (refreshFileList) refreshFiles(force = true)
                 refreshAll(showSpinner = false)
             }.onFailure(::setError)
         }
@@ -483,10 +529,11 @@ class OctoPrintRepository(
     }
 
     private fun sanitizeGcodeName(value: String): String {
-        val stem = value
+        val leafName = value
             .substringAfterLast('/')
             .substringAfterLast('\\')
-            .substringBeforeLast('.', value)
+        val stem = leafName
+            .substringBeforeLast('.', leafName)
             .replace(Regex("[^A-Za-z0-9._ -]+"), "_")
             .trim(' ', '.', '_')
             .take(96)
