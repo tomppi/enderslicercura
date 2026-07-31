@@ -22,7 +22,18 @@ class OctoPrintClient(
         normalizedBaseUrl = base.toString().removeSuffix("/")
     }
 
-    fun version(): JSONObject = getJson(apiUrl("api", "version"), authenticated = false)
+    fun version(): JSONObject {
+        val authenticated = !apiKey.isNullOrBlank()
+        return try {
+            getJson(apiUrl("api", "version"), authenticated = authenticated)
+        } catch (error: OctoPrintHttpException) {
+            if (!authenticated && error.statusCode in setOf(401, 403) && probeApplicationKeys()) {
+                JSONObject().put("text", "OctoPrint (authorization required)")
+            } else {
+                throw error
+            }
+        }
+    }
 
     fun currentUser(): JSONObject? {
         if (apiKey.isNullOrBlank()) return null
