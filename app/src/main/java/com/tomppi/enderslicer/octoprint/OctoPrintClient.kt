@@ -1,30 +1,21 @@
 package com.tomppi.enderslicer.octoprint
 
-import okhttp3.HttpUrl
-import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
-import okhttp3.MediaType
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.MultipartBody
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.RequestBody
-import okhttp3.RequestBody.Companion.toRequestBody
-import okhttp3.Response
-import okio.BufferedSink
 import org.json.JSONObject
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
+import java.net.HttpURLConnection
 import java.net.URI
-import java.util.concurrent.TimeUnit
-import kotlin.math.roundToInt
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
+import java.util.UUID
 
 class OctoPrintClient(
     baseUrl: String,
     private val apiKey: String? = null,
-    private val httpClient: OkHttpClient = defaultHttpClient(),
 ) {
     val normalizedBaseUrl: String
-    private val base: HttpUrl
+    private val base: URI
 
     init {
         base = normalizeBaseUrl(baseUrl)
@@ -35,12 +26,10 @@ class OctoPrintClient(
 
     fun currentUser(): JSONObject? {
         if (apiKey.isNullOrBlank()) return null
-        return executeJson(
-            Request.Builder()
-                .url(apiUrl("api", "login"))
-                .post(JSONObject().put("passive", true).toString().jsonBody())
-                .authenticated()
-                .build(),
+        return requestJson(
+            url = apiUrl("api", "login"),
+            method = "POST",
+            body = JSONObject().put("passive", true).toString().toByteArray(Charsets.UTF_8),
         )
     }
 
@@ -57,10 +46,16 @@ class OctoPrintClient(
     )
 
     fun files(force: Boolean = false): Pair<List<OctoPrintFileEntry>, Long?> {
-        val url = apiUrl("api", "files", "local").newBuilder()
-            .addQueryParameter("recursive", "true")
-            .addQueryParameter("force", force.toString())
-            .build()
+        val root = apiUrl("api", "files", "local")
+        val url = URI(
+            root.scheme,
+            root.userInfo,
+            root.host,
+            root.port,
+            root.path,
+            "recursive=true&force=$force",
+            null,
+        )
         return OctoPrintJson.parseFiles(getJson(url))
     }
 
@@ -70,14 +65,16 @@ class OctoPrintClient(
 
     fun fetchWebcamSnapshot(url: String): ByteArray {
         val resolved = resolveServerUrl(url) ?: error("Invalid OctoPrint webcam snapshot URL")
-        val request = Request.Builder().url(resolved).get().authenticated().build()
-        return execute(request) { response ->
-            val declared = response.body.contentLength()
-            require(declared <= MAX_SNAPSHOT_BYTES || declared < 0L) { "Webcam snapshot is too large" }
-            response.body.byteStream().use { input ->
-                val output = java.io.ByteArrayOutputStream()
+        val connection = openConnection(resolved, "GET", authenticated = true)
+        return try {
+            val code = connection.responseCode
+            if (code !in 200..299) throw httpError(connection, code)
+            val declared = connection.contentLengthLong
+            require(declared < 0L || declared <= MAX_SNAPSHOT_BYTES) { "Webcam snapshot is too large" }
+            connection.inputStream.buffered().use { input ->
+                val output = ByteArrayOutputStream()
                 val buffer = ByteArray(64 * 1024)
-                var total = 0
+                var total = 0L
                 while (true) {
                     val count = input.read(buffer)
                     if (count < 0) break
@@ -87,6 +84,8 @@ class OctoPrintClient(
                 }
                 output.toByteArray()
             }
+        } finally {
+            connection.disconnect()
         }
     }
 
@@ -99,31 +98,22 @@ class OctoPrintClient(
     ): JSONObject {
         require(file.isFile && file.length() > 0L) { "Generated G-code is unavailable" }
         require(remoteFileName.lowercase().endsWith(".gcode")) { "OctoPrint upload must end in .gcode" }
-        val body = MultipartBody.Builder()
-            .setType(MultipartBody.FORM)
-            .addFormDataPart(
-                "file",
-                remoteFileName,
-                ProgressFileRequestBody(file, GCODE_MEDIA_TYPE, onProgress),
-            )
-            .apply {
-                if (remoteDirectory.isNotBlank()) addFormDataPart("path", remoteDirectory.trim('/'))
-                when (action) {
-                    OctoPrintUploadAction.UPLOAD -> Unit
-                    OctoPrintUploadAction.UPLOAD_AND_SELECT -> addFormDataPart("select", "true")
-                    OctoPrintUploadAction.UPLOAD_AND_PRINT -> {
-                        addFormDataPart("select", "true")
-                        addFormDataPart("print", "true")
-                    }
-                }
+        val fields = linkedMapOf<String, String>()
+        if (remoteDirectory.isNotBlank()) fields["path"] = remoteDirectory.trim('/')
+        when (action) {
+            OctoPrintUploadAction.UPLOAD -> Unit
+            OctoPrintUploadAction.UPLOAD_AND_SELECT -> fields["select"] = "true"
+            OctoPrintUploadAction.UPLOAD_AND_PRINT -> {
+                fields["select"] = "true"
+                fields["print"] = "true"
             }
-            .build()
-        return executeJson(
-            Request.Builder()
-                .url(apiUrl("api", "files", "local"))
-                .post(body)
-                .authenticated()
-                .build(),
+        }
+        return multipart(
+            url = apiUrl("api", "files", "local"),
+            fields = fields,
+            file = file,
+            fileName = remoteFileName,
+            onProgress = onProgress,
         )
     }
 
@@ -136,28 +126,17 @@ class OctoPrintClient(
     }
 
     fun deleteFile(path: String) {
-        executeNoContent(
-            Request.Builder()
-                .url(fileUrl(path))
-                .delete()
-                .authenticated()
-                .build(),
-        )
+        execute(url = fileUrl(path), method = "DELETE")
     }
 
     fun createFolder(parentPath: String, folderName: String) {
         require(folderName.isNotBlank() && '/' !in folderName && '\\' !in folderName) { "Enter a valid folder name" }
-        val body = MultipartBody.Builder()
-            .setType(MultipartBody.FORM)
-            .addFormDataPart("foldername", folderName.trim())
-            .apply { if (parentPath.isNotBlank()) addFormDataPart("path", parentPath.trim('/')) }
-            .build()
-        executeJson(
-            Request.Builder()
-                .url(apiUrl("api", "files", "local"))
-                .post(body)
-                .authenticated()
-                .build(),
+        multipart(
+            url = apiUrl("api", "files", "local"),
+            fields = linkedMapOf<String, String>().apply {
+                put("foldername", folderName.trim())
+                if (parentPath.isNotBlank()) put("path", parentPath.trim('/'))
+            },
         )
     }
 
@@ -261,137 +240,281 @@ class OctoPrintClient(
     }
 
     fun probeApplicationKeys(): Boolean {
-        val request = Request.Builder().url(pluginUrl("appkeys", "probe")).get().build()
-        return executeAllowing(request, setOf(204, 404)) { it.code == 204 }
+        val response = execute(
+            url = pluginUrl("appkeys", "probe"),
+            method = "GET",
+            authenticated = false,
+            allowedCodes = setOf(204, 404),
+        )
+        return response.code == 204
     }
 
     fun requestApplicationKey(username: String?): AppKeyAuthorization {
         val json = JSONObject().put("app", OCTOPRINT_APP_NAME)
         username?.trim()?.takeIf(String::isNotBlank)?.let { json.put("user", it) }
-        val request = Request.Builder()
-            .url(pluginUrl("appkeys", "request"))
-            .post(json.toString().jsonBody())
-            .build()
-        return execute(request) { response ->
-            require(response.code == 201) { errorMessage(response) }
-            val body = response.body.string().takeIf(String::isNotBlank)?.let(::JSONObject) ?: JSONObject()
-            val location = response.header("Location")
-                ?: body.optString("location").takeIf(String::isNotBlank)
-                ?: error("OctoPrint did not return an authorization polling URL")
-            val authDialog = body.optString("auth_dialog").takeIf(String::isNotBlank)
-                ?: error("OctoPrint did not return an authorization dialog URL")
-            AppKeyAuthorization(
-                pollingUrl = resolveServerUrl(location)?.toString() ?: error("Invalid authorization polling URL"),
-                dialogUrl = resolveServerUrl(authDialog)?.toString() ?: error("Invalid authorization dialog URL"),
-            )
-        }
+        val response = execute(
+            url = pluginUrl("appkeys", "request"),
+            method = "POST",
+            body = json.toString().toByteArray(Charsets.UTF_8),
+            contentType = JSON_CONTENT_TYPE,
+            authenticated = false,
+            allowedCodes = setOf(201),
+        )
+        val body = response.body.toString(Charsets.UTF_8).takeIf(String::isNotBlank)?.let(::JSONObject) ?: JSONObject()
+        val location = response.location
+            ?: body.optString("location").takeIf(String::isNotBlank)
+            ?: error("OctoPrint did not return an authorization polling URL")
+        val authDialog = body.optString("auth_dialog").takeIf(String::isNotBlank)
+            ?: error("OctoPrint did not return an authorization dialog URL")
+        return AppKeyAuthorization(
+            pollingUrl = resolveServerUrl(location)?.toString() ?: error("Invalid authorization polling URL"),
+            dialogUrl = resolveServerUrl(authDialog)?.toString() ?: error("Invalid authorization dialog URL"),
+        )
     }
 
     fun pollApplicationKey(pollingUrl: String): AppKeyPollResult {
-        val url = pollingUrl.toHttpUrlOrNull() ?: error("Invalid authorization polling URL")
-        val request = Request.Builder().url(url).get().build()
-        return executeAllowing(request, setOf(200, 202, 404)) { response ->
-            when (response.code) {
-                200 -> {
-                    val json = response.body.string().takeIf(String::isNotBlank)?.let(::JSONObject) ?: JSONObject()
-                    AppKeyPollResult.Granted(
-                        json.optString("api_key").takeIf(String::isNotBlank)
-                            ?: error("OctoPrint authorized the app without returning an API key"),
-                    )
-                }
-                202 -> AppKeyPollResult.Pending
-                else -> AppKeyPollResult.Denied
+        val url = runCatching { URI(pollingUrl) }.getOrNull()?.takeIf(URI::isAbsolute)
+            ?: error("Invalid authorization polling URL")
+        val response = execute(
+            url = url,
+            method = "GET",
+            authenticated = false,
+            allowedCodes = setOf(200, 202, 404),
+        )
+        return when (response.code) {
+            200 -> {
+                val json = response.body.toString(Charsets.UTF_8).takeIf(String::isNotBlank)?.let(::JSONObject) ?: JSONObject()
+                AppKeyPollResult.Granted(
+                    json.optString("api_key").takeIf(String::isNotBlank)
+                        ?: error("OctoPrint authorized the app without returning an API key"),
+                )
             }
+            202 -> AppKeyPollResult.Pending
+            else -> AppKeyPollResult.Denied
         }
     }
 
-    fun resolveServerUrl(value: String): HttpUrl? {
+    fun resolveServerUrl(value: String): URI? {
         val trimmed = value.trim()
         if (trimmed.isBlank()) return null
-        trimmed.toHttpUrlOrNull()?.let { return it }
-        if (trimmed.startsWith("//")) {
-            return "${base.scheme}:$trimmed".toHttpUrlOrNull()
-        }
-        return base.resolve(trimmed)
+        return runCatching {
+            val parsed = URI(trimmed)
+            when {
+                parsed.isAbsolute -> parsed
+                trimmed.startsWith("//") -> URI("${base.scheme}:$trimmed")
+                else -> base.resolve(parsed)
+            }
+        }.getOrNull()?.takeIf { it.scheme == "http" || it.scheme == "https" }
     }
 
     private fun postFileCommand(path: String, json: JSONObject) {
         postJson(fileUrl(path), json)
     }
 
-    private fun postJson(url: HttpUrl, json: JSONObject) {
-        executeNoContent(
-            Request.Builder()
-                .url(url)
-                .post(json.toString().jsonBody())
-                .authenticated()
-                .build(),
+    private fun postJson(url: URI, json: JSONObject) {
+        requestJson(
+            url = url,
+            method = "POST",
+            body = json.toString().toByteArray(Charsets.UTF_8),
         )
     }
 
-    private fun getJson(url: HttpUrl, authenticated: Boolean = true): JSONObject {
-        val builder = Request.Builder().url(url).get()
-        if (authenticated) builder.authenticated()
-        return executeJson(builder.build())
+    private fun getJson(url: URI, authenticated: Boolean = true): JSONObject = requestJson(
+        url = url,
+        method = "GET",
+        authenticated = authenticated,
+    )
+
+    private fun requestJson(
+        url: URI,
+        method: String,
+        body: ByteArray? = null,
+        authenticated: Boolean = true,
+    ): JSONObject {
+        val response = execute(
+            url = url,
+            method = method,
+            body = body,
+            contentType = if (body == null) null else JSON_CONTENT_TYPE,
+            authenticated = authenticated,
+        )
+        val text = response.body.toString(Charsets.UTF_8)
+        return if (text.isBlank()) JSONObject() else JSONObject(text)
     }
 
-    private fun executeJson(request: Request): JSONObject = execute(request) { response ->
-        val text = response.body.string()
-        if (text.isBlank()) JSONObject() else JSONObject(text)
-    }
-
-    private fun executeNoContent(request: Request) {
-        execute(request) { Unit }
-    }
-
-    private fun <T> execute(request: Request, block: (Response) -> T): T {
-        httpClient.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) throw OctoPrintHttpException(response.code, errorMessage(response))
-            return block(response)
+    private fun multipart(
+        url: URI,
+        fields: LinkedHashMap<String, String>,
+        file: File? = null,
+        fileName: String? = null,
+        onProgress: (Long, Long) -> Unit = { _, _ -> },
+    ): JSONObject {
+        val boundary = "----EnderSlicerCura${UUID.randomUUID().toString().replace("-", "")}" 
+        val prefix = ByteArrayOutputStream().apply {
+            fields.forEach { (name, value) ->
+                write("--$boundary\r\n".toByteArray(Charsets.UTF_8))
+                write("Content-Disposition: form-data; name=\"${escapeQuoted(name)}\"\r\n\r\n".toByteArray(Charsets.UTF_8))
+                write(value.toByteArray(Charsets.UTF_8))
+                write("\r\n".toByteArray(Charsets.UTF_8))
+            }
+            if (file != null) {
+                write("--$boundary\r\n".toByteArray(Charsets.UTF_8))
+                write(
+                    "Content-Disposition: form-data; name=\"file\"; filename=\"${escapeQuoted(fileName ?: file.name)}\"\r\n".toByteArray(Charsets.UTF_8),
+                )
+                write("Content-Type: text/x-gcode\r\n\r\n".toByteArray(Charsets.UTF_8))
+            }
+        }.toByteArray()
+        val suffix = buildString {
+            if (file != null) append("\r\n")
+            append("--$boundary--\r\n")
+        }.toByteArray(Charsets.UTF_8)
+        val fileLength = file?.length() ?: 0L
+        val totalLength = prefix.size.toLong() + fileLength + suffix.size.toLong()
+        val connection = openConnection(
+            url = url,
+            method = "POST",
+            authenticated = true,
+            contentType = "multipart/form-data; boundary=$boundary",
+            contentLength = totalLength,
+        )
+        return try {
+            connection.outputStream.buffered().use { output ->
+                output.write(prefix)
+                if (file != null) {
+                    var sent = 0L
+                    file.inputStream().buffered().use { input ->
+                        val buffer = ByteArray(128 * 1024)
+                        while (true) {
+                            val count = input.read(buffer)
+                            if (count < 0) break
+                            output.write(buffer, 0, count)
+                            sent += count
+                            onProgress(sent, fileLength)
+                        }
+                    }
+                }
+                output.write(suffix)
+            }
+            val code = connection.responseCode
+            if (code !in 200..299) throw httpError(connection, code)
+            val bytes = readBody(connection, success = true, MAX_JSON_BODY_BYTES)
+            val text = bytes.toString(Charsets.UTF_8)
+            if (text.isBlank()) JSONObject() else JSONObject(text)
+        } finally {
+            connection.disconnect()
         }
     }
 
-    private fun <T> executeAllowing(request: Request, allowed: Set<Int>, block: (Response) -> T): T {
-        httpClient.newCall(request).execute().use { response ->
-            if (response.code !in allowed) throw OctoPrintHttpException(response.code, errorMessage(response))
-            return block(response)
+    private fun execute(
+        url: URI,
+        method: String,
+        body: ByteArray? = null,
+        contentType: String? = null,
+        authenticated: Boolean = true,
+        allowedCodes: Set<Int>? = null,
+    ): HttpResponse {
+        val connection = openConnection(
+            url = url,
+            method = method,
+            authenticated = authenticated,
+            contentType = contentType,
+            contentLength = body?.size?.toLong(),
+        )
+        return try {
+            if (body != null) connection.outputStream.buffered().use { it.write(body) }
+            val code = connection.responseCode
+            val allowed = allowedCodes?.let { code in it } ?: (code in 200..299)
+            if (!allowed) throw httpError(connection, code)
+            HttpResponse(
+                code = code,
+                body = readBody(connection, success = true, MAX_JSON_BODY_BYTES),
+                location = connection.getHeaderField("Location"),
+            )
+        } finally {
+            connection.disconnect()
         }
     }
 
-    private fun errorMessage(response: Response): String {
-        val body = runCatching { response.peekBody(MAX_ERROR_BODY_BYTES).string() }.getOrDefault("").trim()
+    private fun openConnection(
+        url: URI,
+        method: String,
+        authenticated: Boolean,
+        contentType: String? = null,
+        contentLength: Long? = null,
+    ): HttpURLConnection {
+        require(url.scheme == "http" || url.scheme == "https") { "OctoPrint URL must use HTTP or HTTPS" }
+        return (url.toURL().openConnection() as HttpURLConnection).apply {
+            requestMethod = method
+            connectTimeout = CONNECT_TIMEOUT_MILLIS
+            readTimeout = if (method == "POST") WRITE_OPERATION_TIMEOUT_MILLIS else READ_TIMEOUT_MILLIS
+            instanceFollowRedirects = true
+            useCaches = false
+            doInput = true
+            setRequestProperty("Accept", "application/json")
+            setRequestProperty("User-Agent", "$OCTOPRINT_APP_NAME Android")
+            if (authenticated) {
+                apiKey?.takeIf(String::isNotBlank)?.let { setRequestProperty("X-Api-Key", it) }
+            }
+            contentType?.let { setRequestProperty("Content-Type", it) }
+            if (contentLength != null) {
+                doOutput = true
+                setFixedLengthStreamingMode(contentLength)
+            }
+        }
+    }
+
+    private fun httpError(connection: HttpURLConnection, code: Int): OctoPrintHttpException {
+        val bytes = readBody(connection, success = false, MAX_ERROR_BODY_BYTES)
+        val raw = bytes.toString(Charsets.UTF_8).trim()
         val detail = runCatching {
-            JSONObject(body).let { json ->
+            JSONObject(raw).let { json ->
                 json.optString("error").takeIf(String::isNotBlank)
                     ?: json.optString("message").takeIf(String::isNotBlank)
             }
-        }.getOrNull() ?: body.take(300).takeIf(String::isNotBlank)
-        return buildString {
-            append("OctoPrint returned HTTP ${response.code}")
+        }.getOrNull() ?: raw.take(300).takeIf(String::isNotBlank)
+        val message = buildString {
+            append("OctoPrint returned HTTP $code")
             detail?.let { append(": $it") }
+        }
+        return OctoPrintHttpException(code, message)
+    }
+
+    private fun readBody(connection: HttpURLConnection, success: Boolean, limit: Long): ByteArray {
+        val stream = if (success) {
+            runCatching { connection.inputStream }.getOrNull()
+        } else {
+            connection.errorStream ?: runCatching { connection.inputStream }.getOrNull()
+        } ?: return ByteArray(0)
+        return stream.buffered().use { input ->
+            val output = ByteArrayOutputStream()
+            val buffer = ByteArray(16 * 1024)
+            var total = 0L
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                total += count
+                require(total <= limit) { "OctoPrint response exceeded the allowed size" }
+                output.write(buffer, 0, count)
+            }
+            output.toByteArray()
         }
     }
 
-    private fun apiUrl(vararg segments: String): HttpUrl = pathUrl(*segments)
+    private fun apiUrl(vararg segments: String): URI = pathUrl(*segments)
 
-    private fun pluginUrl(vararg segments: String): HttpUrl = pathUrl("plugin", *segments)
+    private fun pluginUrl(vararg segments: String): URI = pathUrl("plugin", *segments)
 
-    private fun fileUrl(path: String): HttpUrl {
-        val builder = base.newBuilder().addPathSegment("api").addPathSegment("files").addPathSegment("local")
-        path.trim('/').split('/').filter(String::isNotBlank).forEach(builder::addPathSegment)
-        return builder.build()
-    }
+    private fun fileUrl(path: String): URI = pathUrl(
+        "api",
+        "files",
+        "local",
+        *path.trim('/').split('/').filter(String::isNotBlank).toTypedArray(),
+    )
 
-    private fun pathUrl(vararg segments: String): HttpUrl {
-        val builder = base.newBuilder()
-        segments.filter(String::isNotBlank).forEach(builder::addPathSegment)
-        return builder.build()
-    }
-
-    private fun Request.Builder.authenticated(): Request.Builder = apply {
-        apiKey?.takeIf(String::isNotBlank)?.let { header("X-Api-Key", it) }
-        header("User-Agent", "$OCTOPRINT_APP_NAME Android")
-        header("Accept", "application/json")
+    private fun pathUrl(vararg segments: String): URI {
+        val relative = segments.filter(String::isNotBlank).joinToString("/") { encodePathSegment(it) }
+        return base.resolve(relative)
     }
 
     data class AppKeyAuthorization(val pollingUrl: String, val dialogUrl: String)
@@ -404,57 +527,46 @@ class OctoPrintClient(
 
     class OctoPrintHttpException(val statusCode: Int, message: String) : IOException(message)
 
-    private class ProgressFileRequestBody(
-        private val file: File,
-        private val mediaType: MediaType,
-        private val onProgress: (Long, Long) -> Unit,
-    ) : RequestBody() {
-        override fun contentType(): MediaType = mediaType
-        override fun contentLength(): Long = file.length()
-
-        override fun writeTo(sink: BufferedSink) {
-            val total = contentLength()
-            var sent = 0L
-            file.inputStream().buffered().use { input ->
-                val buffer = ByteArray(128 * 1024)
-                while (true) {
-                    val count = input.read(buffer)
-                    if (count < 0) break
-                    sink.write(buffer, 0, count)
-                    sent += count
-                    onProgress(sent, total)
-                }
-            }
-        }
-    }
+    private data class HttpResponse(
+        val code: Int,
+        val body: ByteArray,
+        val location: String?,
+    )
 
     companion object {
-        private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
-        private val GCODE_MEDIA_TYPE = "text/x-gcode".toMediaType()
+        private const val JSON_CONTENT_TYPE = "application/json; charset=utf-8"
+        private const val CONNECT_TIMEOUT_MILLIS = 12_000
+        private const val READ_TIMEOUT_MILLIS = 30_000
+        private const val WRITE_OPERATION_TIMEOUT_MILLIS = 15 * 60 * 1_000
         private const val MAX_SNAPSHOT_BYTES = 10L * 1024L * 1024L
+        private const val MAX_JSON_BODY_BYTES = 8L * 1024L * 1024L
         private const val MAX_ERROR_BODY_BYTES = 32L * 1024L
 
-        fun normalizeBaseUrl(value: String): HttpUrl {
+        fun normalizeBaseUrl(value: String): URI {
             val trimmed = value.trim()
             require(trimmed.isNotBlank()) { "Enter the OctoPrint server address" }
             val withScheme = if ("://" in trimmed) trimmed else "http://$trimmed"
-            val parsed = withScheme.toHttpUrlOrNull() ?: error("Invalid OctoPrint server address")
+            val parsed = runCatching { URI(withScheme) }.getOrNull()
+                ?: error("Invalid OctoPrint server address")
             require(parsed.scheme == "http" || parsed.scheme == "https") { "OctoPrint URL must use HTTP or HTTPS" }
-            require(parsed.username.isEmpty() && parsed.password.isEmpty()) { "Do not put credentials in the OctoPrint URL" }
-            val path = parsed.encodedPath
-            val builder = parsed.newBuilder().query(null).fragment(null)
-            if (!path.endsWith('/')) builder.addPathSegment("")
-            return builder.build()
+            require(parsed.userInfo.isNullOrBlank()) { "Do not put credentials in the OctoPrint URL" }
+            require(!parsed.host.isNullOrBlank()) { "Invalid OctoPrint server host" }
+            val normalizedPath = when {
+                parsed.path.isNullOrBlank() -> "/"
+                parsed.path.endsWith('/') -> parsed.path
+                else -> "${parsed.path}/"
+            }
+            return URI(parsed.scheme, null, parsed.host, parsed.port, normalizedPath, null, null)
         }
 
-        private fun defaultHttpClient(): OkHttpClient = OkHttpClient.Builder()
-            .connectTimeout(12, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
-            .writeTimeout(15, TimeUnit.MINUTES)
-            .callTimeout(16, TimeUnit.MINUTES)
-            .retryOnConnectionFailure(true)
-            .build()
+        private fun encodePathSegment(value: String): String = URLEncoder
+            .encode(value, StandardCharsets.UTF_8.name())
+            .replace("+", "%20")
 
-        private fun String.jsonBody(): RequestBody = toRequestBody(JSON_MEDIA_TYPE)
+        private fun escapeQuoted(value: String): String = value
+            .replace("\\", "_")
+            .replace("\"", "_")
+            .replace("\r", "_")
+            .replace("\n", "_")
     }
 }
