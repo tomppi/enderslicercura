@@ -88,6 +88,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             endGcode = initialEndGcode,
             engineStatus = engine.status(),
             engineAvailable = engine.isAvailable(),
+            statusMessage = "Restoring saved configuration…",
+            isBusy = true,
         ),
     )
     val uiState: StateFlow<MainUiState> = _uiState.asStateFlow()
@@ -567,8 +569,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             settings = restored.settings,
                             importedSceneTransformAvailable = restored.scene?.affine != null,
                             importedSceneModelName = restored.scene?.modelName,
+                            isBusy = false,
                             statusMessage = if (restored.settings.overriddenSettingKeys.isEmpty()) {
-                                it.statusMessage
+                                "Import an STL to begin"
                             } else {
                                 "Restored ${restored.settings.overriddenSettingKeys.size} saved app setting overrides"
                             },
@@ -584,7 +587,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }.onFailure { error ->
                 _uiState.update {
-                    it.copy(statusMessage = "Saved Cura configuration could not be restored: ${error.message}")
+                    it.copy(
+                        isBusy = false,
+                        statusMessage = "Saved Cura configuration could not be restored: ${error.message}",
+                    )
                 }
             }
         }

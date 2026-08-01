@@ -1,92 +1,150 @@
 <p align="center">
-  <img src="docs/esc-icon.svg" width="128" height="128" alt="enderslicercura ESC icon">
+  <img src="docs/esc-icon.svg" width="128" height="128" alt="EnderSlicerCura ESC icon">
 </p>
 
-# enderslicercura
+# EnderSlicerCura
 
-enderslicercura is an Android-first CuraEngine front end designed for practical slicing directly on a phone or foldable. It currently targets a modified Creality Ender 3 V2, while exposing editable printer dimensions, nozzle and filament data, start/end G-code, print settings, supports, travel, cooling, adhesion, model placement, and displacement-texture editing through an embedded BumpMesh workspace.
+EnderSlicerCura is an Android-first CuraEngine front end for slicing, inspecting, calibrating and sending prints directly from a phone or foldable. It currently has its most complete real-printer validation on a modified Creality Ender 3 V2, while keeping the machine dimensions, nozzle, filament, start/end G-code and print settings editable for other printers.
 
-The app is capable of importing an STL, importing Cura configuration data, adding printable surface textures, slicing with the bundled ARM64 CuraEngine, previewing the generated layers, estimating print time, and exporting printer-compatible G-code.
+The app can import STL models and Cura configuration data, edit model placement, add displacement textures through an offline BumpMesh workspace, slice with the bundled ARM64 CuraEngine, preview the full print by layer, add non-destructive layer events, generate compact calibration models, export validated G-code and operate an OctoPrint server from inside the app.
 
 Android application ID: `com.tomppi.enderslicercura`.
 
 ## Project status
 
-enderslicercura is working and is already producing output very close to Cura Desktop for the current reference printer/profile. It is not yet being described as a complete Cura replacement: several more side-by-side slicing comparisons using different model shapes, support cases, infill patterns, model transforms, textured meshes, and profile combinations are still required before parity can be considered broadly validated.
+The current development line is **0.9.0-dev** and uses CuraEngine and matching Cura resources from **5.11.0-beta.1**. BumpMesh is pinned to upstream commit `a6ac179149b8a17c71a9469dd4cb6f866c0c01d1`.
 
-The current development line is `0.9.0-dev` and uses CuraEngine `5.11.0-beta.1` with matching Cura resources. BumpMesh is pinned to upstream commit `a6ac179149b8a17c71a9469dd4cb6f866c0c01d1`.
+EnderSlicerCura already produces output very close to Cura Desktop for the current reference profile, but it is still development software rather than a complete Cura replacement. The OctoPrint subsystem is implemented, hardened and covered by automated tests; validation against a real OctoPrint server and connected printer is still required before that integration should be considered production-ready.
 
-## Current capabilities
+## Highlights
 
-- Native Android and Jetpack Compose interface
-- Foldable-friendly wide and compact layouts
+### Slicing and Cura compatibility
+
 - Bundled ARM64 CuraEngine with adaptive use of up to eight workers
-- Binary and ASCII STL import with streamed parsing for high-density meshes
-- Persisted mesh triangle-limit presets from 1.5 million through an experimental 8 million, plus custom values
-- Native experimental Multiplex arc-overhang paths for unsupported bottom skin, with automatic bridge fallback
-- CuraEngine adaptive layer-height controls with fine, balanced and fast presets
-- Layer timeline with pauses, filament changes, temperatures, fan, speed, flow, retraction, camera, messages and guarded custom G-code
-- Purpose-built support-free temperature, flow, speed, fan, firmware-retraction, pressure-advance and junction-deviation calibration models
-- Type-specific calibration overrides that preserve normal profile behavior unless it directly invalidates the selected test
-- Non-destructive layer-event editing without re-slicing
-- High-contrast current-layer ribbon preview with optional dimmed build-up context
-- Layer-height range display and timeline event markers
-- Offline BumpMesh displacement-texture workspace
-- BumpMesh preset textures and custom image maps
-- Planar, cubic/triplanar, cylindrical and other BumpMesh mapping controls
-- Surface and angle masking, subdivision, displacement and decimation
-- Textured STL return directly into the slicer workflow
-- Cura `.3mf` project configuration import
-- Cura `.curaprofile` import
+- Cura `.3mf` project configuration and `.curaprofile` import
 - Full machine/extruder definition inheritance and formula recalculation
-- Imported settings as a persistent baseline with explicit app overrides
-- Editable categorized print settings
-- Editable printer definition and custom start/end G-code
+- Imported settings retained as a persistent baseline with explicit app overrides
+- Editable categorized print settings, printer definition and start/end G-code
+- Native CuraEngine adaptive layer-height controls
+- Tree and normal supports, support interfaces and support preview
+- Native experimental Multiplex arc-overhang paths with bridge fallback
+- Cura estimated print time and repaired G-code metadata
+- CRLF printer-compatible export with unique `.gcode` filenames
+
+### Model handling and texturing
+
+- Binary and ASCII STL import with streamed parsing for high-density meshes
+- Persisted triangle limits from 1.5 million through an experimental 8 million
 - Model centering, movement, rotation, drop-to-bed and lay-flat controls
 - Cura project scene-transform support for a separately imported STL
-- Tree and normal support settings, support interfaces and support preview
 - OpenGL model viewer with unrestricted orbit, zoom and pan
+- Offline BumpMesh displacement-texture workspace
+- Preset and custom height maps with planar, triplanar/cubic and cylindrical mapping
+- Surface/angle masks, subdivision, displacement and decimation
+- Textured STL returned directly to the normal validated import workflow
+
+### Layer preview and print editing
+
 - Cumulative layer preview colored by commanded print speed
-- Support and support-interface highlighting in the layer viewer
+- High-contrast current-layer ribbons with optional dimmed build-up context
+- Separate support, support-interface and adhesion highlighting
 - Full-height sampled previews for very large G-code files
-- Cura estimated print time display
-- G-code validation, temperature safety checks and repaired metadata
-- CRLF printer-compatible G-code export
-- Unique export names that always end in `.gcode`
-- Persistent configuration and app-setting restoration
-- GitHub Actions APK and CuraEngine build pipeline
+- Actual layer-height range display and timeline event markers
+- Non-destructive layer-event editing without re-slicing
+- Pause, filament change, temperature, fan, speed, flow, retraction, camera, display-message and guarded custom-G-code events
+
+### Calibration
+
+- Compact support-free temperature, flow, speed and fan models
+- Firmware-retraction and pressure-advance test models
+- Junction-deviation sharp-star calibration model
+- Type-specific temporary slicing overrides that preserve normal profile behavior unless it would invalidate the selected test
+- Marlin `M900 K` pressure-advance stepping and `M205 J` junction-deviation stepping
+
+### Android integration
+
+- Native Jetpack Compose interface
+- Compact and foldable-friendly wide layouts
+- Persistent printer/profile/app-setting restoration
+- Startup restoration guard preventing late saved-state loads from overwriting a fast user action
+- GitHub Actions pipeline for CuraEngine, tests and APK artifacts
+
+## OctoPrint integration
+
+Open the persistent **OctoPrint** action in the app to configure and operate a server. A server may be entered as a hostname, IP address or URL, including installations hosted below a path prefix.
+
+### Authorization and storage
+
+- OctoPrint Application Keys browser authorization
+- Manual user API-key fallback
+- API keys encrypted with Android Keystore AES-GCM
+- Stored OctoPrint credentials excluded from Android backup and device transfer
+- Existing working credentials retained until replacement authorization succeeds
+- Approval page can be reopened while authorization is pending
+- Cancellation, denial or timeout does not destroy the previous working setup
+- Same-origin checks prevent API keys from being sent to unrelated hosts
+- Revoked or rejected credentials stop polling and require reauthorization instead of creating an endless retry loop
+
+### Upload and files
+
+- Upload the current validated G-code
+- Upload and select
+- Upload, select and start printing after explicit confirmation
+- Remote folder selection and upload progress
+- Immutable upload snapshots so a re-slice cannot modify an in-flight transfer
+- Duplicate-upload prevention
+- Warning when OctoPrint reports that requested selection or printing was not effective
+- Recursive local-file browser with free-space reporting
+- Select, print, create folder, copy, move and delete operations
+- Canonical remote-path validation rejecting traversal, dot segments, empty segments, backslashes and control characters
+
+### Monitoring and control
+
+- Printer, serial connection and job state
+- Nozzle, bed and chamber temperatures
+- Selected file, completion, elapsed/remaining time and current Z
+- Start, pause, resume, restart and cancel controls
+- Serial connect/disconnect and saved auto-connect options
+- X/Y/Z jog and homing
+- Tool/bed temperature targets, extrusion/retraction and feed/flow overrides
+- Guarded single-line terminal commands
+- Webcam snapshots with OctoPrint flip/rotation settings
+
+Commands are serialized, and safety state is checked again immediately before execution. Reconnect, disconnect, motion, homing, extrusion and terminal commands are blocked while a print is active, paused, pausing or cancelling. Old responses are tied to a configuration generation so a previous server cannot overwrite state after the user changes or removes the configuration. Active HTTP requests are cancelled or ignored when the session changes.
+
+Static server/user/webcam settings are cached instead of being downloaded during every active-print poll. Webcam polling runs only while the Status page is visible, and images are bounds-checked and downsampled before full bitmap allocation.
+
+See [`docs/octoprint-integration.md`](docs/octoprint-integration.md) for the implementation and security notes and [`docs/bug-audit.md`](docs/bug-audit.md) for the completed audit.
 
 ## BumpMesh texturing
 
-Import and position an STL, then open **Menu → Texture model (BumpMesh)**. The app stages the currently displayed mesh as a temporary binary STL and opens the bundled BumpMesh interface. Choose a preset or custom height map, adjust mapping, amplitude, masking, output resolution and triangle count, then use **Export STL**.
+Import and position an STL, then open **Menu → Texture model (BumpMesh)**. The app stages the displayed mesh as a temporary binary STL and opens the packaged BumpMesh workspace. Choose a preset or custom height map, adjust mapping, amplitude, masking, output resolution and triangle count, then use **Export STL**.
 
-The Android bridge captures that binary STL locally, validates its exact triangle count and file length, and returns it to the normal enderslicercura model-import path. No model or texture is uploaded to a server. The embedded workspace uses packaged copies of BumpMesh, Three.js, fflate and meshStep rather than the live BumpMesh website or CDN modules.
+The Android bridge captures the binary STL locally, validates its exact triangle count and file length, and returns it to the normal model-import path. No model or texture is uploaded to a server. The embedded workspace uses packaged copies of BumpMesh, Three.js, fflate and meshStep rather than a live website or CDN modules.
 
-Open **Menu → Mesh triangle limit** to choose Compatible (1.5 million), High detail (3 million), Very high detail (5 million), Extreme (8 million), or a custom value between 100,000 and 8 million triangles. The persisted value is shared by normal STL imports, the BumpMesh maximum-triangle control, and Android's validation of textured STL exports.
+Open **Menu → Mesh triangle limit** to choose Compatible (1.5 million), High detail (3 million), Very high detail (5 million), Extreme (8 million), or a custom value between 100,000 and 8 million triangles. The persisted limit is shared by normal STL imports, BumpMesh and Android validation of textured exports.
 
-High-density STL parsing now streams the staged file from disk instead of retaining the complete STL byte array beside the parsed vertex buffer. The app requests Android's large heap because a five-million-triangle parsed mesh alone is roughly 343 MiB, and rendering, transforms, BumpMesh, export and WebView processing may hold several additional buffers. Free system RAM and ZRAM do not guarantee that every extreme operation will fit inside the app or WebView heap, so the 8-million preset remains explicitly experimental.
+High-density STL parsing streams the staged file from disk instead of retaining the complete STL byte array beside the parsed vertex buffer. A five-million-triangle parsed mesh alone is roughly 343 MiB, so rendering, transforms, export and WebView processing can still exceed the application heap. The 8-million preset remains explicitly experimental.
 
 ## Adaptive layers, layer events and calibration
 
-Adaptive layer height uses CuraEngine's native `adaptive_layer_height_*` settings. Enable it under **Print settings → Quality**, then tune the total variation, variation step and surface-detail threshold or select a preset. The layer viewer reports the actual minimum and maximum layer heights found in the generated G-code.
+Adaptive layer height uses CuraEngine's native `adaptive_layer_height_*` settings. Enable it under **Print settings → Quality**, then tune variation, variation step and surface-detail threshold or select a preset. The layer viewer reports the actual minimum and maximum heights found in the generated G-code.
 
-After slicing, select any layer and open **Add event**. Events are inserted immediately after Cura's layer marker and are rebuilt from an untouched base G-code file, so adding or removing a pause, filament change, temperature, fan, speed, flow, firmware-retraction, camera, display-message or guarded custom-G-code event does not run CuraEngine again. Unsafe custom commands such as homing, emergency stop, EEPROM writes and motor release are blocked inside layer events.
+After slicing, select a layer and open **Add event**. Events are inserted after Cura's layer marker and rebuilt from an untouched base G-code file, so editing events does not run CuraEngine again. Unsafe layer-event commands such as homing, emergency stop, EEPROM writes and motor release are blocked.
 
-Open **Menu → Calibration generator** to create a compact support-free model for the selected test. Temperature models use grounded posts, bridges, stepped overhangs and a thin fin; flow models use a grounded thin-wall tube, wall-to-wall bridge coupons and measurement ribs; speed and junction-deviation tests use a continuously stacked sharp star; fan models use grounded bridge posts and stepped 45-degree brackets; and firmware-retraction and pressure-advance tests use grounded isolated posts that force travel moves and expose restart/stringing behavior. Pressure advance steps Marlin `M900 K`, while junction deviation steps Marlin `M205 J`.
+Open **Menu → Calibration generator** to create a compact test. Temperature models combine grounded posts, bridges, stepped overhangs and a thin fin. Flow models use a grounded thin-wall tube, bridge coupons and measurement ribs. Speed and junction-deviation tests use a continuously stacked sharp star. Fan models use bridge posts and stepped 45-degree brackets. Retraction and pressure-advance tests use isolated grounded posts that force travel moves and expose restart/stringing behavior.
 
-Calibration slicing uses a minimal type-specific override policy instead of disabling every advanced setting. Supports are disabled for all generated calibration models. Temperature keeps normal cooling and coasting but disables adaptive layers and arc-overhang replacement. Flow disables adaptive layers, ironing and coasting. Speed, pressure advance and junction deviation bypass minimum-layer-time slowdown so their commanded motion can be reached. Fan owns the fan commands and disables other cooling throttles that would mask the comparison. Retraction keeps normal cooling, coasting, wipe, hop and travel behavior while forcing firmware retraction on eligible post-to-post moves. These temporary overrides never modify the saved profile.
-
-The layer viewer defaults to a high-contrast **Current** mode that renders the selected layer as wide colored ribbons with a dark outline. **Build-up** mode adds earlier layers at low opacity. Cyan identifies support, magenta identifies support interface, orange identifies adhesion, and normal model paths remain colored by print speed.
+Calibration slicing applies minimal type-specific overrides instead of disabling all advanced settings. These overrides never modify the saved profile.
 
 ## Native arc overhangs
 
-Enable **Print settings → Experimental → Arc overhangs (Multiplex)** to replace bottom skin that Cura already classifies as a bridge with expanding native arc paths. The port runs inside CuraEngine: it uses the real sliced bottom-skin polygon, starts from material detected on the previous layer, retains one centre for the connected island, clips every radius to the island and adds the ordered paths directly to the `LayerPlan`.
+Enable **Print settings → Experimental → Arc overhangs (Multiplex)** to replace eligible bridge-classified bottom skin with expanding native arc paths. The port runs inside CuraEngine, uses the sliced bottom-skin polygon and material from the preceding layer, retains one center for a connected island, clips radii to the island and inserts the ordered paths into the `LayerPlan`.
 
-The implementation is derived from Steven McCulloch's arc-overhang research and SuperPleccer's Multiplex C++ implementation. It is a restricted experimental port rather than a promise of universal support-free printing. Completely floating islands, regions above the maximum radius or area, and islands without a safe supported anchor are left to Cura's normal bridge generator. Speed, flow, line spacing, radius range, area limit, chord tolerance and fan override are editable. Arc overhangs do not automatically delete generated supports, so disable or limit supports when evaluating support-free geometry.
+The implementation is derived from Steven McCulloch's arc-overhang research and SuperPleccer's Multiplex C++ implementation. It is experimental rather than a promise of universal support-free printing. Floating islands, regions above the configured radius/area limits and geometry without a safe supported anchor fall back to Cura's bridge generator. Arc overhangs do not automatically remove supports.
 
 ## Reference printer
 
-The built-in baseline describes the currently tested machine:
+The most-tested built-in baseline is:
 
 - Modified Creality Ender 3 V2
 - 230 × 230 × 250 mm build volume
@@ -99,15 +157,13 @@ The built-in baseline describes the currently tested machine:
 - Heated bed
 - User-editable start and end G-code
 
-The app can edit these machine values, but the most complete real-printer validation has been performed against this configuration.
-
 ## Cura comparison
 
-The following comparison used the same STL and the same Cura `5.11.0-beta.1` project/profile data in Cura Desktop and enderslicercura.
+The following comparison used the same STL and Cura `5.11.0-beta.1` project/profile data in Cura Desktop and EnderSlicerCura.
 
 ### Overall result
 
-| Metric | enderslicercura | Cura Desktop | Difference |
+| Metric | EnderSlicerCura | Cura Desktop | Difference |
 |---|---:|---:|---:|
 | Layers | 115 | 115 | Exact |
 | Layer height | 0.20 mm | 0.20 mm | Exact |
@@ -122,11 +178,11 @@ The following comparison used the same STL and the same Cura `5.11.0-beta.1` pro
 | Firmware retracts (`G10`) | 1352 | 1352 | Exact |
 | Firmware unretracts (`G11`) | 1351 | 1351 | Exact |
 
-The larger travel/time difference is concentrated mainly in early-layer skin travel. The printed geometry and extrusion destinations remain extremely close; Cura Desktop takes several long segmented combing detours that enderslicercura avoids. More models are needed to determine how often this path-ordering difference appears.
+The larger travel/time difference is concentrated mainly in early-layer skin travel. Printed geometry and extrusion destinations remain extremely close; Cura Desktop takes several long segmented combing detours that EnderSlicerCura avoids. More models are needed to determine how often this path-ordering difference appears.
 
 ### Feature extrusion
 
-| Feature | enderslicercura | Cura Desktop | Difference |
+| Feature | EnderSlicerCura | Cura Desktop | Difference |
 |---|---:|---:|---:|
 | Inner walls | 469.29038 mm | 469.29721 mm | −0.00683 mm (−0.00146%) |
 | Outer walls | 621.63546 mm | 621.63765 mm | −0.00219 mm (−0.00035%) |
@@ -135,29 +191,21 @@ The larger travel/time difference is concentrated mainly in early-layer skin tra
 | Support | 47.90181 mm | 47.92595 mm | −0.02414 mm (−0.05037%) |
 | Support interface | 8.32455 mm | 8.35116 mm | −0.02661 mm (−0.31864%) |
 
-The two files also contained identical counts of wall, skin, infill, support, support-interface and skirt sections. This is a strong parity result for one reference model, not proof that every Cura setting and geometry case is already identical.
+The files contained identical counts of wall, skin, infill, support, support-interface and skirt sections. This is a strong parity result for one reference model, not proof that every Cura setting and geometry case is identical.
 
 ## Remaining validation and limitations
 
-The next validation work should compare additional Cura and enderslicercura outputs covering:
+Additional Cura comparisons should cover large/small models, disconnected islands, tree and normal supports, dense interfaces, different infill patterns, adhesion modes, transforms, textured meshes, overhangs, bridges, thin walls, long previews, and multiple printer/material profiles.
 
-- Large and small models
-- Models with many disconnected islands
-- Tree and normal supports
-- Dense support interfaces
-- Different infill patterns and densities
-- Brims, skirts and other adhesion modes
-- Rotated and translated models
-- BumpMesh textures on flat, curved, thin and overhanging surfaces
-- Overhangs, bridges and thin walls
-- Long prints that exceed the full-resolution preview memory cap
-- Multiple Cura profiles and material definitions
+Current slicing limitations include single-model and single-extruder workflows. Duplicate/auto-arrange workflows and full Cura plugin compatibility are not implemented. The first BumpMesh integration returns the textured STL through the normal import path, so unusual manual XY placement should be rechecked after texturing.
 
-Current functional limitations include single-model and single-extruder slicing. Layer events and calibration files currently target Marlin-compatible commands; verify firmware support for commands such as `M600`, `M240`, `M207`, `M220`, `M221`, `M900 K` and `M205 J` before printing. Junction-deviation calibration only applies when Marlin is built without `CLASSIC_JERK`, and pressure-advance calibration requires Marlin Linear Advance or compatible FT Motion support. Duplicate/auto-arrange workflows and full Cura plugin compatibility are not implemented. The first BumpMesh integration returns the textured STL through the normal import path, so unusual manual XY placement should be checked after texturing before slicing.
+Layer events and calibration currently target Marlin-compatible commands. Verify support for commands such as `M600`, `M240`, `M207`, `M220`, `M221`, `M900 K` and `M205 J`. Junction-deviation calibration only applies when Marlin is built without `CLASSIC_JERK`, and pressure-advance calibration requires Marlin Linear Advance or compatible FT Motion support.
+
+OctoPrint still requires real-server and real-printer validation covering initial and replacement authorization, cancellation rollback, manual-key fallback, revoked-key recovery, upload/select/print effective-result handling, file operations, webcam behavior, controls during state transitions, configuration removal during an upload and one deliberately small first print.
 
 ## Large layer previews
 
-The exported G-code is never shortened by the preview system. For very large files, the viewer retains up to 800,000 representative extrusion paths distributed across the complete print. All layers and the full printed height remain available in the slider even when the preview is marked as capped.
+The exported G-code is never shortened by the preview system. For very large files, the viewer retains up to 800,000 representative extrusion paths distributed across the complete print. Every layer and the full printed height remain available even when the preview is marked as capped.
 
 ## Build
 
@@ -178,24 +226,22 @@ Build the Android app with:
 gradle :app:assembleDebug
 ```
 
-The app Gradle project automatically prepares the pinned BumpMesh workspace before `preBuild`. Generated BumpMesh assets are stored under `app/src/main/assets/bumpmesh/`, ignored by Git, and reused while the source marker remains unchanged.
+The Gradle project prepares the pinned BumpMesh workspace before `preBuild`. Generated assets are stored under `app/src/main/assets/bumpmesh/`, ignored by Git and reused while the source marker remains unchanged.
 
-GitHub Actions builds CuraEngine, prepares the offline BumpMesh workspace, runs the unit/regression tests, packages the debug APK and uploads the build artifacts.
-
-## CuraEngine
-
-The repository pins CuraEngine and Cura resource data to `5.11.0-beta.1` so imported projects and the Android engine use matching setting definitions. The Android build scripts include the project-specific resolved-settings, model-transform and safety integration required by enderslicercura.
+GitHub Actions builds CuraEngine, prepares BumpMesh, runs unit/regression and complete-definition audits, assembles the debug APK and uploads the artifacts.
 
 ## Safety
 
-Generated G-code is validated before export. The validator checks active nozzle targets during extrusion, repairs key metadata, uses CRLF line endings and produces filenames where `.gcode` is always the final extension.
+Generated G-code is validated before export. The validator checks active nozzle targets during extrusion, repairs key metadata, uses CRLF line endings and ensures `.gcode` is the final filename extension.
 
-BumpMesh output is accepted only when it is a valid binary STL whose header triangle count exactly matches its file length and remains within the persisted mesh triangle limit.
+BumpMesh output is accepted only when it is a valid binary STL whose header triangle count exactly matches its file length and remains within the configured mesh limit.
 
-Always inspect settings, machine dimensions, model placement, textured geometry and custom start/end G-code before printing. This remains development software and has not yet been validated across the full range of Cura-supported printers and profiles.
+Remote printing always requires explicit confirmation. Verify printer condition, bed, filament, temperatures, clearances, first-layer setup and the selected G-code before starting through OctoPrint. Raw terminal commands can move axes, heat the printer, change EEPROM settings or stop a print; send only commands you understand.
+
+Always inspect machine dimensions, model placement, textured geometry, settings and custom start/end G-code before printing. This remains development software and has not yet been validated across the full range of Cura-supported printers, profiles or OctoPrint installations.
 
 ## License
 
-enderslicercura is intended to be distributed under GNU AGPL-3.0-or-later because it links to CuraEngine, which is AGPL-licensed. The embedded BumpMesh source is retained under `AGPL-3.0-only`. See `THIRD_PARTY_NOTICES.md` and the license files included in the generated BumpMesh workspace for dependency details.
+EnderSlicerCura is intended to be distributed under GNU AGPL-3.0-or-later because it links to CuraEngine, which is AGPL-licensed. The embedded BumpMesh source is retained under `AGPL-3.0-only`. See `THIRD_PARTY_NOTICES.md` and the generated BumpMesh dependency license files for details.
 
-UltiMaker and Cura are trademarks of their respective owners. enderslicercura is not an official UltiMaker, Creality or CNC Kitchen application.
+UltiMaker and Cura are trademarks of their respective owners. EnderSlicerCura is not an official UltiMaker, Creality or CNC Kitchen application.
