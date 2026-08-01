@@ -20,6 +20,7 @@ internal class SliceArtifactPublisher(
         id: String,
         gcodeSource: File,
         baseGcodeSource: File,
+        printerEnvelope: PrinterEnvelope,
     ): PublishedArtifact {
         require(id.matches(ID_PATTERN)) { "Invalid slice artifact id" }
         require(gcodeSource.isFile && gcodeSource.length() > 0L) { "Validated G-code is unavailable" }
@@ -37,6 +38,7 @@ internal class SliceArtifactPublisher(
             val baseDestination = File(publishingDirectory, BASE_GCODE_FILE_NAME)
             copyStable(gcodeSource, gcodeDestination)
             copyStable(baseGcodeSource, baseDestination)
+            printerEnvelope.writeTo(File(publishingDirectory, PrinterEnvelope.METADATA_FILE_NAME))
             File(publishingDirectory, COMPLETE_MARKER_FILE_NAME).writeText(id)
 
             check(publishingDirectory.renameTo(finalDirectory)) {
@@ -80,13 +82,34 @@ internal class SliceArtifactPublisher(
 
         fun isCompleteGcode(file: File, expectedId: String? = null): Boolean {
             if (!file.isFile || file.name != GCODE_FILE_NAME || file.length() <= 0L) return false
-            val directory = file.parentFile ?: return false
-            val marker = File(directory, COMPLETE_MARKER_FILE_NAME)
-            if (!marker.isFile) return false
-            val id = runCatching { marker.readText().trim() }.getOrNull() ?: return false
-            return id.isNotBlank() && id == directory.name && (expectedId == null || id == expectedId)
+            val id = completedArtifactId(file) ?: return false
+            if (expectedId != null && id != expectedId) return false
+            return runCatching {
+                PrinterEnvelope.readFrom(File(file.parentFile, PrinterEnvelope.METADATA_FILE_NAME))
+            }.isSuccess
         }
 
+        fun readPrinterEnvelope(artifactFile: File): PrinterEnvelope {
+            require(
+                artifactFile.isFile &&
+                    artifactFile.length() > 0L &&
+                    artifactFile.name in ARTIFACT_FILE_NAMES,
+            ) { "The published slice artifact is unavailable" }
+            requireNotNull(completedArtifactId(artifactFile)) { "The slice artifact is incomplete" }
+            return PrinterEnvelope.readFrom(
+                File(requireNotNull(artifactFile.parentFile), PrinterEnvelope.METADATA_FILE_NAME),
+            )
+        }
+
+        private fun completedArtifactId(file: File): String? {
+            val directory = file.parentFile ?: return null
+            val marker = File(directory, COMPLETE_MARKER_FILE_NAME)
+            if (!marker.isFile) return null
+            val id = runCatching { marker.readText().trim() }.getOrNull() ?: return null
+            return id.takeIf { it.isNotBlank() && it == directory.name }
+        }
+
+        private val ARTIFACT_FILE_NAMES = setOf(GCODE_FILE_NAME, BASE_GCODE_FILE_NAME)
         private val ID_PATTERN = Regex("[A-Za-z0-9._-]{1,128}")
     }
 }
