@@ -4,7 +4,7 @@ import java.util.Locale
 import kotlin.math.roundToInt
 
 /** Encodes layer events through the machine's declared firmware dialect. */
-internal class CalibrationFirmwareEncoder private constructor(
+class CalibrationFirmwareEncoder private constructor(
     val dialect: FirmwareDialect,
     val declaredFlavor: String,
 ) {
@@ -73,8 +73,9 @@ internal class CalibrationFirmwareEncoder private constructor(
         require(speedMmPerSecond in 0.1..1000.0) { "Retraction speed is outside 0.1..1000 mm/s" }
         return when (dialect) {
             FirmwareDialect.MARLIN,
-            FirmwareDialect.REPRAP_FIRMWARE,
-            -> listOf("M207 S${format(lengthMm)} F${format(speedMmPerSecond * 60.0)}")
+            FirmwareDialect.REPRAP_FIRMWARE -> listOf(
+                "M207 S${format(lengthMm)} F${format(speedMmPerSecond * 60.0)}",
+            )
             FirmwareDialect.KLIPPER -> listOf(
                 "SET_RETRACTION RETRACT_LENGTH=${format(lengthMm)} RETRACT_SPEED=${format(speedMmPerSecond)}",
             )
@@ -98,8 +99,7 @@ internal class CalibrationFirmwareEncoder private constructor(
             FirmwareDialect.MARLIN -> listOf("M205 J${format(value)}")
             FirmwareDialect.KLIPPER,
             FirmwareDialect.REPRAP_FIRMWARE,
-            FirmwareDialect.GENERIC,
-            -> unsupported(LayerEventType.JUNCTION_DEVIATION)
+            FirmwareDialect.GENERIC -> unsupported(LayerEventType.JUNCTION_DEVIATION)
         }
     }
 
