@@ -23,6 +23,7 @@ object GcodeSanitizer {
     fun validateAndRepair(
         file: File,
         settingsTransport: String = "auto",
+        printerEnvelope: PrinterEnvelope? = null,
     ): Summary {
         require('\n' !in settingsTransport && '\r' !in settingsTransport) {
             "Settings transport marker contains a line break"
@@ -125,6 +126,16 @@ object GcodeSanitizer {
                                             "The G-code was not made available for export.",
                                     )
                                 }
+                                printerEnvelope?.requireExtrusionMove(
+                                    startX = startX,
+                                    startY = startY,
+                                    startZ = startZ,
+                                    endX = x,
+                                    endY = y,
+                                    endZ = z,
+                                    lineNumber = lineNumber,
+                                    layerNumber = currentLayer,
+                                )
                             }
                             currentE = nextE
                         }
