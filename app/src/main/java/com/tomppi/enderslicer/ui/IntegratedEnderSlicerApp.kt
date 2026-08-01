@@ -58,8 +58,8 @@ fun IntegratedEnderSlicerApp(
         ExtendedFloatingActionButton(
             onClick = { octoPrintOpen = true },
             modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(end = 16.dp, bottom = 94.dp),
+                .align(Alignment.TopCenter)
+                .padding(top = 72.dp),
         ) {
             Text(
                 when {
