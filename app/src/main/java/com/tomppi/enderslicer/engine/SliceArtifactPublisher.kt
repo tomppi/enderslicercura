@@ -38,7 +38,13 @@ internal class SliceArtifactPublisher(
             val baseDestination = File(publishingDirectory, BASE_GCODE_FILE_NAME)
             copyStable(gcodeSource, gcodeDestination)
             copyStable(baseGcodeSource, baseDestination)
-            printerEnvelope.writeTo(File(publishingDirectory, PrinterEnvelope.METADATA_FILE_NAME))
+            val resolvedEnvelopeFile = File(gcodeSource.parentFile, PrinterEnvelope.METADATA_FILE_NAME)
+            val effectiveEnvelope = if (resolvedEnvelopeFile.isFile) {
+                PrinterEnvelope.readFrom(resolvedEnvelopeFile)
+            } else {
+                printerEnvelope
+            }
+            effectiveEnvelope.writeTo(File(publishingDirectory, PrinterEnvelope.METADATA_FILE_NAME))
             File(publishingDirectory, COMPLETE_MARKER_FILE_NAME).writeText(id)
 
             check(publishingDirectory.renameTo(finalDirectory)) {
