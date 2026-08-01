@@ -28,7 +28,7 @@ The unit tests verify:
 - presets without any recognized correctly typed value are rejected;
 - applying a preset marks only its own category as explicit overrides.
 
-The full Android workflow must additionally compile Compose integration, run all existing regression tests, build CuraEngine and package the APK.
+Workflow `30692469066` passed against source commit `73c285ec94e6ca6e5e4d69d7d8f71a34210b66fa`. It successfully completed pinned Cura-resource validation, BumpMesh preparation, the ARM64 CuraEngine build, Kotlin/Compose compilation, all unit tests and definition audits, debug APK assembly, and artifact upload.
 
 ## Manual device checks still required
 
