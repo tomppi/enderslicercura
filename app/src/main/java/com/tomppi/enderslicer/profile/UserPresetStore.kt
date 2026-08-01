@@ -14,28 +14,34 @@ class UserPresetStore(context: Context) {
 
     @Synchronized
     fun load(): PresetLibrary {
+        recoverInterruptedWrite()
         val root = readDocument(file) ?: readDocument(backup) ?: return PresetLibrary()
-        val presets = buildList {
+        val candidates = buildList {
             val array = root.optJSONArray(KEY_PRESETS) ?: JSONArray()
-            for (index in 0 until minOf(array.length(), MAX_PRESETS_TOTAL)) {
+            for (index in 0 until minOf(array.length(), MAX_RECORDS_TO_SCAN)) {
                 val item = array.optJSONObject(index) ?: continue
-                val id = item.optString(KEY_ID).takeIf(String::isNotBlank) ?: continue
-                val name = item.optString(KEY_NAME).trim().takeIf(String::isNotBlank) ?: continue
+                val id = item.optString(KEY_ID).trim().takeIf {
+                    it.isNotEmpty() && it.length <= MAX_ID_LENGTH && it.none(Char::isISOControl)
+                } ?: continue
+                val name = runCatching { validateName(item.optString(KEY_NAME)) }.getOrNull() ?: continue
                 val kind = runCatching { PresetKind.valueOf(item.optString(KEY_KIND)) }.getOrNull() ?: continue
-                val values = item.optJSONObject(KEY_VALUES) ?: continue
-                if (runCatching { PresetSettings.validateUsable(kind, values) }.isFailure) continue
+                val rawValues = item.optJSONObject(KEY_VALUES) ?: continue
+                val values = runCatching { PresetValueSanitizer.sanitize(kind, rawValues) }.getOrNull() ?: continue
+                val createdAt = item.optLong(KEY_CREATED_AT, 0L).coerceAtLeast(0L)
+                val updatedAt = item.optLong(KEY_UPDATED_AT, createdAt).coerceAtLeast(createdAt)
                 add(
                     UserPreset(
                         id = id,
                         kind = kind,
                         name = name,
                         valuesJson = values.toString(),
-                        createdAtEpochMillis = item.optLong(KEY_CREATED_AT, 0L).coerceAtLeast(0L),
-                        updatedAtEpochMillis = item.optLong(KEY_UPDATED_AT, 0L).coerceAtLeast(0L),
+                        createdAtEpochMillis = createdAt,
+                        updatedAtEpochMillis = updatedAt,
                     ),
                 )
             }
         }
+        val presets = UserPresetLibraryNormalizer.normalizePresets(candidates, MAX_PRESETS_PER_KIND)
         val activePrint = root.optString(KEY_ACTIVE_PRINT).takeIf(String::isNotBlank)
             ?.takeIf { id -> presets.any { it.id == id && it.kind == PresetKind.PRINT } }
         val activeFilament = root.optString(KEY_ACTIVE_FILAMENT).takeIf(String::isNotBlank)
@@ -123,27 +129,25 @@ class UserPresetStore(context: Context) {
     )
 
     private fun save(library: PresetLibrary): PresetLibrary {
+        recoverInterruptedWrite()
+        val normalized = UserPresetLibraryNormalizer.normalize(library, MAX_PRESETS_PER_KIND)
         val root = JSONObject()
             .put(KEY_VERSION, FORMAT_VERSION)
-            .put(KEY_ACTIVE_PRINT, library.activePrintPresetId ?: JSONObject.NULL)
-            .put(KEY_ACTIVE_FILAMENT, library.activeFilamentPresetId ?: JSONObject.NULL)
+            .put(KEY_ACTIVE_PRINT, normalized.activePrintPresetId ?: JSONObject.NULL)
+            .put(KEY_ACTIVE_FILAMENT, normalized.activeFilamentPresetId ?: JSONObject.NULL)
         val presets = JSONArray()
-        library.presets
-            .sortedWith(
-                compareBy<UserPreset> { it.kind.name }
-                    .thenBy { it.name.lowercase(java.util.Locale.ROOT) },
+        normalized.presets.forEach { preset ->
+            val values = PresetValueSanitizer.sanitize(preset.kind, preset.values())
+            presets.put(
+                JSONObject()
+                    .put(KEY_ID, preset.id)
+                    .put(KEY_KIND, preset.kind.name)
+                    .put(KEY_NAME, preset.name)
+                    .put(KEY_VALUES, values)
+                    .put(KEY_CREATED_AT, preset.createdAtEpochMillis)
+                    .put(KEY_UPDATED_AT, preset.updatedAtEpochMillis),
             )
-            .forEach { preset ->
-                presets.put(
-                    JSONObject()
-                        .put(KEY_ID, preset.id)
-                        .put(KEY_KIND, preset.kind.name)
-                        .put(KEY_NAME, preset.name)
-                        .put(KEY_VALUES, preset.values())
-                        .put(KEY_CREATED_AT, preset.createdAtEpochMillis)
-                        .put(KEY_UPDATED_AT, preset.updatedAtEpochMillis),
-                )
-            }
+        }
         root.put(KEY_PRESETS, presets)
         val encoded = root.toString()
         require(encoded.toByteArray(Charsets.UTF_8).size <= MAX_DOCUMENT_BYTES) {
@@ -157,28 +161,51 @@ class UserPresetStore(context: Context) {
         backup.delete()
         try {
             if (file.exists()) {
-                check(file.renameTo(backup) || file.copyTo(backup, overwrite = true).let { file.delete(); true }) {
+                check(file.renameTo(backup) || copyAndDelete(file, backup, overwrite = true)) {
                     "Unable to preserve the previous preset library"
                 }
             }
             try {
-                check(temporary.renameTo(file) || temporary.copyTo(file, overwrite = true).let { temporary.delete(); true }) {
+                check(temporary.renameTo(file) || copyAndDelete(temporary, file, overwrite = true)) {
                     "Unable to save the preset library"
                 }
             } catch (error: Throwable) {
                 file.delete()
                 if (backup.exists()) {
-                    backup.renameTo(file) || backup.copyTo(file, overwrite = true).let { backup.delete(); true }
+                    backup.renameTo(file) || copyAndDelete(backup, file, overwrite = true)
                 }
                 throw error
             }
             backup.delete()
         } finally {
             temporary.delete()
-            if (backup.exists() && file.exists()) backup.delete()
+            if (backup.exists() && file.exists() && readDocument(file) != null) backup.delete()
         }
-        return library
+        return normalized
     }
+
+    private fun recoverInterruptedWrite() {
+        val primary = readDocument(file)
+        val previous = readDocument(backup)
+        when {
+            primary != null -> if (backup.exists()) backup.delete()
+            previous != null -> {
+                file.delete()
+                if (!backup.renameTo(file)) {
+                    runCatching {
+                        backup.copyTo(file, overwrite = true)
+                        backup.delete()
+                    }
+                }
+            }
+        }
+    }
+
+    private fun copyAndDelete(source: File, destination: File, overwrite: Boolean): Boolean = runCatching {
+        source.copyTo(destination, overwrite = overwrite)
+        check(source.delete()) { "Unable to remove ${source.name} after copying" }
+        true
+    }.getOrDefault(false)
 
     private fun readDocument(source: File): JSONObject? {
         if (!source.isFile || source.length() <= 0L || source.length() > MAX_DOCUMENT_BYTES) return null
@@ -207,7 +234,8 @@ class UserPresetStore(context: Context) {
     companion object {
         private const val FORMAT_VERSION = 1
         private const val MAX_PRESETS_PER_KIND = 100
-        private const val MAX_PRESETS_TOTAL = MAX_PRESETS_PER_KIND * 2
+        private const val MAX_RECORDS_TO_SCAN = 1000
+        private const val MAX_ID_LENGTH = 128
         private const val MAX_NAME_LENGTH = 60
         private const val MAX_DOCUMENT_BYTES = 2L * 1024L * 1024L
         private const val KEY_VERSION = "version"
