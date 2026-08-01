@@ -19,7 +19,7 @@ private val foregroundHandler: Handler by lazy(LazyThreadSafetyMode.SYNCHRONIZED
  * cpuset. Only the short process creation step runs on the main thread; callers
  * continue waiting for and processing the child from their existing worker.
  */
-internal fun ProcessBuilder.startFromForegroundThread(): Process {
+internal fun java.lang.ProcessBuilder.startFromForegroundThread(): Process {
     if (Looper.myLooper() == Looper.getMainLooper()) return start()
 
     val launch = FutureTask<Process> { start() }
