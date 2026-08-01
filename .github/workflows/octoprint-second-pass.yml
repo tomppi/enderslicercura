@@ -1,0 +1,45 @@
+name: OctoPrint second-pass patch
+
+on:
+  push:
+    branches:
+      - agent/full-octoprint-integration
+    paths:
+      - scripts/octoprint_second_pass.py
+      - .github/workflows/octoprint-second-pass.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/full-octoprint-integration
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Apply second-pass hardening
+        run: python scripts/octoprint_second_pass.py
+      - name: Commit patch
+        run: |
+          if git diff --quiet; then
+            echo "No patch changes required"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- \
+            app/src/main/java/com/tomppi/enderslicer/octoprint/OctoPrintClient.kt \
+            app/src/main/java/com/tomppi/enderslicer/octoprint/OctoPrintModels.kt \
+            app/src/main/java/com/tomppi/enderslicer/octoprint/OctoPrintRepository.kt \
+            app/src/main/java/com/tomppi/enderslicer/octoprint/OctoPrintViewModel.kt \
+            app/src/main/java/com/tomppi/enderslicer/ui/IntegratedEnderSlicerApp.kt \
+            app/src/main/java/com/tomppi/enderslicer/ui/OctoPrintSheet.kt \
+            app/src/test/java/com/tomppi/enderslicer/octoprint/OctoPrintClientTest.kt \
+            docs/bug-audit.md
+          git commit -m "Harden OctoPrint runtime behavior"
+          git push origin HEAD:agent/full-octoprint-integration
