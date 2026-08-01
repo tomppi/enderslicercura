@@ -1,8 +1,10 @@
 package com.tomppi.enderslicer.engine
 
 import android.content.Context
+import com.tomppi.enderslicer.calibration.CalibrationSliceState
 import com.tomppi.enderslicer.model.PrinterDefinition
 import com.tomppi.enderslicer.model.SlicerSettings
+import com.tomppi.enderslicer.model.withSettings
 import com.tomppi.enderslicer.profile.CuraEngineProfile
 import com.tomppi.enderslicer.profile.CuraResolvedSettingsWriter
 import com.tomppi.enderslicer.profile.CuraSliceSettingsResolver
@@ -104,7 +106,19 @@ class CuraEngineRunner(private val context: Context) {
         val workspace = createWorkspace("slice")
         val log = requestLog(workspace.id)
         val started = System.nanoTime()
-        writeInitialLog(log, workspace.id, modelFile, printer, settings, profile, layerEvents, plannedLayerEvents)
+        val effectiveSettings = CalibrationSliceState.effective(settings)
+        val printerEnvelope = PrinterEnvelope.from(printer.withSettings(effectiveSettings))
+        writeInitialLog(
+            log,
+            workspace.id,
+            modelFile,
+            printer,
+            settings,
+            profile,
+            layerEvents,
+            plannedLayerEvents,
+            printerEnvelope,
+        )
 
         try {
             require(isAvailable()) { status() }
@@ -186,15 +200,21 @@ class CuraEngineRunner(private val context: Context) {
 
             val transport = if (resolved != null) "resolved-json" else "fallback-command"
             val processed = CuraEnginePostProcessor.process(
-                workspace.output,
-                workspace.base,
-                transport,
-                layerEvents,
-                plannedLayerEvents,
+                outputFile = workspace.output,
+                baseGcodeFile = workspace.base,
+                settingsTransport = transport,
+                layerEvents = layerEvents,
+                plannedLayerEvents = plannedLayerEvents,
+                printerEnvelope = printerEnvelope,
             )
             throwIfInterrupted()
 
-            val artifact = publisher.publish(workspace.id, workspace.output, workspace.base)
+            val artifact = publisher.publish(
+                id = workspace.id,
+                gcodeSource = workspace.output,
+                baseGcodeSource = workspace.base,
+                printerEnvelope = printerEnvelope,
+            )
             val elapsed = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started)
             appendResultLog(log, artifact, processed, elapsed)
             updateLatestLog(log)
@@ -226,6 +246,7 @@ class CuraEngineRunner(private val context: Context) {
         require(baseGcodeFile.isFile && baseGcodeFile.length() > 0L) {
             "The original sliced G-code is unavailable; slice again"
         }
+        val printerEnvelope = SliceArtifactPublisher.readPrinterEnvelope(baseGcodeFile)
         val workspace = createWorkspace("events")
         try {
             copyStable(baseGcodeFile, workspace.base, "The original sliced G-code changed while it was being read")
@@ -248,11 +269,17 @@ class CuraEngineRunner(private val context: Context) {
                 GcodeLayerEventProcessor.materialize(workspace.base, workspace.output, validEvents)
             }
             val summary = GcodeSanitizer.validateAndRepair(
-                workspace.output,
-                if (validEvents.isEmpty()) transport else "$transport+layer-events",
+                file = workspace.output,
+                settingsTransport = if (validEvents.isEmpty()) transport else "$transport+layer-events",
+                printerEnvelope = printerEnvelope,
             )
             val resultPreview = GcodeLayerPreviewParser.parse(workspace.output)
-            val artifact = publisher.publish(workspace.id, workspace.output, workspace.base)
+            val artifact = publisher.publish(
+                id = workspace.id,
+                gcodeSource = workspace.output,
+                baseGcodeSource = workspace.base,
+                printerEnvelope = printerEnvelope,
+            )
             return LayerEventApplyResult(
                 artifact.id,
                 artifact.gcodeFile,
@@ -314,6 +341,7 @@ class CuraEngineRunner(private val context: Context) {
         profile: CuraEngineProfile?,
         layerEvents: List<LayerEvent>,
         plannedEvents: List<PlannedLayerEvent>,
+        printerEnvelope: PrinterEnvelope,
     ) {
         log.writeText(
             buildString {
@@ -323,7 +351,8 @@ class CuraEngineRunner(private val context: Context) {
                 appendLine("Engine: ${executable.absolutePath}")
                 appendLine("Model: ${model.name} (${model.length()} bytes)")
                 appendLine("Printer: ${printer.name}")
-                appendLine("Build volume: ${printer.widthMm} x ${printer.depthMm} x ${printer.heightMm} mm")
+                appendLine("Build volume: ${printerEnvelope.widthMm} x ${printerEnvelope.depthMm} x ${printerEnvelope.heightMm} mm")
+                appendLine("Build plate: ${printerEnvelope.buildPlateShape}, origin at center: ${printerEnvelope.originAtCenter}")
                 appendLine("Nozzle: ${printer.nozzleSizeMm} mm")
                 appendLine("Layer height: ${settings.layerHeightMm} mm")
                 appendLine("User/calibration events: ${layerEvents.size}/${plannedEvents.size}")
