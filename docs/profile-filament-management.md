@@ -26,19 +26,19 @@ When switching away from modified settings, the app offers three choices:
 
 ## Cura baseline and persistence
 
-Named presets use the existing `SlicerSettings` override lifecycle. Applying a preset is one atomic settings update, invalidates stale G-code and layer previews, persists the resulting settings, and keeps Cura's imported baseline and dependency-resolution behavior intact.
+Named presets use the existing `SlicerSettings` override lifecycle. Applying a preset is one settings update, invalidates stale G-code and layer previews, persists the resulting settings, and keeps Cura's imported baseline and dependency-resolution behavior intact.
 
 The preset library is stored as a versioned private JSON document under the app's persistent-state directory. Writes use a staged file and rollback copy. Names are normalized, limited to 60 characters and unique within their preset kind. Up to 100 print profiles and 100 filament profiles can be stored.
 
-Older partial presets remain usable if a later EnderSlicerCura release adds new settings. Only recognized, correctly typed values are applied; newer values that are absent from the older preset remain unchanged. Saving changes upgrades the preset to a complete snapshot for the current release.
+Older partial presets remain usable if a later EnderSlicerCura release adds new settings. Only recognized values with the expected primitive type are applied; newer values that are absent from the older preset remain unchanged. Saving changes upgrades the preset to a complete snapshot for the current release.
 
 ## Safety behavior
 
 - Applying a preset never changes settings outside its category.
 - Applying a preset invalidates previously sliced G-code before it can be exported or uploaded.
 - Repeated save/apply/rename/delete taps are serialized.
+- Coroutine cancellation is not presented as a false storage error when the sheet closes.
 - Corrupt records, missing active IDs and presets without any usable values are ignored or rejected.
-- Integer values must be integral and finite; other numeric values must be finite.
 - Optimized builds retain the stable `SlicerSettings` backing-field names used by preset serialization.
 - Deleting an active preset clears its active marker without resetting the current settings.
 
