@@ -37,7 +37,8 @@ fun IntegratedEnderSlicerApp(
     val context = LocalContext.current
     var octoPrintOpen by remember { mutableStateOf(false) }
 
-    LaunchedEffect(octoPrintState.authorizationDialogUrl) {
+    LaunchedEffect(octoPrintState.authorizationDialogLaunchNonce) {
+        if (octoPrintState.authorizationDialogLaunchNonce == 0L) return@LaunchedEffect
         val url = octoPrintState.authorizationDialogUrl ?: return@LaunchedEffect
         runCatching {
             context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
@@ -64,6 +65,7 @@ fun IntegratedEnderSlicerApp(
                 when {
                     octoPrintState.isPrinting -> "OctoPrint ${octoPrintState.job.completionPercent?.toInt() ?: 0}%"
                     octoPrintState.isPaused -> "OctoPrint paused"
+                    octoPrintState.isTransitioning -> "OctoPrint busy"
                     octoPrintState.isReady -> "OctoPrint"
                     else -> "Set up OctoPrint"
                 },
