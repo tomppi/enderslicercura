@@ -68,6 +68,7 @@ fun EnderSlicerApp(viewModel: MainViewModel = viewModel()) {
     val scope = rememberCoroutineScope()
     var menuExpanded by remember { mutableStateOf(false) }
     var settingsOpen by remember { mutableStateOf(false) }
+    var profilesOpen by remember { mutableStateOf(false) }
     var machineSettingsOpen by remember { mutableStateOf(false) }
     var modelToolsOpen by remember { mutableStateOf(false) }
     var calibrationOpen by remember { mutableStateOf(false) }
@@ -216,6 +217,14 @@ fun EnderSlicerApp(viewModel: MainViewModel = viewModel()) {
                                 enabled = !state.isBusy,
                             )
                             DropdownMenuItem(
+                                text = { Text("Profiles & filament") },
+                                onClick = {
+                                    menuExpanded = false
+                                    profilesOpen = true
+                                },
+                                enabled = !state.isBusy,
+                            )
+                            DropdownMenuItem(
                                 text = { Text("Print settings") },
                                 onClick = {
                                     menuExpanded = false
@@ -263,6 +272,21 @@ fun EnderSlicerApp(viewModel: MainViewModel = viewModel()) {
                 .fillMaxSize()
                 .padding(padding),
         )
+    }
+
+    if (profilesOpen) {
+        ModalBottomSheet(
+            onDismissRequest = { profilesOpen = false },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        ) {
+            ProfileManagementSheet(
+                state = state,
+                viewModel = viewModel,
+                modifier = Modifier
+                    .fillMaxHeight(0.94f)
+                    .navigationBarsPadding(),
+            )
+        }
     }
 
     if (settingsOpen) {

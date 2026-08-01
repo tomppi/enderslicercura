@@ -1,0 +1,602 @@
+Cloning into '/home/runner/work/enderslicercura/enderslicercura/.build/CuraEngine'...
+Note: switching to '3afd6320a7723f01a9407f2a7bf3d3f9aee6400b'.
+
+You are in 'detached HEAD' state. You can look around, make experimental
+changes and commit them, and you can discard any commits you make in this
+state without impacting any branches by switching back to a branch.
+
+If you want to create a new branch to retain commits you create, you may
+do so (now or later) by using -c with the switch command. Example:
+
+  git switch -c <new-branch-name>
+
+Or undo this operation with:
+
+  git switch -
+
+Turn off this advice by setting config variable advice.detachedHead to false
+
+Collecting conan<3,>=2.7
+  Downloading conan-2.31.1-py3-none-any.whl.metadata (8.6 kB)
+Collecting requests<3.0.0,>=2.25 (from conan<3,>=2.7)
+  Downloading requests-2.34.2-py3-none-any.whl.metadata (4.8 kB)
+Collecting urllib3<3.0,>=1.26.6 (from conan<3,>=2.7)
+  Downloading urllib3-2.7.0-py3-none-any.whl.metadata (6.9 kB)
+Collecting colorama<0.5.0,>=0.4.3 (from conan<3,>=2.7)
+  Downloading colorama-0.4.6-py2.py3-none-any.whl.metadata (17 kB)
+Collecting PyYAML<7.0,>=6.0 (from conan<3,>=2.7)
+  Downloading pyyaml-6.0.3-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (2.4 kB)
+Collecting patch-ng<1.20,>=1.18.0 (from conan<3,>=2.7)
+  Downloading patch_ng-1.19.1-py3-none-any.whl.metadata (3.2 kB)
+Collecting fasteners>=0.15 (from conan<3,>=2.7)
+  Downloading fasteners-0.20-py3-none-any.whl.metadata (4.8 kB)
+Collecting Jinja2<4.0.0,>=3.0 (from conan<3,>=2.7)
+  Downloading jinja2-3.1.6-py3-none-any.whl.metadata (2.9 kB)
+Collecting python-dateutil<3,>=2.8.0 (from conan<3,>=2.7)
+  Downloading python_dateutil-2.9.0.post0-py2.py3-none-any.whl.metadata (8.4 kB)
+Collecting distro<2.0.0,>=1.4.0 (from conan<3,>=2.7)
+  Downloading distro-1.9.0-py3-none-any.whl.metadata (6.8 kB)
+Collecting MarkupSafe>=2.0 (from Jinja2<4.0.0,>=3.0->conan<3,>=2.7)
+  Downloading markupsafe-3.0.3-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (2.7 kB)
+Collecting six>=1.5 (from python-dateutil<3,>=2.8.0->conan<3,>=2.7)
+  Downloading six-1.17.0-py2.py3-none-any.whl.metadata (1.7 kB)
+Collecting charset_normalizer<4,>=2 (from requests<3.0.0,>=2.25->conan<3,>=2.7)
+  Downloading charset_normalizer-3.4.9-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl.metadata (41 kB)
+Collecting idna<4,>=2.5 (from requests<3.0.0,>=2.25->conan<3,>=2.7)
+  Downloading idna-3.18-py3-none-any.whl.metadata (6.1 kB)
+Collecting certifi>=2023.5.7 (from requests<3.0.0,>=2.25->conan<3,>=2.7)
+  Downloading certifi-2026.7.22-py3-none-any.whl.metadata (2.5 kB)
+Downloading conan-2.31.1-py3-none-any.whl (728 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 728.6/728.6 kB 32.2 MB/s  0:00:00
+Downloading colorama-0.4.6-py2.py3-none-any.whl (25 kB)
+Downloading distro-1.9.0-py3-none-any.whl (20 kB)
+Downloading jinja2-3.1.6-py3-none-any.whl (134 kB)
+Downloading patch_ng-1.19.1-py3-none-any.whl (17 kB)
+Downloading python_dateutil-2.9.0.post0-py2.py3-none-any.whl (229 kB)
+Downloading pyyaml-6.0.3-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (807 kB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 807.9/807.9 kB 46.5 MB/s  0:00:00
+Downloading requests-2.34.2-py3-none-any.whl (73 kB)
+Downloading charset_normalizer-3.4.9-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (224 kB)
+Downloading idna-3.18-py3-none-any.whl (65 kB)
+Downloading urllib3-2.7.0-py3-none-any.whl (131 kB)
+Downloading certifi-2026.7.22-py3-none-any.whl (136 kB)
+Downloading fasteners-0.20-py3-none-any.whl (18 kB)
+Downloading markupsafe-3.0.3-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl (22 kB)
+Downloading six-1.17.0-py2.py3-none-any.whl (11 kB)
+Installing collected packages: urllib3, six, PyYAML, patch-ng, MarkupSafe, idna, fasteners, distro, colorama, charset_normalizer, certifi, requests, python-dateutil, Jinja2, conan
+
+Successfully installed Jinja2-3.1.6 MarkupSafe-3.0.3 PyYAML-6.0.3 certifi-2026.7.22 charset_normalizer-3.4.9 colorama-0.4.6 conan-2.31.1 distro-1.9.0 fasteners-0.20 idna-3.18 patch-ng-1.19.1 python-dateutil-2.9.0.post0 requests-2.34.2 six-1.17.0 urllib3-2.7.0
+
+[notice] A new release of pip is available: 26.1.2 -> 26.2
+[notice] To update, run: pip install --upgrade pip
+Trying to clone repo: https://github.com/Ultimaker/conan-config.git
+Repo cloned!
+Defining remotes from remotes.json
+Copying file global.conf to /home/runner/.conan2/.
+Copying file README.md to /home/runner/.conan2/.
+Copying file .gitignore to /home/runner/.conan2/.
+Copying file cura_clang.jinja to /home/runner/.conan2/profiles
+Copying file cura_build.jinja to /home/runner/.conan2/profiles
+Copying file installer.jinja to /home/runner/.conan2/profiles
+Copying file cura_wasm.jinja to /home/runner/.conan2/profiles
+Copying file cura.jinja to /home/runner/.conan2/profiles
+Copying file dotenv.py to /home/runner/.conan2/extensions/generators
+Copying file PyCharmRunEnv.py to /home/runner/.conan2/extensions/generators
+Copying file VirtualPythonEnv.py to /home/runner/.conan2/extensions/generators
+Copying file npm.py to /home/runner/.conan2/extensions/generators
+detect_api: Found cc=gcc-13.3.0
+detect_api: gcc>=5, using the major as version
+detect_api: gcc C++ standard library: libstdc++11
+
+Detected profile:
+WARN: This profile is a guess of your environment, please check it.
+WARN: The output of this command is not guaranteed to be stable and can change in future Conan versions.
+WARN: Use your own profile files for stability.
+Saving detected profile to /home/runner/.conan2/profiles/default
+[settings]
+arch=x86_64
+build_type=Release
+compiler=gcc
+compiler.cppstd=gnu17
+compiler.libcxx=libstdc++11
+compiler.version=13
+os=Linux
+
+
+======== Input profiles ========
+Profile host:
+[settings]
+arch=armv8
+build_type=Release
+compiler=clang
+compiler.cppstd=20
+compiler.libcxx=c++_static
+compiler.version=19
+os=Android
+os.api_level=29
+[options]
+&:enable_arcus=False
+&:enable_benchmarks=False
+&:enable_extensive_warnings=False
+&:enable_plugins=False
+&:with_cura_resources=False
+*:shared=False
+boost/*:header_only=True
+[conf]
+tools.android:ndk_path=/usr/local/lib/android/sdk/ndk/28.2.13676358
+tools.build:skip_test=True
+tools.cmake.cmaketoolchain:generator=Ninja
+tools.gnu:define_libcxx11_abi=True
+
+Profile build:
+[settings]
+arch=x86_64
+build_type=Release
+compiler=gcc
+compiler.cppstd=gnu17
+compiler.libcxx=libstdc++11
+compiler.version=13
+os=Linux
+[conf]
+tools.build:skip_test=True
+tools.cmake.cmaketoolchain:generator=Ninja
+tools.gnu:define_libcxx11_abi=True
+
+
+======== Computing dependency graph ========
+Graph root
+    conanfile.py (curaengine/5.11.0-beta.1): /home/runner/work/enderslicercura/enderslicercura/.build/CuraEngine/conanfile.py
+Requirements
+    boost/1.86.0#e4404983dff9ce001ae01160ebf9028a - Cache
+    clipper/6.4.2@ultimaker/stable#7c8fe83a09fcb2e6adb118763eaa6e58 - Cache
+    fmt/11.1.3#8364f0feb23ee32e4b870455edb552ae - Cache
+    libpng/1.6.48#dd0fc04a42b9a23bce065545a81d4847 - Cache
+    mapbox-geometry/2.0.3#1560d81c6cd8ea159ecbb748bf8b6090 - Cache
+    mapbox-variant/1.2.0#e0533cc4c1625d48a0238760e6c85e35 - Cache
+    mapbox-wagyu/0.5.0@ultimaker/stable#e6cb299485b686893e07209fea6d5a0b - Cache
+    range-v3/0.12.0#4c05d91d7b40e6b91b44b5345ac64408 - Cache
+    rapidjson/cci.20230929#8dc0392af2b3aaea7312095f0ba53467 - Cache
+    scripta/1.1.0-alpha.0+b96045@ultimaker/testing#3786da67f9aa951719291aaab18d0785 - Cache
+    spdlog/1.15.1#92e99f07f134481bce4b70c1a41060e7 - Cache
+    stb/cci.20230920#ed79bd361e974a99137f214efb117eef - Cache
+    zlib/1.3.1#cac0f6daea041b0ccf42934163defb20 - Cache
+Test requirements
+    standardprojectsettings/0.2.0#af70631ee980187032a76e136b293365 - Cache
+    standardprojectsettings/0.2.0@ultimaker/stable#af70631ee980187032a76e136b293365 - Cache
+Python requires
+    npmpackage/1.2.0#6f3f48f7d2844e75af81a57e2389e510 - Cache
+    sentrylibrary/1.0.0#004cb2aaa533fb28697dd9a302d652e8 - Cache
+Resolved version ranges
+    scripta/[>=1.1.0]@ultimaker/testing: scripta/1.1.0-alpha.0+b96045@ultimaker/testing
+    standardprojectsettings/[>=0.2.0]: standardprojectsettings/0.2.0
+    standardprojectsettings/[>=0.2.0]@ultimaker/stable: standardprojectsettings/0.2.0@ultimaker/stable
+
+======== Computing necessary packages ========
+Connecting to remote 'cura-conan2' anonymously
+Requirements
+    boost/1.86.0#e4404983dff9ce001ae01160ebf9028a:da39a3ee5e6b4b0d3255bfef95601890afd80709#8932d10a88896f0bc49cde93c0045d3e - Cache
+    clipper/6.4.2@ultimaker/stable#7c8fe83a09fcb2e6adb118763eaa6e58:cb57f2221865023bf9840bead70fafd0213976e9#06be6ed77ed07ca277722ffc48928f44 - Cache
+    fmt/11.1.3#8364f0feb23ee32e4b870455edb552ae:1c64e6925e90baf39b50452acf2d474a716573b9#61ff5b1f2c9b28a1ccafe3e8d5549947 - Cache
+    libpng/1.6.48#dd0fc04a42b9a23bce065545a81d4847:b0300e736d297e0725708835c91bcfbf9692c9d0#1d73850de38b1ba46c3b1aba0490ec81 - Cache
+    mapbox-geometry/2.0.3#1560d81c6cd8ea159ecbb748bf8b6090:da39a3ee5e6b4b0d3255bfef95601890afd80709#b2b6166a216462f17c02e1c4bebbd942 - Cache
+    mapbox-variant/1.2.0#e0533cc4c1625d48a0238760e6c85e35:da39a3ee5e6b4b0d3255bfef95601890afd80709#3526db39b7b7a80e939cc264b9df29c6 - Cache
+    mapbox-wagyu/0.5.0@ultimaker/stable#e6cb299485b686893e07209fea6d5a0b:da39a3ee5e6b4b0d3255bfef95601890afd80709#9c99eaae4d7ee99d627e4533142e2336 - Cache
+    range-v3/0.12.0#4c05d91d7b40e6b91b44b5345ac64408:da39a3ee5e6b4b0d3255bfef95601890afd80709#ecc6172c3cd6694c36d1cd98a702deb0 - Cache
+    rapidjson/cci.20230929#8dc0392af2b3aaea7312095f0ba53467:da39a3ee5e6b4b0d3255bfef95601890afd80709#bc6124f3dda366933f5ac97f53b76b7b - Cache
+    scripta/1.1.0-alpha.0+b96045@ultimaker/testing#3786da67f9aa951719291aaab18d0785:da39a3ee5e6b4b0d3255bfef95601890afd80709#d2d84c4ec705cbfa88d3313ea69b4b2e - Cache
+    spdlog/1.15.1#92e99f07f134481bce4b70c1a41060e7:117e2234dabb93345908cddea0e17ac610cf2a44#3528f8f50aa92a4bf473e0c7251bcaaa - Cache
+    stb/cci.20230920#ed79bd361e974a99137f214efb117eef:24b381c7532f70c284a2a67cc83f779b3c0042fb#72af46794853f74751a3ba685e1c7ef4 - Cache
+    zlib/1.3.1#cac0f6daea041b0ccf42934163defb20:310255b023837ab611b34e5b85c07eca198a6918#4fa788cf264dd6071f5ce7a3608403d1 - Cache
+Test requirements
+    standardprojectsettings/0.2.0#af70631ee980187032a76e136b293365:da39a3ee5e6b4b0d3255bfef95601890afd80709#11a0ba14a3eaa94059396f4af59df2c5 - Cache
+Skipped binaries
+    standardprojectsettings/0.2.0@ultimaker/stable
+
+======== Installing packages ========
+boost/1.86.0: Already installed! (1 of 14)
+clipper/6.4.2@ultimaker/stable: Already installed! (2 of 14)
+fmt/11.1.3: Already installed! (3 of 14)
+mapbox-variant/1.2.0: Already installed! (4 of 14)
+range-v3/0.12.0: Already installed! (5 of 14)
+rapidjson/cci.20230929: Already installed! (6 of 14)
+standardprojectsettings/0.2.0: Already installed! (7 of 14)
+stb/cci.20230920: Already installed! (8 of 14)
+zlib/1.3.1: Already installed! (9 of 14)
+scripta/1.1.0-alpha.0+b96045@ultimaker/testing: Already installed! (10 of 14)
+libpng/1.6.48: Already installed! (11 of 14)
+mapbox-geometry/2.0.3: Already installed! (12 of 14)
+spdlog/1.15.1: Already installed! (13 of 14)
+mapbox-wagyu/0.5.0@ultimaker/stable: Already installed! (14 of 14)
+WARN: deprecated: Usage of deprecated Conan 1.X features that will be removed in Conan 2.X:
+WARN: deprecated:     'env_info' used in: boost/1.86.0
+WARN: deprecated:     'cpp_info.filenames' used in: boost/1.86.0
+WARN: deprecated:     'cpp_info.names' used in: rapidjson/cci.20230929, libpng/1.6.48, range-v3/0.12.0, clipper/6.4.2@ultimaker/stable, boost/1.86.0
+WARN: deprecated:     'user_info' used in: boost/1.86.0
+
+======== Finalizing install (deploy, generators) ========
+>>> Generate step
+Generating files for conanfile.py (curaengine/5.11.0-beta.1)
+Generators folder: /home/runner/work/enderslicercura/enderslicercura/.build/curaengine-android/build/Release/generators
+Calling generate() method in recipe
+CMakeDeps necessary find_package() and targets for your CMakeLists.txt
+    find_package(scripta)
+    find_package(PNG)
+    find_package(clipper)
+    find_package(Boost)
+    find_package(RapidJSON)
+    find_package(stb)
+    find_package(spdlog)
+    find_package(fmt)
+    find_package(range-v3)
+    find_package(ZLIB)
+    find_package(mapbox-wagyu)
+    find_package(standardprojectsettings)
+    target_link_libraries(... scripta::scripta PNG::PNG clipper::clipper boost::boost rapidjson stb::stb spdlog::spdlog fmt::fmt range-v3::range-v3 ZLIB::ZLIB mapbox-wagyu::mapbox-wagyu standardprojectsettings::standardprojectsettings)
+CMakeToolchain generated: conan_toolchain.cmake
+CMakeToolchain: Preset 'conan-release' added to CMakePresets.json.
+    (cmake>=3.23) cmake --preset conan-release
+    (cmake<3.23) cmake <path> -G Ninja
+                 -DCMAKE_TOOLCHAIN_FILE=<output_folder>/generators/conan_toolchain.cmake 
+                 -DCMAKE_POLICY_DEFAULT_CMP0091=NEW -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=Release
+CMakeToolchain generated: /home/runner/work/enderslicercura/enderslicercura/.build/curaengine-android/build/Release/generators/CMakePresets.json
+CMakeToolchain generated: /home/runner/work/enderslicercura/enderslicercura/.build/CuraEngine/CMakeUserPresets.json
+Generating aggregated env files
+Generated aggregated env files: ['conanbuild.sh', 'conanrun.sh']
+Install finished successfully
+
+======== Input profiles ========
+Profile host:
+[settings]
+arch=armv8
+build_type=Release
+compiler=clang
+compiler.cppstd=20
+compiler.libcxx=c++_static
+compiler.version=19
+os=Android
+os.api_level=29
+[options]
+&:enable_arcus=False
+&:enable_benchmarks=False
+&:enable_extensive_warnings=False
+&:enable_plugins=False
+&:with_cura_resources=False
+*:shared=False
+boost/*:header_only=True
+[conf]
+tools.android:ndk_path=/usr/local/lib/android/sdk/ndk/28.2.13676358
+tools.build:skip_test=True
+tools.cmake.cmaketoolchain:generator=Ninja
+tools.gnu:define_libcxx11_abi=True
+
+Profile build:
+[settings]
+arch=x86_64
+build_type=Release
+compiler=gcc
+compiler.cppstd=gnu17
+compiler.libcxx=libstdc++11
+compiler.version=13
+os=Linux
+[conf]
+tools.build:skip_test=True
+tools.cmake.cmaketoolchain:generator=Ninja
+tools.gnu:define_libcxx11_abi=True
+
+
+======== Computing dependency graph ========
+Graph root
+    conanfile.py (curaengine/5.11.0-beta.1): /home/runner/work/enderslicercura/enderslicercura/.build/CuraEngine/conanfile.py
+Requirements
+    boost/1.86.0#e4404983dff9ce001ae01160ebf9028a - Cache
+    clipper/6.4.2@ultimaker/stable#7c8fe83a09fcb2e6adb118763eaa6e58 - Cache
+    fmt/11.1.3#8364f0feb23ee32e4b870455edb552ae - Cache
+    libpng/1.6.48#dd0fc04a42b9a23bce065545a81d4847 - Cache
+    mapbox-geometry/2.0.3#1560d81c6cd8ea159ecbb748bf8b6090 - Cache
+    mapbox-variant/1.2.0#e0533cc4c1625d48a0238760e6c85e35 - Cache
+    mapbox-wagyu/0.5.0@ultimaker/stable#e6cb299485b686893e07209fea6d5a0b - Cache
+    range-v3/0.12.0#4c05d91d7b40e6b91b44b5345ac64408 - Cache
+    rapidjson/cci.20230929#8dc0392af2b3aaea7312095f0ba53467 - Cache
+    scripta/1.1.0-alpha.0+b96045@ultimaker/testing#3786da67f9aa951719291aaab18d0785 - Cache
+    spdlog/1.15.1#92e99f07f134481bce4b70c1a41060e7 - Cache
+    stb/cci.20230920#ed79bd361e974a99137f214efb117eef - Cache
+    zlib/1.3.1#cac0f6daea041b0ccf42934163defb20 - Cache
+Test requirements
+    standardprojectsettings/0.2.0#af70631ee980187032a76e136b293365 - Cache
+    standardprojectsettings/0.2.0@ultimaker/stable#af70631ee980187032a76e136b293365 - Cache
+Python requires
+    npmpackage/1.2.0#6f3f48f7d2844e75af81a57e2389e510 - Cache
+    sentrylibrary/1.0.0#004cb2aaa533fb28697dd9a302d652e8 - Cache
+Resolved version ranges
+    scripta/[>=1.1.0]@ultimaker/testing: scripta/1.1.0-alpha.0+b96045@ultimaker/testing
+    standardprojectsettings/[>=0.2.0]: standardprojectsettings/0.2.0
+    standardprojectsettings/[>=0.2.0]@ultimaker/stable: standardprojectsettings/0.2.0@ultimaker/stable
+
+======== Computing necessary packages ========
+Connecting to remote 'cura-conan2' anonymously
+Requirements
+    boost/1.86.0#e4404983dff9ce001ae01160ebf9028a:da39a3ee5e6b4b0d3255bfef95601890afd80709#8932d10a88896f0bc49cde93c0045d3e - Cache
+    clipper/6.4.2@ultimaker/stable#7c8fe83a09fcb2e6adb118763eaa6e58:cb57f2221865023bf9840bead70fafd0213976e9#06be6ed77ed07ca277722ffc48928f44 - Cache
+    fmt/11.1.3#8364f0feb23ee32e4b870455edb552ae:1c64e6925e90baf39b50452acf2d474a716573b9#61ff5b1f2c9b28a1ccafe3e8d5549947 - Cache
+    libpng/1.6.48#dd0fc04a42b9a23bce065545a81d4847:b0300e736d297e0725708835c91bcfbf9692c9d0#1d73850de38b1ba46c3b1aba0490ec81 - Cache
+    mapbox-geometry/2.0.3#1560d81c6cd8ea159ecbb748bf8b6090:da39a3ee5e6b4b0d3255bfef95601890afd80709#b2b6166a216462f17c02e1c4bebbd942 - Cache
+    mapbox-variant/1.2.0#e0533cc4c1625d48a0238760e6c85e35:da39a3ee5e6b4b0d3255bfef95601890afd80709#3526db39b7b7a80e939cc264b9df29c6 - Cache
+    mapbox-wagyu/0.5.0@ultimaker/stable#e6cb299485b686893e07209fea6d5a0b:da39a3ee5e6b4b0d3255bfef95601890afd80709#9c99eaae4d7ee99d627e4533142e2336 - Cache
+    range-v3/0.12.0#4c05d91d7b40e6b91b44b5345ac64408:da39a3ee5e6b4b0d3255bfef95601890afd80709#ecc6172c3cd6694c36d1cd98a702deb0 - Cache
+    rapidjson/cci.20230929#8dc0392af2b3aaea7312095f0ba53467:da39a3ee5e6b4b0d3255bfef95601890afd80709#bc6124f3dda366933f5ac97f53b76b7b - Cache
+    scripta/1.1.0-alpha.0+b96045@ultimaker/testing#3786da67f9aa951719291aaab18d0785:da39a3ee5e6b4b0d3255bfef95601890afd80709#d2d84c4ec705cbfa88d3313ea69b4b2e - Cache
+    spdlog/1.15.1#92e99f07f134481bce4b70c1a41060e7:117e2234dabb93345908cddea0e17ac610cf2a44#3528f8f50aa92a4bf473e0c7251bcaaa - Cache
+    stb/cci.20230920#ed79bd361e974a99137f214efb117eef:24b381c7532f70c284a2a67cc83f779b3c0042fb#72af46794853f74751a3ba685e1c7ef4 - Cache
+    zlib/1.3.1#cac0f6daea041b0ccf42934163defb20:310255b023837ab611b34e5b85c07eca198a6918#4fa788cf264dd6071f5ce7a3608403d1 - Cache
+Test requirements
+    standardprojectsettings/0.2.0#af70631ee980187032a76e136b293365:da39a3ee5e6b4b0d3255bfef95601890afd80709#11a0ba14a3eaa94059396f4af59df2c5 - Cache
+Skipped binaries
+    standardprojectsettings/0.2.0@ultimaker/stable
+
+======== Installing packages ========
+boost/1.86.0: Already installed! (1 of 14)
+clipper/6.4.2@ultimaker/stable: Already installed! (2 of 14)
+fmt/11.1.3: Already installed! (3 of 14)
+mapbox-variant/1.2.0: Already installed! (4 of 14)
+range-v3/0.12.0: Already installed! (5 of 14)
+rapidjson/cci.20230929: Already installed! (6 of 14)
+standardprojectsettings/0.2.0: Already installed! (7 of 14)
+stb/cci.20230920: Already installed! (8 of 14)
+zlib/1.3.1: Already installed! (9 of 14)
+scripta/1.1.0-alpha.0+b96045@ultimaker/testing: Already installed! (10 of 14)
+libpng/1.6.48: Already installed! (11 of 14)
+mapbox-geometry/2.0.3: Already installed! (12 of 14)
+spdlog/1.15.1: Already installed! (13 of 14)
+mapbox-wagyu/0.5.0@ultimaker/stable: Already installed! (14 of 14)
+WARN: deprecated: Usage of deprecated Conan 1.X features that will be removed in Conan 2.X:
+WARN: deprecated:     'env_info' used in: boost/1.86.0
+WARN: deprecated:     'cpp_info.filenames' used in: boost/1.86.0
+WARN: deprecated:     'cpp_info.names' used in: range-v3/0.12.0, boost/1.86.0, rapidjson/cci.20230929, clipper/6.4.2@ultimaker/stable, libpng/1.6.48
+WARN: deprecated:     'user_info' used in: boost/1.86.0
+
+======== Finalizing install (deploy, generators) ========
+>>> Generate step
+Generating files for conanfile.py (curaengine/5.11.0-beta.1)
+Generators folder: /home/runner/work/enderslicercura/enderslicercura/.build/curaengine-android/build/Release/generators
+Calling generate() method in recipe
+CMakeDeps necessary find_package() and targets for your CMakeLists.txt
+    find_package(scripta)
+    find_package(PNG)
+    find_package(clipper)
+    find_package(Boost)
+    find_package(RapidJSON)
+    find_package(stb)
+    find_package(spdlog)
+    find_package(fmt)
+    find_package(range-v3)
+    find_package(ZLIB)
+    find_package(mapbox-wagyu)
+    find_package(standardprojectsettings)
+    target_link_libraries(... scripta::scripta PNG::PNG clipper::clipper boost::boost rapidjson stb::stb spdlog::spdlog fmt::fmt range-v3::range-v3 ZLIB::ZLIB mapbox-wagyu::mapbox-wagyu standardprojectsettings::standardprojectsettings)
+CMakeToolchain generated: conan_toolchain.cmake
+CMakeToolchain: Preset 'conan-release' added to CMakePresets.json.
+    (cmake>=3.23) cmake --preset conan-release
+    (cmake<3.23) cmake <path> -G Ninja
+                 -DCMAKE_TOOLCHAIN_FILE=<output_folder>/generators/conan_toolchain.cmake 
+                 -DCMAKE_POLICY_DEFAULT_CMP0091=NEW -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=Release
+CMakeToolchain generated: /home/runner/work/enderslicercura/enderslicercura/.build/curaengine-android/build/Release/generators/CMakePresets.json
+CMakeToolchain generated: /home/runner/work/enderslicercura/enderslicercura/.build/CuraEngine/CMakeUserPresets.json
+Generating aggregated env files
+Generated aggregated env files: ['conanbuild.sh', 'conanrun.sh']
+
+======== Calling build() ========
+>>> Build step
+Building conanfile.py (curaengine/5.11.0-beta.1)
+conanfile.py (curaengine/5.11.0-beta.1): Calling build()
+conanfile.py (curaengine/5.11.0-beta.1): Running CMake.configure()
+conanfile.py (curaengine/5.11.0-beta.1): RUN: cmake -G "Ninja" -DCMAKE_TOOLCHAIN_FILE="generators/conan_toolchain.cmake" -DCMAKE_INSTALL_PREFIX="/home/runner/work/enderslicercura/enderslicercura/.build/curaengine-android" -DCMAKE_POLICY_DEFAULT_CMP0091="NEW" -DBUILD_TESTING="OFF" -DCMAKE_BUILD_TYPE="Release" "/home/runner/work/enderslicercura/enderslicercura/.build/CuraEngine"
+-- Using Conan toolchain: /home/runner/work/enderslicercura/enderslicercura/.build/curaengine-android/build/Release/generators/conan_toolchain.cmake
+-- Conan toolchain: Setting Android platform: android-29
+-- Conan toolchain: Setting Android stl: c++_static
+-- Conan toolchain: Setting Android abi: arm64-v8a
+-- Conan toolchain: C++ Standard 20 with extensions OFF
+-- The C compiler identification is Clang 19.0.1
+-- The CXX compiler identification is Clang 19.0.1
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: /usr/local/lib/android/sdk/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/bin/clang - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/local/lib/android/sdk/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Conan: Target declared 'standardprojectsettings::standardprojectsettings'
+-- Conan: Including build module from '/home/runner/.conan2/p/standb1cf9a2ad7ef9/p/res/cmake/StandardProjectSettings.cmake'
+-- Generating compile commands to /home/runner/work/enderslicercura/enderslicercura/.build/curaengine-android/build/Release/compile_commands.json
+-- Building with plugins support: False
+-- Building with Arcus: False
+-- Enabling threading support for _CuraEngine
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Failed
+-- Check if compiler accepts -pthread
+-- Check if compiler accepts -pthread - yes
+-- Found Threads: TRUE
+-- Conan: Target declared 'mapbox-wagyu::mapbox-wagyu'
+-- Conan: Target declared 'mapbox-geometry::mapbox-geometry'
+-- Conan: Target declared 'mapbox-variant::mapbox-variant'
+-- Conan: Target declared 'clipper::clipper'
+-- Conan: Target declared 'rapidjson'
+-- Conan: Target declared 'stb::stb'
+-- Conan: Component target declared 'Boost::headers'
+-- Conan: Component target declared 'Boost::boost'
+-- Conan: Target declared 'boost::boost'
+-- Conan: Component target declared 'spdlog::spdlog'
+-- Conan: Component target declared 'fmt::fmt'
+-- Conan: Component target declared 'range-v3::range-v3-meta'
+-- Conan: Component target declared 'range-v3::range-v3-concepts'
+-- Conan: Target declared 'range-v3::range-v3'
+-- Conan: Target declared 'scripta::scripta'
+-- Conan: Target declared 'PNG::PNG'
+-- Conan: Target declared 'ZLIB::ZLIB'
+-- Enabling threading support for CuraEngine
+-- Configuring done (9.6s)
+-- Generating done (0.0s)
+CMake Warning:
+  Manually-specified variables were not used by the project:
+
+    BUILD_TESTING
+
+
+-- Build files have been written to: /home/runner/work/enderslicercura/enderslicercura/.build/curaengine-android/build/Release
+
+conanfile.py (curaengine/5.11.0-beta.1): Running CMake.build()
+conanfile.py (curaengine/5.11.0-beta.1): RUN: cmake --build "/home/runner/work/enderslicercura/enderslicercura/.build/curaengine-android/build/Release" -- -j4
+[1/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/ArcOverhang.cpp.o
+[2/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/ConicalOverhang.cpp.o
+[3/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/bridge.cpp.o
+[4/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/Application.cpp.o
+[5/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/ExtruderTrain.cpp.o
+[6/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/ExtruderPlan.cpp.o
+[7/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/FffProcessor.cpp.o
+[8/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/GCodePathConfig.cpp.o
+[9/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/gcodeExport.cpp.o
+[10/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/FffPolygonGenerator.cpp.o
+[11/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/infill.cpp.o
+[12/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/InterlockingGenerator.cpp.o
+[13/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/layerPart.cpp.o
+[14/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/LayerPlanBuffer.cpp.o
+[15/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/mesh.cpp.o
+[16/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/InsetOrderOptimizer.cpp.o
+[17/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/FffGcodeWriter.cpp.o
+[18/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/Mold.cpp.o
+[19/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/MeshGroup.cpp.o
+[20/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/path_ordering.cpp.o
+[21/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/multiVolumes.cpp.o
+[22/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/PathAdapter.cpp.o
+[23/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/Preheat.cpp.o
+[24/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/MeshMaterialSplitter.cpp.o
+[25/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/PrimeTower/PrimeTower.cpp.o
+[26/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/PrimeTower/PrimeTowerNormal.cpp.o
+[27/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/LayerPlan.cpp.o
+[28/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/raft.cpp.o
+[29/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/PrimeTower/PrimeTowerInterleaved.cpp.o
+[30/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/Scene.cpp.o
+[31/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/SkeletalTrapezoidationGraph.cpp.o
+[32/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/skin.cpp.o
+[33/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/SupportInfillPart.cpp.o
+[34/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/Slice.cpp.o
+[35/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/SkirtBrim.cpp.o
+[36/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/sliceDataStorage.cpp.o
+[37/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/SkeletalTrapezoidation.cpp.o
+[38/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/slicer.cpp.o
+[39/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/timeEstimate.cpp.o
+[40/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/TextureDataProvider.cpp.o
+[41/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/SlicedUVCoordinates.cpp.o
+[42/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/TopSurface.cpp.o
+[43/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/support.cpp.o
+[44/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/WallsComputation.cpp.o
+[45/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/WallToolPaths.cpp.o
+[46/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/TreeSupportTipGenerator.cpp.o
+[47/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/TreeModelVolumes.cpp.o
+[48/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/BeadingStrategy/BeadingStrategy.cpp.o
+[49/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/BeadingStrategy/BeadingStrategyFactory.cpp.o
+[50/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/BeadingStrategy/DistributedBeadingStrategy.cpp.o
+[51/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/BeadingStrategy/LimitedBeadingStrategy.cpp.o
+[52/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/BeadingStrategy/RedistributeBeadingStrategy.cpp.o
+[53/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/communication/ArcusCommunication.cpp.o
+[54/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/communication/ArcusCommunicationPrivate.cpp.o
+[55/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/BeadingStrategy/WideningBeadingStrategy.cpp.o
+[56/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/communication/EmscriptenCommunication.cpp.o
+[57/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/communication/Listener.cpp.o
+[58/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/BeadingStrategy/OuterWallInsetBeadingStrategy.cpp.o
+[59/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/infill/NoZigZagConnectorProcessor.cpp.o
+[60/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/infill/ZigzagConnectorProcessor.cpp.o
+[61/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/infill/ImageBasedDensityProvider.cpp.o
+[62/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/infill/LightningDistanceField.cpp.o
+[63/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/communication/CommandLine.cpp.o
+[64/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/infill/LightningGenerator.cpp.o
+[65/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/TreeSupport.cpp.o
+[66/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/infill/LightningTreeNode.cpp.o
+[67/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/infill/LightningLayer.cpp.o
+[68/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/infill/SierpinskiFillProvider.cpp.o
+[69/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/infill/SierpinskiFill.cpp.o
+[70/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/infill/GyroidInfill.cpp.o
+[71/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/infill/SubDivCube.cpp.o
+[72/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/pathPlanning/GCodePath.cpp.o
+[73/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/pathPlanning/Comb.cpp.o
+[74/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/plugins/converters.cpp.o
+[75/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/pathPlanning/NozzleTempInsert.cpp.o
+[76/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/pathPlanning/LinePolygonsCrossings.cpp.o
+[77/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/pathPlanning/SpeedDerivatives.cpp.o
+[78/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/progress/ProgressStageEstimator.cpp.o
+[79/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/progress/Progress.cpp.o
+[80/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/settings/FlowTempGraph.cpp.o
+[81/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/settings/AdaptiveLayerHeights.cpp.o
+[82/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/settings/MeshPathConfigs.cpp.o
+[83/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/settings/ZSeamConfig.cpp.o
+[84/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/settings/PathConfigStorage.cpp.o
+[85/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/utils/channel.cpp.o
+[86/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/utils/AABB.cpp.o
+[87/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/utils/AABB3D.cpp.o
+[88/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/utils/Date.cpp.o
+[89/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/utils/ExtrusionJunction.cpp.o
+[90/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/utils/ExtrusionLine.cpp.o
+[91/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/utils/gettime.cpp.o
+[92/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/utils/linearAlg2D.cpp.o
+[93/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/utils/ExtrusionSegment.cpp.o
+[94/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/utils/Matrix4x3D.cpp.o
+[95/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/utils/ListPolyIt.cpp.o
+[96/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/settings/Settings.cpp.o
+[97/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/utils/MeshUtils.cpp.o
+[98/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/utils/ParameterizedSegment.cpp.o
+[99/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/utils/MinimumSpanningTree.cpp.o
+[100/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/utils/OBJ.cpp.o
+[101/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/utils/PolygonConnector.cpp.o
+[102/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/utils/PolygonsPointIndex.cpp.o
+[103/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/utils/PolygonsSegmentIndex.cpp.o
+[104/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/utils/Simplify.cpp.o
+[105/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/utils/SVG.cpp.o
+/home/runner/work/enderslicercura/enderslicercura/.build/CuraEngine/src/utils/SVG.cpp:52:13: warning: enumeration value 'RAINBOW' not handled in switch [-Wswitch]
+   52 |     switch (color)
+      |             ^~~~~
+1 warning generated.
+[106/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/utils/PolylineStitcher.cpp.o
+[107/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/utils/SquareGrid.cpp.o
+[108/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/utils/polygonUtils.cpp.o
+[109/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/utils/ThreadPool.cpp.o
+[110/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/utils/ToolpathVisualizer.cpp.o
+[111/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/utils/VoronoiUtils.cpp.o
+[112/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/utils/VoxelGrid.cpp.o
+[113/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/utils/SpatialLookup.cpp.o
+[114/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/utils/MixedPolylineStitcher.cpp.o
+[115/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/utils/VoxelUtils.cpp.o
+[116/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/utils/scoring/BestElementFinder.cpp.o
+[117/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/utils/scoring/DistanceScoringCriterion.cpp.o
+[118/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/utils/scoring/CornerScoringCriterion.cpp.o
+[119/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/utils/scoring/ExclusionAreaScoringCriterion.cpp.o
+[120/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/utils/scoring/PositionBasedScoringCriterion.cpp.o
+[121/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/utils/scoring/RandomScoringCriterion.cpp.o
+[122/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/geometry/Point2LL.cpp.o
+[123/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/utils/scoring/TextureScoringCriterion.cpp.o
+[124/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/geometry/Point3LL.cpp.o
+[125/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/geometry/Polygon.cpp.o
+[126/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/geometry/PointsSet.cpp.o
+[127/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/geometry/SingleShape.cpp.o
+[128/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/geometry/PartsView.cpp.o
+[129/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/geometry/Polyline.cpp.o
+[130/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/geometry/LinesSet.cpp.o
+[131/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/geometry/ClosedPolyline.cpp.o
+[132/136] Building CXX object CMakeFiles/CuraEngine.dir/src/main.cpp.o
+[133/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/geometry/MixedLinesSet.cpp.o
+[134/136] Building CXX object CMakeFiles/_CuraEngine.dir/src/geometry/Shape.cpp.o
+[135/136] Linking CXX static library lib_CuraEngine.a
+[136/136] Linking CXX executable CuraEngine
+
+'/home/runner/work/enderslicercura/enderslicercura/.build/curaengine-android/build/Release/CuraEngine' -> '/home/runner/work/enderslicercura/enderslicercura/.build/curaengine-android/artifacts/libcuraengine_exec.so'
+'/home/runner/work/enderslicercura/enderslicercura/.build/curaengine-android/artifacts/libcuraengine_exec.so' -> '/home/runner/work/enderslicercura/enderslicercura/app/src/main/jniLibs/arm64-v8a/libcuraengine_exec.so'
+'/home/runner/work/enderslicercura/enderslicercura/.build/curaengine-android/build/Release/lib_CuraEngine.a' -> '/home/runner/work/enderslicercura/enderslicercura/.build/curaengine-android/artifacts/libCuraEngine-arm64-v8a.a'
+'/home/runner/work/enderslicercura/enderslicercura/.build/CuraEngine/LICENSE' -> '/home/runner/work/enderslicercura/enderslicercura/.build/curaengine-android/artifacts/CuraEngine-LICENSE'
+CuraEngine Android artifacts (5.11.0-beta.1):
+/home/runner/work/enderslicercura/enderslicercura/.build/curaengine-android/artifacts/CuraEngine-LICENSE
+/home/runner/work/enderslicercura/enderslicercura/.build/curaengine-android/artifacts/CuraEngine-LICENSE: ASCII text
+/home/runner/work/enderslicercura/enderslicercura/.build/curaengine-android/artifacts/libcuraengine_exec.so
+/home/runner/work/enderslicercura/enderslicercura/.build/curaengine-android/artifacts/libcuraengine_exec.so: ELF 64-bit LSB pie executable, ARM aarch64, version 1 (SYSV), dynamically linked, interpreter /system/bin/linker64, BuildID[sha1]=95af284d1a317b5c60bb14b5d4c32fe8b36feb78, stripped
+/home/runner/work/enderslicercura/enderslicercura/.build/curaengine-android/artifacts/libCuraEngine-arm64-v8a.a
+/home/runner/work/enderslicercura/enderslicercura/.build/curaengine-android/artifacts/libCuraEngine-arm64-v8a.a: current ar archive
