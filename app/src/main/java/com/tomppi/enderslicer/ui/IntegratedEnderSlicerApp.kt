@@ -3,7 +3,9 @@ package com.tomppi.enderslicer.ui
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -35,6 +37,7 @@ fun IntegratedEnderSlicerApp(
     val slicerState by slicerViewModel.uiState.collectAsStateWithLifecycle()
     val octoPrintState by octoPrintViewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    var profilesOpen by remember { mutableStateOf(false) }
     var octoPrintOpen by remember { mutableStateOf(false) }
 
     LaunchedEffect(octoPrintState.authorizationDialogLaunchNonce) {
@@ -55,20 +58,51 @@ fun IntegratedEnderSlicerApp(
 
     Box(modifier = Modifier.fillMaxSize()) {
         EnderSlicerApp(slicerViewModel)
-        ExtendedFloatingActionButton(
-            onClick = { octoPrintOpen = true },
+        Column(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(end = 16.dp, bottom = 94.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalAlignment = Alignment.End,
         ) {
-            Text(
-                when {
-                    octoPrintState.isPrinting -> "OctoPrint ${octoPrintState.job.completionPercent?.toInt() ?: 0}%"
-                    octoPrintState.isPaused -> "OctoPrint paused"
-                    octoPrintState.isTransitioning -> "OctoPrint busy"
-                    octoPrintState.isReady -> "OctoPrint"
-                    else -> "Set up OctoPrint"
+            ExtendedFloatingActionButton(
+                onClick = {
+                    octoPrintOpen = false
+                    profilesOpen = true
                 },
+            ) {
+                Text("Profiles & filament")
+            }
+            ExtendedFloatingActionButton(
+                onClick = {
+                    profilesOpen = false
+                    octoPrintOpen = true
+                },
+            ) {
+                Text(
+                    when {
+                        octoPrintState.isPrinting -> "OctoPrint ${octoPrintState.job.completionPercent?.toInt() ?: 0}%"
+                        octoPrintState.isPaused -> "OctoPrint paused"
+                        octoPrintState.isTransitioning -> "OctoPrint busy"
+                        octoPrintState.isReady -> "OctoPrint"
+                        else -> "Set up OctoPrint"
+                    },
+                )
+            }
+        }
+    }
+
+    if (profilesOpen) {
+        ModalBottomSheet(
+            onDismissRequest = { profilesOpen = false },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        ) {
+            ProfileManagementSheet(
+                state = slicerState,
+                viewModel = slicerViewModel,
+                modifier = Modifier
+                    .fillMaxHeight(0.96f)
+                    .navigationBarsPadding(),
             )
         }
     }
