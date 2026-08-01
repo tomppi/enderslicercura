@@ -217,9 +217,13 @@ data class ModelPlacement(
             dropToBuildPlate: Boolean,
         ): ModelPlacement {
             require(affine.linear.size == 9)
-            val targetCenterX = affine.targetCenterXmm ?: affine.translationXmm
-            val targetCenterY = affine.targetCenterYmm ?: affine.translationYmm
-            val targetBaseZ = affine.targetBaseZmm ?: affine.translationZmm
+            val transformedBounds = boundsFor(mesh, affine.linear)
+            val targetCenterX = affine.targetCenterXmm
+                ?: transformedBounds.centerX + affine.translationXmm
+            val targetCenterY = affine.targetCenterYmm
+                ?: transformedBounds.centerY + affine.translationYmm
+            val targetBaseZ = affine.targetBaseZmm
+                ?: transformedBounds.minZ + affine.translationZmm
             return ModelPlacement(
                 linear = affine.linear,
                 centerXmm = targetCenterX,
