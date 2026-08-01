@@ -10,7 +10,7 @@ import java.util.Locale
 import org.json.JSONObject
 
 /** Immutable build-volume policy used by model preflight and final G-code validation. */
-internal data class PrinterEnvelope(
+data class PrinterEnvelope(
     val widthMm: Double,
     val depthMm: Double,
     val heightMm: Double,
