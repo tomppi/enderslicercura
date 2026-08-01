@@ -28,14 +28,16 @@ internal object CuraResolvedSettingsWriter {
         val machineDepth = requiredNumber(resolved.globalValues, "machine_depth")
         val machineHeight = requiredNumber(resolved.globalValues, "machine_height")
         val centerIsZero = requiredBoolean(resolved.globalValues, "machine_center_is_zero")
-        PrinterEnvelope(
+        val printerEnvelope = PrinterEnvelope(
             widthMm = machineWidth,
             depthMm = machineDepth,
             heightMm = machineHeight,
             buildPlateShape = resolved.globalValues["machine_shape"]
                 ?: error("Resolved Cura setting is missing: machine_shape"),
             originAtCenter = centerIsZero,
-        ).requireBinaryStlFits(modelFile)
+        )
+        printerEnvelope.requireBinaryStlFits(modelFile)
+        printerEnvelope.writeTo(File(modelDirectory, PrinterEnvelope.METADATA_FILE_NAME))
 
         // MainViewModel writes the displayed transformed STL below cacheDir.
         // Isolated CuraEngine requests can be nested several directories deeper,
