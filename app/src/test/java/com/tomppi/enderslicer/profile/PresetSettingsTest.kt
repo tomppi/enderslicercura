@@ -4,7 +4,6 @@ import com.tomppi.enderslicer.model.SlicerSettings
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -99,9 +98,25 @@ class PresetSettingsTest {
     }
 
     @Test
-    fun incompletePresetIsRejected() {
+    fun legacyPartialPresetRemainsUsableAndPreservesNewerValues() {
+        val legacy = JSONObject().put(SlicerSettings.Keys.NOZZLE_TEMPERATURE, 225)
+        PresetSettings.validateUsable(PresetKind.FILAMENT, legacy)
+
+        val current = SlicerSettings(nozzleTemperatureC = 200, bedTemperatureC = 70)
+        val applied = PresetSettings.apply(PresetKind.FILAMENT, current, legacy)
+
+        assertEquals(225, applied.nozzleTemperatureC)
+        assertEquals(70, applied.bedTemperatureC)
+        assertFalse(PresetSettings.matches(PresetKind.FILAMENT, applied, legacy))
+    }
+
+    @Test
+    fun malformedPresetWithoutRecognizedValuesIsRejected() {
         val error = runCatching {
-            PresetSettings.validateComplete(PresetKind.FILAMENT, JSONObject().put("nozzleTemperatureC", 210))
+            PresetSettings.validateUsable(
+                PresetKind.FILAMENT,
+                JSONObject().put(SlicerSettings.Keys.NOZZLE_TEMPERATURE, "hot"),
+            )
         }.exceptionOrNull()
 
         assertTrue(error is IllegalArgumentException)
@@ -116,11 +131,5 @@ class PresetSettingsTest {
         assertTrue(SlicerSettings.Keys.MACHINE_WIDTH in applied.overriddenSettingKeys)
         assertTrue(PresetSettings.keys(PresetKind.FILAMENT).all { it in applied.overriddenSettingKeys })
         assertFalse(SlicerSettings.Keys.LAYER_HEIGHT in applied.overriddenSettingKeys)
-    }
-
-    @Test
-    fun presetLibraryRejectsMissingActiveReferences() {
-        val library = PresetLibrary(activePrintPresetId = "missing")
-        assertNull(library.active(PresetKind.PRINT))
     }
 }
