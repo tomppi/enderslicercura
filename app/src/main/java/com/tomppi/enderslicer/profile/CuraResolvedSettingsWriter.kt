@@ -35,25 +35,21 @@ internal object CuraResolvedSettingsWriter {
             buildPlateShape = resolved.globalValues["machine_shape"]
                 ?: error("Resolved Cura setting is missing: machine_shape"),
             originAtCenter = centerIsZero,
+            gcodeFlavor = resolved.globalValues["machine_gcode_flavor"]
+                ?.trim()
+                ?.trim('"')
+                ?.takeIf(String::isNotBlank)
+                ?: PrinterEnvelope.DEFAULT_GCODE_FLAVOR,
         )
         printerEnvelope.requireBinaryStlFits(modelFile)
         printerEnvelope.writeTo(File(modelDirectory, PrinterEnvelope.METADATA_FILE_NAME))
 
-        // MainViewModel writes the displayed transformed STL below cacheDir.
-        // Isolated CuraEngine requests can be nested several directories deeper,
-        // so walk bounded ancestors instead of assuming a direct sibling.
         val stagedDisplayedFile = findStagedDisplayedFile(modelDirectory)
         val stagedTransform = stagedDisplayedFile?.let { displayed ->
             copyResolvedSourceSnapshot(displayed, modelFile)
         }
         val effectiveTransform = modelTransform ?: stagedTransform
 
-        // Cura's frontend applies the complete affine before converting mesh
-        // vertices into integer microns. A normal CuraEngine command-line slice
-        // applies mesh_position only afterwards, which computes
-        // round(linear * vertex) + round(translation) instead of Cura's
-        // round(linear * vertex + translation). The native resolved-loader patch
-        // consumes these translation keys in Matrix4x3D before STL conversion.
         val machineCenterX = if (centerIsZero) 0.0 else machineWidth / 2.0
         val machineCenterY = if (centerIsZero) 0.0 else machineDepth / 2.0
         val linear = effectiveTransform?.linear ?: IDENTITY
@@ -61,24 +57,13 @@ internal object CuraResolvedSettingsWriter {
         val affineTranslationY = effectiveTransform?.translationYmm ?: 0.0
         val affineTranslationZ = effectiveTransform?.translationZmm ?: 0.0
         val rotationMatrix = matrixString(linear)
-
-        // Matrix4x3D now creates final build-plate coordinates directly. Cancel
-        // only CuraEngine's automatic front-left-bed half-width/depth offset in
-        // MeshGroup::finalize; no model translation belongs in mesh_position.
         val enginePositionX = -machineCenterX
         val enginePositionY = -machineCenterY
         val enginePositionZ = 0.0
 
-        // CuraEngine's command-line model loader constructs the single model
-        // from the extruder stack. Copy all resolved per-mesh values into that
-        // stack as well as retaining the model section. The native resolved-model
-        // patch also copies the model section onto the actual Mesh.
         val calibrationOverrides = CalibrationSliceState.engineOverrides()
         val extruderValues = JSONObject(resolved.extruderValues)
         resolved.modelValues.forEach { (key, value) -> extruderValues.put(key, value) }
-        // Some calibration-sensitive values (notably bridge fan settings) are
-        // settable per mesh. Re-apply temporary calibration overrides after the
-        // normal model-to-extruder copy so model scope cannot undo the test.
         calibrationOverrides.forEach { (key, value) -> extruderValues.put(key, value) }
         extruderValues
             .put("center_object", false)
