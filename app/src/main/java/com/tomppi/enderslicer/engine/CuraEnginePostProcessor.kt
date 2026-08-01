@@ -18,8 +18,13 @@ internal object CuraEnginePostProcessor {
         settingsTransport: String,
         layerEvents: List<LayerEvent>,
         plannedLayerEvents: List<PlannedLayerEvent>,
+        printerEnvelope: PrinterEnvelope,
     ): Result {
-        val baseSummary = GcodeSanitizer.validateAndRepair(outputFile, settingsTransport)
+        val baseSummary = GcodeSanitizer.validateAndRepair(
+            file = outputFile,
+            settingsTransport = settingsTransport,
+            printerEnvelope = printerEnvelope,
+        )
         outputFile.copyTo(baseGcodeFile, overwrite = true)
         check(baseGcodeFile.isFile && baseGcodeFile.length() > 0L) {
             "Unable to retain original sliced G-code"
@@ -46,8 +51,9 @@ internal object CuraEnginePostProcessor {
 
         GcodeLayerEventProcessor.materialize(baseGcodeFile, outputFile, resolvedEvents)
         val summary = GcodeSanitizer.validateAndRepair(
-            outputFile,
+            file = outputFile,
             settingsTransport = "$settingsTransport+layer-events",
+            printerEnvelope = printerEnvelope,
         )
         val previewResult = runCatching { GcodeLayerPreviewParser.parse(outputFile) }
         return Result(
