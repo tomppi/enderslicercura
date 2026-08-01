@@ -30,15 +30,15 @@ object CuraProjectSceneParser {
         val objects = document.getElementsByTagNameNS("*", "object")
         val buildItems = document.getElementsByTagNameNS("*", "item")
         val components = document.getElementsByTagNameNS("*", "component")
+        val objectElements = (0 until objects.length)
+            .mapNotNull { objects.item(it) as? Element }
+        val objectsById = objectElements.associateBy { it.getAttribute("id") }
         val firstItem = buildItems.item(0) as? Element
         val objectId = firstItem?.getAttribute("objectid")?.takeIf(String::isNotBlank)
-        val objectElement = (0 until objects.length)
-            .mapNotNull { objects.item(it) as? Element }
-            .firstOrNull { it.getAttribute("id") == objectId }
-            ?: (objects.item(0) as? Element)
+        val rootObject = objectId?.let(objectsById::get) ?: objectElements.firstOrNull()
 
         val metadata = linkedMapOf<String, String>()
-        objectElement?.getElementsByTagNameNS("*", "metadata")?.let { nodes ->
+        rootObject?.getElementsByTagNameNS("*", "metadata")?.let { nodes ->
             repeat(nodes.length) { index ->
                 val element = nodes.item(index) as? Element ?: return@repeat
                 val name = element.getAttribute("name")
@@ -47,19 +47,35 @@ object CuraProjectSceneParser {
         }
 
         val warnings = mutableListOf<String>()
-        if (objects.length > 1) warnings += "Cura project contains ${objects.length} objects; EnderSlicer currently applies only the first model transform"
-        if (buildItems.length > 1) warnings += "Cura project contains ${buildItems.length} build items; multi-object placement is not implemented"
-        if (components.length > 0) warnings += "Cura project uses component objects; component transforms are not implemented"
+        if (buildItems.length > 1) {
+            warnings += "Cura project contains ${buildItems.length} build items; multi-object placement is not implemented"
+        }
+        if (objects.length > 1 && components.length == 0) {
+            warnings += "Cura project contains ${objects.length} objects; EnderSlicer currently applies only the first model transform"
+        }
 
-        val transformText = firstItem?.getAttribute("transform")?.trim().orEmpty()
-        val affine = if (transformText.isBlank()) {
+        val rootTransform = runCatching {
+            parseOptionalTransform(firstItem?.getAttribute("transform").orEmpty())
+        }.onFailure { warnings += "Cura object transform could not be parsed: ${it.message}" }
+            .getOrNull()
+        val resolvedObject = if (rootObject == null || rootTransform == null) {
             null
         } else {
             runCatching {
-                parseTransform(transformText).withEmbeddedTargetBounds(objectElement)
-            }.onFailure { warnings += "Cura object transform could not be parsed: ${it.message}" }
+                resolveObject(
+                    objectElement = rootObject,
+                    objectsById = objectsById,
+                    accumulated = rootTransform.affine,
+                    hasExplicitTransform = rootTransform.explicit,
+                    visited = linkedSetOf(),
+                )
+            }.onFailure { warnings += "Cura component transform could not be applied: ${it.message}" }
                 .getOrNull()
         }
+        val affine = resolvedObject
+            ?.takeIf(ResolvedObject::hasExplicitTransform)
+            ?.affine
+            ?.withEmbeddedTargetBounds(resolvedObject.leafObject)
         val drop = metadata["cura:drop_to_buildplate"]?.equals("true", ignoreCase = true) == true
         val postProcessing = entries.entries
             .firstOrNull { it.key.endsWith(".global.cfg") }
@@ -70,7 +86,8 @@ object CuraProjectSceneParser {
         }
 
         return CuraProjectScene(
-            modelName = objectElement?.getAttribute("name")?.takeIf(String::isNotBlank),
+            modelName = rootObject?.getAttribute("name")?.takeIf(String::isNotBlank)
+                ?: resolvedObject?.leafObject?.getAttribute("name")?.takeIf(String::isNotBlank),
             affine = affine,
             dropToBuildPlate = drop,
             objectCount = objects.length,
@@ -79,6 +96,60 @@ object CuraProjectSceneParser {
             postProcessingScripts = postProcessing,
             warnings = warnings,
         )
+    }
+
+    private fun resolveObject(
+        objectElement: Element,
+        objectsById: Map<String, Element>,
+        accumulated: ModelPlacement.Affine3mf,
+        hasExplicitTransform: Boolean,
+        visited: LinkedHashSet<String>,
+    ): ResolvedObject {
+        val id = objectElement.getAttribute("id").takeIf(String::isNotBlank)
+            ?: error("component object has no id")
+        check(visited.add(id)) { "component cycle detected at object $id" }
+        try {
+            val vertices = objectElement.getElementsByTagNameNS("*", "vertex")
+            val componentNodes = objectElement.getElementsByTagNameNS("*", "component")
+            check(!(vertices.length > 0 && componentNodes.length > 0)) {
+                "object $id contains both a mesh and components"
+            }
+            if (vertices.length > 0) {
+                return ResolvedObject(objectElement, accumulated, hasExplicitTransform)
+            }
+            check(componentNodes.length == 1) {
+                if (componentNodes.length == 0) {
+                    "object $id contains neither mesh vertices nor a component"
+                } else {
+                    "object $id contains ${componentNodes.length} components; multi-component composition is ambiguous"
+                }
+            }
+            val component = componentNodes.item(0) as? Element
+                ?: error("object $id contains an invalid component")
+            val referencedId = component.getAttribute("objectid").takeIf(String::isNotBlank)
+                ?: error("component in object $id has no objectid")
+            val referencedObject = objectsById[referencedId]
+                ?: error("component in object $id references missing object $referencedId")
+            val componentTransform = parseOptionalTransform(component.getAttribute("transform"))
+            return resolveObject(
+                objectElement = referencedObject,
+                objectsById = objectsById,
+                accumulated = compose(accumulated, componentTransform.affine),
+                hasExplicitTransform = hasExplicitTransform || componentTransform.explicit,
+                visited = visited,
+            )
+        } finally {
+            visited.remove(id)
+        }
+    }
+
+    private fun parseOptionalTransform(raw: String): ParsedTransform {
+        val trimmed = raw.trim()
+        return if (trimmed.isBlank()) {
+            ParsedTransform(identityAffine(), explicit = false)
+        } else {
+            ParsedTransform(parseTransform(trimmed), explicit = true)
+        }
     }
 
     private fun parseTransform(raw: String): ModelPlacement.Affine3mf {
@@ -97,6 +168,34 @@ object CuraProjectSceneParser {
             translationXmm = values[9],
             translationYmm = values[10],
             translationZmm = values[11],
+        )
+    }
+
+    private fun compose(
+        outer: ModelPlacement.Affine3mf,
+        inner: ModelPlacement.Affine3mf,
+    ): ModelPlacement.Affine3mf {
+        val linear = multiply(outer.linear, inner.linear)
+        return ModelPlacement.Affine3mf(
+            linear = linear,
+            translationXmm = transformX(
+                outer.linear,
+                inner.translationXmm,
+                inner.translationYmm,
+                inner.translationZmm,
+            ) + outer.translationXmm,
+            translationYmm = transformY(
+                outer.linear,
+                inner.translationXmm,
+                inner.translationYmm,
+                inner.translationZmm,
+            ) + outer.translationYmm,
+            translationZmm = transformZ(
+                outer.linear,
+                inner.translationXmm,
+                inner.translationYmm,
+                inner.translationZmm,
+            ) + outer.translationZmm,
         )
     }
 
@@ -119,9 +218,9 @@ object CuraProjectSceneParser {
             val z = vertex.getAttribute("z").toDoubleOrNull() ?: error("invalid embedded vertex Z")
             require(x.isFinite() && y.isFinite() && z.isFinite()) { "embedded mesh contains a non-finite vertex" }
 
-            val transformedX = linear[0] * x + linear[1] * y + linear[2] * z + translationXmm
-            val transformedY = linear[3] * x + linear[4] * y + linear[5] * z + translationYmm
-            val transformedZ = linear[6] * x + linear[7] * y + linear[8] * z + translationZmm
+            val transformedX = transformX(linear, x, y, z) + translationXmm
+            val transformedY = transformY(linear, x, y, z) + translationYmm
+            val transformedZ = transformZ(linear, x, y, z) + translationZmm
             minX = minOf(minX, transformedX)
             maxX = maxOf(maxX, transformedX)
             minY = minOf(minY, transformedY)
@@ -136,6 +235,30 @@ object CuraProjectSceneParser {
         )
     }
 
+    private fun multiply(a: List<Double>, b: List<Double>): List<Double> = List(9) { index ->
+        val row = index / 3
+        val column = index % 3
+        a[row * 3] * b[column] +
+            a[row * 3 + 1] * b[3 + column] +
+            a[row * 3 + 2] * b[6 + column]
+    }
+
+    private fun transformX(matrix: List<Double>, x: Double, y: Double, z: Double): Double =
+        matrix[0] * x + matrix[1] * y + matrix[2] * z
+
+    private fun transformY(matrix: List<Double>, x: Double, y: Double, z: Double): Double =
+        matrix[3] * x + matrix[4] * y + matrix[5] * z
+
+    private fun transformZ(matrix: List<Double>, x: Double, y: Double, z: Double): Double =
+        matrix[6] * x + matrix[7] * y + matrix[8] * z
+
+    private fun identityAffine(): ModelPlacement.Affine3mf = ModelPlacement.Affine3mf(
+        linear = ModelPlacement.IDENTITY,
+        translationXmm = 0.0,
+        translationYmm = 0.0,
+        translationZmm = 0.0,
+    )
+
     private fun parsePostProcessingScripts(globalCfg: String): String? {
         var inMetadata = false
         globalCfg.lineSequence().forEach { raw ->
@@ -148,4 +271,15 @@ object CuraProjectSceneParser {
         }
         return null
     }
+
+    private data class ParsedTransform(
+        val affine: ModelPlacement.Affine3mf,
+        val explicit: Boolean,
+    )
+
+    private data class ResolvedObject(
+        val leafObject: Element,
+        val affine: ModelPlacement.Affine3mf,
+        val hasExplicitTransform: Boolean,
+    )
 }
