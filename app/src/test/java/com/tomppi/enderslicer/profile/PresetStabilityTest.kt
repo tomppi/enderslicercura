@@ -10,7 +10,7 @@ import org.junit.Test
 
 class PresetStabilityTest {
     @Test
-    fun completePresetSurvivesTheViewModelOneKeyUpdateLifecycle() {
+    fun completePresetRegistersAllKeysBeforeSwitchingValues() {
         val before = SlicerSettings(
             layerHeightMm = 0.28,
             wallLineCount = 2,
@@ -29,16 +29,23 @@ class PresetStabilityTest {
         )
 
         var actual = before
-        plan.appliedKeys.forEachIndexed { index, key ->
-            val transformed = if (index == 0) plan.settings else actual
-            actual = transformed.copy(overriddenSettingKeys = actual.overriddenSettingKeys + key)
+        plan.appliedKeys.forEach { key ->
+            actual = actual.copy(overriddenSettingKeys = actual.overriddenSettingKeys + key)
         }
+
+        assertEquals(
+            before,
+            actual.copy(overriddenSettingKeys = before.overriddenSettingKeys),
+        )
+        assertTrue(PresetSettings.keys(PresetKind.PRINT).all { it in actual.overriddenSettingKeys })
+
+        val markerKey = plan.appliedKeys.first()
+        actual = plan.settings.copy(overriddenSettingKeys = actual.overriddenSettingKeys + markerKey)
 
         assertEquals(plan.settings, actual)
         assertEquals(0.12, actual.layerHeightMm, 0.0001)
         assertEquals(4, actual.wallLineCount)
         assertEquals(35.0, actual.infillDensityPercent, 0.0001)
-        assertTrue(PresetSettings.keys(PresetKind.PRINT).all { it in actual.overriddenSettingKeys })
         assertTrue(SlicerSettings.Keys.MACHINE_WIDTH in actual.overriddenSettingKeys)
     }
 
