@@ -1,9 +1,9 @@
 package com.tomppi.enderslicer.octoprint
 
-import org.json.JSONArray
-import org.json.JSONObject
 import java.util.Locale
 import kotlin.math.roundToLong
+import org.json.JSONArray
+import org.json.JSONObject
 
 internal const val OCTOPRINT_APP_NAME = "enderslicercura"
 
@@ -122,6 +122,7 @@ data class OctoPrintUiState(
     val uploadFileName: String? = null,
     val authorizationPending: Boolean = false,
     val authorizationDialogUrl: String? = null,
+    val authorizationDialogLaunchNonce: Long = 0L,
     val lastUpdatedEpochMillis: Long? = null,
     val statusMessage: String = "Configure OctoPrint to begin",
     val errorMessage: String? = null,
@@ -129,6 +130,12 @@ data class OctoPrintUiState(
     val isReady: Boolean get() = config.isConfigured && hasApiKey
     val isPrinting: Boolean get() = printer.printing || job.state.equals("Printing", ignoreCase = true)
     val isPaused: Boolean get() = printer.paused || job.state.equals("Paused", ignoreCase = true)
+    val isTransitioning: Boolean get() =
+        printer.pausing ||
+            printer.cancelling ||
+            job.state.equals("Pausing", ignoreCase = true) ||
+            job.state.equals("Cancelling", ignoreCase = true)
+    val hasActiveJob: Boolean get() = isPrinting || isPaused || isTransitioning
 }
 
 internal object OctoPrintJson {
@@ -251,7 +258,10 @@ internal object OctoPrintJson {
             val type = item.optString("type")
             val isFolder = type == "folder" || item.has("children")
             val origin = item.optString("origin", defaultOrigin)
-            val path = item.optString("path", item.optString("name"))
+            val rawPath = item.optString("path", item.optString("name"))
+            val path = runCatching {
+                OctoPrintClient.normalizeRemotePath(rawPath, allowBlank = false)
+            }.getOrNull() ?: continue
             val analysis = item.optJSONObject("gcodeAnalysis") ?: JSONObject()
             val filament = analysis.optJSONObject("filament") ?: JSONObject()
             val print = item.optJSONObject("print") ?: JSONObject()
@@ -302,7 +312,9 @@ internal object OctoPrintJson {
             else -> return null
         }
         val bytes = amount * multiplier
-        return bytes.takeIf { it.isFinite() && it >= 0.0 && it <= Long.MAX_VALUE.toDouble() }?.roundToLong()
+        return bytes.takeIf {
+            it.isFinite() && it >= 0.0 && it <= Long.MAX_VALUE.toDouble()
+        }?.roundToLong()
     }
 
     private fun parseTemperature(root: JSONObject): OctoPrintTemperature = OctoPrintTemperature(
