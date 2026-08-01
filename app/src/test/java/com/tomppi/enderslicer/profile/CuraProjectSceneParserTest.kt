@@ -63,7 +63,7 @@ class CuraProjectSceneParserTest {
     }
 
     @Test
-    fun warnsAboutMultiObjectAndComponentScenes() {
+    fun warnsAboutMultipleBuildItemsAndAnInvalidComponentRoot() {
         val archive = zip(
             "3D/3dmodel.model" to """
                 <?xml version="1.0"?>
@@ -77,7 +77,6 @@ class CuraProjectSceneParserTest {
             """.trimIndent(),
         )
         val scene = requireNotNull(CuraProjectSceneParser.parse(ByteArrayInputStream(archive)))
-        assertTrue(scene.warnings.any { it.contains("objects") })
         assertTrue(scene.warnings.any { it.contains("build items") })
         assertTrue(scene.warnings.any { it.contains("component") })
     }
