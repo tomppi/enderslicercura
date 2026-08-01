@@ -1,25 +1,31 @@
 package com.tomppi.enderslicer.ui
 
+import com.tomppi.enderslicer.profile.PresetApplication
 import com.tomppi.enderslicer.profile.PresetKind
-import com.tomppi.enderslicer.profile.PresetSettings
-import org.json.JSONObject
 
 internal fun MainViewModel.applyPreset(kind: PresetKind, valuesJson: String): Boolean {
     if (uiState.value.isBusy) return false
-    return runCatching {
-        val values = JSONObject(valuesJson)
-        PresetSettings.validateUsable(kind, values)
-        val before = uiState.value.settings
-        val expected = PresetSettings.apply(kind, before, values)
-        val markerKey = PresetSettings.keys(kind).first { key ->
-            if (!values.has(key) || values.isNull(key)) return@first false
-            runCatching {
-                PresetSettings.apply(kind, before, JSONObject().put(key, values.get(key)))
-            }.isSuccess
+
+    val before = uiState.value.settings
+    val plan = PresetApplication.prepare(kind, before, valuesJson)
+
+    // MainViewModel.updateSettings deliberately owns persistence and stale-output
+    // invalidation, but it records one explicit override key per call. Apply the
+    // validated values once, then synchronously register every key carried by the
+    // preset so the complete selection survives app restart and Cura resolution.
+    plan.appliedKeys.forEachIndexed { index, key ->
+        updateSettings(key) { current ->
+            if (index == 0) {
+                check(current == before) { "Settings changed while the preset was being applied" }
+                plan.settings
+            } else {
+                current
+            }
         }
-        updateSettings(markerKey) { expected }
-        check(uiState.value.settings == expected) {
-            "The preset could not be applied while another operation was active"
-        }
-    }.isSuccess
+    }
+
+    check(uiState.value.settings == plan.settings) {
+        "The preset could not be applied while another operation was active"
+    }
+    return true
 }
