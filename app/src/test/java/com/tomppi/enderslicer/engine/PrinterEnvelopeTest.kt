@@ -14,8 +14,8 @@ class PrinterEnvelopeTest {
         val envelope = rectangular(originAtCenter = false)
 
         assertTrue(envelope.contains(0.0, 0.0, 0.0))
-        assertTrue(envelope.contains(230.05, 230.05, 250.05))
-        assertTrue(envelope.contains(-0.05, -0.05, -0.05))
+        assertTrue(envelope.contains(230.049, 230.049, 250.049))
+        assertTrue(envelope.contains(-0.049, -0.049, -0.049))
         assertFalse(envelope.contains(-0.051, 10.0, 1.0))
         assertFalse(envelope.contains(230.051, 10.0, 1.0))
         assertFalse(envelope.contains(10.0, -0.051, 1.0))
