@@ -54,6 +54,7 @@ fun ProfileManagementSheet(
     var library by remember { mutableStateOf(PresetLibrary()) }
     var kind by remember { mutableStateOf(PresetKind.PRINT) }
     var isLoading by remember { mutableStateOf(true) }
+    var isMutating by remember { mutableStateOf(false) }
     var nameAction by remember { mutableStateOf<PresetNameAction?>(null) }
     var nameTarget by remember { mutableStateOf<UserPreset?>(null) }
     var nameText by remember { mutableStateOf("") }
@@ -64,79 +65,80 @@ fun ProfileManagementSheet(
         Toast.makeText(context, error.message ?: error::class.java.simpleName, Toast.LENGTH_LONG).show()
     }
 
+    fun launchMutation(block: suspend () -> Unit) {
+        if (isMutating) return
+        isMutating = true
+        scope.launch {
+            try {
+                block()
+            } catch (error: Throwable) {
+                showError(error)
+            } finally {
+                isMutating = false
+            }
+        }
+    }
+
     fun refresh() {
+        if (isLoading && library.presets.isNotEmpty()) return
         scope.launch {
             isLoading = true
-            runCatching { withContext(Dispatchers.IO) { store.load() } }
-                .onSuccess { library = it }
-                .onFailure(::showError)
-            isLoading = false
+            try {
+                library = withContext(Dispatchers.IO) { store.load() }
+            } catch (error: Throwable) {
+                showError(error)
+            } finally {
+                isLoading = false
+            }
         }
     }
 
-    fun saveCurrentAs(name: String) {
-        scope.launch {
-            runCatching {
-                withContext(Dispatchers.IO) { store.create(kind, name, state.settings) }
-            }.onSuccess {
-                library = it
-                nameAction = null
-                Toast.makeText(context, "Saved ${kind.label.lowercase()} ‘${name.trim()}’", Toast.LENGTH_SHORT).show()
-            }.onFailure(::showError)
+    fun saveCurrentAs(name: String) = launchMutation {
+        val selectedKind = kind
+        val settingsSnapshot = state.settings
+        val saved = withContext(Dispatchers.IO) { store.create(selectedKind, name, settingsSnapshot) }
+        library = saved
+        nameAction = null
+        nameTarget = null
+        Toast.makeText(
+            context,
+            "Saved ${selectedKind.label.lowercase()} ‘${name.trim()}’",
+            Toast.LENGTH_SHORT,
+        ).show()
+    }
+
+    fun applyPreset(preset: UserPreset) = launchMutation {
+        check(viewModel.applyPreset(preset.kind, preset.valuesJson)) {
+            "The preset could not be applied while another operation was active"
+        }
+        library = withContext(Dispatchers.IO) { store.setActive(preset.kind, preset.id) }
+    }
+
+    fun updatePreset(preset: UserPreset, thenApply: UserPreset? = null) = launchMutation {
+        val settingsSnapshot = state.settings
+        val updatedLibrary = withContext(Dispatchers.IO) { store.update(preset.id, settingsSnapshot) }
+        library = updatedLibrary
+        if (thenApply != null) {
+            val latestTarget = updatedLibrary.presets.firstOrNull { it.id == thenApply.id } ?: thenApply
+            check(viewModel.applyPreset(latestTarget.kind, latestTarget.valuesJson)) {
+                "The preset could not be applied while another operation was active"
+            }
+            library = withContext(Dispatchers.IO) { store.setActive(latestTarget.kind, latestTarget.id) }
+        } else {
+            Toast.makeText(context, "Saved changes to ‘${preset.name}’", Toast.LENGTH_SHORT).show()
         }
     }
 
-    fun updatePreset(preset: UserPreset, thenApply: UserPreset? = null) {
-        scope.launch {
-            runCatching {
-                withContext(Dispatchers.IO) { store.update(preset.id, state.settings) }
-            }.onSuccess { updatedLibrary ->
-                library = updatedLibrary
-                if (thenApply != null) {
-                    val latestTarget = updatedLibrary.presets.firstOrNull { it.id == thenApply.id } ?: thenApply
-                    if (viewModel.applyPreset(latestTarget.kind, latestTarget.valuesJson)) {
-                        runCatching {
-                            withContext(Dispatchers.IO) { store.setActive(latestTarget.kind, latestTarget.id) }
-                        }.onSuccess { library = it }.onFailure(::showError)
-                    }
-                } else {
-                    Toast.makeText(context, "Saved changes to ‘${preset.name}’", Toast.LENGTH_SHORT).show()
-                }
-            }.onFailure(::showError)
-        }
+    fun renamePreset(preset: UserPreset, name: String) = launchMutation {
+        library = withContext(Dispatchers.IO) { store.rename(preset.id, name) }
+        nameAction = null
+        nameTarget = null
     }
 
-    fun applyPreset(preset: UserPreset) {
-        if (!viewModel.applyPreset(preset.kind, preset.valuesJson)) return
-        scope.launch {
-            runCatching {
-                withContext(Dispatchers.IO) { store.setActive(preset.kind, preset.id) }
-            }.onSuccess { library = it }.onFailure(::showError)
-        }
-    }
-
-    fun renamePreset(preset: UserPreset, name: String) {
-        scope.launch {
-            runCatching {
-                withContext(Dispatchers.IO) { store.rename(preset.id, name) }
-            }.onSuccess {
-                library = it
-                nameAction = null
-                nameTarget = null
-            }.onFailure(::showError)
-        }
-    }
-
-    fun deletePreset(preset: UserPreset) {
-        scope.launch {
-            runCatching {
-                withContext(Dispatchers.IO) { store.delete(preset.id) }
-            }.onSuccess {
-                library = it
-                pendingDelete = null
-                Toast.makeText(context, "Deleted ‘${preset.name}’", Toast.LENGTH_SHORT).show()
-            }.onFailure(::showError)
-        }
+    fun deletePreset(preset: UserPreset) = launchMutation {
+        library = withContext(Dispatchers.IO) { store.delete(preset.id) }
+        pendingDelete = null
+        Toast.makeText(context, "Deleted ‘${preset.name}’", Toast.LENGTH_SHORT).show()
     }
 
     LaunchedEffect(Unit) { refresh() }
@@ -145,6 +147,7 @@ fun ProfileManagementSheet(
     val active = library.active(kind)
     val activeDirty = active?.let { !PresetSettings.matchesValues(kind, currentValues, it.values()) } ?: true
     val presets = library.presets(kind)
+    val actionsEnabled = !state.isBusy && !isLoading && !isMutating
 
     Column(
         modifier = modifier
@@ -162,11 +165,19 @@ fun ProfileManagementSheet(
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             PresetKind.entries.forEach { candidate ->
                 if (candidate == kind) {
-                    Button(onClick = { kind = candidate }, modifier = Modifier.weight(1f)) {
+                    Button(
+                        onClick = { kind = candidate },
+                        enabled = !isMutating,
+                        modifier = Modifier.weight(1f),
+                    ) {
                         Text(candidate.pluralLabel)
                     }
                 } else {
-                    OutlinedButton(onClick = { kind = candidate }, modifier = Modifier.weight(1f)) {
+                    OutlinedButton(
+                        onClick = { kind = candidate },
+                        enabled = !isMutating,
+                        modifier = Modifier.weight(1f),
+                    ) {
                         Text(candidate.pluralLabel)
                     }
                 }
@@ -191,13 +202,13 @@ fun ProfileManagementSheet(
                             nameTarget = null
                             nameText = ""
                         },
-                        enabled = !state.isBusy,
+                        enabled = actionsEnabled,
                     ) {
                         Text("Save current as…")
                     }
                     OutlinedButton(
                         onClick = { active?.let { updatePreset(it) } },
-                        enabled = active != null && activeDirty && !state.isBusy,
+                        enabled = active != null && activeDirty && actionsEnabled,
                     ) {
                         Text("Save changes")
                     }
@@ -248,10 +259,11 @@ fun ProfileManagementSheet(
                                 }
                                 Button(
                                     onClick = {
-                                        if (isActive && !dirty) return@Button
-                                        if (activeDirty) pendingApply = preset else applyPreset(preset)
+                                        if (!(isActive && !dirty)) {
+                                            if (activeDirty) pendingApply = preset else applyPreset(preset)
+                                        }
                                     },
-                                    enabled = !state.isBusy,
+                                    enabled = actionsEnabled && !(isActive && !dirty),
                                 ) {
                                     Text(if (isActive) "Reload" else "Apply")
                                 }
@@ -260,7 +272,7 @@ fun ProfileManagementSheet(
                                 if (isActive) {
                                     OutlinedButton(
                                         onClick = { updatePreset(preset) },
-                                        enabled = dirty && !state.isBusy,
+                                        enabled = dirty && actionsEnabled,
                                     ) {
                                         Text("Save changes")
                                     }
@@ -271,10 +283,14 @@ fun ProfileManagementSheet(
                                         nameTarget = preset
                                         nameText = preset.name
                                     },
+                                    enabled = actionsEnabled,
                                 ) {
                                     Text("Rename")
                                 }
-                                TextButton(onClick = { pendingDelete = preset }) {
+                                TextButton(
+                                    onClick = { pendingDelete = preset },
+                                    enabled = actionsEnabled,
+                                ) {
                                     Text("Delete")
                                 }
                             }
@@ -288,7 +304,7 @@ fun ProfileManagementSheet(
 
     if (nameAction != null) {
         AlertDialog(
-            onDismissRequest = { nameAction = null; nameTarget = null },
+            onDismissRequest = { if (!isMutating) { nameAction = null; nameTarget = null } },
             title = {
                 Text(if (nameAction == PresetNameAction.CREATE) "Name the ${kind.label.lowercase()}" else "Rename preset")
             },
@@ -296,6 +312,7 @@ fun ProfileManagementSheet(
                 OutlinedTextField(
                     value = nameText,
                     onValueChange = { nameText = it.take(60) },
+                    enabled = !isMutating,
                     label = { Text("Preset name") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
@@ -310,20 +327,23 @@ fun ProfileManagementSheet(
                             null -> Unit
                         }
                     },
-                    enabled = nameText.isNotBlank(),
+                    enabled = nameText.isNotBlank() && !isMutating,
                 ) {
                     Text("Save")
                 }
             },
             dismissButton = {
-                TextButton(onClick = { nameAction = null; nameTarget = null }) { Text("Cancel") }
+                TextButton(
+                    onClick = { nameAction = null; nameTarget = null },
+                    enabled = !isMutating,
+                ) { Text("Cancel") }
             },
         )
     }
 
     pendingApply?.let { target ->
         AlertDialog(
-            onDismissRequest = { pendingApply = null },
+            onDismissRequest = { if (!isMutating) pendingApply = null },
             title = { Text("Replace current ${kind.label.lowercase()} settings?") },
             text = {
                 Text(
@@ -335,7 +355,10 @@ fun ProfileManagementSheet(
                 )
             },
             confirmButton = {
-                Button(onClick = { pendingApply = null; applyPreset(target) }) { Text("Discard & apply") }
+                Button(
+                    onClick = { pendingApply = null; applyPreset(target) },
+                    enabled = !isMutating,
+                ) { Text("Discard & apply") }
             },
             dismissButton = {
                 Row {
@@ -345,9 +368,10 @@ fun ProfileManagementSheet(
                                 pendingApply = null
                                 updatePreset(active, thenApply = target)
                             },
+                            enabled = !isMutating,
                         ) { Text("Save & apply") }
                     }
-                    TextButton(onClick = { pendingApply = null }) { Text("Cancel") }
+                    TextButton(onClick = { pendingApply = null }, enabled = !isMutating) { Text("Cancel") }
                 }
             },
         )
@@ -355,16 +379,16 @@ fun ProfileManagementSheet(
 
     pendingDelete?.let { preset ->
         AlertDialog(
-            onDismissRequest = { pendingDelete = null },
+            onDismissRequest = { if (!isMutating) pendingDelete = null },
             title = { Text("Delete ‘${preset.name}’?") },
             text = {
                 Text("The saved ${preset.kind.label.lowercase()} will be removed. Current slicer settings will not be changed.")
             },
             confirmButton = {
-                Button(onClick = { deletePreset(preset) }) { Text("Delete") }
+                Button(onClick = { deletePreset(preset) }, enabled = !isMutating) { Text("Delete") }
             },
             dismissButton = {
-                TextButton(onClick = { pendingDelete = null }) { Text("Cancel") }
+                TextButton(onClick = { pendingDelete = null }, enabled = !isMutating) { Text("Cancel") }
             },
         )
     }
