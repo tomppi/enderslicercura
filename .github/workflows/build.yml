@@ -16,18 +16,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Generate remaining OctoPrint hardening
-        run: python3 scripts/octoprint_ui_hardening.py
-
-      - name: Upload generated OctoPrint sources
-        uses: actions/upload-artifact@v4
-        with:
-          name: octoprint-generated-sources
-          path: |
-            app/src/main/java/com/tomppi/enderslicer/ui/OctoPrintSheet.kt
-            app/src/test/java/com/tomppi/enderslicer/octoprint/OctoPrintClientTest.kt
-            docs/bug-audit.md
-
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
