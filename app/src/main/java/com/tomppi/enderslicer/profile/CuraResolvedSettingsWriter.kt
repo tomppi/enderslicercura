@@ -1,6 +1,7 @@
 package com.tomppi.enderslicer.profile
 
 import com.tomppi.enderslicer.calibration.CalibrationSliceState
+import com.tomppi.enderslicer.engine.PrinterEnvelope
 import com.tomppi.enderslicer.viewer.StlMeshWriter
 import com.tomppi.enderslicer.viewer.StlSliceTransform
 import org.json.JSONObject
@@ -23,6 +24,19 @@ internal object CuraResolvedSettingsWriter {
             "Resolved Cura STL is missing or empty: ${modelFile.absolutePath}"
         }
 
+        val machineWidth = requiredNumber(resolved.globalValues, "machine_width")
+        val machineDepth = requiredNumber(resolved.globalValues, "machine_depth")
+        val machineHeight = requiredNumber(resolved.globalValues, "machine_height")
+        val centerIsZero = requiredBoolean(resolved.globalValues, "machine_center_is_zero")
+        PrinterEnvelope(
+            widthMm = machineWidth,
+            depthMm = machineDepth,
+            heightMm = machineHeight,
+            buildPlateShape = resolved.globalValues["machine_shape"]
+                ?: error("Resolved Cura setting is missing: machine_shape"),
+            originAtCenter = centerIsZero,
+        ).requireBinaryStlFits(modelFile)
+
         // MainViewModel writes the displayed transformed STL below cacheDir.
         // Isolated CuraEngine requests can be nested several directories deeper,
         // so walk bounded ancestors instead of assuming a direct sibling.
@@ -38,12 +52,8 @@ internal object CuraResolvedSettingsWriter {
         // round(linear * vertex) + round(translation) instead of Cura's
         // round(linear * vertex + translation). The native resolved-loader patch
         // consumes these translation keys in Matrix4x3D before STL conversion.
-        val centerIsZero = resolved.globalValues["machine_center_is_zero"]
-            ?.trim()
-            ?.equals("true", ignoreCase = true)
-            ?: false
-        val machineCenterX = if (centerIsZero) 0.0 else requiredNumber(resolved.globalValues, "machine_width") / 2.0
-        val machineCenterY = if (centerIsZero) 0.0 else requiredNumber(resolved.globalValues, "machine_depth") / 2.0
+        val machineCenterX = if (centerIsZero) 0.0 else machineWidth / 2.0
+        val machineCenterY = if (centerIsZero) 0.0 else machineDepth / 2.0
         val linear = effectiveTransform?.linear ?: IDENTITY
         val affineTranslationX = effectiveTransform?.translationXmm ?: 0.0
         val affineTranslationY = effectiveTransform?.translationYmm ?: 0.0
@@ -160,6 +170,12 @@ internal object CuraResolvedSettingsWriter {
         val value = raw.toDoubleOrNull() ?: error("Resolved Cura setting is not numeric: $key=$raw")
         require(value.isFinite() && value > 0.0) { "Resolved Cura setting is invalid: $key=$raw" }
         return value
+    }
+
+    private fun requiredBoolean(values: Map<String, String>, key: String): Boolean {
+        val raw = values[key] ?: error("Resolved Cura setting is missing: $key")
+        return raw.toBooleanStrictOrNull()
+            ?: error("Resolved Cura setting is not boolean: $key=$raw")
     }
 
     private data class FileStamp(val length: Long, val modified: Long)
