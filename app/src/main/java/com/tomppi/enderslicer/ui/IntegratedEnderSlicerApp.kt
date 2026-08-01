@@ -80,7 +80,7 @@ fun IntegratedEnderSlicerApp(
         ) {
             HardenedOctoPrintSheet(
                 state = octoPrintState,
-                localGcodePath = slicerState.gcodePath,
+                localGcodePath = slicerState.gcodePath.takeUnless { slicerState.isBusy },
                 suggestedFileName = suggestedOctoPrintName(slicerState),
                 viewModel = octoPrintViewModel,
                 modifier = Modifier
