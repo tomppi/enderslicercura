@@ -137,7 +137,10 @@ class PrinterEnvelopeTest {
         expected.writeTo(file)
         val actual = PrinterEnvelope.readFrom(file)
 
-        assertEquals(expected.copy(buildPlateShape = "circle"), actual.copy(buildPlateShape = "circle"))
+        assertEquals(expected.widthMm, actual.widthMm, 0.0)
+        assertEquals(expected.depthMm, actual.depthMm, 0.0)
+        assertEquals(expected.heightMm, actual.heightMm, 0.0)
+        assertEquals(expected.originAtCenter, actual.originAtCenter)
         assertEquals("elliptic", actual.buildPlateShape)
     }
 
@@ -161,7 +164,9 @@ class PrinterEnvelopeTest {
             output.write(ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(1).array())
             val triangle = ByteBuffer.allocate(50).order(ByteOrder.LITTLE_ENDIAN)
             repeat(3) { triangle.putFloat(0f) }
-            vertices.forEach { vertex -> vertex.forEach(triangle::putFloat) }
+            vertices.forEach { vertex ->
+                vertex.forEach { value -> triangle.putFloat(value) }
+            }
             triangle.putShort(0)
             output.write(triangle.array())
         }
