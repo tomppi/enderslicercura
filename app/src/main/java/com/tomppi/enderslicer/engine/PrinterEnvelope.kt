@@ -9,13 +9,14 @@ import java.nio.channels.FileChannel
 import java.util.Locale
 import org.json.JSONObject
 
-/** Immutable build-volume policy used by model preflight and final G-code validation. */
+/** Immutable build-volume and firmware identity used from preflight through publication. */
 data class PrinterEnvelope(
     val widthMm: Double,
     val depthMm: Double,
     val heightMm: Double,
     val buildPlateShape: String,
     val originAtCenter: Boolean,
+    val gcodeFlavor: String = DEFAULT_GCODE_FLAVOR,
 ) {
     init {
         require(widthMm.isFinite() && widthMm > 0.0) { "Machine width must be positive and finite" }
@@ -23,6 +24,9 @@ data class PrinterEnvelope(
         require(heightMm.isFinite() && heightMm > 0.0) { "Machine height must be positive and finite" }
         require(normalizedShape(buildPlateShape) in SUPPORTED_SHAPES) {
             "Unsupported build plate shape: $buildPlateShape"
+        }
+        require(gcodeFlavor.isNotBlank() && '\n' !in gcodeFlavor && '\r' !in gcodeFlavor) {
+            "Machine G-code flavor is invalid"
         }
     }
 
@@ -138,6 +142,7 @@ data class PrinterEnvelope(
                 .put("heightMm", heightMm)
                 .put("buildPlateShape", normalizedShape(buildPlateShape))
                 .put("originAtCenter", originAtCenter)
+                .put("gcodeFlavor", gcodeFlavor)
                 .toString(),
         )
         check(file.isFile && file.length() > 0L) { "Unable to write the printer envelope" }
@@ -164,6 +169,7 @@ data class PrinterEnvelope(
     companion object {
         const val METADATA_FILE_NAME = "printer-envelope.json"
         const val DEFAULT_TOLERANCE_MM = 0.05
+        const val DEFAULT_GCODE_FLAVOR = "Marlin"
 
         fun from(printer: PrinterDefinition): PrinterEnvelope = PrinterEnvelope(
             widthMm = printer.widthMm,
@@ -171,6 +177,7 @@ data class PrinterEnvelope(
             heightMm = printer.heightMm,
             buildPlateShape = normalizedShape(printer.buildPlateShape),
             originAtCenter = printer.originAtCenter,
+            gcodeFlavor = printer.gcodeFlavor,
         )
 
         fun readFrom(file: File): PrinterEnvelope {
@@ -183,6 +190,8 @@ data class PrinterEnvelope(
                 heightMm = root.getDouble("heightMm"),
                 buildPlateShape = root.getString("buildPlateShape"),
                 originAtCenter = root.getBoolean("originAtCenter"),
+                gcodeFlavor = root.optString("gcodeFlavor", DEFAULT_GCODE_FLAVOR)
+                    .ifBlank { DEFAULT_GCODE_FLAVOR },
             )
         }
 
