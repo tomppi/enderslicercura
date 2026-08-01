@@ -27,15 +27,10 @@ internal object CuraResolvedSettingsWriter {
         // Isolated CuraEngine requests can be nested several directories deeper,
         // so walk bounded ancestors instead of assuming a direct sibling.
         val stagedDisplayedFile = findStagedDisplayedFile(modelDirectory)
-        val stagedSource = stagedDisplayedFile
-            ?.let(StlMeshWriter::resolvedSliceSource)
-        if (stagedSource != null) {
-            stagedSource.modelFile.copyTo(modelFile, overwrite = true)
-            check(modelFile.length() == stagedSource.modelFile.length()) {
-                "Unable to stage original STL geometry for direct Cura transformation"
-            }
+        val stagedTransform = stagedDisplayedFile?.let { displayed ->
+            copyResolvedSourceSnapshot(displayed, modelFile)
         }
-        val effectiveTransform = modelTransform ?: stagedSource?.transform
+        val effectiveTransform = modelTransform ?: stagedTransform
 
         // Cura's frontend applies the complete affine before converting mesh
         // vertices into integer microns. A normal CuraEngine command-line slice
@@ -114,6 +109,43 @@ internal object CuraResolvedSettingsWriter {
             .map { ancestor -> File(ancestor, STAGED_DISPLAYED_MODEL_PATH) }
             .firstOrNull(File::isFile)
 
+    internal fun copyResolvedSourceSnapshot(
+        stagedDisplayedFile: File,
+        destination: File,
+        copyFile: (File, File) -> Unit = { source, target -> source.copyTo(target, overwrite = true) },
+    ): StlSliceTransform? {
+        val sourceFile = File(
+            stagedDisplayedFile.parentFile,
+            "${stagedDisplayedFile.nameWithoutExtension}.slice-source.stl",
+        )
+        val transformFile = File(
+            stagedDisplayedFile.parentFile,
+            "${stagedDisplayedFile.nameWithoutExtension}.slice-transform.json",
+        )
+        if (!sourceFile.isFile || !transformFile.isFile) return null
+
+        val displayedStamp = fileStamp(stagedDisplayedFile)
+        val sourceStamp = fileStamp(sourceFile)
+        val transformStamp = fileStamp(transformFile)
+        val stagedSource = StlMeshWriter.resolvedSliceSource(stagedDisplayedFile) ?: return null
+        copyFile(stagedSource.modelFile, destination)
+        check(destination.isFile && destination.length() == sourceStamp.length) {
+            "Unable to stage original STL geometry for direct Cura transformation"
+        }
+        check(fileStamp(stagedDisplayedFile) == displayedStamp) {
+            "The transformed STL changed while its resolved source was being staged"
+        }
+        check(fileStamp(sourceFile) == sourceStamp) {
+            "The original STL changed while it was being staged"
+        }
+        check(fileStamp(transformFile) == transformStamp) {
+            "The STL transform changed while it was being staged"
+        }
+        return stagedSource.transform
+    }
+
+    private fun fileStamp(file: File): FileStamp = FileStamp(file.length(), file.lastModified())
+
     private fun matrixString(linear: List<Double>): String {
         require(linear.size == 9 && linear.all(Double::isFinite)) {
             "Resolved Cura model transform must contain nine finite values"
@@ -129,6 +161,8 @@ internal object CuraResolvedSettingsWriter {
         require(value.isFinite() && value > 0.0) { "Resolved Cura setting is invalid: $key=$raw" }
         return value
     }
+
+    private data class FileStamp(val length: Long, val modified: Long)
 
     private const val AFFINE_TRANSLATION_X = "enderslicer_mesh_translation_x"
     private const val AFFINE_TRANSLATION_Y = "enderslicer_mesh_translation_y"
