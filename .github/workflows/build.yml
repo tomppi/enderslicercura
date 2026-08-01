@@ -9,40 +9,24 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.head.ref || github.ref_name }}
   cancel-in-progress: true
 
-permissions:
-  contents: write
-
 jobs:
   build:
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.ref || github.ref_name }}
-          fetch-depth: 0
 
-      - name: Apply and commit OctoPrint second-pass hardening
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-        run: |
-          python scripts/octoprint_second_pass.py
-          if git diff --quiet; then
-            echo "No patch changes required"
-          else
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add -- \
-              app/src/main/java/com/tomppi/enderslicer/octoprint/OctoPrintClient.kt \
-              app/src/main/java/com/tomppi/enderslicer/octoprint/OctoPrintModels.kt \
-              app/src/main/java/com/tomppi/enderslicer/octoprint/OctoPrintRepository.kt \
-              app/src/main/java/com/tomppi/enderslicer/octoprint/OctoPrintViewModel.kt \
-              app/src/main/java/com/tomppi/enderslicer/ui/IntegratedEnderSlicerApp.kt \
-              app/src/main/java/com/tomppi/enderslicer/ui/OctoPrintSheet.kt \
-              app/src/test/java/com/tomppi/enderslicer/octoprint/OctoPrintClientTest.kt \
-              docs/bug-audit.md
-            git commit -m "Harden OctoPrint runtime behavior"
-            git push origin HEAD:agent/full-octoprint-integration
-          fi
+      - name: Generate remaining OctoPrint hardening
+        run: python3 scripts/octoprint_ui_hardening.py
+
+      - name: Upload generated OctoPrint sources
+        uses: actions/upload-artifact@v4
+        with:
+          name: octoprint-generated-sources
+          path: |
+            app/src/main/java/com/tomppi/enderslicer/ui/OctoPrintSheet.kt
+            app/src/test/java/com/tomppi/enderslicer/octoprint/OctoPrintClientTest.kt
+            docs/bug-audit.md
 
       - uses: actions/setup-java@v4
         with:
