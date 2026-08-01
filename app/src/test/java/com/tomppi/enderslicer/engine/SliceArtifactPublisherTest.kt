@@ -8,7 +8,7 @@ import java.io.File
 
 class SliceArtifactPublisherTest {
     @Test
-    fun finalDirectoryAppearsOnlyAfterBothFilesAndCompletionMarkerAreReady() {
+    fun finalDirectoryAppearsOnlyAfterFilesEnvelopeAndCompletionMarkerAreReady() {
         val root = kotlin.io.path.createTempDirectory("enderslicer-results").toFile()
         val sourceDirectory = kotlin.io.path.createTempDirectory("enderslicer-staging").toFile()
         val gcode = File(sourceDirectory, "output.gcode").apply { writeText("validated-output") }
@@ -22,12 +22,13 @@ class SliceArtifactPublisherTest {
             }
         }
 
-        val artifact = publisher.publish("slice-1", gcode, base)
+        val artifact = publisher.publish("slice-1", gcode, base, envelope())
 
         assertTrue(observedHiddenFinalDirectory)
         assertEquals("validated-output", artifact.gcodeFile.readText())
         assertEquals("validated-base", artifact.baseGcodeFile.readText())
         assertTrue(SliceArtifactPublisher.isCompleteGcode(artifact.gcodeFile, "slice-1"))
+        assertEquals(envelope(), SliceArtifactPublisher.readPrinterEnvelope(artifact.baseGcodeFile))
     }
 
     @Test
@@ -36,7 +37,7 @@ class SliceArtifactPublisherTest {
         val sourceDirectory = kotlin.io.path.createTempDirectory("enderslicer-staging").toFile()
         val gcode = File(sourceDirectory, "output.gcode").apply { writeText("first-output") }
         val base = File(sourceDirectory, "base.gcode").apply { writeText("first-base") }
-        val artifact = SliceArtifactPublisher(root).publish("slice-2", gcode, base)
+        val artifact = SliceArtifactPublisher(root).publish("slice-2", gcode, base, envelope())
 
         gcode.writeText("second-output")
         base.writeText("second-base")
@@ -56,7 +57,7 @@ class SliceArtifactPublisherTest {
             source.appendText("changed")
         }
 
-        val error = runCatching { publisher.publish("slice-3", gcode, base) }.exceptionOrNull()
+        val error = runCatching { publisher.publish("slice-3", gcode, base, envelope()) }.exceptionOrNull()
 
         assertTrue(error is IllegalStateException)
         assertFalse(File(root, "slice-3").exists())
@@ -74,8 +75,26 @@ class SliceArtifactPublisherTest {
         val gcode = File(sourceDirectory, "output.gcode").apply { writeText("validated-output") }
         val base = File(sourceDirectory, "base.gcode").apply { writeText("validated-base") }
 
-        SliceArtifactPublisher(root).publish("slice-4", gcode, base)
+        SliceArtifactPublisher(root).publish("slice-4", gcode, base, envelope())
 
         assertFalse(abandoned.exists())
     }
+
+    @Test
+    fun missingEnvelopeMakesAnOtherwiseMarkedArtifactIncomplete() {
+        val root = kotlin.io.path.createTempDirectory("enderslicer-results").toFile()
+        val directory = File(root, "slice-5").apply { mkdirs() }
+        val gcode = File(directory, SliceArtifactPublisher.GCODE_FILE_NAME).apply { writeText("gcode") }
+        File(directory, SliceArtifactPublisher.COMPLETE_MARKER_FILE_NAME).writeText("slice-5")
+
+        assertFalse(SliceArtifactPublisher.isCompleteGcode(gcode, "slice-5"))
+    }
+
+    private fun envelope(): PrinterEnvelope = PrinterEnvelope(
+        widthMm = 230.0,
+        depthMm = 230.0,
+        heightMm = 250.0,
+        buildPlateShape = "rectangular",
+        originAtCenter = false,
+    )
 }
