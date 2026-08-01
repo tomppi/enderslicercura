@@ -104,10 +104,10 @@ fun ProfileManagementSheet(
         sourceLibrary: PresetLibrary,
     ): PresetLibrary {
         val previousActiveId = sourceLibrary.activeId(preset.kind)
-        val stagedLibrary = withContext(Dispatchers.IO) {
-            store.setActive(preset.kind, preset.id)
-        }
         return try {
+            val stagedLibrary = withContext(Dispatchers.IO) {
+                store.setActive(preset.kind, preset.id)
+            }
             check(viewModel.applyPreset(preset.kind, preset.valuesJson)) {
                 "The preset could not be applied while another operation was active"
             }
