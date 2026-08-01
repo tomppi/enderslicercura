@@ -23,15 +23,11 @@ internal object CuraResolvedSettingsWriter {
             "Resolved Cura STL is missing or empty: ${modelFile.absolutePath}"
         }
 
-        // MainViewModel still writes the displayed transformed STL so the
-        // profile-less fallback path remains unchanged. For resolved Cura
-        // slicing, StlMeshWriter also stages the original geometry and affine in
-        // the sibling model-placement directory. Replace only the temporary
-        // resolved model copy with that source STL.
-        val stagedDisplayedFile = modelDirectory.parentFile
-            ?.let { cacheRoot -> File(cacheRoot, "model-placement/current-transformed.stl") }
+        // MainViewModel writes the displayed transformed STL below cacheDir.
+        // Isolated CuraEngine requests can be nested several directories deeper,
+        // so walk bounded ancestors instead of assuming a direct sibling.
+        val stagedDisplayedFile = findStagedDisplayedFile(modelDirectory)
         val stagedSource = stagedDisplayedFile
-            ?.takeIf(File::isFile)
             ?.let(StlMeshWriter::resolvedSliceSource)
         if (stagedSource != null) {
             stagedSource.modelFile.copyTo(modelFile, overwrite = true)
@@ -112,6 +108,12 @@ internal object CuraResolvedSettingsWriter {
         }
     }
 
+    internal fun findStagedDisplayedFile(modelDirectory: File): File? =
+        generateSequence(modelDirectory) { current -> current.parentFile }
+            .take(MAX_CACHE_ANCESTORS)
+            .map { ancestor -> File(ancestor, STAGED_DISPLAYED_MODEL_PATH) }
+            .firstOrNull(File::isFile)
+
     private fun matrixString(linear: List<Double>): String {
         require(linear.size == 9 && linear.all(Double::isFinite)) {
             "Resolved Cura model transform must contain nine finite values"
@@ -131,6 +133,8 @@ internal object CuraResolvedSettingsWriter {
     private const val AFFINE_TRANSLATION_X = "enderslicer_mesh_translation_x"
     private const val AFFINE_TRANSLATION_Y = "enderslicer_mesh_translation_y"
     private const val AFFINE_TRANSLATION_Z = "enderslicer_mesh_translation_z"
+    private const val STAGED_DISPLAYED_MODEL_PATH = "model-placement/current-transformed.stl"
+    private const val MAX_CACHE_ANCESTORS = 8
 
     private val IDENTITY = listOf(
         1.0, 0.0, 0.0,
