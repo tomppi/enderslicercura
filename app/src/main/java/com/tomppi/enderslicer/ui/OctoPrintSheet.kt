@@ -449,7 +449,8 @@ private fun WebcamCard(state: OctoPrintUiState) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
             Text("Webcam", style = MaterialTheme.typography.titleMedium)
-            if (bitmap == null) {
+            val currentBitmap = bitmap
+            if (currentBitmap == null) {
                 Text(
                     if (state.config.snapshotUrlOverride.isNotBlank() || state.webcam.snapshotUrl != null) {
                         "Waiting for a webcam snapshot…"
@@ -460,7 +461,7 @@ private fun WebcamCard(state: OctoPrintUiState) {
                 )
             } else {
                 Image(
-                    bitmap = bitmap.asImageBitmap(),
+                    bitmap = currentBitmap.asImageBitmap(),
                     contentDescription = "OctoPrint webcam",
                     modifier = Modifier
                         .fillMaxWidth()

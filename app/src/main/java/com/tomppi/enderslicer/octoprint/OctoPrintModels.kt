@@ -280,7 +280,7 @@ internal object OctoPrintJson {
         val value = raw.toString().trim()
         value.toLongOrNull()?.let { return it.takeIf { bytes -> bytes >= 0L } }
         val match = Regex(
-            pattern = "^([0-9]+(?:\.[0-9]+)?)\s*([KMGTPE]?I?B)$",
+            pattern = """^([0-9]+(?:\.[0-9]+)?)\s*([KMGTPE]?I?B)$""",
             option = RegexOption.IGNORE_CASE,
         ).matchEntire(value) ?: return null
         val amount = match.groupValues[1].toDoubleOrNull() ?: return null
