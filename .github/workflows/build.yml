@@ -9,12 +9,17 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.head.ref || github.ref_name }}
   cancel-in-progress: true
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Apply profile management integration
         run: python scripts/apply_profile_management.py
@@ -140,6 +145,23 @@ jobs:
             creality_ender3; do
             grep -q "assets/cura/definitions/$name.def.json" apk-contents.log
           done
+
+      - name: Commit validated profile integration
+        if: github.event_name == 'push' && github.ref_name == 'feature/profile-filament-management'
+        run: |
+          if git diff --quiet -- \
+            app/src/main/java/com/tomppi/enderslicer/ui/MainViewModel.kt \
+            app/src/main/java/com/tomppi/enderslicer/ui/EnderSlicerApp.kt; then
+            echo "Validated integration files are already committed"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add -- \
+              app/src/main/java/com/tomppi/enderslicer/ui/MainViewModel.kt \
+              app/src/main/java/com/tomppi/enderslicer/ui/EnderSlicerApp.kt
+            git commit -m "Integrate profile and filament management"
+            git push origin HEAD:feature/profile-filament-management
+          fi
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
