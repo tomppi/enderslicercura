@@ -23,7 +23,7 @@ class UserPresetStore(context: Context) {
                 val name = item.optString(KEY_NAME).trim().takeIf(String::isNotBlank) ?: continue
                 val kind = runCatching { PresetKind.valueOf(item.optString(KEY_KIND)) }.getOrNull() ?: continue
                 val values = item.optJSONObject(KEY_VALUES) ?: continue
-                if (runCatching { PresetSettings.validateComplete(kind, values) }.isFailure) continue
+                if (runCatching { PresetSettings.validateUsable(kind, values) }.isFailure) continue
                 add(
                     UserPreset(
                         id = id,
@@ -129,7 +129,10 @@ class UserPresetStore(context: Context) {
             .put(KEY_ACTIVE_FILAMENT, library.activeFilamentPresetId ?: JSONObject.NULL)
         val presets = JSONArray()
         library.presets
-            .sortedWith(compareBy<UserPreset> { it.kind.name }.thenBy { it.name.lowercase() })
+            .sortedWith(
+                compareBy<UserPreset> { it.kind.name }
+                    .thenBy { it.name.lowercase(java.util.Locale.ROOT) },
+            )
             .forEach { preset ->
                 presets.put(
                     JSONObject()
