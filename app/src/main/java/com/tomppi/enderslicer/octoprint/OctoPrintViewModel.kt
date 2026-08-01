@@ -27,6 +27,7 @@ class OctoPrintViewModel(application: Application) : AndroidViewModel(applicatio
     ) = repository.beginApplicationAuthorization(baseUrl, username, snapshotUrlOverride, pollIntervalSeconds)
 
     fun acknowledgeAuthorizationDialog() = repository.acknowledgeAuthorizationDialog()
+    fun reopenAuthorizationDialog() = repository.reopenAuthorizationDialog()
     fun cancelAuthorization() = repository.cancelAuthorization()
     fun clearConfiguration() = repository.clearConfiguration()
     fun refresh() = repository.refresh()
