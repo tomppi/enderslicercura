@@ -177,6 +177,8 @@ class CuraResolvedSettingsWriterTest {
         globalValues = mapOf(
             "machine_width" to "230",
             "machine_depth" to "230",
+            "machine_height" to "250",
+            "machine_shape" to "rectangular",
             "machine_center_is_zero" to centerIsZero.toString(),
         ),
         extruderValues = mapOf(
