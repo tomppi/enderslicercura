@@ -37,11 +37,10 @@ object GcodeSanitizer {
         var layerCount = 0
         var currentLayer: Int? = null
         var lastElapsed: Double? = null
-        var absoluteExtrusion = true
+        val modalState = GcodeModalState()
         var currentE = 0.0
         var modelFilament = 0.0
         var totalFilament = 0.0
-        var absolutePosition = true
         var x = 0.0
         var y = 0.0
         var z = 0.0
@@ -78,11 +77,8 @@ object GcodeSanitizer {
                 }
 
                 val command = GcodeCommand.parse(rawLine) ?: return@forEach
+                if (modalState.apply(command)) return@forEach
                 when (command.opcode) {
-                    "M82" -> absoluteExtrusion = true
-                    "M83" -> absoluteExtrusion = false
-                    "G90" -> absolutePosition = true
-                    "G91" -> absolutePosition = false
                     "G92" -> {
                         command.value('E')?.let { currentE = it }
                         command.value('X')?.let { x = it }
@@ -101,12 +97,12 @@ object GcodeSanitizer {
                         val startX = x
                         val startY = y
                         val startZ = z
-                        command.value('X')?.let { x = if (absolutePosition) it else x + it }
-                        command.value('Y')?.let { y = if (absolutePosition) it else y + it }
-                        command.value('Z')?.let { z = if (absolutePosition) it else z + it }
+                        x = modalState.position(x, command.value('X'))
+                        y = modalState.position(y, command.value('Y'))
+                        z = modalState.position(z, command.value('Z'))
                         var positiveExtrusion = 0.0
                         command.value('E')?.let { requested ->
-                            val nextE = if (absoluteExtrusion) requested else currentE + requested
+                            val nextE = modalState.extrusion(currentE, requested)
                             val delta = nextE - currentE
                             if (delta > 0.0) {
                                 positiveExtrusion = delta
