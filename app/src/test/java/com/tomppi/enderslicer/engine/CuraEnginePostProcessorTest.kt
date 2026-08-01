@@ -22,6 +22,7 @@ class CuraEnginePostProcessorTest {
             settingsTransport = "resolved-json",
             layerEvents = emptyList(),
             plannedLayerEvents = emptyList(),
+            printerEnvelope = envelope(),
         )
 
         assertTrue(result.usedZeroEventFastPath)
@@ -54,6 +55,7 @@ class CuraEnginePostProcessorTest {
             settingsTransport = "resolved-json",
             layerEvents = listOf(invalid),
             plannedLayerEvents = emptyList(),
+            printerEnvelope = envelope(),
         )
 
         assertTrue(result.usedZeroEventFastPath)
@@ -81,6 +83,7 @@ class CuraEnginePostProcessorTest {
             settingsTransport = "resolved-json",
             layerEvents = listOf(event),
             plannedLayerEvents = emptyList(),
+            printerEnvelope = envelope(),
         )
 
         assertFalse(result.usedZeroEventFastPath)
@@ -92,6 +95,14 @@ class CuraEnginePostProcessorTest {
         assertTrue(output.readText().contains(";ENDERSLICER_LAYER_EVENT:user-message:MESSAGE:USER"))
         assertTrue(output.readText().contains(";ENDERSLICER_SETTINGS_TRANSPORT:resolved-json+layer-events"))
     }
+
+    private fun envelope(): PrinterEnvelope = PrinterEnvelope(
+        widthMm = 230.0,
+        depthMm = 230.0,
+        heightMm = 250.0,
+        buildPlateShape = "rectangular",
+        originAtCenter = false,
+    )
 
     private fun sampleGcode(): String = """
         ;FLAVOR:Marlin
