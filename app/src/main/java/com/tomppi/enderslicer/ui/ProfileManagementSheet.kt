@@ -36,6 +36,7 @@ import com.tomppi.enderslicer.profile.PresetLibrary
 import com.tomppi.enderslicer.profile.PresetSettings
 import com.tomppi.enderslicer.profile.UserPreset
 import com.tomppi.enderslicer.profile.UserPresetStore
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -71,6 +72,8 @@ fun ProfileManagementSheet(
         scope.launch {
             try {
                 block()
+            } catch (error: CancellationException) {
+                throw error
             } catch (error: Throwable) {
                 showError(error)
             } finally {
@@ -85,6 +88,8 @@ fun ProfileManagementSheet(
             isLoading = true
             try {
                 library = withContext(Dispatchers.IO) { store.load() }
+            } catch (error: CancellationException) {
+                throw error
             } catch (error: Throwable) {
                 showError(error)
             } finally {
