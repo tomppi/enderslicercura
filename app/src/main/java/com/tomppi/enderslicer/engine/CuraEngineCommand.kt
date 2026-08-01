@@ -160,13 +160,14 @@ object CuraEngineCommand {
         return command
     }
 
+    private fun recommendedThreadCount(): Int = CpuTopology.detect().recommendedThreadCount
+
     internal fun recommendedThreadCount(
-        availableProcessors: Int = Runtime.getRuntime().availableProcessors(),
-    ): Int = availableProcessors.coerceIn(1, MAX_RECOMMENDED_THREADS)
+        availableProcessors: Int,
+        hardwareProcessors: Int,
+    ): Int = CpuTopology.recommendedThreadCount(availableProcessors, hardwareProcessors)
 
     private fun requireSafeArgument(value: String) {
         require('\u0000' !in value) { "CuraEngine argument contains a NUL character" }
     }
-
-    private const val MAX_RECOMMENDED_THREADS = 8
 }

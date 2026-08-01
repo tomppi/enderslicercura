@@ -66,11 +66,11 @@ class CuraEngineCommandTest {
     }
 
     @Test
-    fun workerCountUsesAvailableProcessorsWithAConservativeCap() {
-        assertEquals(1, CuraEngineCommand.recommendedThreadCount(1))
-        assertEquals(4, CuraEngineCommand.recommendedThreadCount(4))
-        assertEquals(8, CuraEngineCommand.recommendedThreadCount(8))
-        assertEquals(8, CuraEngineCommand.recommendedThreadCount(16))
+    fun workerCountUsesPhysicalTopologyWhenRuntimeCpusetIsSmaller() {
+        assertEquals(1, CuraEngineCommand.recommendedThreadCount(1, 1))
+        assertEquals(4, CuraEngineCommand.recommendedThreadCount(4, 4))
+        assertEquals(8, CuraEngineCommand.recommendedThreadCount(3, 8))
+        assertEquals(8, CuraEngineCommand.recommendedThreadCount(16, 16))
     }
 
     @Test
