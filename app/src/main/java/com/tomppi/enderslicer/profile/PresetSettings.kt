@@ -86,6 +86,12 @@ object PresetSettings {
         SlicerSettings.Keys.COASTING_SPEED,
     )
 
+    private val fieldsByKey: Map<String, java.lang.reflect.Field> by lazy {
+        (printKeys + filamentKeys).associateWith { key ->
+            SlicerSettings::class.java.getDeclaredField(key).apply { isAccessible = true }
+        }
+    }
+
     fun keys(kind: PresetKind): Set<String> = when (kind) {
         PresetKind.PRINT -> printKeys
         PresetKind.FILAMENT -> filamentKeys
@@ -94,8 +100,7 @@ object PresetSettings {
     fun capture(kind: PresetKind, settings: SlicerSettings): JSONObject {
         val output = JSONObject()
         keys(kind).sorted().forEach { key ->
-            val field = SlicerSettings::class.java.getDeclaredField(key).apply { isAccessible = true }
-            output.put(key, field.get(settings))
+            output.put(key, fieldsByKey.getValue(key).get(settings))
         }
         return output
     }
@@ -105,6 +110,8 @@ object PresetSettings {
         val appliedKeys = linkedSetOf<String>()
         keys(kind).forEach { key ->
             if (!values.has(key) || values.isNull(key)) return@forEach
+            val raw = values.opt(key)
+            if (!isCompatibleValue(key, raw)) return@forEach
             changed = when (key) {
                 SlicerSettings.Keys.LAYER_HEIGHT -> changed.copy(layerHeightMm = values.optDouble(key, changed.layerHeightMm))
                 SlicerSettings.Keys.INITIAL_LAYER_HEIGHT -> changed.copy(initialLayerHeightMm = values.optDouble(key, changed.initialLayerHeightMm))
@@ -196,13 +203,35 @@ object PresetSettings {
         return keys(kind).all { key ->
             if (!currentValues.has(key) || currentValues.isNull(key)) return@all false
             if (!savedValues.has(key) || savedValues.isNull(key)) return@all false
-            equivalent(currentValues.opt(key), savedValues.opt(key))
+            val saved = savedValues.opt(key)
+            if (!isCompatibleValue(key, saved)) return@all false
+            equivalent(currentValues.opt(key), saved)
         }
     }
 
+    fun validateUsable(kind: PresetKind, values: JSONObject) {
+        require(
+            keys(kind).any { key -> values.has(key) && !values.isNull(key) && isCompatibleValue(key, values.opt(key)) },
+        ) { "The preset has no usable ${kind.label.lowercase()} values" }
+    }
+
     fun validateComplete(kind: PresetKind, values: JSONObject) {
-        val missing = keys(kind).filterNot { values.has(it) && !values.isNull(it) }
+        val missing = keys(kind).filterNot { key ->
+            values.has(key) && !values.isNull(key) && isCompatibleValue(key, values.opt(key))
+        }
         require(missing.isEmpty()) { "Preset is missing ${missing.size} required values" }
+    }
+
+    private fun isCompatibleValue(key: String, value: Any?): Boolean {
+        if (value == null || value == JSONObject.NULL) return false
+        val type = fieldsByKey.getValue(key).type
+        return when (type) {
+            java.lang.Double.TYPE -> value is Number
+            java.lang.Integer.TYPE -> value is Number
+            java.lang.Boolean.TYPE -> value is Boolean
+            String::class.java -> value is String
+            else -> false
+        }
     }
 
     private fun equivalent(current: Any?, saved: Any?): Boolean = when {
