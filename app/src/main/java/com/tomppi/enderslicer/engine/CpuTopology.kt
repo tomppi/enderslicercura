@@ -88,7 +88,7 @@ internal object CpuTopology {
 
     private fun readAllowedCpuList(status: String?): String? = status
         ?.lineSequence()
-        ?.map(String::trimStart)
+        ?.map { it.trimStart() }
         ?.firstOrNull { it.startsWith("Cpus_allowed_list:") }
         ?.substringAfter(':')
         ?.let(::normalizeCpuList)
