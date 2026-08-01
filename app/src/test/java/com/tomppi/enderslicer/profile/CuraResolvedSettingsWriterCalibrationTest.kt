@@ -6,6 +6,9 @@ import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Test
+import java.io.File
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 
 class CuraResolvedSettingsWriterCalibrationTest {
     @After
@@ -16,13 +19,15 @@ class CuraResolvedSettingsWriterCalibrationTest {
     @Test
     fun fanCalibrationWinsOverPerMeshBridgeFanSettings() {
         val directory = kotlin.io.path.createTempDirectory("enderslicer-resolved-calibration").toFile()
-        val model = directory.resolve("current.stl").apply { writeBytes(byteArrayOf(1)) }
+        val model = directory.resolve("current.stl").also(::writeTriangle)
         val destination = directory.resolve("resolved-settings.json")
         val resolved = CuraSliceSettingsResolver.Result(
             globalValues = mapOf(
                 "machine_center_is_zero" to "true",
                 "machine_width" to "230",
                 "machine_depth" to "230",
+                "machine_height" to "250",
+                "machine_shape" to "rectangular",
             ),
             extruderValues = mapOf(
                 "bridge_fan_speed" to "100",
@@ -50,5 +55,17 @@ class CuraResolvedSettingsWriterCalibrationTest {
         assertEquals("0", mesh.getString("bridge_fan_speed"))
         assertEquals("0", mesh.getString("bridge_fan_speed_2"))
         assertEquals("0", mesh.getString("bridge_fan_speed_3"))
+    }
+
+    private fun writeTriangle(file: File) {
+        val buffer = ByteBuffer.allocate(84 + 50).order(ByteOrder.LITTLE_ENDIAN)
+        buffer.position(80)
+        buffer.putInt(1)
+        buffer.putFloat(0f).putFloat(0f).putFloat(1f)
+        buffer.putFloat(0f).putFloat(0f).putFloat(0f)
+        buffer.putFloat(1f).putFloat(0f).putFloat(0f)
+        buffer.putFloat(0f).putFloat(1f).putFloat(1f)
+        buffer.putShort(0)
+        file.writeBytes(buffer.array())
     }
 }
