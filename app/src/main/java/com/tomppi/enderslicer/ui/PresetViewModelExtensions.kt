@@ -9,19 +9,21 @@ internal fun MainViewModel.applyPreset(kind: PresetKind, valuesJson: String): Bo
     val before = uiState.value.settings
     val plan = PresetApplication.prepare(kind, before, valuesJson)
 
-    // MainViewModel.updateSettings deliberately owns persistence and stale-output
-    // invalidation, but it records one explicit override key per call. Apply the
-    // validated values once, then synchronously register every key carried by the
-    // preset so the complete selection survives app restart and Cura resolution.
-    plan.appliedKeys.forEachIndexed { index, key ->
-        updateSettings(key) { current ->
-            if (index == 0) {
-                check(current == before) { "Settings changed while the preset was being applied" }
-                plan.settings
-            } else {
-                current
-            }
+    // MainViewModel.updateSettings owns persistence and stale-output
+    // invalidation, but records one explicit override key per call. Register the
+    // complete key set while values are still unchanged, then switch all values
+    // in one final update. A process interruption can therefore leave the old
+    // values marked as modified, never a partially applied preset.
+    plan.appliedKeys.forEach { key ->
+        updateSettings(key) { current -> current }
+    }
+
+    val markerKey = plan.appliedKeys.first()
+    updateSettings(markerKey) { current ->
+        check(current.copy(overriddenSettingKeys = before.overriddenSettingKeys) == before) {
+            "Settings changed while the preset was being applied"
         }
+        plan.settings
     }
 
     check(uiState.value.settings == plan.settings) {
