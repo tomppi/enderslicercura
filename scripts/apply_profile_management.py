@@ -34,7 +34,7 @@ if "fun applyPreset(kind: PresetKind" not in main_text:
         if (_uiState.value.isBusy) return false
         return runCatching {
             val values = JSONObject(valuesJson)
-            PresetSettings.validateComplete(kind, values)
+            PresetSettings.validateUsable(kind, values)
             val changed = PresetSettings.apply(kind, _uiState.value.settings, values)
             stateStore.saveSettings(changed)
             _uiState.update { current ->
@@ -64,7 +64,7 @@ if "fun applyPreset(kind: PresetKind" not in main_text:
 """,
         """    fun resetAllSettingOverrides() {
         if (_uiState.value.isBusy) return
-        presetStore.clearActiveSelections()
+        runCatching { presetStore.clearActiveSelections() }
         val baseline = importedSettingsBaseline ?: SlicerSettings()
 """,
     )
@@ -75,7 +75,16 @@ if "fun applyPreset(kind: PresetKind" not in main_text:
 """,
         """            stateStore.commitImport(pending.stagedFile, pending.kind, pending.displayName)
             stateStore.clearSavedSettings()
-            presetStore.clearActiveSelections()
+""",
+    )
+    replace_once(
+        main_view_model,
+        """        importedScene = pending.scene
+        val baseline = pending.config.mappedSettings.copy(overriddenSettingKeys = emptySet())
+""",
+        """        runCatching { presetStore.clearActiveSelections() }
+        importedScene = pending.scene
+        val baseline = pending.config.mappedSettings.copy(overriddenSettingKeys = emptySet())
 """,
     )
 
