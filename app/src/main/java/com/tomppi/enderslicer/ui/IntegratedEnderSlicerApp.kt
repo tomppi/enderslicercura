@@ -78,7 +78,7 @@ fun IntegratedEnderSlicerApp(
             onDismissRequest = { octoPrintOpen = false },
             sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         ) {
-            OctoPrintSheet(
+            HardenedOctoPrintSheet(
                 state = octoPrintState,
                 localGcodePath = slicerState.gcodePath,
                 suggestedFileName = suggestedOctoPrintName(slicerState),
