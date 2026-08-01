@@ -20,10 +20,11 @@ internal object CuraEnginePostProcessor {
         plannedLayerEvents: List<PlannedLayerEvent>,
         printerEnvelope: PrinterEnvelope,
     ): Result {
+        val effectiveEnvelope = resolvedEnvelope(outputFile.parentFile) ?: printerEnvelope
         val baseSummary = GcodeSanitizer.validateAndRepair(
             file = outputFile,
             settingsTransport = settingsTransport,
-            printerEnvelope = printerEnvelope,
+            printerEnvelope = effectiveEnvelope,
         )
         outputFile.copyTo(baseGcodeFile, overwrite = true)
         check(baseGcodeFile.isFile && baseGcodeFile.length() > 0L) {
@@ -53,7 +54,7 @@ internal object CuraEnginePostProcessor {
         val summary = GcodeSanitizer.validateAndRepair(
             file = outputFile,
             settingsTransport = "$settingsTransport+layer-events",
-            printerEnvelope = printerEnvelope,
+            printerEnvelope = effectiveEnvelope,
         )
         val previewResult = runCatching { GcodeLayerPreviewParser.parse(outputFile) }
         return Result(
@@ -63,5 +64,10 @@ internal object CuraEnginePostProcessor {
             layerEvents = resolvedEvents,
             usedZeroEventFastPath = false,
         )
+    }
+
+    private fun resolvedEnvelope(directory: File?): PrinterEnvelope? {
+        val file = directory?.let { File(it, PrinterEnvelope.METADATA_FILE_NAME) } ?: return null
+        return file.takeIf(File::isFile)?.let(PrinterEnvelope::readFrom)
     }
 }
