@@ -10,24 +10,26 @@ def replace_once(path: Path, old: str, new: str) -> None:
 
 
 main_view_model = Path("app/src/main/java/com/tomppi/enderslicer/ui/MainViewModel.kt")
-replace_once(
-    main_view_model,
-    "import com.tomppi.enderslicer.profile.ImportedCuraConfig\n",
-    "import com.tomppi.enderslicer.profile.ImportedCuraConfig\n"
-    "import com.tomppi.enderslicer.profile.PresetKind\n"
-    "import com.tomppi.enderslicer.profile.PresetSettings\n"
-    "import com.tomppi.enderslicer.profile.UserPresetStore\n",
-)
-replace_once(
-    main_view_model,
-    "    private val stateStore = AppStateStore(app)\n",
-    "    private val stateStore = AppStateStore(app)\n"
-    "    private val presetStore = UserPresetStore(app)\n",
-)
-replace_once(
-    main_view_model,
-    "\n    fun resetAllSettingOverrides() {\n",
-    """
+main_text = main_view_model.read_text()
+if "fun applyPreset(kind: PresetKind" not in main_text:
+    replace_once(
+        main_view_model,
+        "import com.tomppi.enderslicer.profile.ImportedCuraConfig\n",
+        "import com.tomppi.enderslicer.profile.ImportedCuraConfig\n"
+        "import com.tomppi.enderslicer.profile.PresetKind\n"
+        "import com.tomppi.enderslicer.profile.PresetSettings\n"
+        "import com.tomppi.enderslicer.profile.UserPresetStore\n",
+    )
+    replace_once(
+        main_view_model,
+        "    private val stateStore = AppStateStore(app)\n",
+        "    private val stateStore = AppStateStore(app)\n"
+        "    private val presetStore = UserPresetStore(app)\n",
+    )
+    replace_once(
+        main_view_model,
+        "\n    fun resetAllSettingOverrides() {\n",
+        """
     fun applyPreset(kind: PresetKind, valuesJson: String): Boolean {
         if (_uiState.value.isBusy) return false
         return runCatching {
@@ -53,43 +55,45 @@ replace_once(
 
     fun resetAllSettingOverrides() {
 """,
-)
-replace_once(
-    main_view_model,
-    """    fun resetAllSettingOverrides() {
+    )
+    replace_once(
+        main_view_model,
+        """    fun resetAllSettingOverrides() {
         if (_uiState.value.isBusy) return
         val baseline = importedSettingsBaseline ?: SlicerSettings()
 """,
-    """    fun resetAllSettingOverrides() {
+        """    fun resetAllSettingOverrides() {
         if (_uiState.value.isBusy) return
         presetStore.clearActiveSelections()
         val baseline = importedSettingsBaseline ?: SlicerSettings()
 """,
-)
-replace_once(
-    main_view_model,
-    """            stateStore.commitImport(pending.stagedFile, pending.kind, pending.displayName)
+    )
+    replace_once(
+        main_view_model,
+        """            stateStore.commitImport(pending.stagedFile, pending.kind, pending.displayName)
             stateStore.clearSavedSettings()
 """,
-    """            stateStore.commitImport(pending.stagedFile, pending.kind, pending.displayName)
+        """            stateStore.commitImport(pending.stagedFile, pending.kind, pending.displayName)
             stateStore.clearSavedSettings()
             presetStore.clearActiveSelections()
 """,
-)
+    )
 
 app = Path("app/src/main/java/com/tomppi/enderslicer/ui/EnderSlicerApp.kt")
-replace_once(
-    app,
-    "    var settingsOpen by remember { mutableStateOf(false) }\n",
-    "    var settingsOpen by remember { mutableStateOf(false) }\n"
-    "    var profilesOpen by remember { mutableStateOf(false) }\n",
-)
-replace_once(
-    app,
-    """                            DropdownMenuItem(
+app_text = app.read_text()
+if "var profilesOpen by remember" not in app_text:
+    replace_once(
+        app,
+        "    var settingsOpen by remember { mutableStateOf(false) }\n",
+        "    var settingsOpen by remember { mutableStateOf(false) }\n"
+        "    var profilesOpen by remember { mutableStateOf(false) }\n",
+    )
+    replace_once(
+        app,
+        """                            DropdownMenuItem(
                                 text = { Text("Print settings") },
 """,
-    """                            DropdownMenuItem(
+        """                            DropdownMenuItem(
                                 text = { Text("Profiles & filament") },
                                 onClick = {
                                     menuExpanded = false
@@ -100,11 +104,11 @@ replace_once(
                             DropdownMenuItem(
                                 text = { Text("Print settings") },
 """,
-)
-replace_once(
-    app,
-    "\n    if (settingsOpen) {\n",
-    """
+    )
+    replace_once(
+        app,
+        "\n    if (settingsOpen) {\n",
+        """
     if (profilesOpen) {
         ModalBottomSheet(
             onDismissRequest = { profilesOpen = false },
@@ -122,6 +126,6 @@ replace_once(
 
     if (settingsOpen) {
 """,
-)
+    )
 
-print("Profile and filament management integration patch applied")
+print("Profile and filament management integration patch is present")
