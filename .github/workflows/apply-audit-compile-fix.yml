@@ -1,0 +1,34 @@
+name: Apply audit compile fix
+
+on:
+  push:
+    branches:
+      - agent/full-octoprint-integration
+    paths:
+      - scripts/apply_audit_compile_fix.py
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/full-octoprint-integration
+          fetch-depth: 0
+      - name: Apply compile fixes
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! -f scripts/apply_audit_compile_fix.py ]]; then exit 0; fi
+          python3 scripts/apply_audit_compile_fix.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm -- scripts/apply_audit_compile_fix.py
+          git add -- \
+            app/src/main/java/com/tomppi/enderslicer/octoprint/OctoPrintModels.kt \
+            app/src/main/java/com/tomppi/enderslicer/ui/OctoPrintSheet.kt
+          git commit -m "Fix audited storage parser and webcam compile errors"
+          git push origin HEAD:agent/full-octoprint-integration
