@@ -26,7 +26,7 @@ data class PresetLibrary(
     fun presets(kind: PresetKind): List<UserPreset> = presets
         .asSequence()
         .filter { it.kind == kind }
-        .sortedBy { it.name.lowercase() }
+        .sortedBy { it.name.lowercase(java.util.Locale.ROOT) }
         .toList()
 
     fun activeId(kind: PresetKind): String? = when (kind) {
