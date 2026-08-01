@@ -16,6 +16,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Apply profile management integration
+        run: python scripts/apply_profile_management.py
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -143,6 +146,14 @@ jobs:
         with:
           name: enderslicercura-0.9.0-dev-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Upload patched profile integration sources
+        uses: actions/upload-artifact@v4
+        with:
+          name: profile-management-patched-sources
+          path: |
+            app/src/main/java/com/tomppi/enderslicer/ui/MainViewModel.kt
+            app/src/main/java/com/tomppi/enderslicer/ui/EnderSlicerApp.kt
 
       - name: Upload build logs
         if: always()
