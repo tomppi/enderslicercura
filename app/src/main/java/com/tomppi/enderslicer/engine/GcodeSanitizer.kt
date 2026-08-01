@@ -55,12 +55,17 @@ object GcodeSanitizer {
         var nozzleTargetLine: Int? = null
         var nozzleTargetLayer: Int? = null
         var lineNumber = 0
+        var temperatureCalibration = false
 
         file.bufferedReader().useLines { lines ->
             lines.forEach { rawLine ->
                 lineNumber++
                 val line = rawLine.trimStart()
                 when {
+                    line.startsWith(";ENDERSLICER_LAYER_EVENT:") &&
+                        line.contains(":NOZZLE_TEMPERATURE:CALIBRATION") -> {
+                        temperatureCalibration = true
+                    }
                     line.startsWith(";LAYER_COUNT:") -> {
                         line.substringAfter(':').trim().toIntOrNull()?.let { layerCount = it }
                     }
@@ -149,6 +154,7 @@ object GcodeSanitizer {
             file.bufferedReader().useLines { lines ->
                 lines.forEach { originalLine ->
                     val line = when {
+                        originalLine.contains(TEMPERATURE_CALIBRATION_SHUTDOWN_COMMENT) -> return@forEach
                         originalLine.startsWith(";ENDERSLICER_VERSION:") ||
                             originalLine.startsWith(";ENDERSLICER_COORDINATE_TRANSPORT:") ||
                             originalLine.startsWith(";ENDERSLICER_SETTINGS_TRANSPORT:") -> return@forEach
@@ -175,11 +181,21 @@ object GcodeSanitizer {
                     }
                 }
             }
+            if (temperatureCalibration) {
+                writer.write(TEMPERATURE_CALIBRATION_SHUTDOWN_COMMAND)
+                writer.write(PRINTER_LINE_ENDING)
+            }
         }
         check(temporary.length() > 0L) { "Validated G-code output is empty" }
         if (file.exists()) file.delete()
         check(temporary.renameTo(file) || temporary.copyTo(file, overwrite = true).let { temporary.delete(); true }) {
             "Unable to replace generated G-code with the validated output"
+        }
+        if (temperatureCalibration && finalNozzleTarget(file) != 0.0) {
+            throw UnsafeGcodeException(
+                "Temperature calibration did not finish with the hotend target disabled. " +
+                    "The G-code was not made available for export.",
+            )
         }
 
         return Summary(
@@ -196,8 +212,25 @@ object GcodeSanitizer {
         )
     }
 
+    private fun finalNozzleTarget(file: File): Double? {
+        var target: Double? = null
+        file.bufferedReader().useLines { lines ->
+            lines.forEach { line ->
+                val command = GcodeCommand.parse(line) ?: return@forEach
+                if (command.opcode == "M104" || command.opcode == "M109") {
+                    target = command.value('S') ?: command.value('R') ?: target
+                }
+            }
+        }
+        return target
+    }
+
     private fun format(value: Double): String = "%.5f".format(java.util.Locale.US, value).trimEnd('0').trimEnd('.')
 
+    private const val TEMPERATURE_CALIBRATION_SHUTDOWN_COMMENT =
+        "enderslicercura temperature calibration safety shutdown"
+    private const val TEMPERATURE_CALIBRATION_SHUTDOWN_COMMAND =
+        "M104 S0 ; $TEMPERATURE_CALIBRATION_SHUTDOWN_COMMENT"
     private const val MINIMUM_ACTIVE_NOZZLE_C = 150.0
     private const val PRINTER_LINE_ENDING = "\r\n"
 }
