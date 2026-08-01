@@ -247,27 +247,17 @@ class CuraEngineRunner(private val context: Context) {
                 )
             }
 
-            GcodeSanitizer.validateAndRepair(
-                outputFile,
-                settingsTransport = if (resolved != null) "resolved-json" else "fallback-command",
+            val settingsTransport = if (resolved != null) "resolved-json" else "fallback-command"
+            val postProcessing = CuraEnginePostProcessor.process(
+                outputFile = outputFile,
+                baseGcodeFile = baseGcodeFile,
+                settingsTransport = settingsTransport,
+                layerEvents = layerEvents,
+                plannedLayerEvents = plannedLayerEvents,
             )
-            outputFile.copyTo(baseGcodeFile, overwrite = true)
-            check(baseGcodeFile.isFile && baseGcodeFile.length() > 0L) { "Unable to retain original sliced G-code" }
-            val basePreview = GcodeLayerPreviewParser.parse(baseGcodeFile)
-            val validLayerNumbers = basePreview.layers.mapTo(hashSetOf()) { it.number }
-            val resolvedEvents = (
-                layerEvents.filter { it.layerNumber in validLayerNumbers } +
-                    GcodeLayerEventProcessor.resolve(plannedLayerEvents, basePreview)
-                )
-                .distinctBy(LayerEvent::id)
-                .sortedWith(compareBy(LayerEvent::layerNumber, LayerEvent::source, LayerEvent::id))
-            GcodeLayerEventProcessor.materialize(baseGcodeFile, outputFile, resolvedEvents)
-            val summary = GcodeSanitizer.validateAndRepair(
-                outputFile,
-                settingsTransport = if (resolved != null) "resolved-json+layer-events" else "fallback-command+layer-events",
-            )
-            val previewResult = runCatching { GcodeLayerPreviewParser.parse(outputFile) }
-            val layerPreview = previewResult.getOrNull()
+            val summary = postProcessing.summary
+            val layerPreview = postProcessing.layerPreview
+            val resolvedEvents = postProcessing.layerEvents
             val elapsed = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt)
             appendLog(
                 logFile,
@@ -286,7 +276,7 @@ class CuraEngineRunner(private val context: Context) {
                         appendLine("Layer height range: ${layerPreview.minLayerHeightMm}..${layerPreview.maxLayerHeightMm} mm")
                         appendLine("Applied layer events: ${resolvedEvents.size}")
                     } else {
-                        appendLine("Layer preview unavailable: ${previewResult.exceptionOrNull()?.message ?: "unknown parse error"}")
+                        appendLine("Layer preview unavailable: ${postProcessing.previewFailure?.message ?: "unknown parse error"}")
                     }
                     appendLine("G-code bytes: ${outputFile.length()}")
                     appendLine("Elapsed milliseconds: $elapsed")
