@@ -3,6 +3,9 @@ package com.tomppi.enderslicer.engine
 import com.tomppi.enderslicer.model.PrinterDefinition
 import com.tomppi.enderslicer.viewer.StlMesh
 import java.io.File
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
+import java.nio.channels.FileChannel
 import java.util.Locale
 import org.json.JSONObject
 
@@ -38,6 +41,51 @@ internal data class PrinterEnvelope(
             )
             offset += 6
             vertex++
+        }
+    }
+
+    /** Streams the transformed binary STL staged for CuraEngine without a second mesh allocation. */
+    fun requireBinaryStlFits(file: File) {
+        require(file.isFile && file.length() >= STL_HEADER_BYTES) { "Staged model STL is unavailable" }
+        file.inputStream().channel.use { channel ->
+            val header = ByteBuffer.allocate(STL_HEADER_BYTES.toInt()).order(ByteOrder.LITTLE_ENDIAN)
+            readFully(channel, header)
+            header.flip()
+            header.position(80)
+            val triangleCount = header.int.toLong() and 0xffffffffL
+            require(triangleCount > 0L) { "Staged model STL is empty" }
+            val expectedLength = Math.addExact(
+                STL_HEADER_BYTES,
+                Math.multiplyExact(triangleCount, STL_TRIANGLE_BYTES),
+            )
+            require(expectedLength == file.length()) { "Staged model STL has an invalid binary length" }
+
+            val buffer = ByteBuffer
+                .allocateDirect(BINARY_BLOCK_TRIANGLES * STL_TRIANGLE_BYTES.toInt())
+                .order(ByteOrder.LITTLE_ENDIAN)
+            var remaining = triangleCount
+            var vertexNumber = 1L
+            while (remaining > 0L) {
+                val records = minOf(remaining, BINARY_BLOCK_TRIANGLES.toLong()).toInt()
+                buffer.clear()
+                buffer.limit(records * STL_TRIANGLE_BYTES.toInt())
+                readFully(channel, buffer)
+                buffer.flip()
+                repeat(records) {
+                    buffer.position(buffer.position() + NORMAL_BYTES)
+                    repeat(3) {
+                        requirePoint(
+                            x = buffer.float.toDouble(),
+                            y = buffer.float.toDouble(),
+                            z = buffer.float.toDouble(),
+                            context = "Model vertex $vertexNumber",
+                        )
+                        vertexNumber++
+                    }
+                    buffer.short
+                }
+                remaining -= records
+            }
         }
     }
 
@@ -105,6 +153,12 @@ internal data class PrinterEnvelope(
         )
     }
 
+    private fun readFully(channel: FileChannel, buffer: ByteBuffer) {
+        while (buffer.hasRemaining()) {
+            check(channel.read(buffer) > 0) { "Staged model STL ended unexpectedly" }
+        }
+    }
+
     class OutsideBuildVolumeException(message: String) : IllegalArgumentException(message)
 
     companion object {
@@ -145,5 +199,9 @@ internal data class PrinterEnvelope(
         private const val RECTANGULAR = "rectangular"
         private const val ELLIPTIC = "elliptic"
         private val SUPPORTED_SHAPES = setOf(RECTANGULAR, ELLIPTIC)
+        private const val STL_HEADER_BYTES = 84L
+        private const val STL_TRIANGLE_BYTES = 50L
+        private const val NORMAL_BYTES = 12
+        private const val BINARY_BLOCK_TRIANGLES = 4_096
     }
 }
