@@ -8,10 +8,14 @@ import com.tomppi.enderslicer.profile.CuraResolvedSettingsWriter
 import com.tomppi.enderslicer.profile.CuraSliceSettingsResolver
 import java.io.File
 import java.time.Instant
+import java.util.UUID
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runInterruptible
 
 class CuraEngineRunner(private val context: Context) {
     data class SliceResult(
+        val artifactId: String,
         val gcodeFile: File,
         val baseGcodeFile: File,
         val logFile: File,
@@ -22,7 +26,9 @@ class CuraEngineRunner(private val context: Context) {
     )
 
     data class LayerEventApplyResult(
+        val artifactId: String,
         val gcodeFile: File,
+        val baseGcodeFile: File,
         val estimatedPrintSeconds: Int?,
         val layerPreview: GcodeLayerPreview,
         val layerEvents: List<LayerEvent>,
@@ -41,8 +47,18 @@ class CuraEngineRunner(private val context: Context) {
         val source: String,
     )
 
+    private data class Workspace(
+        val id: String,
+        val directory: File,
+        val output: File = File(directory, "output.gcode"),
+        val base: File = File(directory, "base.gcode"),
+        val model: File = File(directory, "model.stl"),
+        val resolvedSettings: File = File(directory, "resolved-settings.json"),
+    )
+
     private val nativeDirectory = File(context.applicationInfo.nativeLibraryDir)
     private val executable = File(nativeDirectory, ENGINE_LIBRARY_NAME)
+    private val publisher = SliceArtifactPublisher(File(context.filesDir, "slice-results"))
 
     fun isAvailable(): Boolean = executable.isFile && executable.length() > 0L
 
@@ -53,7 +69,7 @@ class CuraEngineRunner(private val context: Context) {
         else -> "CuraEngine 5.11.0-beta.1 ARM64 ready"
     }
 
-    fun slice(
+    suspend fun slice(
         modelFile: File,
         printer: PrinterDefinition,
         settings: SlicerSettings,
@@ -62,81 +78,63 @@ class CuraEngineRunner(private val context: Context) {
         profile: CuraEngineProfile? = null,
         layerEvents: List<LayerEvent> = emptyList(),
         plannedLayerEvents: List<PlannedLayerEvent> = emptyList(),
-    ): SliceResult {
-        val workDirectory = File(context.cacheDir, "curaengine").apply { mkdirs() }
-        val outputFile = File(workDirectory, "current.gcode")
-        val baseGcodeFile = File(workDirectory, "current-base.gcode")
-        val resolvedModelFile = File(workDirectory, "current.stl")
-        val resolvedSettingsFile = File(workDirectory, "resolved-settings.json")
-        val logFile = File(context.filesDir, "logs/curaengine-last.log").apply {
-            parentFile?.mkdirs()
-        }
-
-        outputFile.delete()
-        baseGcodeFile.delete()
-        resolvedModelFile.delete()
-        resolvedSettingsFile.delete()
-        logFile.writeText(
-            buildString {
-                appendLine("EnderSlicer CuraEngine diagnostic log")
-                appendLine("Started: ${Instant.now()}")
-                appendLine("Engine: ${executable.absolutePath}")
-                appendLine("Engine status: ${status()}")
-                appendLine("Model: ${modelFile.name} (${modelFile.length()} bytes)")
-                appendLine("Printer: ${printer.name}")
-                appendLine("Build volume: ${printer.widthMm} x ${printer.depthMm} x ${printer.heightMm} mm")
-                appendLine("Nozzle: ${printer.nozzleSizeMm} mm")
-                appendLine("Layer height shown in UI: ${settings.layerHeightMm} mm")
-                appendLine("Adaptive layers: ${settings.adaptiveLayerHeightEnabled}, variation ±${settings.adaptiveLayerHeightVariationMm} mm, step ${settings.adaptiveLayerHeightVariationStepMm} mm, threshold ${settings.adaptiveLayerHeightThreshold}")
-                appendLine("Requested user layer events: ${layerEvents.size}")
-                appendLine("Planned calibration events: ${plannedLayerEvents.size}")
-                appendLine("Print speed shown in UI: ${settings.printSpeedMmPerSecond} mm/s")
-                appendLine("Supports shown in UI: ${settings.supportsEnabled} / ${settings.supportStructure} / ${settings.supportPlacement}")
-                appendLine("Explicit persisted edits: ${settings.overriddenSettingKeys.size}")
-                appendLine("Imported Cura global values: ${profile?.globalValues?.size ?: 0}")
-                appendLine("Imported Cura extruder values: ${profile?.extruderValues?.size ?: 0}")
-                appendLine("Raw Cura global baseline: ${profile?.rawGlobalValues?.size ?: 0}")
-                appendLine("Raw Cura extruder baseline: ${profile?.rawExtruderValues?.size ?: 0}")
-                appendLine("Parsed material values: ${profile?.materialValueCount ?: 0}")
-                appendLine()
-            },
+    ): SliceResult = runInterruptible(Dispatchers.IO) {
+        sliceBlocking(
+            modelFile,
+            printer,
+            settings,
+            startGcode,
+            endGcode,
+            profile,
+            layerEvents,
+            plannedLayerEvents,
         )
+    }
 
-        val startedAt = System.nanoTime()
+    private fun sliceBlocking(
+        modelFile: File,
+        printer: PrinterDefinition,
+        settings: SlicerSettings,
+        startGcode: String,
+        endGcode: String,
+        profile: CuraEngineProfile?,
+        layerEvents: List<LayerEvent>,
+        plannedLayerEvents: List<PlannedLayerEvent>,
+    ): SliceResult {
+        val workspace = createWorkspace("slice")
+        val log = requestLog(workspace.id)
+        val started = System.nanoTime()
+        writeInitialLog(log, workspace.id, modelFile, printer, settings, profile, layerEvents, plannedLayerEvents)
 
         try {
             require(isAvailable()) { status() }
             require(modelFile.isFile && modelFile.length() > 0L) { "The imported STL is no longer available" }
+            copyStable(modelFile, workspace.model, "The model changed while it was being staged")
+            throwIfInterrupted()
 
-            // Every imported Cura configuration is dependency-resolved. Projects
-            // keep their embedded definitions; profiles or incomplete projects
-            // are completed with the pinned Cura definitions packaged in the APK.
-            // Command transport is reserved for a genuinely profile-less slice.
             val resolutionProfile = profile?.let(::completeDefinitionStack)
-            val definitions = prepareDefinitions(workDirectory, logFile, resolutionProfile)
+            val definitions = prepareDefinitions(workspace.directory, log, resolutionProfile)
+            throwIfInterrupted()
+
             var resolved: CuraSliceSettingsResolver.Result? = null
             val command = if (resolutionProfile != null) {
-                modelFile.copyTo(resolvedModelFile, overwrite = true)
-                check(resolvedModelFile.isFile && resolvedModelFile.length() == modelFile.length()) {
-                    "Unable to stage the STL for resolved Cura slicing"
-                }
                 resolved = CuraSliceSettingsResolver.resolve(
-                    profile = resolutionProfile,
-                    printer = printer,
-                    settings = settings,
-                    startGcode = startGcode,
-                    endGcode = endGcode,
+                    resolutionProfile,
+                    printer,
+                    settings,
+                    startGcode,
+                    endGcode,
                 )
                 CuraResolvedSettingsWriter.write(
-                    destination = resolvedSettingsFile,
-                    modelFileName = resolvedModelFile.name,
-                    resolved = resolved,
+                    workspace.resolvedSettings,
+                    workspace.model.name,
+                    resolved,
                 )
                 CuraEngineCommand.buildResolved(
-                    executablePath = executable.absolutePath,
-                    definitionsDirectory = definitions.directory.absolutePath,
-                    resolvedSettingsPath = resolvedSettingsFile.absolutePath,
-                    outputPath = outputFile.absolutePath,
+                    executable.absolutePath,
+                    definitions.directory.absolutePath,
+                    workspace.resolvedSettings.absolutePath,
+                    workspace.output.absolutePath,
                 )
             } else {
                 CuraEngineCommand.build(
@@ -144,8 +142,8 @@ class CuraEngineRunner(private val context: Context) {
                     definitionsDirectory = definitions.directory.absolutePath,
                     machineDefinitionPath = definitions.machineDefinition.absolutePath,
                     extruderDefinitionPath = definitions.extruderDefinition.absolutePath,
-                    modelPath = modelFile.absolutePath,
-                    outputPath = outputFile.absolutePath,
+                    modelPath = workspace.model.absolutePath,
+                    outputPath = workspace.output.absolutePath,
                     printer = printer,
                     settings = settings,
                     startGcode = startGcode,
@@ -153,262 +151,278 @@ class CuraEngineRunner(private val context: Context) {
                     profile = null,
                 )
             }
+            appendCommandLog(log, definitions, resolved, workspace.resolvedSettings, command)
 
-            appendLog(
-                logFile,
-                buildString {
-                    appendLine("Definition source: ${definitions.source}")
-                    appendLine("Machine definition: ${definitions.machineDefinition.name}")
-                    appendLine("Extruder definition: ${definitions.extruderDefinition.name}")
-                    if (resolved != null) {
-                        appendLine("Settings transport: CuraEngine resolved JSON (-r)")
-                        appendLine("Configuration model: immutable Cura baseline + persisted explicit delta + temporary resolved snapshot")
-                        appendLine("Resolved definition expressions: ${resolved.expressionCount}")
-                        appendLine("Resolution passes: ${resolved.passes}")
-                        appendLine("Resolved global settings: ${resolved.globalValues.size}")
-                        appendLine("Resolved extruder settings: ${resolved.extruderValues.size}")
-                        appendLine("Resolved per-mesh settings: ${resolved.modelValues.size}")
-                        appendLine("Resolved layer height: ${resolved.globalValues["layer_height"]}")
-                        appendLine("Resolved adaptive layers: ${resolved.globalValues["adaptive_layer_height_enabled"]}, variation ${resolved.globalValues["adaptive_layer_height_variation"]}, step ${resolved.globalValues["adaptive_layer_height_variation_step"]}, threshold ${resolved.globalValues["adaptive_layer_height_threshold"]}")
-                        appendLine("Resolved adhesion type: ${resolved.globalValues["adhesion_type"] ?: resolved.extruderValues["adhesion_type"]}")
-                        appendLine("Resolved wall lines: ${resolved.extruderValues["wall_line_count"]}")
-                        appendLine("Resolved top/bottom layers: ${resolved.extruderValues["top_layers"]}/${resolved.extruderValues["bottom_layers"]}")
-                        appendLine("Resolved infill pattern/distance: ${resolved.extruderValues["infill_pattern"]}/${resolved.extruderValues["infill_line_distance"]}")
-                        appendLine("Resolved fan start/full layer: ${resolved.extruderValues["cool_fan_speed_0"]}/${resolved.extruderValues["cool_fan_full_layer"]}")
-                        appendLine("Resolved nozzle temperatures: ${resolved.extruderValues["material_print_temperature_layer_0"]}/${resolved.extruderValues["material_print_temperature"]}/${resolved.extruderValues["cool_min_temperature"]}")
-                        appendLine("Resolved support enable/structure/type: ${resolved.extruderValues["support_enable"]}/${resolved.extruderValues["support_structure"]}/${resolved.extruderValues["support_type"]}")
-                        appendLine("Resolved support density/pattern: ${resolved.extruderValues["support_infill_rate"]}/${resolved.extruderValues["support_pattern"]}")
-                        appendLine("Resolved support interface enable/density: ${resolved.modelValues["support_interface_enable"]}/${resolved.extruderValues["support_interface_density"]}")
-                        appendLine("Resolved support roof/bottom: ${resolved.modelValues["support_roof_enable"]}/${resolved.modelValues["support_bottom_enable"]}")
-                        appendLine("Resolved support Z/XY distance: ${resolved.modelValues["support_z_distance"]}/${resolved.modelValues["support_xy_distance"]}")
-                        appendLine("Resolved model placement: transformed STL uses bed coordinates; JSON offsets compensate CuraEngine's build-volume centre")
-                        appendLine("Resolved settings JSON: ${resolvedSettingsFile.length()} bytes")
-                    } else {
-                        appendLine("Settings transport: standalone fallback command-line values")
-                    }
-                    appendLine()
-                    appendLine("--- Command ---")
-                    command.forEachIndexed { index, argument -> appendLine("[$index] $argument") }
-                    appendLine()
-                    appendLine("--- CuraEngine output ---")
-                },
-            )
-
-            val process = ProcessBuilder(command)
-                .directory(workDirectory)
+            val processBuilder = java.lang.ProcessBuilder(command)
+                .directory(workspace.directory)
                 .redirectErrorStream(true)
-                .redirectOutput(ProcessBuilder.Redirect.appendTo(logFile))
+                .redirectOutput(java.lang.ProcessBuilder.Redirect.appendTo(log))
                 .apply {
                     environment()["LD_LIBRARY_PATH"] = nativeDirectory.absolutePath
-                    environment()["TMPDIR"] = workDirectory.absolutePath
+                    environment()["TMPDIR"] = workspace.directory.absolutePath
                     environment()["HOME"] = context.filesDir.absolutePath
                     environment()["CURAENGINE_LOG_LEVEL"] = "info"
                 }
-                .start()
 
-            val completed = process.waitFor(SLICE_TIMEOUT_MINUTES, TimeUnit.MINUTES)
-            if (!completed) {
-                process.destroy()
-                if (!process.waitFor(3, TimeUnit.SECONDS)) process.destroyForcibly()
+            val exitCode = try {
+                OwnedProcessRunner.run(
+                    start = processBuilder::start,
+                    timeout = SLICE_TIMEOUT_MINUTES,
+                    unit = TimeUnit.MINUTES,
+                )
+            } catch (error: OwnedProcessRunner.ProcessTimeoutException) {
                 throw SliceException(
                     "CuraEngine timed out after $SLICE_TIMEOUT_MINUTES minutes. Export the error log for details.",
-                    logFile,
+                    log,
+                    error,
                 )
             }
-
-            val exitCode = process.exitValue()
-            appendLog(logFile, "\n--- Process result ---\nExit code: $exitCode\n")
+            appendLog(log, "\n--- Process result ---\nExit code: $exitCode\n")
             if (exitCode != 0) {
-                throw SliceException(
-                    "CuraEngine failed with exit code $exitCode. Export the error log for full details.",
-                    logFile,
-                )
+                throw SliceException("CuraEngine failed with exit code $exitCode. Export the error log for full details.", log)
             }
+            validateEngineOutput(workspace.output, log)
+            throwIfInterrupted()
 
-            if (!outputFile.isFile || outputFile.length() < MINIMUM_GCODE_BYTES) {
-                throw SliceException(
-                    "CuraEngine finished without producing a valid G-code file. Export the error log for details.",
-                    logFile,
-                )
-            }
-
-            val header = outputFile.inputStream().bufferedReader().use { reader ->
-                buildString {
-                    repeat(20) {
-                        val line = reader.readLine() ?: return@repeat
-                        appendLine(line)
-                    }
-                }
-            }
-            if (!header.contains(";FLAVOR:") && !header.contains(";Generated with Cura")) {
-                throw SliceException(
-                    "The engine output did not contain a Cura G-code header. Export the error log for details.",
-                    logFile,
-                )
-            }
-
-            GcodeSanitizer.validateAndRepair(
-                outputFile,
-                settingsTransport = if (resolved != null) "resolved-json" else "fallback-command",
+            val transport = if (resolved != null) "resolved-json" else "fallback-command"
+            val processed = CuraEnginePostProcessor.process(
+                workspace.output,
+                workspace.base,
+                transport,
+                layerEvents,
+                plannedLayerEvents,
             )
-            outputFile.copyTo(baseGcodeFile, overwrite = true)
-            check(baseGcodeFile.isFile && baseGcodeFile.length() > 0L) { "Unable to retain original sliced G-code" }
-            val basePreview = GcodeLayerPreviewParser.parse(baseGcodeFile)
-            val validLayerNumbers = basePreview.layers.mapTo(hashSetOf()) { it.number }
-            val resolvedEvents = (
-                layerEvents.filter { it.layerNumber in validLayerNumbers } +
-                    GcodeLayerEventProcessor.resolve(plannedLayerEvents, basePreview)
-                )
-                .distinctBy(LayerEvent::id)
-                .sortedWith(compareBy(LayerEvent::layerNumber, LayerEvent::source, LayerEvent::id))
-            GcodeLayerEventProcessor.materialize(baseGcodeFile, outputFile, resolvedEvents)
-            val summary = GcodeSanitizer.validateAndRepair(
-                outputFile,
-                settingsTransport = if (resolved != null) "resolved-json+layer-events" else "fallback-command+layer-events",
-            )
-            val previewResult = runCatching { GcodeLayerPreviewParser.parse(outputFile) }
-            val layerPreview = previewResult.getOrNull()
-            val elapsed = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt)
-            appendLog(
-                logFile,
-                buildString {
-                    appendLine("--- Validated G-code ---")
-                    appendLine("Layers: ${summary.layerCount}")
-                    appendLine("Estimated seconds: ${summary.estimatedSeconds ?: "unknown"}")
-                    appendLine("Model filament millimeters: ${summary.filamentMillimeters}")
-                    appendLine("Total print filament millimeters: ${summary.totalFilamentMillimeters}")
-                    appendLine("Extrusion bounds: X ${summary.minX}..${summary.maxX}, Y ${summary.minY}..${summary.maxY}, Z ${summary.minZ}..${summary.maxZ}")
-                    if (layerPreview != null) {
-                        appendLine("Layer preview layers: ${layerPreview.layers.size}")
-                        appendLine("Layer preview extrusion segments: ${layerPreview.totalSegmentCount}")
-                        appendLine("Layer preview speed range: ${layerPreview.minSpeedMmPerSecond}..${layerPreview.maxSpeedMmPerSecond} mm/s")
-                        appendLine("Layer preview truncated: ${layerPreview.truncated}")
-                        appendLine("Layer height range: ${layerPreview.minLayerHeightMm}..${layerPreview.maxLayerHeightMm} mm")
-                        appendLine("Applied layer events: ${resolvedEvents.size}")
-                    } else {
-                        appendLine("Layer preview unavailable: ${previewResult.exceptionOrNull()?.message ?: "unknown parse error"}")
-                    }
-                    appendLine("G-code bytes: ${outputFile.length()}")
-                    appendLine("Elapsed milliseconds: $elapsed")
-                    appendLine("Completed: ${Instant.now()}")
-                    appendLine("Result: success")
-                },
-            )
+            throwIfInterrupted()
 
+            val artifact = publisher.publish(workspace.id, workspace.output, workspace.base)
+            val elapsed = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started)
+            appendResultLog(log, artifact, processed, elapsed)
+            updateLatestLog(log)
             return SliceResult(
-                gcodeFile = outputFile,
-                baseGcodeFile = baseGcodeFile,
-                logFile = logFile,
+                artifactId = artifact.id,
+                gcodeFile = artifact.gcodeFile,
+                baseGcodeFile = artifact.baseGcodeFile,
+                logFile = log,
                 elapsedMilliseconds = elapsed,
-                estimatedPrintSeconds = summary.estimatedSeconds,
-                layerPreview = layerPreview,
-                layerEvents = resolvedEvents,
+                estimatedPrintSeconds = processed.summary.estimatedSeconds,
+                layerPreview = processed.layerPreview,
+                layerEvents = processed.layerEvents,
             )
+        } catch (error: InterruptedException) {
+            appendLog(log, "\n--- EnderSlicer cancellation ---\nFinished: ${Instant.now()}\nThe CuraEngine request was cancelled and reaped.\n")
+            updateLatestLog(log)
+            throw error
         } catch (error: Throwable) {
-            outputFile.delete()
-            appendLog(
-                logFile,
-                buildString {
-                    appendLine()
-                    appendLine("--- EnderSlicer failure ---")
-                    appendLine("Finished: ${Instant.now()}")
-                    appendLine(error.stackTraceToString())
-                },
-            )
+            appendLog(log, "\n--- EnderSlicer failure ---\nFinished: ${Instant.now()}\n${error.stackTraceToString()}\n")
+            updateLatestLog(log)
             if (error is SliceException) throw error
-            throw SliceException(
-                error.message ?: "CuraEngine failed before slicing started",
-                logFile,
-                error,
-            )
+            throw SliceException(error.message ?: "CuraEngine failed before slicing started", log, error)
+        } finally {
+            workspace.directory.deleteRecursively()
         }
     }
 
-    fun applyLayerEvents(
-        baseGcodeFile: File,
-        events: List<LayerEvent>,
-    ): LayerEventApplyResult {
-        require(baseGcodeFile.isFile && baseGcodeFile.length() > 0L) { "The original sliced G-code is unavailable; slice again" }
-        val workDirectory = File(context.cacheDir, "curaengine").apply { mkdirs() }
-        val outputFile = File(workDirectory, "current.gcode")
-        val temporaryFile = File(workDirectory, "current-events-${System.nanoTime()}.gcode")
-        val backupFile = File(workDirectory, "current.gcode.previous")
-        temporaryFile.delete()
-        backupFile.delete()
-
+    fun applyLayerEvents(baseGcodeFile: File, events: List<LayerEvent>): LayerEventApplyResult {
+        require(baseGcodeFile.isFile && baseGcodeFile.length() > 0L) {
+            "The original sliced G-code is unavailable; slice again"
+        }
+        val workspace = createWorkspace("events")
         try {
-            val preview = GcodeLayerPreviewParser.parse(baseGcodeFile)
-            val validLayerNumbers = preview.layers.mapTo(hashSetOf()) { it.number }
+            copyStable(baseGcodeFile, workspace.base, "The original sliced G-code changed while it was being read")
+            val preview = GcodeLayerPreviewParser.parse(workspace.base)
+            val layers = preview.layers.mapTo(hashSetOf()) { it.number }
             val validEvents = events
-                .filter { it.layerNumber in validLayerNumbers }
+                .filter { it.layerNumber in layers }
                 .distinctBy(LayerEvent::id)
                 .sortedWith(compareBy(LayerEvent::layerNumber, LayerEvent::source, LayerEvent::id))
-            val baseTransport = baseGcodeFile.bufferedReader().useLines { lines ->
+            val transport = workspace.base.bufferedReader().useLines { lines ->
                 lines.firstOrNull { it.startsWith(";ENDERSLICER_SETTINGS_TRANSPORT:") }
                     ?.substringAfter(':')
                     ?.trim()
                     ?.removeSuffix("+layer-events")
             } ?: "resolved-json"
 
-            GcodeLayerEventProcessor.materialize(baseGcodeFile, temporaryFile, validEvents)
+            if (validEvents.isEmpty()) {
+                workspace.base.copyTo(workspace.output)
+            } else {
+                GcodeLayerEventProcessor.materialize(workspace.base, workspace.output, validEvents)
+            }
             val summary = GcodeSanitizer.validateAndRepair(
-                temporaryFile,
-                settingsTransport = "$baseTransport+layer-events",
+                workspace.output,
+                if (validEvents.isEmpty()) transport else "$transport+layer-events",
             )
-            val layerPreview = GcodeLayerPreviewParser.parse(temporaryFile)
-
-            if (outputFile.exists()) {
-                check(
-                    outputFile.renameTo(backupFile) ||
-                        outputFile.copyTo(backupFile, overwrite = true).let { outputFile.delete(); true },
-                ) { "Unable to preserve the previous layer-event G-code" }
-            }
-            try {
-                check(
-                    temporaryFile.renameTo(outputFile) ||
-                        temporaryFile.copyTo(outputFile, overwrite = true).let { temporaryFile.delete(); true },
-                ) { "Unable to publish the updated layer-event G-code" }
-            } catch (error: Throwable) {
-                outputFile.delete()
-                if (backupFile.exists()) {
-                    backupFile.renameTo(outputFile) ||
-                        backupFile.copyTo(outputFile, overwrite = true).let { backupFile.delete(); true }
-                }
-                throw error
-            }
-            backupFile.delete()
-
+            val resultPreview = GcodeLayerPreviewParser.parse(workspace.output)
+            val artifact = publisher.publish(workspace.id, workspace.output, workspace.base)
             return LayerEventApplyResult(
-                gcodeFile = outputFile,
-                estimatedPrintSeconds = summary.estimatedSeconds,
-                layerPreview = layerPreview,
-                layerEvents = validEvents,
+                artifact.id,
+                artifact.gcodeFile,
+                artifact.baseGcodeFile,
+                summary.estimatedSeconds,
+                resultPreview,
+                validEvents,
             )
         } finally {
-            temporaryFile.delete()
-            if (backupFile.exists() && outputFile.exists()) backupFile.delete()
+            workspace.directory.deleteRecursively()
         }
+    }
+
+    private fun validateEngineOutput(file: File, log: File) {
+        if (!file.isFile || file.length() < MINIMUM_GCODE_BYTES) {
+            throw SliceException("CuraEngine finished without producing a valid G-code file. Export the error log for details.", log)
+        }
+        val header = file.bufferedReader().use { reader ->
+            buildString {
+                repeat(20) {
+                    val line = reader.readLine() ?: return@repeat
+                    appendLine(line)
+                }
+            }
+        }
+        if (!header.contains(";FLAVOR:") && !header.contains(";Generated with Cura")) {
+            throw SliceException("The engine output did not contain a Cura G-code header. Export the error log for details.", log)
+        }
+    }
+
+    private fun createWorkspace(prefix: String): Workspace {
+        val id = "$prefix-${System.currentTimeMillis()}-${UUID.randomUUID()}"
+        val root = File(context.cacheDir, "curaengine/requests").apply {
+            check(mkdirs() || isDirectory) { "Unable to create the CuraEngine request directory" }
+        }
+        cleanupOldWorkspaces(root)
+        val directory = File(root, id)
+        check(directory.mkdir()) { "Unable to create an isolated CuraEngine workspace" }
+        return Workspace(id, directory)
+    }
+
+    private fun cleanupOldWorkspaces(root: File) {
+        val cutoff = System.currentTimeMillis() - STALE_WORKSPACE_AGE_MILLIS
+        root.listFiles().orEmpty()
+            .filter { it.isDirectory && it.lastModified() in 1 until cutoff }
+            .forEach(File::deleteRecursively)
+    }
+
+    private fun requestLog(id: String): File = File(context.filesDir, "logs/curaengine-$id.log").apply {
+        parentFile?.mkdirs()
+    }
+
+    private fun writeInitialLog(
+        log: File,
+        id: String,
+        model: File,
+        printer: PrinterDefinition,
+        settings: SlicerSettings,
+        profile: CuraEngineProfile?,
+        layerEvents: List<LayerEvent>,
+        plannedEvents: List<PlannedLayerEvent>,
+    ) {
+        log.writeText(
+            buildString {
+                appendLine("EnderSlicer CuraEngine diagnostic log")
+                appendLine("Request: $id")
+                appendLine("Started: ${Instant.now()}")
+                appendLine("Engine: ${executable.absolutePath}")
+                appendLine("Model: ${model.name} (${model.length()} bytes)")
+                appendLine("Printer: ${printer.name}")
+                appendLine("Build volume: ${printer.widthMm} x ${printer.depthMm} x ${printer.heightMm} mm")
+                appendLine("Nozzle: ${printer.nozzleSizeMm} mm")
+                appendLine("Layer height: ${settings.layerHeightMm} mm")
+                appendLine("User/calibration events: ${layerEvents.size}/${plannedEvents.size}")
+                appendLine("Imported Cura values: ${profile?.globalValues?.size ?: 0}/${profile?.extruderValues?.size ?: 0}")
+                appendLine()
+            },
+        )
+    }
+
+    private fun appendCommandLog(
+        log: File,
+        definitions: PreparedDefinitions,
+        resolved: CuraSliceSettingsResolver.Result?,
+        resolvedSettings: File,
+        command: List<String>,
+    ) {
+        appendLog(
+            log,
+            buildString {
+                appendLine("Definition source: ${definitions.source}")
+                appendLine("Machine definition: ${definitions.machineDefinition.name}")
+                appendLine("Extruder definition: ${definitions.extruderDefinition.name}")
+                if (resolved != null) {
+                    appendLine("Settings transport: CuraEngine resolved JSON (-r)")
+                    appendLine("Resolved expressions/passes: ${resolved.expressionCount}/${resolved.passes}")
+                    appendLine("Resolved global/extruder/model settings: ${resolved.globalValues.size}/${resolved.extruderValues.size}/${resolved.modelValues.size}")
+                    appendLine("Resolved settings JSON: ${resolvedSettings.length()} bytes")
+                } else {
+                    appendLine("Settings transport: standalone fallback command-line values")
+                }
+                appendLine()
+                appendLine("--- Command ---")
+                command.forEachIndexed { index, argument -> appendLine("[$index] $argument") }
+                appendLine()
+                appendLine("--- CuraEngine output ---")
+            },
+        )
+    }
+
+    private fun appendResultLog(
+        log: File,
+        artifact: SliceArtifactPublisher.PublishedArtifact,
+        result: CuraEnginePostProcessor.Result,
+        elapsed: Long,
+    ) {
+        val summary = result.summary
+        appendLog(
+            log,
+            buildString {
+                appendLine("--- Validated G-code ---")
+                appendLine("Layers: ${summary.layerCount}")
+                appendLine("Estimated seconds: ${summary.estimatedSeconds ?: "unknown"}")
+                appendLine("Model/total filament mm: ${summary.filamentMillimeters}/${summary.totalFilamentMillimeters}")
+                appendLine("Extrusion bounds: X ${summary.minX}..${summary.maxX}, Y ${summary.minY}..${summary.maxY}, Z ${summary.minZ}..${summary.maxZ}")
+                result.layerPreview?.let {
+                    appendLine("Layer preview layers/segments: ${it.layers.size}/${it.totalSegmentCount}")
+                    appendLine("Layer preview truncated: ${it.truncated}")
+                } ?: appendLine("Layer preview unavailable: ${result.previewFailure?.message ?: "unknown parse error"}")
+                appendLine("Applied layer events: ${result.layerEvents.size}")
+                appendLine("Zero-event fast path: ${result.usedZeroEventFastPath}")
+                appendLine("Published artifact: ${artifact.id}")
+                appendLine("Published G-code: ${artifact.gcodeFile.absolutePath} (${artifact.gcodeFile.length()} bytes)")
+                appendLine("Elapsed milliseconds: $elapsed")
+                appendLine("Completed: ${Instant.now()}")
+                appendLine("Result: success")
+            },
+        )
+    }
+
+    private fun copyStable(source: File, destination: File, message: String) {
+        val length = source.length()
+        val modified = source.lastModified()
+        source.copyTo(destination, overwrite = false)
+        check(
+            source.isFile && source.length() == length && source.lastModified() == modified &&
+                destination.isFile && destination.length() == length,
+        ) { message }
+    }
+
+    private fun throwIfInterrupted() {
+        if (Thread.currentThread().isInterrupted) throw InterruptedException("CuraEngine request was cancelled")
+    }
+
+    private fun updateLatestLog(log: File) {
+        runCatching { log.copyTo(File(log.parentFile, "curaengine-last.log"), overwrite = true) }
     }
 
     private fun completeDefinitionStack(profile: CuraEngineProfile): CuraEngineProfile {
         if (profile.usesProjectDefinitions) return profile
-
-        val bundled = loadBundledDefinitions()
         val combined = linkedMapOf<String, String>().apply {
-            putAll(bundled)
+            putAll(loadBundledDefinitions())
             putAll(profile.definitionFiles)
         }
-        val selectedMachine = profile.machineDefinitionFileName
-            ?.takeIf(combined::containsKey)
-            ?: BUNDLED_MACHINE_DEFINITION
-        val selectedExtruder = profile.extruderDefinitionFileName
-            ?.takeIf(combined::containsKey)
-            ?: BUNDLED_EXTRUDER_DEFINITION
-
         return profile.copy(
             definitionFiles = combined,
-            machineDefinitionFileName = selectedMachine,
-            extruderDefinitionFileName = selectedExtruder,
+            machineDefinitionFileName = profile.machineDefinitionFileName
+                ?.takeIf(combined::containsKey) ?: BUNDLED_MACHINE_DEFINITION,
+            extruderDefinitionFileName = profile.extruderDefinitionFileName
+                ?.takeIf(combined::containsKey) ?: BUNDLED_EXTRUDER_DEFINITION,
         )
     }
 
@@ -418,58 +432,52 @@ class CuraEngineRunner(private val context: Context) {
 
     private fun prepareDefinitions(
         workDirectory: File,
-        logFile: File,
+        log: File,
         profile: CuraEngineProfile?,
     ): PreparedDefinitions {
         val destination = File(workDirectory, "definitions").apply {
             deleteRecursively()
-            mkdirs()
+            check(mkdirs()) { "Unable to create the Cura definition directory" }
         }
-
         if (profile?.usesProjectDefinitions == true) {
             profile.definitionFiles.forEach { (rawName, content) ->
-                val name = safeDefinitionName(rawName)
-                val target = File(destination, name)
-                target.writeText(content)
-                check(target.length() > 0L) { "Imported Cura definition is empty: $name" }
+                File(destination, safeDefinitionName(rawName)).writeText(content)
             }
             val machine = File(destination, safeDefinitionName(requireNotNull(profile.machineDefinitionFileName)))
             val extruder = File(destination, safeDefinitionName(requireNotNull(profile.extruderDefinitionFileName)))
-            check(machine.isFile) { "Imported machine definition is missing: ${machine.name}" }
-            check(extruder.isFile) { "Imported extruder definition is missing: ${extruder.name}" }
+            check(machine.isFile && machine.length() > 0L) { "Imported machine definition is missing: ${machine.name}" }
+            check(extruder.isFile && extruder.length() > 0L) { "Imported extruder definition is missing: ${extruder.name}" }
             val source = if (profile.definitionFiles.keys.containsAll(BUNDLED_DEFINITION_FILES)) {
                 "Cura baseline completed with pinned definitions"
             } else {
                 "imported Cura project definitions"
             }
-            logDefinitions(logFile, source, destination)
+            logDefinitions(log, source, destination)
             return PreparedDefinitions(destination, machine, extruder, source)
         }
-
         BUNDLED_DEFINITION_FILES.forEach { name ->
             val target = File(destination, name)
             context.assets.open("cura/definitions/$name").use { input ->
-                target.outputStream().buffered().use { output -> input.copyTo(output) }
+                target.outputStream().buffered().use(input::copyTo)
             }
             check(target.length() > 0L) { "Bundled Cura definition is empty: $name" }
         }
-        logDefinitions(logFile, "Bundled Cura definitions", destination)
+        val source = "bundled Cura 5.11.0-beta.1 standalone fallback"
+        logDefinitions(log, source, destination)
         return PreparedDefinitions(
-            directory = destination,
-            machineDefinition = File(destination, BUNDLED_MACHINE_DEFINITION),
-            extruderDefinition = File(destination, BUNDLED_EXTRUDER_DEFINITION),
-            source = "bundled Cura 5.11.0-beta.1 standalone fallback",
+            destination,
+            File(destination, BUNDLED_MACHINE_DEFINITION),
+            File(destination, BUNDLED_EXTRUDER_DEFINITION),
+            source,
         )
     }
 
-    private fun logDefinitions(logFile: File, heading: String, directory: File) {
+    private fun logDefinitions(log: File, heading: String, directory: File) {
         appendLog(
-            logFile,
+            log,
             buildString {
                 appendLine("--- $heading ---")
-                directory.listFiles()
-                    .orEmpty()
-                    .sortedBy { it.name }
+                directory.listFiles().orEmpty().sortedBy(File::getName)
                     .forEach { appendLine("${it.name} (${it.length()} bytes)") }
                 appendLine()
             },
@@ -491,6 +499,7 @@ class CuraEngineRunner(private val context: Context) {
         const val ENGINE_LIBRARY_NAME = "libcuraengine_exec.so"
         const val SLICE_TIMEOUT_MINUTES = 30L
         const val MINIMUM_GCODE_BYTES = 128L
+        const val STALE_WORKSPACE_AGE_MILLIS = 24L * 60L * 60L * 1_000L
         const val BUNDLED_MACHINE_DEFINITION = "creality_ender3.def.json"
         const val BUNDLED_EXTRUDER_DEFINITION = "creality_base_extruder_0.def.json"
         val BUNDLED_DEFINITION_FILES = listOf(
