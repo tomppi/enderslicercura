@@ -38,6 +38,7 @@ import com.tomppi.enderslicer.profile.UserPreset
 import com.tomppi.enderslicer.profile.UserPresetStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -98,37 +99,53 @@ fun ProfileManagementSheet(
         }
     }
 
+    suspend fun selectAndApply(
+        preset: UserPreset,
+        sourceLibrary: PresetLibrary,
+    ): PresetLibrary {
+        val previousActiveId = sourceLibrary.activeId(preset.kind)
+        val stagedLibrary = withContext(Dispatchers.IO) {
+            store.setActive(preset.kind, preset.id)
+        }
+        return try {
+            check(viewModel.applyPreset(preset.kind, preset.valuesJson)) {
+                "The preset could not be applied while another operation was active"
+            }
+            stagedLibrary
+        } catch (error: Throwable) {
+            withContext(NonCancellable + Dispatchers.IO) {
+                runCatching { store.setActive(preset.kind, previousActiveId) }
+            }
+            throw error
+        }
+    }
+
     fun saveCurrentAs(name: String) = launchMutation {
         val selectedKind = kind
-        val settingsSnapshot = state.settings
+        val settingsSnapshot = viewModel.uiState.value.settings
         val saved = withContext(Dispatchers.IO) { store.create(selectedKind, name, settingsSnapshot) }
         library = saved
         nameAction = null
         nameTarget = null
+        val savedName = saved.active(selectedKind)?.name ?: name.trim()
         Toast.makeText(
             context,
-            "Saved ${selectedKind.label.lowercase()} ‘${name.trim()}’",
+            "Saved ${selectedKind.label.lowercase()} ‘$savedName’",
             Toast.LENGTH_SHORT,
         ).show()
     }
 
     fun applyPreset(preset: UserPreset) = launchMutation {
-        check(viewModel.applyPreset(preset.kind, preset.valuesJson)) {
-            "The preset could not be applied while another operation was active"
-        }
-        library = withContext(Dispatchers.IO) { store.setActive(preset.kind, preset.id) }
+        library = selectAndApply(preset, library)
     }
 
     fun updatePreset(preset: UserPreset, thenApply: UserPreset? = null) = launchMutation {
-        val settingsSnapshot = state.settings
+        val settingsSnapshot = viewModel.uiState.value.settings
         val updatedLibrary = withContext(Dispatchers.IO) { store.update(preset.id, settingsSnapshot) }
         library = updatedLibrary
         if (thenApply != null) {
             val latestTarget = updatedLibrary.presets.firstOrNull { it.id == thenApply.id } ?: thenApply
-            check(viewModel.applyPreset(latestTarget.kind, latestTarget.valuesJson)) {
-                "The preset could not be applied while another operation was active"
-            }
-            library = withContext(Dispatchers.IO) { store.setActive(latestTarget.kind, latestTarget.id) }
+            library = selectAndApply(latestTarget, updatedLibrary)
         } else {
             Toast.makeText(context, "Saved changes to ‘${preset.name}’", Toast.LENGTH_SHORT).show()
         }
