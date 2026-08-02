@@ -174,9 +174,10 @@ internal object CuraDefinitionResolver {
         }
         document.settings.forEach { (key, child) ->
             val parent = result[key]
-            result[key] = SettingDefinition(
-                defaultValue = child.defaultValue ?: parent?.defaultValue,
-                expression = child.expression ?: parent?.expression,
+            // Preserve the resolver's established value/default override
+            // semantics. Only schema metadata is inherited when omitted, so
+            // type validation cannot change a previously valid formula chain.
+            result[key] = child.copy(
                 settablePerMesh = child.settablePerMesh ?: parent?.settablePerMesh,
                 type = child.type ?: parent?.type,
                 options = child.options ?: parent?.options,
@@ -221,8 +222,14 @@ internal object CuraDefinitionResolver {
                 .ifEmpty { null }
             val options = setting.optJSONObject("options")?.let { optionObject ->
                 buildSet {
-                    val optionKeys = optionObject.keys()
-                    while (optionKeys.hasNext()) add(optionKeys.next())
+                    // Cura option objects map translated labels to the concrete
+                    // values persisted in profiles and consumed by CuraEngine.
+                    val labels = optionObject.keys()
+                    while (labels.hasNext()) {
+                        val label = labels.next()
+                        val value = optionObject.opt(label)
+                        if (value != null && value != JSONObject.NULL) add(value.toString())
+                    }
                 }
             }
             val settablePerMesh = if (setting.has("settable_per_mesh")) {
