@@ -22,11 +22,20 @@ jobs:
           fetch-depth: 0
       - name: Verify and extract reviewed source bundle
         run: |
-          test "$(wc -c < scripts/cura-settings-source.tar.gz.b64)" -eq 53900
-          echo 'f6ee35764f1024d29d4bdd336f4f25db4451d8e884a82722c922fc55103adf25  scripts/cura-settings-source.tar.gz.b64' | sha256sum -c -
-          base64 -d scripts/cura-settings-source.tar.gz.b64 > /tmp/cura-settings-source.tar.gz
+          test "$(wc -c < scripts/cura-settings-source.part00)" -eq 14000
+          test "$(wc -c < scripts/cura-settings-source.part01)" -eq 14000
+          test "$(wc -c < scripts/cura-settings-source.part02)" -eq 14000
+          test "$(wc -c < scripts/cura-settings-source.part03)" -eq 11900
+          echo 'd2541b5667e541fa6bcf451ceb11268568772544f69021dbc03024065c3549bc  scripts/cura-settings-source.part00' | sha256sum -c -
+          echo '60c1c5382be8f40356d4a36b88688e1a89ce7ca136d8d00a086c0ec34611cc20  scripts/cura-settings-source.part01' | sha256sum -c -
+          echo '9148f7fcb6a7a07a94d5de45f3148695c8eee85680caf4fcb9e12ea746891023  scripts/cura-settings-source.part02' | sha256sum -c -
+          echo 'f916ae5187be341dcacd0996fc7c26d4fb0a7c54a1adb0e46fd2141f3c84e934  scripts/cura-settings-source.part03' | sha256sum -c -
+          cat scripts/cura-settings-source.part00 scripts/cura-settings-source.part01 scripts/cura-settings-source.part02 scripts/cura-settings-source.part03 > /tmp/cura-settings-source.tar.gz.b64
+          test "$(wc -c < /tmp/cura-settings-source.tar.gz.b64)" -eq 53900
+          echo 'f6ee35764f1024d29d4bdd336f4f25db4451d8e884a82722c922fc55103adf25  /tmp/cura-settings-source.tar.gz.b64' | sha256sum -c -
+          base64 -d /tmp/cura-settings-source.tar.gz.b64 > /tmp/cura-settings-source.tar.gz
           echo 'a50fd5582586e903d3375ae1f89a8a22e34cb2b9a62df515667fdf659de01a06  /tmp/cura-settings-source.tar.gz' | sha256sum -c -
-          tar -tzf /tmp/cura-settings-source.tar.gz | grep -Ev '(^/|(^|/)\.\.(/|$))' >/dev/null
+          test -z "$(tar -tzf /tmp/cura-settings-source.tar.gz | grep -E '(^/|(^|/)\.\.(/|$))')"
           tar -xzf /tmp/cura-settings-source.tar.gz -C .
           git diff --check
       - name: Restore normal CI and remove one-shot files
@@ -37,6 +46,10 @@ jobs:
           rm -f .cura-settings-publish-trigger
           rm -f scripts/expose-cura-settings.patch
           rm -f scripts/cura-settings-source.tar.gz.b64
+          rm -f scripts/cura-settings-source.part00
+          rm -f scripts/cura-settings-source.part01
+          rm -f scripts/cura-settings-source.part02
+          rm -f scripts/cura-settings-source.part03
       - name: Publish source commit
         run: |
           git config user.name 'github-actions[bot]'
