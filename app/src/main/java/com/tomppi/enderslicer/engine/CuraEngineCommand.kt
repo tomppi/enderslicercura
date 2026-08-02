@@ -114,10 +114,57 @@ object CuraEngineCommand {
             command += "$key=$normalized"
         }
 
+        fun applySmartInfillWidths() {
+            val width = activeSmartInfill?.lineWidthMm ?: return
+            SMART_INFILL_WIDTH_KEYS.forEach { key -> setting(key, width) }
+        }
+
         fun applyStandaloneSettings() {
             CuraSettingDelta.standaloneValues(effectiveSettings).forEach { (key, value) -> setting(key, value) }
             ArcOverhangEngineSettings.values(effectiveSettings).forEach { (key, value) -> setting(key, value) }
             CalibrationSliceState.engineOverrides().forEach { (key, value) -> setting(key, value) }
+            applySmartInfillWidths()
+        }
+
+        // CuraEngine does not evaluate Cura frontend formulas for command-line
+        // values. A density label without these derived values does not change
+        // the actual regional toolpath spacing. Reproduce the pinned Cura 5.11
+        // formulas for every fallback Smart Infill mesh.
+        fun applySmartInfillDensity(densityPercent: Double) {
+            val packageValue = activeSmartInfill ?: return
+            require(densityPercent in 0.0..100.0) { "Invalid Smart Infill density: $densityPercent" }
+            val lineWidth = packageValue.lineWidthMm
+            val pattern = effectiveSettings.infillPattern.lowercase()
+            val patternFactor = when (pattern) {
+                "grid" -> 2.0
+                "triangles", "trihexagon", "cubic", "cubicsubdiv" -> 3.0
+                "tetrahedral", "quarter_cubic" -> 2.0
+                "cross", "cross_3d" -> 1.0
+                "lightning" -> 1.6
+                else -> 1.0
+            }
+            val lineDistance = if (densityPercent <= 0.0) {
+                0.0
+            } else {
+                lineWidth * 100.0 / densityPercent * patternFactor
+            }
+            val overlapPercent = if (densityPercent < 95.0 && pattern != "concentric") 10.0 else 0.0
+            val wallLineWidth = lineWidth
+            val overlapMm = if (overlapPercent > 0.0) {
+                0.5 * (lineWidth + wallLineWidth) * overlapPercent / 100.0
+            } else {
+                0.0
+            }
+            setting("infill_sparse_density", densityPercent)
+            setting("infill_pattern", pattern)
+            applySmartInfillWidths()
+            setting("infill_line_distance", lineDistance)
+            setting("infill_overlap", overlapPercent)
+            setting("infill_overlap_mm", overlapMm)
+            setting(
+                "extra_infill_lines_to_support_skins",
+                if (densityPercent > 50.0) "none" else "walls_and_lines",
+            )
         }
 
         // CuraEngine consumes centering/rotation state while -l loads geometry.
@@ -187,6 +234,7 @@ object CuraEngineCommand {
         command += listOf("-l", modelPath)
         positionLoadedMesh()
         setting("extruder_nr", 0)
+        applySmartInfillDensity(activeSmartInfill?.baseDensityPercent ?: effectiveSettings.infillDensityPercent)
         setting("infill_mesh", false)
         setting("support_mesh", false)
         setting("anti_overhang_mesh", false)
@@ -203,7 +251,7 @@ object CuraEngineCommand {
                 setting("extruder_nr", 0)
                 setting("infill_mesh", true)
                 setting("infill_mesh_order", index + 1)
-                setting("infill_sparse_density", modifier.densityPercent)
+                applySmartInfillDensity(modifier.densityPercent.toDouble())
                 setting("support_mesh", false)
                 setting("anti_overhang_mesh", false)
                 setting("cutting_mesh", false)
@@ -223,4 +271,13 @@ object CuraEngineCommand {
     private fun requireSafeArgument(value: String) {
         require('\u0000' !in value) { "CuraEngine argument contains a NUL character" }
     }
+
+    private val SMART_INFILL_WIDTH_KEYS = listOf(
+        "line_width",
+        "wall_line_width",
+        "wall_line_width_0",
+        "wall_line_width_x",
+        "skin_line_width",
+        "infill_line_width",
+    )
 }
