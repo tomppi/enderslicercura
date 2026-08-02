@@ -22,6 +22,7 @@ import androidx.activity.ComponentActivity
 import androidx.core.content.FileProvider
 import androidx.webkit.WebViewAssetLoader
 import com.tomppi.enderslicer.BuildConfig
+import com.tomppi.enderslicer.mesh.MeshTriangleLimits
 import java.io.BufferedOutputStream
 import java.io.File
 import java.io.OutputStream
@@ -158,11 +159,20 @@ class SmartInfillActivity : ComponentActivity() {
         private val sourceName: String,
         private val sourceSha256: String,
     ) {
+        private enum class Kind { MODIFIERS, SHAPE }
+
+        private data class Completed(
+            val file: File,
+            val kind: Kind,
+            val metadata: String?,
+        )
+
         private var output: File? = null
         private var stream: OutputStream? = null
         private var expectedBytes: Long = 0L
         private var writtenBytes: Long = 0L
         private var metadataJson: String? = null
+        private var activeKind: Kind? = null
 
         @JavascriptInterface
         fun sourceFileName(): String = sourceName
@@ -179,25 +189,84 @@ class SmartInfillActivity : ComponentActivity() {
         @JavascriptInterface
         @Synchronized
         fun beginModifierExport(filename: String, sizeBytes: Double, metadata: String): Boolean {
+            if (metadata.length !in 2..MAX_METADATA_CHARS) return false
+            return beginExport(
+                kind = Kind.MODIFIERS,
+                filename = filename,
+                sizeBytes = sizeBytes,
+                minimumBytes = MINIMUM_ZIP_BYTES,
+                extension = ".zip",
+                fallbackName = "smart-infill-modifiers.zip",
+                metadata = metadata,
+            )
+        }
+
+        @JavascriptInterface
+        @Synchronized
+        fun appendModifierChunk(encoded: String): Boolean = appendChunk(Kind.MODIFIERS, encoded)
+
+        @JavascriptInterface
+        fun finishModifierExport(): Boolean = finishExport(Kind.MODIFIERS)
+
+        @JavascriptInterface
+        @Synchronized
+        fun cancelModifierExport() {
+            if (activeKind == Kind.MODIFIERS) cancelLocked()
+        }
+
+        @JavascriptInterface
+        @Synchronized
+        fun beginShapeExport(filename: String, sizeBytes: Double): Boolean = beginExport(
+            kind = Kind.SHAPE,
+            filename = filename,
+            sizeBytes = sizeBytes,
+            minimumBytes = STL_HEADER_BYTES,
+            extension = ".stl",
+            fallbackName = "optimized.stl",
+            metadata = null,
+        )
+
+        @JavascriptInterface
+        @Synchronized
+        fun appendShapeChunk(encoded: String): Boolean = appendChunk(Kind.SHAPE, encoded)
+
+        @JavascriptInterface
+        fun finishShapeExport(): Boolean = finishExport(Kind.SHAPE)
+
+        @JavascriptInterface
+        @Synchronized
+        fun cancelShapeExport() {
+            if (activeKind == Kind.SHAPE) cancelLocked()
+        }
+
+        private fun beginExport(
+            kind: Kind,
+            filename: String,
+            sizeBytes: Double,
+            minimumBytes: Long,
+            extension: String,
+            fallbackName: String,
+            metadata: String?,
+        ): Boolean {
             cancelLocked()
             if (!sizeBytes.isFinite()) return false
             val size = sizeBytes.toLong()
-            if (size !in MINIMUM_ZIP_BYTES..MAX_EXPORT_BYTES) return false
-            if (metadata.length !in 2..MAX_METADATA_CHARS) return false
+            if (size !in minimumBytes..MAX_EXPORT_BYTES) return false
 
             val directory = File(activity.cacheDir, "smart-infill-exports").apply { mkdirs() }
             val safeBase = filename
                 .substringAfterLast('/')
                 .substringAfterLast('\\')
                 .replace(Regex("[^A-Za-z0-9._-]"), "_")
-                .ifBlank { "smart-infill-modifiers.zip" }
-                .let { if (it.lowercase().endsWith(".zip")) it else "$it.zip" }
+                .ifBlank { fallbackName }
+                .let { if (it.lowercase().endsWith(extension)) it else "$it$extension" }
             val target = File(directory, "${System.currentTimeMillis()}-$safeBase")
 
             return runCatching {
                 expectedBytes = size
                 writtenBytes = 0L
                 metadataJson = metadata
+                activeKind = kind
                 output = target
                 stream = BufferedOutputStream(target.outputStream(), CHUNK_BUFFER_BYTES)
                 true
@@ -207,9 +276,8 @@ class SmartInfillActivity : ComponentActivity() {
             }
         }
 
-        @JavascriptInterface
-        @Synchronized
-        fun appendModifierChunk(encoded: String): Boolean {
+        private fun appendChunk(kind: Kind, encoded: String): Boolean {
+            if (activeKind != kind) return false
             val active = stream ?: return false
             return runCatching {
                 val bytes = Base64.decode(encoded, Base64.NO_WRAP)
@@ -224,12 +292,12 @@ class SmartInfillActivity : ComponentActivity() {
             }
         }
 
-        @JavascriptInterface
-        fun finishModifierExport(): Boolean {
+        private fun finishExport(kind: Kind): Boolean {
             val completed = synchronized(this) {
+                if (activeKind != kind) return false
                 val file = output ?: return false
                 val active = stream ?: return false
-                val metadata = metadataJson ?: return false
+                val metadata = metadataJson
                 runCatching {
                     active.flush()
                     active.close()
@@ -240,38 +308,42 @@ class SmartInfillActivity : ComponentActivity() {
                 stream = null
                 output = null
                 metadataJson = null
-                if (writtenBytes != expectedBytes || !isValidModifierZip(file)) {
-                    file.delete()
-                    expectedBytes = 0L
-                    writtenBytes = 0L
-                    return false
+                activeKind = null
+                val valid = writtenBytes == expectedBytes && when (kind) {
+                    Kind.MODIFIERS -> metadata != null && isValidModifierZip(file)
+                    Kind.SHAPE -> isValidShape(file)
                 }
                 expectedBytes = 0L
                 writtenBytes = 0L
-                file to metadata
+                if (!valid) {
+                    file.delete()
+                    return false
+                }
+                Completed(file, kind, metadata)
             }
 
             activity.runOnUiThread {
                 val uri = FileProvider.getUriForFile(
                     activity,
                     "${BuildConfig.APPLICATION_ID}.files",
-                    completed.first,
+                    completed.file,
                 )
                 val result = Intent()
                     .setData(uri)
                     .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    .putExtra(EXTRA_METADATA_JSON, completed.second)
-                    .putExtra(EXTRA_SOURCE_SHA256, sourceSha256)
+                    .putExtra(
+                        EXTRA_RESULT_KIND,
+                        if (completed.kind == Kind.MODIFIERS) RESULT_MODIFIERS else RESULT_SHAPE,
+                    )
+                if (completed.kind == Kind.MODIFIERS) {
+                    result
+                        .putExtra(EXTRA_METADATA_JSON, completed.metadata)
+                        .putExtra(EXTRA_SOURCE_SHA256, sourceSha256)
+                }
                 activity.setResult(Activity.RESULT_OK, result)
                 activity.finish()
             }
             return true
-        }
-
-        @JavascriptInterface
-        @Synchronized
-        fun cancelModifierExport() {
-            cancelLocked()
         }
 
         private fun cancelLocked() {
@@ -280,6 +352,7 @@ class SmartInfillActivity : ComponentActivity() {
             output?.delete()
             output = null
             metadataJson = null
+            activeKind = null
             expectedBytes = 0L
             writtenBytes = 0L
         }
@@ -302,13 +375,21 @@ class SmartInfillActivity : ComponentActivity() {
                 }
             }.getOrDefault(false)
         }
+
+        private fun isValidShape(file: File): Boolean = runCatching {
+            requireValidBinaryStl(file, MeshTriangleLimits.current())
+            true
+        }.getOrDefault(false)
     }
 
     companion object {
         const val EXTRA_MODEL_PATH = "com.tomppi.enderslicercura.extra.SMART_INFILL_MODEL_PATH"
         const val EXTRA_MODEL_NAME = "com.tomppi.enderslicercura.extra.SMART_INFILL_MODEL_NAME"
+        const val EXTRA_RESULT_KIND = "com.tomppi.enderslicercura.extra.SMART_INFILL_RESULT_KIND"
         const val EXTRA_METADATA_JSON = "com.tomppi.enderslicercura.extra.SMART_INFILL_METADATA"
         const val EXTRA_SOURCE_SHA256 = "com.tomppi.enderslicercura.extra.SMART_INFILL_SOURCE_SHA256"
+        const val RESULT_MODIFIERS = "modifiers"
+        const val RESULT_SHAPE = "shape"
 
         const val FILASIM_COMMIT = "e7485ec22d4ebe8baca04190404fbb877c90e031"
 
