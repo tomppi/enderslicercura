@@ -80,7 +80,10 @@ val curaEngineExecutable = layout.projectDirectory.file("src/main/jniLibs/arm64-
 val verifyCuraEngineExecutable by tasks.registering {
     group = "verification"
     description = "Fails unless the packaged CuraEngine executable is a non-empty ARM64 ELF"
-    inputs.file(curaEngineExecutable)
+    // Keep this task uncached instead of declaring a mandatory input: Gradle
+    // would otherwise emit a generic missing-input error before the actionable
+    // prerequisite command below can be shown.
+    outputs.upToDateWhen { false }
 
     doLast {
         val executable = curaEngineExecutable.asFile
