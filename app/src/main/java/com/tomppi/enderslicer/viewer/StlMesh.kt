@@ -46,4 +46,17 @@ data class StlMesh(
     val slicingSourceInterleavedVertices: FloatArray? = null,
     /** Transform that maps the original vertices to the displayed placement. */
     val slicingTransform: StlSliceTransform? = null,
-)
+    /**
+     * Double-precision origin removed before ASCII coordinates are stored as
+     * floats. Scene transforms add its linear image back into their translation.
+     */
+    val sourceOriginXmm: Double = 0.0,
+    val sourceOriginYmm: Double = 0.0,
+    val sourceOriginZmm: Double = 0.0,
+) {
+    init {
+        require(listOf(sourceOriginXmm, sourceOriginYmm, sourceOriginZmm).all(Double::isFinite)) {
+            "STL source origin contains a non-finite value"
+        }
+    }
+}
