@@ -1,6 +1,6 @@
 # Smart Infill / filaSim integration
 
-EnderSlicerCura packages the pinned filaSim structural-analysis workspace and transports its optimized density regions into CuraEngine as infill modifier meshes.
+EnderSlicerCura packages the pinned filaSim structural-analysis workspace and supports its complete optimized-output workflow: graded or binary infill becomes Cura modifier meshes, while Part Topo becomes a new validated STL model.
 
 ## Workflow
 
@@ -8,14 +8,17 @@ EnderSlicerCura packages the pinned filaSim structural-analysis workspace and tr
 2. Open **Smart Infill**.
 3. Define supports, loads and material/print properties in filaSim.
 4. Check the setup, solve the reference part and run an optimization.
-5. Export modifier STLs from filaSim. The Android bridge imports them directly rather than downloading a user-visible ZIP.
-6. Slice normally. EnderSlicerCura applies the filaSim base density and print assumptions, then loads the regional meshes into CuraEngine with ordered `infill_mesh` and `infill_sparse_density` values.
+5. Choose the output for the selected optimization mode:
+   - **Graded/Binary:** export modifier STLs. The Android bridge imports the ZIP directly, without creating a user-visible download.
+   - **Part Topo:** export the optimized shape. The Android bridge validates the binary STL and imports it as the new model.
+6. For graded or binary output, slice normally. EnderSlicerCura applies the filaSim base density and print assumptions, then loads the regional meshes into CuraEngine with ordered `infill_mesh` and `infill_sparse_density` values.
+7. For Part Topo, inspect the replacement geometry, position it if necessary and slice it like any other STL.
 
-The optimized package is bound to the SHA-256 digest of the exact transformed binary STL supplied to filaSim. Importing another model, texturing it, or changing its move/rotation/lay-flat transform invalidates the package.
+A modifier package is bound to the SHA-256 digest of the exact transformed binary STL supplied to filaSim. Importing another model, texturing it, or changing its move/rotation/lay-flat transform invalidates the package. Part Topo output deliberately clears any previous modifier package because it is a different printable geometry.
 
 ## Slicing contract
 
-While a package is active, the slice uses filaSim's:
+While a graded or binary package is active, the slice uses filaSim's:
 
 - base infill density and pattern;
 - layer height and line width;
@@ -33,7 +36,7 @@ The Android host rejects:
 - nested paths or unexpected entries;
 - duplicate, non-increasing or out-of-range densities;
 - modifier densities at or below the base density;
-- structurally invalid binary STL files;
+- structurally invalid binary STL modifier or Part Topo files;
 - meshes above the configured triangle limit;
 - packages that no longer match the displayed model fingerprint;
 - unknown infill patterns instead of silently substituting another pattern.
@@ -44,9 +47,9 @@ CuraEngine and final G-code retain the app's existing build-volume, extrusion-te
 
 - One printable model and one extruder.
 - The Android WebView currently uses filaSim's single-threaded WASM build.
-- Cura modifier transport requires physical validation across nested regions, thin walls, supports, adaptive geometry and different infill patterns.
+- Cura modifier transport and Part Topo geometry require physical validation across nested regions, thin walls, supports, print directions and different infill patterns.
 - filaSim results depend on accurate loads, constraints, material properties, layer adhesion and print orientation. This is an engineering aid, not a certified structural calculation.
 
 ## Source and license
 
-The workspace is built from `CNCKitchen/smartInfillGenerator` commit `e7485ec22d4ebe8baca04190404fbb877c90e031` under `AGPL-3.0-only`. The build script, Android bridge, license and source notice are included in this repository or packaged workspace. See [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md).
+The workspace is built from `CNCKitchen/smartInfillGenerator` commit `e7485ec22d4ebe8baca04190404fbb877c90e031` under `AGPL-3.0-only`. The build script, Android bridge, license, source notice and exact dependency manifests are included in this repository or packaged workspace. See [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md).
