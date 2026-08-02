@@ -87,24 +87,35 @@ internal object SceneCameraFit {
         val minimumDistance = max(framingRadius + 1f, modelRadius * MIN_CAMERA_RADIUS_SCALE)
         val distance = max(fittedDistance / zoom, minimumDistance)
 
-        // Do not derive the near plane from the complete bed radius. A small
-        // centered model plus a large bed previously collapsed this to 0.05 mm,
-        // wasting almost all precision in the mobile depth buffer and allowing
-        // hidden triangles to bleed through the visible shell.
-        val focusSafeNear = distance - modelRadius * FOCUS_CLIP_MARGIN
-        val preferredNear = distance * PREFERRED_NEAR_FRACTION
+        // ModelSurfaceView places the eye at (0, -distance,
+        // distance * CAMERA_ELEVATION_RATIO). Projection clipping is measured
+        // from the eye, not from its Y component. Using only `distance` made
+        // the far plane increasingly too short as the user zoomed out, cutting
+        // the back of the build plate away.
+        val eyeDistance = distance * sqrt(
+            1f + CAMERA_ELEVATION_RATIO * CAMERA_ELEVATION_RATIO,
+        )
+
+        // Keep the near plane focused around the model so the 24-bit mobile
+        // depth buffer retains enough precision to prevent shell bleed-through.
+        val focusSafeNear = eyeDistance - modelRadius * FOCUS_CLIP_MARGIN
+        val preferredNear = eyeDistance * PREFERRED_NEAR_FRACTION
         val near = min(preferredNear, focusSafeNear).coerceAtLeast(MIN_NEAR_PLANE)
-        val far = max(near + MIN_DEPTH_RANGE, distance + clipRadius * FAR_CLIP_MARGIN + FAR_PADDING)
+        val far = max(
+            near + MIN_DEPTH_RANGE,
+            eyeDistance + clipRadius * FAR_CLIP_MARGIN + FAR_PADDING,
+        )
         return Fit(centerX, centerY, centerZ, framingRadius, distance, near, far)
     }
 
+    private const val CAMERA_ELEVATION_RATIO = 0.62f
     private const val BED_CONTEXT_FRACTION = 0.28f
     private const val MAX_CONTEXT_SCALE = 2.25f
     private const val MIN_CAMERA_RADIUS_SCALE = 1.08f
     private const val FOCUS_CLIP_MARGIN = 1.04f
     private const val PREFERRED_NEAR_FRACTION = 0.10f
     private const val MIN_NEAR_PLANE = 0.1f
-    private const val FAR_CLIP_MARGIN = 1.10f
+    private const val FAR_CLIP_MARGIN = 1.15f
     private const val FAR_PADDING = 10f
     private const val MIN_DEPTH_RANGE = 10f
 }
