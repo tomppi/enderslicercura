@@ -120,9 +120,15 @@ object CuraEngineCommand {
             CalibrationSliceState.engineOverrides().forEach { (key, value) -> setting(key, value) }
         }
 
-        fun applyFinalMeshTransform() {
+        // CuraEngine consumes centering/rotation state while -l loads geometry.
+        // Ordinary per-mesh position and role settings must instead follow -l,
+        // because its stateful CLI parser applies -s to the mesh just loaded.
+        fun prepareMeshLoad() {
             setting("center_object", false)
             setting("mesh_rotation_matrix", "[[1,0,0],[0,1,0],[0,0,1]]")
+        }
+
+        fun positionLoadedMesh() {
             setting("mesh_position_x", engineOffsetX)
             setting("mesh_position_y", engineOffsetY)
             setting("mesh_position_z", 0)
@@ -147,7 +153,6 @@ object CuraEngineCommand {
             "machine_head_with_fans_polygon",
             "[[${effectivePrinter.printheadXMinMm},${effectivePrinter.printheadYMaxMm}],[${effectivePrinter.printheadXMinMm},${effectivePrinter.printheadYMinMm}],[${effectivePrinter.printheadXMaxMm},${effectivePrinter.printheadYMinMm}],[${effectivePrinter.printheadXMaxMm},${effectivePrinter.printheadYMaxMm}]]",
         )
-        applyFinalMeshTransform()
         applyStandaloneSettings()
 
         command += listOf(
@@ -178,19 +183,23 @@ object CuraEngineCommand {
         setting("support_roof_line_distance", lineDistance)
         setting("support_bottom_line_distance", lineDistance)
 
-        applyFinalMeshTransform()
+        prepareMeshLoad()
+        command += listOf("-l", modelPath)
+        positionLoadedMesh()
+        setting("extruder_nr", 0)
         setting("infill_mesh", false)
         setting("support_mesh", false)
         setting("anti_overhang_mesh", false)
         setting("cutting_mesh", false)
-        command += listOf("-l", modelPath)
 
         effectiveSmartInfillModifiers
             .sortedBy(SmartInfillModifier::densityPercent)
             .forEachIndexed { index, modifier ->
-                // The modifier STL came from the already transformed model, so
-                // it uses identity geometry with only Cura's bed-origin offset.
-                applyFinalMeshTransform()
+                // Modifier STL geometry already uses the displayed model's final
+                // coordinates; only the common Cura bed-origin offset is needed.
+                prepareMeshLoad()
+                command += listOf("-l", modifier.file.absolutePath)
+                positionLoadedMesh()
                 setting("extruder_nr", 0)
                 setting("infill_mesh", true)
                 setting("infill_mesh_order", index + 1)
@@ -198,7 +207,6 @@ object CuraEngineCommand {
                 setting("support_mesh", false)
                 setting("anti_overhang_mesh", false)
                 setting("cutting_mesh", false)
-                command += listOf("-l", modifier.file.absolutePath)
             }
 
         command += listOf("-o", outputPath)
