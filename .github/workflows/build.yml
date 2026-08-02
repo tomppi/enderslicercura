@@ -12,7 +12,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
 
@@ -24,6 +24,21 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: .build/filasim-android -> target
+
+      - name: Install pinned wasm-pack
+        run: cargo install wasm-pack --locked --version 0.15.0
 
       - uses: android-actions/setup-android@v3
 
@@ -89,6 +104,24 @@ jobs:
             app/src/main/assets/bumpmesh/index.html \
             app/src/main/assets/bumpmesh/js
 
+      - name: Prepare and validate pinned filaSim workspace
+        run: |
+          set -o pipefail
+          gradle :app:prepareFilaSimAssets --stacktrace 2>&1 | tee filasim-build.log
+          test -s app/src/main/assets/filasim/index.html
+          test -s app/src/main/assets/filasim/android-bridge.js
+          test -s app/src/main/assets/filasim/LICENSE
+          test -s app/src/main/assets/filasim/SOURCE.md
+          test -s app/src/main/assets/filasim/source-manifest/Cargo.lock
+          test -s app/src/main/assets/filasim/source-manifest/web-package-lock.json
+          grep -q 'format=3' app/src/main/assets/filasim/.source-version
+          grep -q 'commit=e7485ec22d4ebe8baca04190404fbb877c90e031' app/src/main/assets/filasim/.source-version
+          grep -q 'android-bridge.js' app/src/main/assets/filasim/index.html
+          grep -R -q 'EnderSlicerBridge.*captureModifierZip' .build/filasim-android/e7485ec22d4ebe8baca04190404fbb877c90e031/web/src/store.ts
+          grep -R -q 'EnderSlicerBridge.*captureOptimizedShape' .build/filasim-android/e7485ec22d4ebe8baca04190404fbb877c90e031/web/src/store.ts
+          grep -R -q 'state.optMode === "binary" ? state.solidPattern : state.pattern' .build/filasim-android/e7485ec22d4ebe8baca04190404fbb877c90e031/web/src/store.ts
+          test -n "$(find app/src/main/assets/filasim -type f -name '*.wasm' -size +0c -print -quit)"
+
       - name: Build and package CuraEngine ARM64
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/28.2.13676358
@@ -132,6 +165,13 @@ jobs:
           grep -q 'assets/bumpmesh/vendor/three/build/three.module.js' apk-contents.log
           grep -q 'assets/bumpmesh/vendor/meshstep/src/index.ts' apk-contents.log
           grep -q 'assets/bumpmesh/vendor/meshstep/LICENSE' apk-contents.log
+          grep -q 'assets/filasim/index.html' apk-contents.log
+          grep -q 'assets/filasim/android-bridge.js' apk-contents.log
+          grep -q 'assets/filasim/LICENSE' apk-contents.log
+          grep -q 'assets/filasim/SOURCE.md' apk-contents.log
+          grep -q 'assets/filasim/source-manifest/Cargo.lock' apk-contents.log
+          grep -q 'assets/filasim/source-manifest/web-package-lock.json' apk-contents.log
+          grep -Eq 'assets/filasim/.*\.wasm' apk-contents.log
           for name in \
             fdmprinter \
             fdmextruder \
@@ -144,7 +184,7 @@ jobs:
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: enderslicercura-0.9.0-dev-debug-apk
+          name: enderslicercura-0.9.0-dev-smart-infill-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
 
       - name: Upload build logs
@@ -153,6 +193,7 @@ jobs:
         with:
           name: enderslicercura-build-logs
           path: |
+            filasim-build.log
             curaengine-android-build.log
             curaengine-needed.log
             unit-tests.log

@@ -3,4 +3,7 @@
     <cache-path
         name="bumpmesh_exports"
         path="bumpmesh-exports/" />
+    <cache-path
+        name="smart_infill_exports"
+        path="smart-infill-exports/" />
 </paths>

@@ -17,6 +17,9 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.EnderSlicer">
         <activity
+            android:name=".smartinfill.SmartInfillActivity"
+            android:exported="false" />
+        <activity
             android:name=".texturizer.BumpMeshActivity"
             android:exported="false" />
         <activity

@@ -2,6 +2,9 @@ package com.tomppi.enderslicer.profile
 
 import com.tomppi.enderslicer.calibration.CalibrationSliceState
 import com.tomppi.enderslicer.engine.PrinterEnvelope
+import com.tomppi.enderslicer.smartinfill.SmartInfillModifier
+import com.tomppi.enderslicer.smartinfill.SmartInfillRuntime
+import com.tomppi.enderslicer.smartinfill.requireValidBinaryStl
 import com.tomppi.enderslicer.viewer.StlMeshWriter
 import com.tomppi.enderslicer.viewer.StlSliceTransform
 import org.json.JSONObject
@@ -13,6 +16,7 @@ internal object CuraResolvedSettingsWriter {
         modelFileName: String,
         resolved: CuraSliceSettingsResolver.Result,
         modelTransform: StlSliceTransform? = null,
+        smartInfillModifiers: List<SmartInfillModifier> = emptyList(),
     ) {
         require(modelFileName.endsWith(".stl", ignoreCase = true)) {
             "Resolved Cura model must be an STL file"
@@ -22,6 +26,11 @@ internal object CuraResolvedSettingsWriter {
         val modelFile = File(modelDirectory, modelFileName)
         require(modelFile.isFile && modelFile.length() > 0L) {
             "Resolved Cura STL is missing or empty: ${modelFile.absolutePath}"
+        }
+        val effectiveSmartInfillModifiers = if (smartInfillModifiers.isNotEmpty()) {
+            smartInfillModifiers
+        } else {
+            SmartInfillRuntime.current()?.stageModifiers(modelDirectory).orEmpty()
         }
 
         val machineWidth = requiredNumber(resolved.globalValues, "machine_width")
@@ -42,54 +51,90 @@ internal object CuraResolvedSettingsWriter {
                 ?: PrinterEnvelope.DEFAULT_GCODE_FLAVOR,
         )
         printerEnvelope.requireBinaryStlFits(modelFile, modelTransform)
+        effectiveSmartInfillModifiers.forEach { modifier ->
+            require(modifier.file.parentFile?.canonicalFile == modelDirectory.canonicalFile) {
+                "Smart Infill modifier was not staged inside the CuraEngine request"
+            }
+            requireValidBinaryStl(modifier.file, Int.MAX_VALUE)
+            printerEnvelope.requireBinaryStlFits(modifier.file)
+        }
         printerEnvelope.writeTo(File(modelDirectory, PrinterEnvelope.METADATA_FILE_NAME))
-
-        val effectiveTransform = modelTransform
 
         val machineCenterX = if (centerIsZero) 0.0 else machineWidth / 2.0
         val machineCenterY = if (centerIsZero) 0.0 else machineDepth / 2.0
+        val enginePositionX = -machineCenterX
+        val enginePositionY = -machineCenterY
+        val enginePositionZ = 0.0
+
+        val effectiveTransform = modelTransform
         val linear = effectiveTransform?.linear ?: IDENTITY
         val affineTranslationX = effectiveTransform?.translationXmm ?: 0.0
         val affineTranslationY = effectiveTransform?.translationYmm ?: 0.0
         val affineTranslationZ = effectiveTransform?.translationZmm ?: 0.0
-        val rotationMatrix = matrixString(linear)
-        val enginePositionX = -machineCenterX
-        val enginePositionY = -machineCenterY
-        val enginePositionZ = 0.0
 
         val calibrationOverrides = CalibrationSliceState.engineOverrides()
         val extruderValues = JSONObject(resolved.extruderValues)
         resolved.modelValues.forEach { (key, value) -> extruderValues.put(key, value) }
         calibrationOverrides.forEach { (key, value) -> extruderValues.put(key, value) }
-        extruderValues
-            .put("center_object", false)
-            .put("mesh_rotation_matrix", rotationMatrix)
-            .put(AFFINE_TRANSLATION_X, affineTranslationX)
-            .put(AFFINE_TRANSLATION_Y, affineTranslationY)
-            .put(AFFINE_TRANSLATION_Z, affineTranslationZ)
-            .put("mesh_position_x", enginePositionX)
-            .put("mesh_position_y", enginePositionY)
-            .put("mesh_position_z", enginePositionZ)
+        applyTransform(
+            values = extruderValues,
+            linear = linear,
+            translationX = affineTranslationX,
+            translationY = affineTranslationY,
+            translationZ = affineTranslationZ,
+            enginePositionX = enginePositionX,
+            enginePositionY = enginePositionY,
+            enginePositionZ = enginePositionZ,
+        )
 
         val modelValues = JSONObject(resolved.modelValues)
         calibrationOverrides.forEach { (key, value) ->
             if (resolved.modelValues.containsKey(key)) modelValues.put(key, value)
         }
-        modelValues
-            .put("extruder_nr", 0)
-            .put("center_object", false)
-            .put("mesh_rotation_matrix", rotationMatrix)
-            .put(AFFINE_TRANSLATION_X, affineTranslationX)
-            .put(AFFINE_TRANSLATION_Y, affineTranslationY)
-            .put(AFFINE_TRANSLATION_Z, affineTranslationZ)
-            .put("mesh_position_x", enginePositionX)
-            .put("mesh_position_y", enginePositionY)
-            .put("mesh_position_z", enginePositionZ)
+        modelValues.put("extruder_nr", 0)
+        applyTransform(
+            values = modelValues,
+            linear = linear,
+            translationX = affineTranslationX,
+            translationY = affineTranslationY,
+            translationZ = affineTranslationZ,
+            enginePositionX = enginePositionX,
+            enginePositionY = enginePositionY,
+            enginePositionZ = enginePositionZ,
+        )
 
         val root = JSONObject()
             .put("global", JSONObject(resolved.globalValues))
             .put("extruder.0", extruderValues)
             .put(modelFileName, modelValues)
+
+        effectiveSmartInfillModifiers
+            .sortedBy(SmartInfillModifier::densityPercent)
+            .forEachIndexed { index, modifier ->
+                val values = JSONObject(resolved.modelValues)
+                    .put("extruder_nr", 0)
+                    .put("infill_mesh", true)
+                    .put("infill_mesh_order", index + 1)
+                    .put("infill_sparse_density", modifier.densityPercent)
+                    .put("support_mesh", false)
+                    .put("anti_overhang_mesh", false)
+                    .put("cutting_mesh", false)
+                // filaSim receives the already transformed/displayed STL, so
+                // modifier geometry is in final printer coordinates. Do not
+                // apply the source model's 3MF affine a second time.
+                applyTransform(
+                    values = values,
+                    linear = IDENTITY,
+                    translationX = 0.0,
+                    translationY = 0.0,
+                    translationZ = 0.0,
+                    enginePositionX = enginePositionX,
+                    enginePositionY = enginePositionY,
+                    enginePositionZ = enginePositionZ,
+                )
+                root.put(modifier.file.name, values)
+            }
+
         destination.writeText(root.toString())
         check(destination.isFile && destination.length() > 0L) {
             "Unable to write resolved Cura settings"
@@ -104,6 +149,7 @@ internal object CuraResolvedSettingsWriter {
         require(stagedDisplayedFile.isFile && stagedDisplayedFile.length() > 0L) {
             "The transformed STL is unavailable for resolved source staging"
         }
+        SmartInfillRuntime.current()?.requireMatchesSource(stagedDisplayedFile)
         val sourceFile = File(
             stagedDisplayedFile.parentFile,
             "${stagedDisplayedFile.nameWithoutExtension}.slice-source.stl",
@@ -132,6 +178,27 @@ internal object CuraResolvedSettingsWriter {
             "The STL transform changed while it was being staged"
         }
         return stagedSource.transform
+    }
+
+    private fun applyTransform(
+        values: JSONObject,
+        linear: List<Double>,
+        translationX: Double,
+        translationY: Double,
+        translationZ: Double,
+        enginePositionX: Double,
+        enginePositionY: Double,
+        enginePositionZ: Double,
+    ) {
+        values
+            .put("center_object", false)
+            .put("mesh_rotation_matrix", matrixString(linear))
+            .put(AFFINE_TRANSLATION_X, translationX)
+            .put(AFFINE_TRANSLATION_Y, translationY)
+            .put(AFFINE_TRANSLATION_Z, translationZ)
+            .put("mesh_position_x", enginePositionX)
+            .put("mesh_position_y", enginePositionY)
+            .put("mesh_position_z", enginePositionZ)
     }
 
     private fun fileStamp(file: File): FileStamp = FileStamp(file.length(), file.lastModified())

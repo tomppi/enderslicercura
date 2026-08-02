@@ -3,6 +3,11 @@ package com.tomppi.enderslicer.engine
 import com.tomppi.enderslicer.model.PrinterDefinition
 import com.tomppi.enderslicer.model.SlicerSettings
 import com.tomppi.enderslicer.profile.CuraEngineProfile
+import com.tomppi.enderslicer.smartinfill.SmartInfillModifier
+import java.io.File
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
+import java.nio.file.Files
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -93,5 +98,69 @@ class CuraEngineCommandTest {
 
         assertTrue(error is IllegalArgumentException)
         assertTrue(error?.message.orEmpty().contains("dependency-resolved"))
+    }
+
+    @Test
+    fun fallbackCommandLoadsSortedSmartInfillRegionsAfterThePrintableModel() {
+        val directory = Files.createTempDirectory("cura-smart-infill-command").toFile()
+        try {
+            val model = File(directory, "model.stl")
+            val low = File(directory, "modifier-35pct.stl")
+            val high = File(directory, "modifier-70pct.stl")
+            writeTriangle(model, 100f, 100f, 0.2f)
+            writeTriangle(low, 101f, 101f, 0.4f)
+            writeTriangle(high, 102f, 102f, 0.6f)
+
+            val command = CuraEngineCommand.build(
+                executablePath = "/native/libcuraengine_exec.so",
+                definitionsDirectory = "/files/definitions",
+                machineDefinitionPath = "/files/definitions/creality_ender3.def.json",
+                extruderDefinitionPath = "/files/definitions/creality_base_extruder_0.def.json",
+                modelPath = model.absolutePath,
+                outputPath = File(directory, "current.gcode").absolutePath,
+                printer = printer,
+                settings = SlicerSettings(),
+                startGcode = "G28",
+                endGcode = "M104 S0",
+                smartInfillModifiers = listOf(
+                    SmartInfillModifier(70, high),
+                    SmartInfillModifier(35, low),
+                ),
+                threadCount = 4,
+            )
+
+            val modelIndex = command.indexOf(model.absolutePath)
+            val lowIndex = command.indexOf(low.absolutePath)
+            val highIndex = command.indexOf(high.absolutePath)
+            assertTrue(modelIndex > 0)
+            assertTrue(lowIndex > modelIndex)
+            assertTrue(highIndex > lowIndex)
+            assertTrue(command.subList(modelIndex, lowIndex).contains("infill_mesh=true"))
+            assertTrue(command.subList(modelIndex, lowIndex).contains("infill_sparse_density=35"))
+            assertTrue(command.subList(lowIndex, highIndex).contains("infill_mesh_order=2"))
+            assertTrue(command.subList(lowIndex, highIndex).contains("infill_sparse_density=70"))
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    private fun writeTriangle(file: File, x: Float, y: Float, z: Float) {
+        val bytes = ByteBuffer.allocate(84 + 50).order(ByteOrder.LITTLE_ENDIAN)
+        bytes.position(80)
+        bytes.putInt(1)
+        bytes.putFloat(0f)
+        bytes.putFloat(0f)
+        bytes.putFloat(1f)
+        bytes.putFloat(x)
+        bytes.putFloat(y)
+        bytes.putFloat(z)
+        bytes.putFloat(x + 1f)
+        bytes.putFloat(y)
+        bytes.putFloat(z)
+        bytes.putFloat(x)
+        bytes.putFloat(y + 1f)
+        bytes.putFloat(z)
+        bytes.putShort(0)
+        file.writeBytes(bytes.array())
     }
 }
