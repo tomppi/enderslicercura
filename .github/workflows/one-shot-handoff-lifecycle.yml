@@ -32,6 +32,12 @@ jobs:
             app/src/main/java/com/tomppi/enderslicer/ui/IntegratedEnderSlicerApp.kt \
             app/src/main/java/com/tomppi/enderslicer/ui/EnderSlicerApp.kt \
             app/src/main/java/com/tomppi/enderslicer/ui/MainViewModel.kt \
+            app/src/main/java/com/tomppi/enderslicer/ui/ModelToolsSheet.kt \
+            app/src/main/java/com/tomppi/enderslicer/ui/LayerEventsSheet.kt \
+            app/src/main/java/com/tomppi/enderslicer/ui/MeshTriangleLimitSheet.kt \
+            app/src/main/java/com/tomppi/enderslicer/ui/CalibrationGeneratorSheet.kt \
+            app/src/main/java/com/tomppi/enderslicer/ui/MachineSettingsSheet.kt \
+            app/src/main/java/com/tomppi/enderslicer/ui/HardenedOctoPrintSheet.kt \
             app/src/main/java/com/tomppi/enderslicer/model/PlanarPatchSelector.kt
           python3 scripts/prepare_handoff_patcher.py > handoff-patch-output.txt 2>&1
           status=$?
@@ -41,6 +47,10 @@ jobs:
           fi
           if [ "$status" -eq 0 ]; then
             python3 scripts/finalize_handoff_patched_sources.py >> handoff-patch-output.txt 2>&1
+            status=$?
+          fi
+          if [ "$status" -eq 0 ]; then
+            python3 scripts/finalize_handoff_ui_drafts.py >> handoff-patch-output.txt 2>&1
             status=$?
           fi
           if [ "$status" -eq 0 ]; then
