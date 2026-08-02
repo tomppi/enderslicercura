@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - feature/expose-cura-profile-settings
+  pull_request:
+    branches:
+      - fix/parser-memory-lifecycle
 
 permissions:
   contents: write
@@ -26,6 +29,7 @@ jobs:
           git fetch origin fix/parser-memory-lifecycle
           git show origin/fix/parser-memory-lifecycle:.github/workflows/build.yml > .github/workflows/build.yml
           rm -f .github/workflows/export-source.yml
+          rm -f .cura-settings-publish-trigger
           rm scripts/expose-cura-settings.patch
       - name: Publish source commit
         run: |
