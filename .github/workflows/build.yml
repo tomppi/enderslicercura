@@ -155,4 +155,6 @@ jobs:
             unit-tests.log
             apk-build.log
             apk-contents.log
+            handoff-patch-error.txt
+            handoff-patched-sources.b64
           if-no-files-found: ignore
