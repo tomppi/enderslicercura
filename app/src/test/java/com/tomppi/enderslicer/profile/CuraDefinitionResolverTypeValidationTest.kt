@@ -1,5 +1,6 @@
 package com.tomppi.enderslicer.profile
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -64,6 +65,35 @@ class CuraDefinitionResolverTypeValidationTest {
 
         assertTrue(error is IllegalArgumentException)
         assertTrue(error?.message.orEmpty().contains("declared=bool"))
+    }
+
+    @Test
+    fun enumValidationUsesStoredOptionValuesInsteadOfDisplayLabels() {
+        val machine = """
+            {"settings":{"machine":{"type":"category","children":{
+              "machine_gcode_flavor":{
+                "type":"enum",
+                "default_value":"Marlin",
+                "options":{
+                  "RepRap (Marlin/Sprinter)":"Marlin",
+                  "RepRap (RepRap)":"RepRap"
+                }
+              }
+            }}}}
+        """.trimIndent()
+
+        val result = CuraDefinitionResolver.resolve(
+            definitionFiles = mapOf(
+                "machine.def.json" to machine,
+                "extruder.def.json" to """{"settings":{}}""",
+            ),
+            machineDefinitionFileName = "machine.def.json",
+            extruderDefinitionFileName = "extruder.def.json",
+            globalOverrides = emptyMap(),
+            extruderOverrides = emptyMap(),
+        )
+
+        assertEquals("Marlin", result.globalValues["machine_gcode_flavor"])
     }
 
     private fun definitions(expression: String): Map<String, String> = mapOf(
