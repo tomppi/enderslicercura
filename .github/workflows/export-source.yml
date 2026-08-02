@@ -6,6 +6,11 @@ on:
       - feature/expose-cura-profile-settings
     paths:
       - .github/workflows/export-source.yml
+  pull_request:
+    branches:
+      - fix/parser-memory-lifecycle
+    paths:
+      - .github/workflows/export-source.yml
 
 jobs:
   export:
