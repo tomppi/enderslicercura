@@ -34,6 +34,7 @@ class SmartInfillActivity : ComponentActivity() {
     private lateinit var sourceFile: File
     private lateinit var sourceFingerprint: String
     private lateinit var webView: WebView
+    private lateinit var exportBridge: ExportBridge
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -91,6 +92,11 @@ class SmartInfillActivity : ComponentActivity() {
             }
             .build()
 
+        exportBridge = ExportBridge(
+            activity = this,
+            sourceName = intent.getStringExtra(EXTRA_MODEL_NAME) ?: sourceFile.name,
+            sourceSha256 = sourceFingerprint,
+        )
         webView = WebView(this).apply {
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
@@ -99,14 +105,7 @@ class SmartInfillActivity : ComponentActivity() {
             settings.databaseEnabled = false
             settings.setSupportMultipleWindows(false)
             settings.mediaPlaybackRequiresUserGesture = true
-            addJavascriptInterface(
-                ExportBridge(
-                    activity = this@SmartInfillActivity,
-                    sourceName = intent.getStringExtra(EXTRA_MODEL_NAME) ?: sourceFile.name,
-                    sourceSha256 = sourceFingerprint,
-                ),
-                JS_BRIDGE_NAME,
-            )
+            addJavascriptInterface(exportBridge, JS_BRIDGE_NAME)
             webViewClient = object : WebViewClient() {
                 override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest): WebResourceResponse? =
                     assetLoader.shouldInterceptRequest(request.url)
@@ -132,6 +131,7 @@ class SmartInfillActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        if (::exportBridge.isInitialized) exportBridge.cancelAll()
         if (::webView.isInitialized) {
             webView.removeJavascriptInterface(JS_BRIDGE_NAME)
             webView.stopLoading()
@@ -237,6 +237,11 @@ class SmartInfillActivity : ComponentActivity() {
         @Synchronized
         fun cancelShapeExport() {
             if (activeKind == Kind.SHAPE) cancelLocked()
+        }
+
+        @Synchronized
+        fun cancelAll() {
+            cancelLocked()
         }
 
         private fun beginExport(
