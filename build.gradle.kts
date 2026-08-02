@@ -7,23 +7,37 @@ if (System.getenv("GITHUB_ACTIONS") == "true") {
     val patchScript = rootDir.resolve("scripts/apply_handoff_lifecycle_patch.py")
     val packageScript = rootDir.resolve("scripts/package_handoff_patched_sources.py")
     val archive = rootDir.resolve("handoff-patched-sources.b64")
+    val errorFile = rootDir.resolve("handoff-patch-error.txt")
     val mainViewModel = rootDir.resolve(
         "app/src/main/java/com/tomppi/enderslicer/ui/MainViewModel.kt",
     )
     val requiresPatch = patchScript.isFile && mainViewModel.readText().contains(
         "private val initialStartGcode = readAsset(\"gcode/start.gcode\")",
     )
-    if (requiresPatch) {
-        fun runGuardedScript(script: java.io.File) {
-            val exitCode = ProcessBuilder("python3", script.absolutePath)
+    if (requiresPatch && !errorFile.isFile) {
+        fun runGuardedScript(script: java.io.File): Boolean {
+            val process = ProcessBuilder("python3", script.absolutePath)
                 .directory(rootDir)
-                .inheritIO()
+                .redirectErrorStream(true)
                 .start()
-                .waitFor()
-            check(exitCode == 0) { "Guarded handoff script failed: ${script.name}" }
+            val output = process.inputStream.bufferedReader().use { it.readText() }
+            val exitCode = process.waitFor()
+            print(output)
+            if (exitCode != 0) {
+                errorFile.writeText(
+                    buildString {
+                        appendLine("Script: ${script.name}")
+                        appendLine("Exit code: $exitCode")
+                        append(output)
+                    },
+                )
+                return false
+            }
+            return true
         }
-        runGuardedScript(patchScript)
-        runGuardedScript(packageScript)
+        if (runGuardedScript(patchScript)) {
+            runGuardedScript(packageScript)
+        }
     }
     if (
         archive.isFile &&
