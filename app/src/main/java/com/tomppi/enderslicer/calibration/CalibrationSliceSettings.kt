@@ -4,6 +4,7 @@ import com.tomppi.enderslicer.engine.CalibrationFirmwareEncoder
 import com.tomppi.enderslicer.engine.LayerEventType
 import com.tomppi.enderslicer.engine.PrinterEnvelope
 import com.tomppi.enderslicer.model.SlicerSettings
+import com.tomppi.enderslicer.smartinfill.SmartInfillPackage
 import com.tomppi.enderslicer.smartinfill.SmartInfillRuntime
 import com.tomppi.enderslicer.smartinfill.applyTo
 import kotlin.math.roundToInt
@@ -40,8 +41,11 @@ internal object CalibrationSliceState {
         restoreRetractionSpeedMmPerSecond = null
     }
 
-    fun effective(settings: SlicerSettings): SlicerSettings {
-        val baseSettings = SmartInfillRuntime.current()?.applyTo(settings) ?: settings
+    fun effective(
+        settings: SlicerSettings,
+        smartInfillPackage: SmartInfillPackage? = SmartInfillRuntime.current(),
+    ): SlicerSettings {
+        val baseSettings = smartInfillPackage?.applyTo(settings) ?: settings
         val type = activeType ?: return baseSettings
         if (type == CalibrationTestType.RETRACTION) {
             restoreRetractionDistanceMm = baseSettings.retractionDistanceMm
