@@ -512,12 +512,68 @@ internal fun CategorizedSettingsSheet(
 
         SettingsCategory("Experimental") {
             SwitchRow(
+                "Wave overhangs (experimental)",
+                settings.waveOverhangEnabled,
+                source(state, SlicerSettings.Keys.WAVE_OVERHANG_ENABLED),
+            ) {
+                onSettings(SlicerSettings.Keys.WAVE_OVERHANG_ENABLED) { current ->
+                    current.copy(
+                        waveOverhangEnabled = it,
+                        arcOverhangEnabled = if (it) false else current.arcOverhangEnabled,
+                    )
+                }
+            }
+            if (settings.waveOverhangEnabled) {
+                Text(
+                    "Expanding wavefronts grow from model-supported material into open-air bottom skin. Use maximum cooling and verify the layer preview before printing.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+                OptionField(
+                    label = "Wave traversal",
+                    value = settings.waveOverhangPattern,
+                    options = listOf(
+                        "smart" to "Smart · supported-first",
+                        "monotonic" to "Monotonic · independent fronts",
+                        "zigzag" to "Zigzag · alternating fronts",
+                    ),
+                    source = source(state, SlicerSettings.Keys.WAVE_OVERHANG_PATTERN),
+                ) {
+                    onSettings(SlicerSettings.Keys.WAVE_OVERHANG_PATTERN) { current -> current.copy(waveOverhangPattern = it) }
+                }
+                NumberField("Wave spacing (mm)", settings.waveOverhangLineSpacingMm, source(state, SlicerSettings.Keys.WAVE_OVERHANG_LINE_SPACING), decimals = 3) {
+                    onSettings(SlicerSettings.Keys.WAVE_OVERHANG_LINE_SPACING) { current -> current.copy(waveOverhangLineSpacingMm = it.coerceIn(0.1, 2.0)) }
+                }
+                NumberField("Wave flow (mm³/mm)", settings.waveOverhangFlowMm3PerMm, source(state, SlicerSettings.Keys.WAVE_OVERHANG_FLOW), decimals = 3) {
+                    onSettings(SlicerSettings.Keys.WAVE_OVERHANG_FLOW) { current -> current.copy(waveOverhangFlowMm3PerMm = it.coerceIn(0.02, 1.5)) }
+                }
+                NumberField("Wave speed (mm/s)", settings.waveOverhangSpeedMmPerSecond, source(state, SlicerSettings.Keys.WAVE_OVERHANG_SPEED)) {
+                    onSettings(SlicerSettings.Keys.WAVE_OVERHANG_SPEED) { current -> current.copy(waveOverhangSpeedMmPerSecond = it.coerceIn(0.5, 50.0)) }
+                }
+                NumberField("Wave fan speed (%)", settings.waveOverhangFanSpeedPercent, source(state, SlicerSettings.Keys.WAVE_OVERHANG_FAN_SPEED), decimals = 0) {
+                    onSettings(SlicerSettings.Keys.WAVE_OVERHANG_FAN_SPEED) { current -> current.copy(waveOverhangFanSpeedPercent = it.coerceIn(0.0, 100.0)) }
+                }
+                NumberField("Perimeter overlap (mm)", settings.waveOverhangPerimeterOverlapMm, source(state, SlicerSettings.Keys.WAVE_OVERHANG_PERIMETER_OVERLAP), decimals = 3) {
+                    onSettings(SlicerSettings.Keys.WAVE_OVERHANG_PERIMETER_OVERLAP) { current -> current.copy(waveOverhangPerimeterOverlapMm = it.coerceIn(0.0, 2.0)) }
+                }
+                NumberField("Minimum wave width (mm)", settings.waveOverhangMinimumWidthMm, source(state, SlicerSettings.Keys.WAVE_OVERHANG_MINIMUM_WIDTH), decimals = 3) {
+                    onSettings(SlicerSettings.Keys.WAVE_OVERHANG_MINIMUM_WIDTH) { current -> current.copy(waveOverhangMinimumWidthMm = it.coerceIn(0.0, 10.0)) }
+                }
+                NumberField("Maximum wavefronts", settings.waveOverhangMaxIterations.toDouble(), source(state, SlicerSettings.Keys.WAVE_OVERHANG_MAX_ITERATIONS), decimals = 0) {
+                    onSettings(SlicerSettings.Keys.WAVE_OVERHANG_MAX_ITERATIONS) { current -> current.copy(waveOverhangMaxIterations = it.toInt().coerceIn(1, 2000)) }
+                }
+                SwitchRow("Reverse front order on odd layers", settings.waveOverhangReverseOddLayers, source(state, SlicerSettings.Keys.WAVE_OVERHANG_REVERSE_ODD_LAYERS)) {
+                    onSettings(SlicerSettings.Keys.WAVE_OVERHANG_REVERSE_ODD_LAYERS) { current -> current.copy(waveOverhangReverseOddLayers = it) }
+                }
+            }
+
+            SwitchRow(
                 "Arc overhangs (Multiplex)",
                 settings.arcOverhangEnabled,
                 source(state, SlicerSettings.Keys.ARC_OVERHANG_ENABLED),
             ) {
                 onSettings(SlicerSettings.Keys.ARC_OVERHANG_ENABLED) { current ->
-                    current.copy(arcOverhangEnabled = it)
+                    current.copy(arcOverhangEnabled = it, waveOverhangEnabled = if (it) false else current.waveOverhangEnabled)
                 }
             }
             if (settings.arcOverhangEnabled) {

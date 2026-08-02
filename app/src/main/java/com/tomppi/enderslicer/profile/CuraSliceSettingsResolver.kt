@@ -2,6 +2,7 @@ package com.tomppi.enderslicer.profile
 
 import com.tomppi.enderslicer.calibration.CalibrationSliceState
 import com.tomppi.enderslicer.engine.ArcOverhangEngineSettings
+import com.tomppi.enderslicer.engine.WaveOverhangEngineSettings
 import com.tomppi.enderslicer.model.PrinterDefinition
 import com.tomppi.enderslicer.model.SlicerSettings
 import com.tomppi.enderslicer.model.resolveEndGcode
@@ -84,6 +85,7 @@ internal object CuraSliceSettingsResolver {
                 put("cool_min_temperature", requireNotNull(get("material_print_temperature")))
             }
             putAll(ArcOverhangEngineSettings.values(effectiveSettings))
+            putAll(WaveOverhangEngineSettings.values(effectiveSettings))
         }
 
         // First verify that the resolved Cura dependency graph still matches all

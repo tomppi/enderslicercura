@@ -39,6 +39,7 @@ data class GcodeLayerPreview(
         ADHESION(3),
         OTHER(4),
         ARC_OVERHANG(5),
+        WAVE_OVERHANG(6),
         ;
 
         companion object {
@@ -54,6 +55,7 @@ data class GcodeLayerPreview(
 object GcodeLayerPreviewParser {
     private const val MAX_SEGMENTS = 800_000
     private val RARE_FEATURE_PRIORITY = listOf(
+        GcodeLayerPreview.Feature.WAVE_OVERHANG,
         GcodeLayerPreview.Feature.ARC_OVERHANG,
         GcodeLayerPreview.Feature.SUPPORT_INTERFACE,
         GcodeLayerPreview.Feature.SUPPORT,
@@ -311,6 +313,7 @@ object GcodeLayerPreviewParser {
         val value = raw.uppercase()
         return when {
             value.contains("ARC-OVERHANG") || value.contains("ARC_OVERHANG") -> GcodeLayerPreview.Feature.ARC_OVERHANG
+            value.contains("WAVE-OVERHANG") || value.contains("WAVE_OVERHANG") -> GcodeLayerPreview.Feature.WAVE_OVERHANG
             value.contains("SUPPORT-INTERFACE") || value.contains("SUPPORT_INTERFACE") -> GcodeLayerPreview.Feature.SUPPORT_INTERFACE
             value.contains("SUPPORT") -> GcodeLayerPreview.Feature.SUPPORT
             value.contains("SKIRT") || value.contains("BRIM") || value.contains("RAFT") -> GcodeLayerPreview.Feature.ADHESION

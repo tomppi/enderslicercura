@@ -605,6 +605,9 @@ private class LayerPreviewRenderer : GLSurfaceView.Renderer {
             GcodeLayerPreview.Feature.ARC_OVERHANG -> {
                 red = 0.72f; green = 0.38f; blue = 1f
             }
+            GcodeLayerPreview.Feature.WAVE_OVERHANG -> {
+                red = 0.12f; green = 0.92f; blue = 0.82f
+            }
             else -> {
                 val range = max(maximum - minimum, 0.001f)
                 val normalized = ((speed - minimum) / range).coerceIn(0f, 1f)

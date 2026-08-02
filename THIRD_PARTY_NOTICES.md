@@ -1,5 +1,10 @@
 # Third-party notices
 
+## Wave-overhang algorithm research and reference implementation
+
+The native EnderSlicerCura wavefront generator is an independent CuraEngine adaptation of the propagation method documented by `dennisklappe/OrcaSlicer-WaveOverhangs`, itself based on `stmcculloch/PrusaSlicer-WaveOverhangs`. Those projects and CuraEngine are distributed under the GNU AGPL. The adapted source is retained under `native/curaengine/patches/` with attribution headers.
+
+
 ## BumpMesh / stlTexturizer
 
 - Project: `CNCKitchen/stlTexturizer`

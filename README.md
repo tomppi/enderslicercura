@@ -28,6 +28,7 @@ EnderSlicerCura already produces output very close to Cura Desktop for the curre
 - Native CuraEngine adaptive layer-height controls
 - Tree and normal supports, support interfaces and support preview
 - Native experimental Multiplex arc-overhang paths with bridge fallback
+- Native experimental wave-overhang wavefront paths with all-or-nothing bridge fallback
 - Cura estimated print time and repaired G-code metadata
 - CRLF printer-compatible export with unique `.gcode` filenames
 
@@ -135,6 +136,13 @@ After slicing, select a layer and open **Add event**. Events are inserted after 
 Open **Menu → Calibration generator** to create a compact test. Temperature models combine grounded posts, bridges, stepped overhangs and a thin fin. Flow models use a grounded thin-wall tube, bridge coupons and measurement ribs. Speed and junction-deviation tests use a continuously stacked sharp star. Fan models use bridge posts and stepped 45-degree brackets. Retraction and pressure-advance tests use isolated grounded posts that force travel moves and expose restart/stringing behavior.
 
 Calibration slicing applies minimal type-specific overrides instead of disabling all advanced settings. These overrides never modify the saved profile.
+
+## Native arc overhangs
+## Native wave overhangs
+
+Enable **Print settings → Experimental → Wave overhangs** to replace eligible open-air bottom skin with expanding, clipped wavefronts seeded on material from the previous model layer. Smart, monotonic and zigzag traversal are available. Wave paths are turquoise in the layer preview and use an absolute mm³/mm flow setting because the bead is deposited into open air.
+
+Wave and Arc overhangs are mutually exclusive. The generator is all-or-nothing per skin island: missing anchors, incomplete propagation or iteration limits retain Cura's normal bridge/skin path. The feature is disabled by default and remains experimental; maximum cooling and a small test model are strongly recommended.
 
 ## Native arc overhangs
 

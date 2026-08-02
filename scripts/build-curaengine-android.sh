@@ -185,6 +185,8 @@ replace(
 # Install the native arc-overhang source and register it with CuraEngine.
 (root / "include" / "ArcOverhang.h").write_text((arc_patch_root / "include" / "ArcOverhang.h").read_text())
 (root / "src" / "ArcOverhang.cpp").write_text((arc_patch_root / "src" / "ArcOverhang.cpp").read_text())
+(root / "include" / "WaveOverhang.h").write_text((arc_patch_root / "include" / "WaveOverhang.h").read_text())
+(root / "src" / "WaveOverhang.cpp").write_text((arc_patch_root / "src" / "WaveOverhang.cpp").read_text())
 
 # Keep arc overhangs as real skin for Cura's estimates and motion behaviour,
 # but carry one private flag so the G-code writer can emit an exact preview marker.
@@ -194,7 +196,8 @@ replace(
     '''    bool is_bridge_path{ false }; //!< whether current config is used when bridging
     double fan_speed{ FAN_SPEED_DEFAULT }; //!< fan speed override for this path, value should be within range 0-100 (inclusive) and ignored otherwise''',
     '''    bool is_bridge_path{ false }; //!< whether current config is used when bridging
-    bool is_arc_overhang{ false }; //!< EnderSlicer native Multiplex path; used only for an exact G-code preview marker
+    bool is_arc_overhang{ false }; //!< EnderSlicer native Multiplex path
+    bool is_wave_overhang{ false }; //!< EnderSlicer native wavefront path
     double fan_speed{ FAN_SPEED_DEFAULT }; //!< fan speed override for this path, value should be within range 0-100 (inclusive) and ignored otherwise''',
 )
 
@@ -214,10 +217,15 @@ replace(
             }''',
     '''            const bool feature_changed = ! last_extrusion_config.has_value()
                                          || last_extrusion_config.value().type != path.config.type
-                                         || last_extrusion_config.value().is_arc_overhang != path.config.is_arc_overhang;
+                                         || last_extrusion_config.value().is_arc_overhang != path.config.is_arc_overhang
+                                         || last_extrusion_config.value().is_wave_overhang != path.config.is_wave_overhang;
             if (! path.config.isTravelPath() && feature_changed)
             {
-                if (path.config.is_arc_overhang)
+                if (path.config.is_wave_overhang)
+                {
+                    gcode.writeComment("TYPE:WAVE-OVERHANG");
+                }
+                else if (path.config.is_arc_overhang)
                 {
                     // App-owned semantic marker. Firmware ignores comments, while
                     // EnderSlicer's layer preview can classify these paths exactly.
@@ -239,14 +247,14 @@ replace(
 replace(
     cmake,
     "        src/Application.cpp\n",
-    "        src/Application.cpp\n        src/ArcOverhang.cpp\n",
+    "        src/Application.cpp\n        src/ArcOverhang.cpp\n        src/WaveOverhang.cpp\n",
 )
 
 fff_gcode_writer_cpp = root / "src" / "FffGcodeWriter.cpp"
 replace(
     fff_gcode_writer_cpp,
     '#include "Application.h"\n',
-    '#include "Application.h"\n#include "ArcOverhang.h"\n',
+    '#include "Application.h"\n#include "ArcOverhang.h"\n#include "WaveOverhang.h"\n',
 )
 replace(
     fff_gcode_writer_cpp,
@@ -261,12 +269,16 @@ replace(
     // one valid model anchor, while Cura's classic bridge detector may
     // require two support islands before it calls the skin a bridge.
     Shape arc_supported_skin_regions;
-    const bool arc_overhang_enabled = layer_nr > 0 && mesh.settings.get<bool>("enderslicer_arc_overhang_enabled");
-    if (arc_overhang_enabled)
+    Shape wave_supported_skin_regions;
+    const bool wave_overhang_enabled = layer_nr > 0 && mesh.settings.get<bool>("enderslicer_wave_overhang_enabled");
+    const bool arc_overhang_enabled = layer_nr > 0
+                                   && mesh.settings.get<bool>("enderslicer_arc_overhang_enabled")
+                                   && ! wave_overhang_enabled;
+    if (arc_overhang_enabled || wave_overhang_enabled)
     {
-        // Ignore generated support here: Multiplex must be anchored to
-        // material printed as part of the model on the previous layer.
-        bridgeAngle(mesh.settings, skin_part.skin_fill, storage, layer_nr, 1, nullptr, arc_supported_skin_regions);
+        Shape& supported = wave_overhang_enabled ? wave_supported_skin_regions : arc_supported_skin_regions;
+        // Ignore generated support: both strategies must start on model material.
+        bridgeAngle(mesh.settings, skin_part.skin_fill, storage, layer_nr, 1, nullptr, supported);
     }
 
     auto handle_bridge_skin =''',
@@ -287,6 +299,57 @@ replace(
 replace(
     fff_gcode_writer_cpp,
     '''    const bool monotonic = mesh.settings.get<bool>("skin_monotonic");
+    if (wave_overhang_enabled && ! wave_supported_skin_regions.empty())
+    {
+        WaveOverhangParameters wave_parameters;
+        wave_parameters.line_spacing = mesh.settings.get<coord_t>("enderslicer_wave_overhang_line_spacing");
+        wave_parameters.perimeter_overlap = mesh.settings.get<coord_t>("enderslicer_wave_overhang_perimeter_overlap");
+        wave_parameters.minimum_width = mesh.settings.get<coord_t>("enderslicer_wave_overhang_minimum_width");
+        wave_parameters.max_iterations = mesh.settings.get<size_t>("enderslicer_wave_overhang_max_iterations");
+        wave_parameters.pattern = mesh.settings.get<std::string>("enderslicer_wave_overhang_pattern");
+        wave_parameters.reverse_order = mesh.settings.get<bool>("enderslicer_wave_overhang_reverse_odd_layers") && layer_nr % 2 != 0;
+
+        OpenLinesSet wave_lines;
+        if (WaveOverhangGenerator::generate(
+                skin_part.skin_fill,
+                wave_supported_skin_regions,
+                wave_parameters,
+                wave_lines))
+        {
+            GCodePathConfig wave_config = *skin_config;
+            wave_config.is_wave_overhang = true;
+            wave_config.speed_derivatives.speed = mesh.settings.get<Velocity>("enderslicer_wave_overhang_speed");
+            const double line_width_mm = std::max(INT2MM(skin_config->getLineWidth()), 0.001);
+            const double layer_height_mm = std::max(INT2MM(mesh.settings.get<coord_t>("layer_height")), 0.001);
+            const double nominal_mm3_per_mm = line_width_mm * layer_height_mm;
+            const double wave_flow = mesh.settings.get<double>("enderslicer_wave_overhang_flow_mm3_per_mm") / nominal_mm3_per_mm;
+            const double wave_fan_speed = mesh.settings.get<double>("enderslicer_wave_overhang_fan_speed");
+
+            added_something = true;
+            gcode_layer.setIsInside(true);
+            for (const OpenPolyline& wave_line : wave_lines)
+            {
+                if (! wave_line.isValid())
+                {
+                    continue;
+                }
+                OpenLinesSet ordered_wave;
+                ordered_wave.push_back(wave_line, CheckNonEmptyParam::OnlyIfValid);
+                gcode_layer.addLinesByOptimizer(
+                    ordered_wave,
+                    wave_config,
+                    SpaceFillType::PolyLines,
+                    false,
+                    0,
+                    wave_flow,
+                    std::nullopt,
+                    wave_fan_speed);
+            }
+            return;
+        }
+        // Incomplete propagation falls through to Cura's normal bridge/skin path.
+    }
+
     processSkinPrintFeature(''',
     '''    if (arc_overhang_enabled && ! arc_supported_skin_regions.empty())
     {
