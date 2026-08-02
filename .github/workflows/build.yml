@@ -70,10 +70,10 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.conan2/p
-          key: conan-curaengine-5.11-beta1-android-arm64-v5-${{ hashFiles('scripts/build-curaengine-android.sh', 'native/curaengine/profiles/android-arm64') }}
+          key: conan-curaengine-5.11-beta1-android-host-v6-${{ hashFiles('scripts/build-curaengine-android.sh', 'scripts/build-curaengine-host-tests.sh', 'native/curaengine/profiles/android-arm64') }}
           restore-keys: |
+            conan-curaengine-5.11-beta1-android-host-v6-
             conan-curaengine-5.11-beta1-android-arm64-v5-
-            conan-curaengine-5.11-android-arm64-v4-
 
       - name: Fetch and validate pinned Cura definitions
         run: |
@@ -159,10 +159,20 @@ jobs:
           readelf -d app/src/main/jniLibs/arm64-v8a/libcuraengine_exec.so | tee curaengine-needed.log
           ! grep -q 'libc++_shared.so' curaengine-needed.log
 
-      - name: Unit tests and complete definition audit
+      - name: Build pinned host CuraEngine fixture binary
+        run: |
+          chmod +x scripts/build-curaengine-host-tests.sh
+          set -o pipefail
+          scripts/build-curaengine-host-tests.sh 2>&1 | tee curaengine-host-build.log
+          test -x .build/curaengine-host-tests/artifacts/CuraEngine
+          echo "CURAENGINE_HOST_BINARY=${GITHUB_WORKSPACE}/.build/curaengine-host-tests/artifacts/CuraEngine" >> "$GITHUB_ENV"
+
+      - name: Unit, definition, and real CuraEngine regional-toolpath tests
         run: |
           set -o pipefail
           gradle :app:testDebugUnitTest --stacktrace 2>&1 | tee unit-tests.log
+          test -n "$CURAENGINE_HOST_BINARY"
+          grep -R -q 'SmartInfillCuraEngineIntegrationTest' app/build/test-results/testDebugUnitTest
 
       - name: Build debug APK
         run: |
@@ -209,6 +219,7 @@ jobs:
             filasim-build.log
             filasim-warm-build.log
             curaengine-android-build.log
+            curaengine-host-build.log
             curaengine-needed.log
             unit-tests.log
             apk-build.log
