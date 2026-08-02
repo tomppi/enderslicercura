@@ -21,6 +21,7 @@ COMMON_ARGS=(
   -of "$OUTPUT_ROOT"
   --build=missing
   -s build_type=Release
+  -s compiler.cppstd=gnu20
   -c tools.build:skip_test=True
   -o '&:enable_arcus=False'
   -o '&:enable_plugins=False'
