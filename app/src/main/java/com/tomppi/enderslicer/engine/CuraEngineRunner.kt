@@ -8,6 +8,8 @@ import com.tomppi.enderslicer.model.withSettings
 import com.tomppi.enderslicer.profile.CuraEngineProfile
 import com.tomppi.enderslicer.profile.CuraResolvedSettingsWriter
 import com.tomppi.enderslicer.profile.CuraSliceSettingsResolver
+import com.tomppi.enderslicer.smartinfill.SmartInfillRuntime
+import com.tomppi.enderslicer.smartinfill.SmartInfillSliceSnapshot
 import java.io.File
 import java.time.Instant
 import java.util.UUID
@@ -83,16 +85,20 @@ class CuraEngineRunner(private val context: Context) {
         layerEvents: List<LayerEvent> = emptyList(),
         plannedLayerEvents: List<PlannedLayerEvent> = emptyList(),
     ): SliceResult = runInterruptible(Dispatchers.IO) {
-        sliceBlocking(
-            modelFile,
-            printer,
-            settings,
-            startGcode,
-            endGcode,
-            profile,
-            layerEvents,
-            plannedLayerEvents,
-        )
+        val smartInfillSnapshot = SmartInfillRuntime.snapshot()
+        SmartInfillRuntime.withSnapshot(smartInfillSnapshot) {
+            sliceBlocking(
+                modelFile,
+                printer,
+                settings,
+                startGcode,
+                endGcode,
+                profile,
+                layerEvents,
+                plannedLayerEvents,
+                smartInfillSnapshot,
+            )
+        }
     }
 
     private fun sliceBlocking(
@@ -104,27 +110,34 @@ class CuraEngineRunner(private val context: Context) {
         profile: CuraEngineProfile?,
         layerEvents: List<LayerEvent>,
         plannedLayerEvents: List<PlannedLayerEvent>,
+        smartInfillSnapshot: SmartInfillSliceSnapshot?,
     ): SliceResult {
         val workspace = createWorkspace("slice")
         val log = requestLog(workspace.id)
         val started = System.nanoTime()
-        val effectiveSettings = CalibrationSliceState.effective(settings)
+        val effectiveSettings = CalibrationSliceState.effective(
+            settings,
+            smartInfillSnapshot?.packageValue,
+        )
         val printerEnvelope = PrinterEnvelope.from(printer.withSettings(effectiveSettings))
         writeInitialLog(
             log,
             workspace.id,
             modelFile,
             printer,
-            settings,
+            effectiveSettings,
             profile,
             layerEvents,
             plannedLayerEvents,
             printerEnvelope,
+            smartInfillSnapshot,
         )
 
         try {
             require(isAvailable()) { status() }
             require(modelFile.isFile && modelFile.length() > 0L) { "The imported STL is no longer available" }
+            smartInfillSnapshot?.requireMatchesSource(modelFile)
+
             val resolutionProfile = profile?.let(::completeDefinitionStack)
             val modelTransform = if (resolutionProfile != null) {
                 CuraResolvedSettingsWriter.copyResolvedSourceSnapshot(
@@ -140,6 +153,9 @@ class CuraEngineRunner(private val context: Context) {
             if (modelTransform == null) {
                 copyStable(modelFile, workspace.model, "The model changed while it was being staged")
             }
+            val smartInfillModifiers = smartInfillSnapshot
+                ?.stageModifiers(workspace.directory)
+                .orEmpty()
             throwIfInterrupted()
 
             val definitions = prepareDefinitions(workspace.directory, log, resolutionProfile)
@@ -159,6 +175,7 @@ class CuraEngineRunner(private val context: Context) {
                     modelFileName = workspace.model.name,
                     resolved = resolved,
                     modelTransform = modelTransform,
+                    smartInfillModifiers = smartInfillModifiers,
                 )
                 CuraEngineCommand.buildResolved(
                     executable.absolutePath,
@@ -179,6 +196,7 @@ class CuraEngineRunner(private val context: Context) {
                     startGcode = startGcode,
                     endGcode = endGcode,
                     profile = null,
+                    smartInfillModifiers = smartInfillModifiers,
                 )
             }
             appendCommandLog(log, definitions, resolved, workspace.resolvedSettings, command)
@@ -362,6 +380,7 @@ class CuraEngineRunner(private val context: Context) {
         layerEvents: List<LayerEvent>,
         plannedEvents: List<PlannedLayerEvent>,
         printerEnvelope: PrinterEnvelope,
+        smartInfillSnapshot: SmartInfillSliceSnapshot?,
     ) {
         log.writeText(
             buildString {
@@ -375,6 +394,7 @@ class CuraEngineRunner(private val context: Context) {
                 appendLine("Build plate: ${printerEnvelope.buildPlateShape}, origin at center: ${printerEnvelope.originAtCenter}")
                 appendLine("Nozzle: ${printer.nozzleSizeMm} mm")
                 appendLine("Layer height: ${settings.layerHeightMm} mm")
+                appendLine("Smart Infill package/generation: ${smartInfillSnapshot?.packageId ?: "none"}/${smartInfillSnapshot?.generation ?: 0L}")
                 appendLine("User/calibration events: ${layerEvents.size}/${plannedEvents.size}")
                 appendLine("Imported Cura values: ${profile?.globalValues?.size ?: 0}/${profile?.extruderValues?.size ?: 0}")
                 appendLine()
@@ -399,13 +419,15 @@ class CuraEngineRunner(private val context: Context) {
                     appendLine("Settings transport: CuraEngine resolved JSON (-r)")
                     appendLine("Resolved expressions/passes: ${resolved.expressionCount}/${resolved.passes}")
                     appendLine("Resolved global/extruder/model settings: ${resolved.globalValues.size}/${resolved.extruderValues.size}/${resolved.modelValues.size}")
+                    appendLine("Resolved Smart Infill densities: ${resolved.smartInfillModelValues.keys.sorted().joinToString()}")
                     appendLine("Resolved settings JSON: ${resolvedSettings.length()} bytes")
                 } else {
                     appendLine("Settings transport: standalone fallback command-line values")
                 }
                 appendLine()
                 appendLine("--- Command ---")
-                command.forEachIndexed { index, argument -> appendLine("[$index] $argument") }
+                command.forEachIndexed { index, argument -> appendLine("[$index] $argument")
+                }
                 appendLine()
                 appendLine("--- CuraEngine output ---")
             },
