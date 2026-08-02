@@ -14,7 +14,7 @@ import urllib.request
 import zipfile
 
 FILASIM_COMMIT = "e7485ec22d4ebe8baca04190404fbb877c90e031"
-ASSET_FORMAT = 1
+ASSET_FORMAT = 2
 
 
 def run(command: list[str], cwd: pathlib.Path, env: dict[str, str] | None = None) -> None:
@@ -52,16 +52,15 @@ def safe_extract(archive: zipfile.ZipFile, destination: pathlib.Path) -> pathlib
 
 def patch_android_export(store_file: pathlib.Path) -> None:
     text = store_file.read_text(encoding="utf-8")
-    marker = "EnderSlicerBridge?.captureModifierZip"
-    if marker in text:
-        return
-    old = '''  async downloadStls() {
+
+    if "EnderSlicerBridge?.captureModifierZip" not in text:
+        old_modifiers = '''  async downloadStls() {
     try {
       const bytes = await engine.exportStls();
       const base = (get().fileName ?? "part").replace(/\\.(stl|3mf)$/i, "");
       download(bytes, `${base}_modifiers.zip`, "application/zip");
 '''
-    new = '''  async downloadStls() {
+        new_modifiers = '''  async downloadStls() {
     try {
       const bytes = await engine.exportStls();
       const state = get();
@@ -83,9 +82,33 @@ def patch_android_export(store_file: pathlib.Path) -> None:
       const base = (state.fileName ?? "part").replace(/\\.(stl|3mf)$/i, "");
       download(bytes, `${base}_modifiers.zip`, "application/zip");
 '''
-    if old not in text:
-        raise RuntimeError("Unable to locate filaSim modifier-export function for Android patching")
-    store_file.write_text(text.replace(old, new), encoding="utf-8")
+        if old_modifiers not in text:
+            raise RuntimeError("Unable to locate filaSim modifier-export function for Android patching")
+        text = text.replace(old_modifiers, new_modifiers)
+
+    if "EnderSlicerBridge?.captureOptimizedShape" not in text:
+        old_shape = '''  async downloadShape() {
+    try {
+      const bytes = await engine.exportSolidStl();
+      const base = (get().fileName ?? "part").replace(/\\.(stl|3mf)$/i, "");
+      download(bytes, `${base}_optimized.stl`, "model/stl");
+'''
+        new_shape = '''  async downloadShape() {
+    try {
+      const bytes = await engine.exportSolidStl();
+      const bridge = (window as any).EnderSlicerBridge;
+      if (bridge?.captureOptimizedShape) {
+        await bridge.captureOptimizedShape(bytes);
+        return;
+      }
+      const base = (get().fileName ?? "part").replace(/\\.(stl|3mf)$/i, "");
+      download(bytes, `${base}_optimized.stl`, "model/stl");
+'''
+        if old_shape not in text:
+            raise RuntimeError("Unable to locate filaSim topology-shape export for Android patching")
+        text = text.replace(old_shape, new_shape)
+
+    store_file.write_text(text, encoding="utf-8")
 
 
 def inject_bridge(index_file: pathlib.Path) -> None:
@@ -100,6 +123,23 @@ def inject_bridge(index_file: pathlib.Path) -> None:
     else:
         raise RuntimeError("Unable to inject the Android bridge into filaSim index.html")
     index_file.write_text(text, encoding="utf-8")
+
+
+def copy_source_manifests(source_root: pathlib.Path, staging: pathlib.Path) -> None:
+    destination = staging / "source-manifest"
+    destination.mkdir(parents=True, exist_ok=True)
+    for relative in (
+        "Cargo.toml",
+        "Cargo.lock",
+        "deny.toml",
+        "web/package.json",
+        "web/package-lock.json",
+    ):
+        source = source_root / relative
+        if not source.is_file():
+            raise RuntimeError(f"Pinned filaSim source manifest is missing: {relative}")
+        target = destination / relative.replace("/", "-")
+        shutil.copy2(source, target)
 
 
 def main() -> int:
@@ -118,6 +158,8 @@ def main() -> int:
         and (output / "index.html").is_file()
         and (output / "android-bridge.js").is_file()
         and (output / "LICENSE").is_file()
+        and (output / "source-manifest/Cargo.lock").is_file()
+        and (output / "source-manifest/web-package-lock.json").is_file()
     ):
         print("Pinned filaSim Android assets are already prepared")
         return 0
@@ -166,12 +208,14 @@ def main() -> int:
     shutil.copytree(dist, staging)
     shutil.copy2(bridge, staging / "android-bridge.js")
     shutil.copy2(source_root / "LICENSE", staging / "LICENSE")
+    copy_source_manifests(source_root, staging)
     (staging / "SOURCE.md").write_text(
         "# filaSim source\n\n"
         f"Pinned upstream commit: `{FILASIM_COMMIT}`\n\n"
         "The complete corresponding source is the CNCKitchen/smartInfillGenerator repository "
         "at the commit above. EnderSlicerCura's Android bridge and deterministic build script "
-        "are stored in this repository.\n",
+        "are stored in this repository. Exact dependency manifests are packaged in "
+        "`source-manifest/`.\n",
         encoding="utf-8",
     )
     inject_bridge(staging / "index.html")
