@@ -703,7 +703,7 @@ private class LayerPreviewRenderer : GLSurfaceView.Renderer {
         const val MAX_GRID_LINES = 512
         const val MIN_SCENE_SIZE = 20f
         const val PATH_WIDTH = 2.2f
-        const val CORE_RIBBON_WIDTH = 0.46f
+        const val CORE_RIBBON_WIDTH = 0.30f
         const val HALO_RIBBON_WIDTH = 0.82f
         const val BASE_POSITION_FLOATS_PER_SEGMENT = 6
         const val BASE_COLOR_FLOATS_PER_SEGMENT = 8
