@@ -17,6 +17,7 @@ data class MainUiState(
     val modelPlacement: ModelPlacement? = null,
     val importedSceneTransformAvailable: Boolean = false,
     val importedSceneModelName: String? = null,
+    val sliceResultId: String? = null,
     val gcodePath: String? = null,
     val baseGcodePath: String? = null,
     val layerPreview: GcodeLayerPreview? = null,
