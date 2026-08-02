@@ -131,13 +131,13 @@ object StlParser {
     }
 
     private fun parseAscii(name: String, file: File, maxTriangles: Int): StlMesh {
-        val triangleCount = scanAscii(file, maxTriangles, consumer = null)
-        require(triangleCount > 0) { "No complete triangles were found in the STL" }
-        val floats = FloatArray(Math.multiplyExact(triangleCount, FLOATS_PER_TRIANGLE))
+        val source = scanAscii(file, maxTriangles, consumer = null)
+        require(source.triangleCount > 0) { "No complete triangles were found in the STL" }
+        val floats = FloatArray(Math.multiplyExact(source.triangleCount, FLOATS_PER_TRIANGLE))
         val bounds = BoundsAccumulator()
         var out = 0
 
-        val parsedCount = scanAscii(
+        val parsed = scanAscii(
             file = file,
             maxTriangles = maxTriangles,
             consumer = object : TriangleConsumer {
@@ -184,9 +184,9 @@ object StlParser {
                     val nzf = nz.toFloat()
 
                     fun writeVertex(x: Double, y: Double, z: Double) {
-                        val xf = x.toFloat()
-                        val yf = y.toFloat()
-                        val zf = z.toFloat()
+                        val xf = (x - source.originX).toFloat()
+                        val yf = (y - source.originY).toFloat()
+                        val zf = (z - source.originZ).toFloat()
                         require(xf.isFinite() && yf.isFinite() && zf.isFinite()) {
                             "ASCII STL coordinate is outside the supported numeric range"
                         }
@@ -204,10 +204,18 @@ object StlParser {
                 }
             },
         )
-        check(parsedCount == triangleCount && out == floats.size) {
+        check(parsed == source && out == floats.size) {
             "ASCII STL changed while it was being parsed"
         }
-        return StlMesh(name, floats, triangleCount, bounds.finish())
+        return StlMesh(
+            displayName = name,
+            interleavedVertices = floats,
+            triangleCount = source.triangleCount,
+            bounds = bounds.finish(),
+            sourceOriginXmm = source.originX,
+            sourceOriginYmm = source.originY,
+            sourceOriginZmm = source.originZ,
+        )
     }
 
     /**
@@ -215,7 +223,7 @@ object StlParser {
      * three lines beginning with `vertex`. The optional consumer keeps the
      * counting and materialization passes on exactly the same validation path.
      */
-    private fun scanAscii(file: File, maxTriangles: Int, consumer: TriangleConsumer?): Int {
+    private fun scanAscii(file: File, maxTriangles: Int, consumer: TriangleConsumer?): AsciiScan {
         var state = AsciiState.EXPECT_FACET_OR_SOLID
         var wrapperOpen = false
         var wrapperClosed = false
@@ -234,6 +242,9 @@ object StlParser {
         var x2 = 0.0
         var y2 = 0.0
         var z2 = 0.0
+        var originX: Double? = null
+        var originY: Double? = null
+        var originZ: Double? = null
 
         file.bufferedReader().useLines { lines ->
             lines.forEachIndexed { index, raw ->
@@ -284,6 +295,11 @@ object StlParser {
                         val x = parseFinite(tokens[1], "vertex", lineNumber)
                         val y = parseFinite(tokens[2], "vertex", lineNumber)
                         val z = parseFinite(tokens[3], "vertex", lineNumber)
+                        if (originX == null) {
+                            originX = x
+                            originY = y
+                            originZ = z
+                        }
                         when (vertexCount) {
                             0 -> { x0 = x; y0 = y; z0 = z }
                             1 -> { x1 = x; y1 = y; z1 = z }
@@ -325,7 +341,12 @@ object StlParser {
                 (!sawFacet && state == AsciiState.EXPECT_FACET_OR_SOLID),
         ) { "ASCII STL ended inside an incomplete facet" }
         require(!wrapperOpen || wrapperClosed) { "ASCII STL is missing endsolid" }
-        return triangleCount
+        return AsciiScan(
+            triangleCount = triangleCount,
+            originX = originX ?: 0.0,
+            originY = originY ?: 0.0,
+            originZ = originZ ?: 0.0,
+        )
     }
 
     private fun parseFinite(token: String, subject: String, lineNumber: Int): Double {
@@ -363,6 +384,13 @@ object StlParser {
             z2: Double,
         )
     }
+
+    private data class AsciiScan(
+        val triangleCount: Int,
+        val originX: Double,
+        val originY: Double,
+        val originZ: Double,
+    )
 
     private enum class AsciiState {
         EXPECT_FACET_OR_SOLID,
