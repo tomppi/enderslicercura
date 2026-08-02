@@ -20,8 +20,8 @@ data class SmartInfillSliceSnapshot internal constructor(
 
     fun requireMatchesSource(source: File) = packageValue.requireMatchesSource(source)
 
-    fun stageModifiers(destination: File): List<SmartInfillModifier> =
-        packageValue.stageModifiers(destination)
+    fun stageModifiers(destination: File, analyzedSource: File): List<SmartInfillModifier> =
+        packageValue.stageModifiers(destination, analyzedSource)
 }
 
 /**

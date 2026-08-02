@@ -220,6 +220,19 @@ fun IntegratedEnderSlicerApp(
         }
     }
 
+    fun clearBuildPlate() {
+        if (slicerState.isBusy) {
+            Toast.makeText(context, "Finish the current operation first", Toast.LENGTH_SHORT).show()
+            return
+        }
+        smartInfillStore.clearActive()
+        SmartInfillRuntime.activate(null)
+        smartInfillPackage = null
+        smartInfillOpen = false
+        scope.launch(Dispatchers.IO) { smartInfillStore.clearAll() }
+        slicerViewModel.clearBuildPlate()
+    }
+
     fun launchSmartInfill() {
         val mesh = slicerState.mesh
         if (mesh == null || slicerState.isBusy) {
@@ -252,6 +265,14 @@ fun IntegratedEnderSlicerApp(
 
     Box(modifier = Modifier.fillMaxSize()) {
         EnderSlicerApp(slicerViewModel)
+        ExtendedFloatingActionButton(
+            onClick = ::clearBuildPlate,
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(top = 72.dp, start = 12.dp),
+        ) {
+            Text("Clear plate")
+        }
         ExtendedFloatingActionButton(
             onClick = { octoPrintOpen = true },
             modifier = Modifier

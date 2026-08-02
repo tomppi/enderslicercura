@@ -15,7 +15,7 @@ import urllib.request
 import zipfile
 
 FILASIM_COMMIT = "e7485ec22d4ebe8baca04190404fbb877c90e031"
-ASSET_FORMAT = 4
+ASSET_FORMAT = 5
 HASH_MANIFEST = "SHA256SUMS"
 MINIMUM_NODE_VERSION = (22, 18, 0)
 
@@ -182,6 +182,23 @@ def patch_android_export(store_file: pathlib.Path) -> None:
     store_file.write_text(text, encoding="utf-8")
 
 
+def patch_android_startup(app_file: pathlib.Path) -> None:
+    text = app_file.read_text(encoding="utf-8")
+    old = '    if (!s.sampleSkipped) void s.loadSampleModel();'
+    marker = "EnderSlicer Android host supplies the exact displayed model"
+    if marker not in text:
+        if old not in text:
+            raise RuntimeError("Unable to locate filaSim sample startup for Android patching")
+        new = (
+            f"    // {marker}.\n"
+            '    if (!new URLSearchParams(window.location.search).has("android") && !s.sampleSkipped) {\n'
+            "      void s.loadSampleModel();\n"
+            "    }"
+        )
+        text = text.replace(old, new, 1)
+    app_file.write_text(text, encoding="utf-8")
+
+
 def inject_bridge(index_file: pathlib.Path) -> None:
     text = index_file.read_text(encoding="utf-8")
     script = '<script src="./android-bridge.js"></script>'
@@ -251,9 +268,11 @@ def main() -> int:
 
     web_root = source_root / "web"
     store_file = web_root / "src/store.ts"
-    if not store_file.is_file():
-        raise RuntimeError("Pinned filaSim source did not contain web/src/store.ts")
+    app_file = web_root / "src/App.tsx"
+    if not store_file.is_file() or not app_file.is_file():
+        raise RuntimeError("Pinned filaSim source did not contain its Android patch targets")
     patch_android_export(store_file)
+    patch_android_startup(app_file)
 
     npm_environment = {"NPM_CONFIG_ENGINE_STRICT": "true"}
     run(["npm", "ci", "--no-audit", "--no-fund"], cwd=web_root, env=npm_environment)

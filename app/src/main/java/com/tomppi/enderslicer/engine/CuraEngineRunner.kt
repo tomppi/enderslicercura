@@ -154,7 +154,7 @@ class CuraEngineRunner(private val context: Context) {
                 copyStable(modelFile, workspace.model, "The model changed while it was being staged")
             }
             val smartInfillModifiers = smartInfillSnapshot
-                ?.stageModifiers(workspace.directory)
+                ?.stageModifiers(workspace.directory, modelFile)
                 .orEmpty()
             throwIfInterrupted()
 

@@ -19,6 +19,18 @@ import java.util.zip.ZipInputStream
 private const val STL_HEADER_BYTES = 84L
 private const val STL_TRIANGLE_BYTES = 50L
 
+internal data class BinaryStlBounds(
+    val minX: Double,
+    val minY: Double,
+    val minZ: Double,
+    val maxX: Double,
+    val maxY: Double,
+    val maxZ: Double,
+) {
+    val centerX: Double get() = (minX + maxX) * 0.5
+    val centerY: Double get() = (minY + maxY) * 0.5
+}
+
 /** One filaSim modifier volume and the Cura sparse-infill density it applies. */
 data class SmartInfillModifier(
     val densityPercent: Int,
@@ -77,25 +89,74 @@ data class SmartInfillPackage(
         }
     }
 
-    /** Copies immutable, validated modifier snapshots into a CuraEngine request workspace. */
-    fun stageModifiers(destination: File): List<SmartInfillModifier> {
+    /**
+     * Stages filaSim modifier volumes in the displayed model's printer coordinates.
+     * filaSim centers imported geometry around local X/Y zero and grounds it at
+     * local Z zero. The analyzed STL is already placed on the build plate, so its
+     * center/base translation must be restored before CuraEngine sees the volume.
+     */
+    fun stageModifiers(destination: File, analyzedSource: File): List<SmartInfillModifier> {
         require(destination.mkdirs() || destination.isDirectory) {
             "Unable to create the Smart Infill staging directory"
         }
+        requireMatchesSource(analyzedSource)
+        val triangleLimit = MeshTriangleLimits.current()
+        val sourceBounds = binaryStlBounds(analyzedSource, triangleLimit)
         return modifiers.mapIndexed { index, modifier ->
-            requireValidBinaryStl(modifier.file, MeshTriangleLimits.current())
+            requireValidBinaryStl(modifier.file, triangleLimit)
             val target = File(destination, "smart-infill-${index + 1}-${modifier.densityPercent}pct.stl")
-            copyStable(modifier.file, target)
-            requireValidBinaryStl(target, MeshTriangleLimits.current())
+            translateStable(
+                source = modifier.file,
+                target = target,
+                translationX = sourceBounds.centerX,
+                translationY = sourceBounds.centerY,
+                translationZ = sourceBounds.minZ,
+            )
+            requireValidBinaryStl(target, triangleLimit)
             SmartInfillModifier(modifier.densityPercent, target)
         }
     }
 
-    private fun copyStable(source: File, target: File) {
+    private fun translateStable(
+        source: File,
+        target: File,
+        translationX: Double,
+        translationY: Double,
+        translationZ: Double,
+    ) {
+        require(listOf(translationX, translationY, translationZ).all(Double::isFinite)) {
+            "Smart Infill source placement is not finite"
+        }
         val size = source.length()
         val modified = source.lastModified()
-        source.inputStream().buffered().use { input ->
-            target.outputStream().buffered().use(input::copyTo)
+        RandomAccessFile(source, "r").use { input ->
+            FileOutputStream(target).use { output ->
+                val header = ByteArray(STL_HEADER_BYTES.toInt())
+                input.readFully(header)
+                output.write(header)
+                val triangleCount = ByteBuffer.wrap(header, 80, 4)
+                    .order(ByteOrder.LITTLE_ENDIAN)
+                    .int
+                val triangle = ByteArray(STL_TRIANGLE_BYTES.toInt())
+                repeat(triangleCount) {
+                    input.readFully(triangle)
+                    val buffer = ByteBuffer.wrap(triangle).order(ByteOrder.LITTLE_ENDIAN)
+                    repeat(3) { vertex ->
+                        val offset = 12 + vertex * 12
+                        val x = buffer.getFloat(offset).toDouble() + translationX
+                        val y = buffer.getFloat(offset + 4).toDouble() + translationY
+                        val z = buffer.getFloat(offset + 8).toDouble() + translationZ
+                        require(listOf(x, y, z).all(Double::isFinite)) {
+                            "Smart Infill modifier translation produced a non-finite vertex"
+                        }
+                        buffer.putFloat(offset, x.toFloat())
+                        buffer.putFloat(offset + 4, y.toFloat())
+                        buffer.putFloat(offset + 8, z.toFloat())
+                    }
+                    output.write(triangle)
+                }
+                output.fd.sync()
+            }
         }
         check(target.length() == size && source.length() == size && source.lastModified() == modified) {
             target.delete()
@@ -181,6 +242,11 @@ class SmartInfillPackageStore(private val context: Context) {
 
     fun clearActive() {
         activeFile.delete()
+    }
+
+    fun clearAll() {
+        clearActive()
+        packagesDirectory.listFiles().orEmpty().forEach { it.deleteRecursively() }
     }
 
     fun activate(packageValue: SmartInfillPackage) {
@@ -412,6 +478,41 @@ class SmartInfillPackageStore(private val context: Context) {
         private val SAFE_ID = Regex("filasim-[A-Za-z0-9-]+")
         private val SHA_PATTERN = Regex("[0-9a-f]{64}")
     }
+}
+
+internal fun binaryStlBounds(file: File, maxTriangles: Int): BinaryStlBounds {
+    requireValidBinaryStl(file, maxTriangles)
+    var minX = Double.POSITIVE_INFINITY
+    var minY = Double.POSITIVE_INFINITY
+    var minZ = Double.POSITIVE_INFINITY
+    var maxX = Double.NEGATIVE_INFINITY
+    var maxY = Double.NEGATIVE_INFINITY
+    var maxZ = Double.NEGATIVE_INFINITY
+    RandomAccessFile(file, "r").use { input ->
+        input.seek(STL_HEADER_BYTES)
+        val triangle = ByteArray(STL_TRIANGLE_BYTES.toInt())
+        val triangleCount = ((file.length() - STL_HEADER_BYTES) / STL_TRIANGLE_BYTES).toInt()
+        repeat(triangleCount) {
+            input.readFully(triangle)
+            val buffer = ByteBuffer.wrap(triangle).order(ByteOrder.LITTLE_ENDIAN)
+            repeat(3) { vertex ->
+                val offset = 12 + vertex * 12
+                val x = buffer.getFloat(offset).toDouble()
+                val y = buffer.getFloat(offset + 4).toDouble()
+                val z = buffer.getFloat(offset + 8).toDouble()
+                require(listOf(x, y, z).all(Double::isFinite)) {
+                    "Smart Infill STL contains a non-finite vertex"
+                }
+                minX = minOf(minX, x)
+                minY = minOf(minY, y)
+                minZ = minOf(minZ, z)
+                maxX = maxOf(maxX, x)
+                maxY = maxOf(maxY, y)
+                maxZ = maxOf(maxZ, z)
+            }
+        }
+    }
+    return BinaryStlBounds(minX, minY, minZ, maxX, maxY, maxZ)
 }
 
 internal fun requireValidBinaryStl(file: File, maxTriangles: Int) {

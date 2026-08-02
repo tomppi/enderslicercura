@@ -304,6 +304,51 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun clearBuildPlate() {
+        val snapshot = _uiState.value
+        if (!beginOperation("Clearing build plate…")) return
+        val pendingSettingsWrite = settingsPersistenceJob
+        val artifactId = snapshot.gcodePath?.let(::File)?.parentFile?.name
+        viewModelScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    pendingSettingsWrite?.join()
+                    workspaceStore.clear()
+                    File(app.filesDir, "models").listFiles().orEmpty().forEach { it.delete() }
+                    artifactId?.let(engine::releaseArtifact)
+                }
+            }.onSuccess {
+                CalibrationSliceState.clear()
+                sourceMesh = null
+                importedScene = null
+                plannedCalibrationEvents = emptyList()
+                _uiState.update { current ->
+                    current.copy(
+                        mesh = null,
+                        modelPath = null,
+                        modelPlacement = null,
+                        importedSceneTransformAvailable = false,
+                        importedSceneModelName = null,
+                        sliceResultId = null,
+                        gcodePath = null,
+                        baseGcodePath = null,
+                        layerPreview = null,
+                        layerEvents = emptyList(),
+                        calibrationDescription = null,
+                        estimatedPrintSeconds = null,
+                        sliceLogPath = null,
+                        sliceDurationMilliseconds = null,
+                        warnings = current.warnings.filterNot {
+                            it.startsWith("Imported Cura transform is for")
+                        },
+                        isBusy = false,
+                        statusMessage = "Build plate cleared; import an STL to begin",
+                    )
+                }
+            }.onFailure(::showOperationFailure)
+        }
+    }
+
     fun moveModel(centerXmm: Double, centerYmm: Double, baseZmm: Double) {
         changePlacement("Model position changed") { placement, _ ->
             placement.moved(centerXmm, centerYmm, baseZmm)
