@@ -122,6 +122,7 @@ object CuraEngineCommand {
         fun applyStandaloneSettings() {
             CuraSettingDelta.standaloneValues(effectiveSettings).forEach { (key, value) -> setting(key, value) }
             ArcOverhangEngineSettings.values(effectiveSettings).forEach { (key, value) -> setting(key, value) }
+            WaveOverhangEngineSettings.values(effectiveSettings).forEach { (key, value) -> setting(key, value) }
             CalibrationSliceState.engineOverrides().forEach { (key, value) -> setting(key, value) }
             applySmartInfillWidths()
         }
@@ -155,7 +156,12 @@ object CuraEngineCommand {
             } else {
                 0.0
             }
-            setting("infill_sparse_density", densityPercent)
+            val densityArgument: Number = if (densityPercent % 1.0 == 0.0) {
+                densityPercent.toInt()
+            } else {
+                densityPercent
+            }
+            setting("infill_sparse_density", densityArgument)
             setting("infill_pattern", pattern)
             applySmartInfillWidths()
             setting("infill_line_distance", lineDistance)
