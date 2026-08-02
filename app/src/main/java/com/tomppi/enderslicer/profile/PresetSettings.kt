@@ -67,6 +67,16 @@ object PresetSettings {
         SlicerSettings.Keys.ARC_OVERHANG_MAX_AREA,
         SlicerSettings.Keys.ARC_OVERHANG_RESOLUTION,
         SlicerSettings.Keys.ARC_OVERHANG_FAN_SPEED,
+        SlicerSettings.Keys.WAVE_OVERHANG_ENABLED,
+        SlicerSettings.Keys.WAVE_OVERHANG_PATTERN,
+        SlicerSettings.Keys.WAVE_OVERHANG_LINE_SPACING,
+        SlicerSettings.Keys.WAVE_OVERHANG_FLOW,
+        SlicerSettings.Keys.WAVE_OVERHANG_SPEED,
+        SlicerSettings.Keys.WAVE_OVERHANG_FAN_SPEED,
+        SlicerSettings.Keys.WAVE_OVERHANG_PERIMETER_OVERLAP,
+        SlicerSettings.Keys.WAVE_OVERHANG_MINIMUM_WIDTH,
+        SlicerSettings.Keys.WAVE_OVERHANG_MAX_ITERATIONS,
+        SlicerSettings.Keys.WAVE_OVERHANG_REVERSE_ODD_LAYERS,
         SlicerSettings.Keys.IRONING_ENABLED,
         SlicerSettings.Keys.IRONING_ONLY_HIGHEST_LAYER,
         SlicerSettings.Keys.IRONING_FLOW,
@@ -190,6 +200,16 @@ object PresetSettings {
                 SlicerSettings.Keys.ARC_OVERHANG_MAX_AREA -> changed.copy(arcOverhangMaxAreaMm2 = values.optDouble(key, changed.arcOverhangMaxAreaMm2))
                 SlicerSettings.Keys.ARC_OVERHANG_RESOLUTION -> changed.copy(arcOverhangResolutionMm = values.optDouble(key, changed.arcOverhangResolutionMm))
                 SlicerSettings.Keys.ARC_OVERHANG_FAN_SPEED -> changed.copy(arcOverhangFanSpeedPercent = values.optDouble(key, changed.arcOverhangFanSpeedPercent))
+                SlicerSettings.Keys.WAVE_OVERHANG_ENABLED -> changed.copy(waveOverhangEnabled = values.optBoolean(key, changed.waveOverhangEnabled))
+                SlicerSettings.Keys.WAVE_OVERHANG_PATTERN -> changed.copy(waveOverhangPattern = values.optString(key, changed.waveOverhangPattern))
+                SlicerSettings.Keys.WAVE_OVERHANG_LINE_SPACING -> changed.copy(waveOverhangLineSpacingMm = values.optDouble(key, changed.waveOverhangLineSpacingMm))
+                SlicerSettings.Keys.WAVE_OVERHANG_FLOW -> changed.copy(waveOverhangFlowMm3PerMm = values.optDouble(key, changed.waveOverhangFlowMm3PerMm))
+                SlicerSettings.Keys.WAVE_OVERHANG_SPEED -> changed.copy(waveOverhangSpeedMmPerSecond = values.optDouble(key, changed.waveOverhangSpeedMmPerSecond))
+                SlicerSettings.Keys.WAVE_OVERHANG_FAN_SPEED -> changed.copy(waveOverhangFanSpeedPercent = values.optDouble(key, changed.waveOverhangFanSpeedPercent))
+                SlicerSettings.Keys.WAVE_OVERHANG_PERIMETER_OVERLAP -> changed.copy(waveOverhangPerimeterOverlapMm = values.optDouble(key, changed.waveOverhangPerimeterOverlapMm))
+                SlicerSettings.Keys.WAVE_OVERHANG_MINIMUM_WIDTH -> changed.copy(waveOverhangMinimumWidthMm = values.optDouble(key, changed.waveOverhangMinimumWidthMm))
+                SlicerSettings.Keys.WAVE_OVERHANG_MAX_ITERATIONS -> changed.copy(waveOverhangMaxIterations = values.optInt(key, changed.waveOverhangMaxIterations))
+                SlicerSettings.Keys.WAVE_OVERHANG_REVERSE_ODD_LAYERS -> changed.copy(waveOverhangReverseOddLayers = values.optBoolean(key, changed.waveOverhangReverseOddLayers))
                 SlicerSettings.Keys.IRONING_ENABLED -> changed.copy(ironingEnabled = values.optBoolean(key, changed.ironingEnabled))
                 SlicerSettings.Keys.IRONING_ONLY_HIGHEST_LAYER -> changed.copy(ironingOnlyHighestLayer = values.optBoolean(key, changed.ironingOnlyHighestLayer))
                 SlicerSettings.Keys.IRONING_FLOW -> changed.copy(ironingFlowPercent = values.optDouble(key, changed.ironingFlowPercent))
@@ -223,6 +243,9 @@ object PresetSettings {
             appliedKeys += key
         }
         require(appliedKeys.isNotEmpty()) { "The preset has no usable ${kind.label.lowercase()} values" }
+        require(!(changed.arcOverhangEnabled && changed.waveOverhangEnabled)) {
+            "Arc and Wave overhangs cannot both be enabled"
+        }
         return changed.copy(overriddenSettingKeys = changed.overriddenSettingKeys + appliedKeys)
     }
 

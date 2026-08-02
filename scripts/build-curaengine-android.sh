@@ -308,7 +308,7 @@ replace(
         wave_parameters.minimum_width = mesh.settings.get<coord_t>("enderslicer_wave_overhang_minimum_width");
         wave_parameters.max_iterations = mesh.settings.get<size_t>("enderslicer_wave_overhang_max_iterations");
         wave_parameters.pattern = mesh.settings.get<std::string>("enderslicer_wave_overhang_pattern");
-        wave_parameters.reverse_order = mesh.settings.get<bool>("enderslicer_wave_overhang_reverse_odd_layers") && layer_nr % 2 != 0;
+        wave_parameters.reverse_direction = mesh.settings.get<bool>("enderslicer_wave_overhang_reverse_odd_layers") && layer_nr % 2 != 0;
 
         OpenLinesSet wave_lines;
         if (WaveOverhangGenerator::generate(

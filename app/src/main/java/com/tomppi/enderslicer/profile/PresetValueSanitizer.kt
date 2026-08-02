@@ -31,6 +31,9 @@ internal object PresetValueSanitizer {
                 require(settings.arcOverhangMinRadiusMm <= settings.arcOverhangMaxRadiusMm) {
                     "Arc-overhang minimum radius must not exceed its maximum radius"
                 }
+                require(!(settings.arcOverhangEnabled && settings.waveOverhangEnabled)) {
+                    "Arc and Wave overhangs cannot both be enabled"
+                }
             }
 
             PresetKind.FILAMENT -> {
@@ -109,6 +112,12 @@ internal object PresetValueSanitizer {
             }
         }
 
+        val arcEnabled = values.opt(SlicerSettings.Keys.ARC_OVERHANG_ENABLED) as? Boolean
+        val waveEnabled = values.opt(SlicerSettings.Keys.WAVE_OVERHANG_ENABLED) as? Boolean
+        require(arcEnabled != true || waveEnabled != true) {
+            "Arc and Wave overhangs cannot both be enabled"
+        }
+
         val coastingVolume = number(SlicerSettings.Keys.COASTING_VOLUME)
         val coastingMinimum = number(SlicerSettings.Keys.COASTING_MINIMUM_VOLUME)
         if (coastingVolume != null && coastingMinimum != null) {
@@ -126,6 +135,8 @@ internal object PresetValueSanitizer {
         SlicerSettings.Keys.SUPPORT_INTERFACE_ENABLED,
         SlicerSettings.Keys.AVOID_PRINTED_PARTS,
         SlicerSettings.Keys.ARC_OVERHANG_ENABLED,
+        SlicerSettings.Keys.WAVE_OVERHANG_ENABLED,
+        SlicerSettings.Keys.WAVE_OVERHANG_REVERSE_ODD_LAYERS,
         SlicerSettings.Keys.IRONING_ENABLED,
         SlicerSettings.Keys.IRONING_ONLY_HIGHEST_LAYER,
         SlicerSettings.Keys.RETRACT_AT_LAYER_CHANGE,
@@ -146,6 +157,7 @@ internal object PresetValueSanitizer {
         SlicerSettings.Keys.MATERIAL_ADHESION_TENDENCY,
         SlicerSettings.Keys.MATERIAL_SURFACE_ENERGY,
         SlicerSettings.Keys.FAN_FULL_AT_LAYER,
+        SlicerSettings.Keys.WAVE_OVERHANG_MAX_ITERATIONS,
     )
 
     private val stringKeys = setOf(
@@ -158,6 +170,7 @@ internal object PresetValueSanitizer {
         SlicerSettings.Keys.SUPPORT_PATTERN,
         SlicerSettings.Keys.COMBING_MODE,
         SlicerSettings.Keys.ADHESION_TYPE,
+        SlicerSettings.Keys.WAVE_OVERHANG_PATTERN,
     )
 
     private val strictOptions = mapOf(
@@ -170,6 +183,7 @@ internal object PresetValueSanitizer {
             "z_seam_corner_any",
             "z_seam_corner_weighted",
         ),
+        SlicerSettings.Keys.WAVE_OVERHANG_PATTERN to setOf("smart", "monotonic", "zigzag"),
     )
 
     private val numericRanges: Map<String, ClosedFloatingPointRange<Double>> = mapOf(
@@ -218,6 +232,13 @@ internal object PresetValueSanitizer {
         SlicerSettings.Keys.ARC_OVERHANG_MAX_AREA to 0.0..100_000_000.0,
         SlicerSettings.Keys.ARC_OVERHANG_RESOLUTION to 0.001..10.0,
         SlicerSettings.Keys.ARC_OVERHANG_FAN_SPEED to 0.0..100.0,
+        SlicerSettings.Keys.WAVE_OVERHANG_LINE_SPACING to 0.1..2.0,
+        SlicerSettings.Keys.WAVE_OVERHANG_FLOW to 0.02..1.5,
+        SlicerSettings.Keys.WAVE_OVERHANG_SPEED to 0.5..50.0,
+        SlicerSettings.Keys.WAVE_OVERHANG_FAN_SPEED to 0.0..100.0,
+        SlicerSettings.Keys.WAVE_OVERHANG_PERIMETER_OVERLAP to 0.0..2.0,
+        SlicerSettings.Keys.WAVE_OVERHANG_MINIMUM_WIDTH to 0.0..10.0,
+        SlicerSettings.Keys.WAVE_OVERHANG_MAX_ITERATIONS to 1.0..2000.0,
         SlicerSettings.Keys.IRONING_FLOW to 0.0..100.0,
         SlicerSettings.Keys.IRONING_SPEED to 0.1..1000.0,
         SlicerSettings.Keys.FILAMENT_DIAMETER to 0.5..5.0,

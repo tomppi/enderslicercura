@@ -99,16 +99,18 @@ bool appendIsland(
         return false;
     }
 
-    if (parameters.reverse_order)
-    {
-        std::reverse(levels.begin(), levels.end());
-    }
     for (size_t level_index = 0; level_index < levels.size(); ++level_index)
     {
         auto& lines = levels[level_index].getLines();
-        if (parameters.pattern == "zigzag" && level_index % 2 == 1)
+        const bool reverse_level
+            = (parameters.pattern == "zigzag" && level_index % 2 == 1) != parameters.reverse_direction;
+        if (reverse_level)
         {
             std::reverse(lines.begin(), lines.end());
+            for (OpenPolyline& line : lines)
+            {
+                line.reverse();
+            }
         }
         for (OpenPolyline& line : lines)
         {

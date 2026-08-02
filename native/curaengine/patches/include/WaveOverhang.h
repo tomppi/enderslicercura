@@ -23,7 +23,7 @@ struct WaveOverhangParameters
     coord_t minimum_width{};
     size_t max_iterations{};
     std::string pattern{ "smart" };
-    bool reverse_order{};
+    bool reverse_direction{};
 };
 
 /**

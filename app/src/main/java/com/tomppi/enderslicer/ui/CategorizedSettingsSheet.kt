@@ -562,7 +562,7 @@ internal fun CategorizedSettingsSheet(
                 NumberField("Maximum wavefronts", settings.waveOverhangMaxIterations.toDouble(), source(state, SlicerSettings.Keys.WAVE_OVERHANG_MAX_ITERATIONS), decimals = 0) {
                     onSettings(SlicerSettings.Keys.WAVE_OVERHANG_MAX_ITERATIONS) { current -> current.copy(waveOverhangMaxIterations = it.toInt().coerceIn(1, 2000)) }
                 }
-                SwitchRow("Reverse front order on odd layers", settings.waveOverhangReverseOddLayers, source(state, SlicerSettings.Keys.WAVE_OVERHANG_REVERSE_ODD_LAYERS)) {
+                SwitchRow("Reverse wave direction on odd layers", settings.waveOverhangReverseOddLayers, source(state, SlicerSettings.Keys.WAVE_OVERHANG_REVERSE_ODD_LAYERS)) {
                     onSettings(SlicerSettings.Keys.WAVE_OVERHANG_REVERSE_ODD_LAYERS) { current -> current.copy(waveOverhangReverseOddLayers = it) }
                 }
             }
