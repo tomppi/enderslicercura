@@ -1,0 +1,35 @@
+name: Publish wave native integration repair
+
+on:
+  pull_request:
+    types: [synchronize]
+    branches: [fix/bug-fix-round-2]
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    if: github.event.pull_request.head.ref == 'feature/wave-overhangs-viewer-fit'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: tomppi/enderslicercura
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Repair generated CuraEngine patch placement
+        run: python3 scripts/fix-wave-native-placement.py
+
+      - name: Verify and publish
+        run: |
+          grep -q "const bool monotonic = mesh.settings.get<bool>(\"skin_monotonic\");" scripts/build-curaengine-android.sh
+          grep -q "if (wave_overhang_enabled && ! wave_supported_skin_regions.empty())" scripts/build-curaengine-android.sh
+          git diff --check
+          rm scripts/fix-wave-native-placement.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: apply wave generator to clean CuraEngine source"
+          git push origin HEAD:feature/wave-overhangs-viewer-fit
