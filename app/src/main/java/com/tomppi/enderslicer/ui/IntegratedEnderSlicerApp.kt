@@ -185,8 +185,8 @@ fun IntegratedEnderSlicerApp(
             Toast.makeText(context, "filaSim returned an unknown export type", Toast.LENGTH_LONG).show()
             return@rememberLauncherForActivityResult
         }
-        val metadata = data.getStringExtra(SmartInfillActivity.EXTRA_METADATA_JSON)
-        val sourceSha = data.getStringExtra(SmartInfillActivity.EXTRA_SOURCE_SHA256)
+        val metadata = data?.getStringExtra(SmartInfillActivity.EXTRA_METADATA_JSON)
+        val sourceSha = data?.getStringExtra(SmartInfillActivity.EXTRA_SOURCE_SHA256)
         if (metadata.isNullOrBlank() || sourceSha.isNullOrBlank()) {
             deleteHandoff(exportUri)
             Toast.makeText(context, "filaSim returned incomplete Smart Infill metadata", Toast.LENGTH_LONG).show()
