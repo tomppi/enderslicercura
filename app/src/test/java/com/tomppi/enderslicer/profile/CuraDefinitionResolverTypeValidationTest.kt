@@ -68,7 +68,7 @@ class CuraDefinitionResolverTypeValidationTest {
     }
 
     @Test
-    fun enumValidationUsesStoredOptionValuesInsteadOfDisplayLabels() {
+    fun enumValidationAcceptsDeclaredKeysAndMappedValues() {
         val machine = """
             {"settings":{"machine":{"type":"category","children":{
               "machine_gcode_flavor":{
@@ -77,6 +77,14 @@ class CuraDefinitionResolverTypeValidationTest {
                 "options":{
                   "RepRap (Marlin/Sprinter)":"Marlin",
                   "RepRap (RepRap)":"RepRap"
+                }
+              },
+              "flooring_pattern":{
+                "type":"enum",
+                "default_value":"lines",
+                "options":{
+                  "lines":"Lines",
+                  "concentric":"Concentric"
                 }
               }
             }}}}
@@ -94,6 +102,43 @@ class CuraDefinitionResolverTypeValidationTest {
         )
 
         assertEquals("Marlin", result.globalValues["machine_gcode_flavor"])
+        assertEquals("lines", result.globalValues["flooring_pattern"])
+    }
+
+    @Test
+    fun metadataOnlyChildrenPreserveInheritedDefaultsAndExpressions() {
+        val parent = """
+            {"settings":{"quality":{"type":"category","children":{
+              "layer_height":{"type":"float","default_value":0.2},
+              "layer_height_0":{"type":"float","default_value":0.28},
+              "top_bottom_thickness":{
+                "type":"float",
+                "default_value":0.8,
+                "value":"=layer_height_0+layer_height*3"
+              }
+            }}}}
+        """.trimIndent()
+        val child = """
+            {"inherits":"parent","settings":{"quality":{"type":"category","children":{
+              "layer_height_0":{"type":"float"},
+              "top_bottom_thickness":{"type":"float"}
+            }}}}
+        """.trimIndent()
+
+        val result = CuraDefinitionResolver.resolve(
+            definitionFiles = mapOf(
+                "parent.def.json" to parent,
+                "machine.def.json" to child,
+                "extruder.def.json" to """{"settings":{}}""",
+            ),
+            machineDefinitionFileName = "machine.def.json",
+            extruderDefinitionFileName = "extruder.def.json",
+            globalOverrides = emptyMap(),
+            extruderOverrides = emptyMap(),
+        )
+
+        assertEquals(0.28, result.globalValues.getValue("layer_height_0").toDouble(), 1e-7)
+        assertEquals(0.88, result.globalValues.getValue("top_bottom_thickness").toDouble(), 1e-7)
     }
 
     private fun definitions(expression: String): Map<String, String> = mapOf(
