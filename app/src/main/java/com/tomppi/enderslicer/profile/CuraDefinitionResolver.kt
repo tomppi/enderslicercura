@@ -32,10 +32,11 @@ internal object CuraDefinitionResolver {
         extruderDefinitionFileName: String,
         globalOverrides: Map<String, String>,
         extruderOverrides: Map<String, String>,
+        definitionExpressionKeys: Set<String> = emptySet(),
     ): Result {
         require(definitionFiles.isNotEmpty()) { "No Cura definitions were available for expression resolution" }
         val documents = definitionFiles.mapValues { (name, content) ->
-            runCatching { parseDocument(content) }
+            runCatching { parseDocument(content, definitionExpressionKeys) }
                 .getOrElse { throw IllegalArgumentException("Unable to parse Cura definition $name: ${it.message}", it) }
         }
         val stackCache = mutableMapOf<String, Map<String, SettingDefinition>>()
@@ -193,10 +194,13 @@ internal object CuraDefinitionResolver {
         return result
     }
 
-    private fun parseDocument(content: String): DefinitionDocument {
+    private fun parseDocument(
+        content: String,
+        definitionExpressionKeys: Set<String>,
+    ): DefinitionDocument {
         val root = JSONObject(content)
         val settings = linkedMapOf<String, SettingDefinition>()
-        root.optJSONObject("settings")?.let { collectSettings(it, settings) }
+        root.optJSONObject("settings")?.let { collectSettings(it, settings, definitionExpressionKeys) }
         return DefinitionDocument(
             parentName = root.optString("inherits").trim().ifEmpty { null },
             settings = settings,
@@ -206,6 +210,7 @@ internal object CuraDefinitionResolver {
     private fun collectSettings(
         objectValue: JSONObject,
         output: MutableMap<String, SettingDefinition>,
+        definitionExpressionKeys: Set<String>,
     ) {
         val keys = objectValue.keys()
         while (keys.hasNext()) {
@@ -216,11 +221,12 @@ internal object CuraDefinitionResolver {
             } else {
                 null
             }
-            val expression = setting.optString("value")
-                .trim()
-                .takeIf { it.startsWith("=") }
-                ?.removePrefix("=")
-                ?.trim()
+            val rawValueExpression = setting.optString("value").trim()
+            val expression = when {
+                rawValueExpression.startsWith("=") -> rawValueExpression.removePrefix("=").trim()
+                key in definitionExpressionKeys && rawValueExpression.isNotEmpty() -> rawValueExpression
+                else -> null
+            }
             val type = setting.optString("type")
                 .trim()
                 .lowercase()
@@ -254,7 +260,9 @@ internal object CuraDefinitionResolver {
                     options = options,
                 )
             }
-            setting.optJSONObject("children")?.let { collectSettings(it, output) }
+            setting.optJSONObject("children")?.let {
+                collectSettings(it, output, definitionExpressionKeys)
+            }
         }
     }
 
