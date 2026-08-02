@@ -1,0 +1,39 @@
+name: Publish final handoff review
+
+on:
+  push:
+    branches:
+      - fix/parser-memory-lifecycle
+    paths:
+      - .github/workflows/publish-final-handoff-review.yml
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    # Source replacements are exact-match guarded and the machinery removes itself.
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/parser-memory-lifecycle
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Apply exact reviewed source patch
+        run: python3 scripts/apply_final_handoff_review.py
+      - name: Remove one-shot machinery
+        run: |
+          rm scripts/apply_final_handoff_review.py
+          rm .github/workflows/publish-final-handoff-review.yml
+      - name: Commit reviewed source
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --check
+          git commit -m 'fix: close final handoff integration gaps'
+          git push origin HEAD:fix/parser-memory-lifecycle
