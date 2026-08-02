@@ -1,4 +1,4 @@
-name: Publish wave native integration repair
+name: Publish final wave overhang hardening
 
 on:
   pull_request:
@@ -19,17 +19,19 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
 
-      - name: Repair generated CuraEngine patch placement
-        run: python3 scripts/fix-wave-native-placement.py
+      - name: Apply final safety and preset hardening
+        run: python3 scripts/harden-wave-overhang.py
 
       - name: Verify and publish
         run: |
-          grep -q "const bool monotonic = mesh.settings.get<bool>(\"skin_monotonic\");" scripts/build-curaengine-android.sh
-          grep -q "if (wave_overhang_enabled && ! wave_supported_skin_regions.empty())" scripts/build-curaengine-android.sh
+          grep -q 'reverse_direction' native/curaengine/patches/include/WaveOverhang.h
+          grep -q 'WAVE_OVERHANG_MAX_ITERATIONS' app/src/main/java/com/tomppi/enderslicer/profile/PresetSettings.kt
+          grep -q 'Arc and Wave overhangs cannot both be enabled' app/src/main/java/com/tomppi/enderslicer/profile/PresetValueSanitizer.kt
+          test -s app/src/test/java/com/tomppi/enderslicer/profile/WaveOverhangPresetTest.kt
           git diff --check
-          rm scripts/fix-wave-native-placement.py
+          rm scripts/harden-wave-overhang.py
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
-          git commit -m "fix: apply wave generator to clean CuraEngine source"
+          git commit -m "fix: preserve wave support order and preset state"
           git push origin HEAD:feature/wave-overhangs-viewer-fit
