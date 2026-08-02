@@ -6,6 +6,7 @@ plugins {
 if (System.getenv("GITHUB_ACTIONS") == "true") {
     val prepareScript = rootDir.resolve("scripts/prepare_handoff_patcher.py")
     val patchScript = rootDir.resolve("scripts/apply_handoff_lifecycle_patch.py")
+    val finalizeScript = rootDir.resolve("scripts/finalize_handoff_patched_sources.py")
     val packageScript = rootDir.resolve("scripts/package_handoff_patched_sources.py")
     val archive = rootDir.resolve("handoff-patched-sources.b64")
     val errorFile = rootDir.resolve("handoff-patch-error.txt")
@@ -36,7 +37,11 @@ if (System.getenv("GITHUB_ACTIONS") == "true") {
             }
             return true
         }
-        if (runGuardedScript(prepareScript) && runGuardedScript(patchScript)) {
+        if (
+            runGuardedScript(prepareScript) &&
+            runGuardedScript(patchScript) &&
+            runGuardedScript(finalizeScript)
+        ) {
             runGuardedScript(packageScript)
         }
     }
