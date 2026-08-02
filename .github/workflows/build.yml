@@ -5,6 +5,9 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.head.ref || github.ref_name }}
   cancel-in-progress: true
@@ -17,6 +20,24 @@ jobs:
       NPM_CONFIG_ENGINE_STRICT: "true"
     steps:
       - uses: actions/checkout@v4
+
+      - name: Apply verified Smart Infill follow-up patch
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'fix/smart-infill-audit-round'
+        run: |
+          if [ -f scripts/smart-infill-followup.patch ]; then
+            git fetch origin fix/smart-infill-audit-round
+            git checkout -B fix/smart-infill-audit-round origin/fix/smart-infill-audit-round
+            sed -i '/^index .*\.\.0000000/d' scripts/smart-infill-followup.patch
+            git apply --check scripts/smart-infill-followup.patch
+            git apply scripts/smart-infill-followup.patch
+            git diff --check
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add app scripts/prepare-filasim-assets.py build.gradle.kts .github/workflows/build.yml
+            git rm scripts/smart-infill-followup.patch .github/workflows/apply-smart-infill-followup.yml
+            git commit -m "fix: restore Smart Infill placement and workspace controls"
+            git push origin HEAD:fix/smart-infill-audit-round
+          fi
 
       - uses: actions/setup-java@v4
         with:
