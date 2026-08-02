@@ -5,6 +5,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
+// Regression coverage is based on the uploaded Ender-3 v2 test.3mf profile.
 class UploadedCuraSettingsCoverageTest {
     @Test
     fun uploadedProfileNoLongerReportsItsSettingsAsHidden() {
