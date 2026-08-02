@@ -42,6 +42,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
+import java.util.UUID
 import java.util.concurrent.atomic.AtomicLong
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
@@ -138,7 +139,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         ?.takeIf { scene -> scene.affine != null && modelNamesMatch(scene.modelName, mesh.displayName) }
                         ?.let { scene -> ModelPlacement.from3mf(mesh, requireNotNull(scene.affine), scene.dropToBuildPlate) }
                     val placement = automaticPlacement
-                        ?: ModelPlacement.centeredOnBed(mesh, printer.widthMm, printer.depthMm)
+                        ?: ModelPlacement.centeredOnBed(
+                            mesh = mesh,
+                            bedWidthMm = stateSnapshot.settings.machineWidthMm,
+                            bedDepthMm = stateSnapshot.settings.machineDepthMm,
+                            originAtCenter = stateSnapshot.settings.originAtCenter,
+                        )
                     val transformed = placement.transformed(mesh)
                     val mismatchWarning = sceneSnapshot
                         ?.takeIf { it.affine != null && !modelNamesMatch(it.modelName, mesh.displayName) }
@@ -317,8 +323,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun resetModelTransform() {
+        val settings = _uiState.value.settings
         changePlacement("Model transform reset and centered") { _, mesh ->
-            ModelPlacement.centeredOnBed(mesh, printer.widthMm, printer.depthMm)
+            ModelPlacement.centeredOnBed(
+                mesh = mesh,
+                bedWidthMm = settings.machineWidthMm,
+                bedDepthMm = settings.machineDepthMm,
+                originAtCenter = settings.originAtCenter,
+            )
         }
     }
 
@@ -352,24 +364,34 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             runCatching {
                 withContext(Dispatchers.IO) {
-                    val transformedFile = File(app.cacheDir, "model-placement/current-transformed.stl")
-                    StlMeshWriter.writeBinary(transformedMesh, transformedFile)
-                    if (plannedEventsSnapshot.isNotEmpty()) {
-                        val transform = requireNotNull(
-                            StlMeshWriter.resolvedSliceSource(transformedFile)?.transform,
-                        ) { "Calibration slice transform is unavailable" }
-                        CalibrationPlacementPolicy.requireAllowed(transform)
+                    val stagingRoot = File(app.cacheDir, "model-placement").apply {
+                        check(mkdirs() || isDirectory) { "Unable to create the model staging directory" }
                     }
-                    engine.slice(
-                        modelFile = transformedFile,
-                        printer = snapshot.printer,
-                        settings = snapshot.settings,
-                        startGcode = snapshot.startGcode,
-                        endGcode = snapshot.endGcode,
-                        profile = snapshot.engineProfile,
-                        layerEvents = snapshot.layerEvents.filter { it.source == LayerEventSource.USER },
-                        plannedLayerEvents = plannedEventsSnapshot,
-                    )
+                    val stagingDirectory = File(stagingRoot, "slice-${UUID.randomUUID()}").apply {
+                        check(mkdir()) { "Unable to create an isolated model staging directory" }
+                    }
+                    try {
+                        val transformedFile = File(stagingDirectory, "transformed.stl")
+                        StlMeshWriter.writeBinary(transformedMesh, transformedFile)
+                        if (plannedEventsSnapshot.isNotEmpty()) {
+                            val transform = requireNotNull(
+                                StlMeshWriter.resolvedSliceSource(transformedFile)?.transform,
+                            ) { "Calibration slice transform is unavailable" }
+                            CalibrationPlacementPolicy.requireAllowed(transform)
+                        }
+                        engine.slice(
+                            modelFile = transformedFile,
+                            printer = snapshot.printer,
+                            settings = snapshot.settings,
+                            startGcode = snapshot.startGcode,
+                            endGcode = snapshot.endGcode,
+                            profile = snapshot.engineProfile,
+                            layerEvents = snapshot.layerEvents.filter { it.source == LayerEventSource.USER },
+                            plannedLayerEvents = plannedEventsSnapshot,
+                        )
+                    } finally {
+                        stagingDirectory.deleteRecursively()
+                    }
                 }
             }.onSuccess { result ->
                 _uiState.update { current ->
@@ -410,7 +432,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     )
                     CalibrationTowerGenerator.generate(spec, snapshot.settings.retractionSpeedMmPerSecond)
                 }
-                val placement = ModelPlacement.centeredOnBed(result.mesh, printer.widthMm, printer.depthMm)
+                val placement = ModelPlacement.centeredOnBed(
+                    mesh = result.mesh,
+                    bedWidthMm = snapshot.settings.machineWidthMm,
+                    bedDepthMm = snapshot.settings.machineDepthMm,
+                    originAtCenter = snapshot.settings.originAtCenter,
+                )
                 val transformed = withContext(Dispatchers.Default) { placement.transformed(result.mesh) }
                 val modelFile = withContext(Dispatchers.IO) {
                     val directory = File(app.filesDir, "models").apply { mkdirs() }

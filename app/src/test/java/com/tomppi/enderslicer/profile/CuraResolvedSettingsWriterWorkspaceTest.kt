@@ -8,38 +8,13 @@ import java.io.File
 
 class CuraResolvedSettingsWriterWorkspaceTest {
     @Test
-    fun findsDisplayedModelFromNestedIsolatedRequestWorkspace() {
-        val cache = kotlin.io.path.createTempDirectory("enderslicer-cache").toFile()
-        val displayed = File(cache, "model-placement/current-transformed.stl").apply {
-            parentFile?.mkdirs()
-            writeText("displayed")
-        }
-        val request = File(cache, "curaengine/requests/slice-1").apply { mkdirs() }
-
-        assertEquals(displayed, CuraResolvedSettingsWriter.findStagedDisplayedFile(request))
-    }
-
-    @Test
-    fun lookupIsBoundedAndDoesNotFindUnrelatedDistantAncestors() {
-        val root = kotlin.io.path.createTempDirectory("enderslicer-cache").toFile()
-        File(root, "model-placement/current-transformed.stl").apply {
-            parentFile?.mkdirs()
-            writeText("displayed")
-        }
-        var nested = root
-        repeat(10) { index -> nested = File(nested, "level-$index").apply { mkdirs() } }
-
-        assertNull(CuraResolvedSettingsWriter.findStagedDisplayedFile(nested))
-    }
-
-    @Test
     fun resolvedSourceAndTransformAreCopiedAsOneStableSnapshot() {
         val directory = kotlin.io.path.createTempDirectory("enderslicer-model-snapshot").toFile()
-        val displayed = File(directory, "current-transformed.stl").apply { writeText("displayed") }
-        val source = File(directory, "current-transformed.slice-source.stl").apply {
+        val displayed = File(directory, "transformed.stl").apply { writeText("displayed") }
+        val source = File(directory, "transformed.slice-source.stl").apply {
             writeBytes(ByteArray(84) { index -> index.toByte() })
         }
-        File(directory, "current-transformed.slice-transform.json").writeText(transformJson())
+        File(directory, "transformed.slice-transform.json").writeText(transformJson())
         val destination = File(directory, "request/model.stl").apply { parentFile?.mkdirs() }
 
         val transform = CuraResolvedSettingsWriter.copyResolvedSourceSnapshot(displayed, destination)
@@ -51,11 +26,26 @@ class CuraResolvedSettingsWriterWorkspaceTest {
     }
 
     @Test
+    fun missingSidecarsReturnNullWithoutTouchingTheRequestModel() {
+        val directory = kotlin.io.path.createTempDirectory("enderslicer-model-no-sidecars").toFile()
+        val displayed = File(directory, "transformed.stl").apply { writeText("displayed") }
+        val destination = File(directory, "request/model.stl").apply {
+            parentFile?.mkdirs()
+            writeText("existing-request-model")
+        }
+
+        val transform = CuraResolvedSettingsWriter.copyResolvedSourceSnapshot(displayed, destination)
+
+        assertNull(transform)
+        assertEquals("existing-request-model", destination.readText())
+    }
+
+    @Test
     fun changingTransformDuringSourceCopyRejectsTheSnapshot() {
         val directory = kotlin.io.path.createTempDirectory("enderslicer-model-snapshot-race").toFile()
-        val displayed = File(directory, "current-transformed.stl").apply { writeText("displayed") }
-        File(directory, "current-transformed.slice-source.stl").writeBytes(ByteArray(84))
-        val transformFile = File(directory, "current-transformed.slice-transform.json").apply {
+        val displayed = File(directory, "transformed.stl").apply { writeText("displayed") }
+        File(directory, "transformed.slice-source.stl").writeBytes(ByteArray(84))
+        val transformFile = File(directory, "transformed.slice-transform.json").apply {
             writeText(transformJson())
         }
         val destination = File(directory, "request/model.stl").apply { parentFile?.mkdirs() }

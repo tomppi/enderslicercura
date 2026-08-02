@@ -42,6 +42,7 @@ internal object CalibrationPlanValidator {
 
         val eventType = spec.type.eventType
         val firmware = CalibrationFirmwareEncoder.fromFlavor(gcodeFlavor)
+        firmware.requireVerifiedCalibrationDialect()
         firmware.requireDistinctCalibrationSequence(
             type = eventType,
             values = values,

@@ -181,11 +181,20 @@ data class ModelPlacement(
     companion object {
         val IDENTITY = listOf(1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
 
-        fun centeredOnBed(mesh: StlMesh, bedWidthMm: Double, bedDepthMm: Double): ModelPlacement = ModelPlacement(
-            centerXmm = bedWidthMm / 2.0,
-            centerYmm = bedDepthMm / 2.0,
-            baseZmm = 0.0,
-        )
+        fun centeredOnBed(
+            mesh: StlMesh,
+            bedWidthMm: Double,
+            bedDepthMm: Double,
+            originAtCenter: Boolean = false,
+        ): ModelPlacement {
+            require(bedWidthMm.isFinite() && bedWidthMm > 0.0) { "Bed width must be positive" }
+            require(bedDepthMm.isFinite() && bedDepthMm > 0.0) { "Bed depth must be positive" }
+            return ModelPlacement(
+                centerXmm = if (originAtCenter) 0.0 else bedWidthMm / 2.0,
+                centerYmm = if (originAtCenter) 0.0 else bedDepthMm / 2.0,
+                baseZmm = 0.0,
+            )
+        }
 
         fun from3mf(
             mesh: StlMesh,

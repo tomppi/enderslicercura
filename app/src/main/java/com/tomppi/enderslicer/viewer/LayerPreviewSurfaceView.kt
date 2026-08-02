@@ -17,6 +17,7 @@ import kotlin.math.abs
 import kotlin.math.atan
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.sin
 import kotlin.math.sqrt
 import kotlin.math.tan
 
@@ -561,7 +562,7 @@ private class LayerPreviewRenderer : GLSurfaceView.Renderer {
         val verticalHalfFov = Math.toRadians(FIELD_OF_VIEW_DEGREES / 2.0).toFloat()
         val horizontalHalfFov = atan(tan(verticalHalfFov) * aspect)
         val limitingHalfFov = min(verticalHalfFov, horizontalHalfFov).coerceAtLeast(0.05f)
-        val fitted = radius / tan(limitingHalfFov) * CAMERA_MARGIN
+        val fitted = radius / sin(limitingHalfFov) * CAMERA_MARGIN
         return max((fitted + radius * 0.35f) / zoom, radius + 4f)
     }
 

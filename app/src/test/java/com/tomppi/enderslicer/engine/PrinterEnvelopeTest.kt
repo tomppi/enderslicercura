@@ -71,6 +71,28 @@ class PrinterEnvelopeTest {
     }
 
     @Test
+    fun binaryStlPreflightAppliesTheRequestTransformBeforeBoundsChecking() {
+        val directory = kotlin.io.path.createTempDirectory("enderslicer-envelope-transform").toFile()
+        val source = File(directory, "source.stl")
+        writeBinaryStl(source, listOf(
+            floatArrayOf(1000f, 1000f, 10f),
+            floatArrayOf(1010f, 1000f, 10f),
+            floatArrayOf(1000f, 1010f, 20f),
+        ))
+        val transform = com.tomppi.enderslicer.viewer.StlSliceTransform(
+            linear = listOf(1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0),
+            translationXmm = -990.0,
+            translationYmm = -990.0,
+            translationZmm = -10.0,
+        )
+
+        rectangular(false).requireBinaryStlFits(source, transform)
+        val error = runCatching { rectangular(false).requireBinaryStlFits(source) }.exceptionOrNull()
+
+        assertTrue(error is PrinterEnvelope.OutsideBuildVolumeException)
+    }
+
+    @Test
     fun sanitizerRejectsPositiveSupportAdhesionAndStartupExtrusionsOutsideThePlate() {
         listOf(";TYPE:SUPPORT", ";TYPE:SKIRT", "; custom startup purge").forEach { marker ->
             val file = temporaryGcode(

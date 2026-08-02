@@ -64,6 +64,18 @@ class CalibrationPlanValidatorTest {
     }
 
     @Test
+    fun rejectsUnknownFirmwareEvenForStandardCalibrationCommands() {
+        val error = runCatching {
+            CalibrationPlanValidator.validate(
+                spec = validSpec(CalibrationTestType.TEMPERATURE),
+                gcodeFlavor = "UnknownFirmware",
+            )
+        }.exceptionOrNull()
+
+        assertTrue(error is CalibrationFirmwareEncoder.UnsupportedFirmwareCommand)
+    }
+
+    @Test
     fun acceptsDistinctKlipperPressureAdvanceLevels() {
         val plan = CalibrationPlanValidator.validate(
             spec = validSpec(CalibrationTestType.PRESSURE_ADVANCE),

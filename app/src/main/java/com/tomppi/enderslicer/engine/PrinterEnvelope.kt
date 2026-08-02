@@ -2,6 +2,7 @@ package com.tomppi.enderslicer.engine
 
 import com.tomppi.enderslicer.model.PrinterDefinition
 import com.tomppi.enderslicer.viewer.StlMesh
+import com.tomppi.enderslicer.viewer.StlSliceTransform
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -49,7 +50,7 @@ data class PrinterEnvelope(
     }
 
     /** Streams the transformed binary STL staged for CuraEngine without a second mesh allocation. */
-    fun requireBinaryStlFits(file: File) {
+    fun requireBinaryStlFits(file: File, transform: StlSliceTransform? = null) {
         require(file.isFile && file.length() >= STL_HEADER_BYTES) { "Staged model STL is unavailable" }
         file.inputStream().channel.use { channel ->
             val header = ByteBuffer.allocate(STL_HEADER_BYTES.toInt()).order(ByteOrder.LITTLE_ENDIAN)
@@ -78,10 +79,13 @@ data class PrinterEnvelope(
                 repeat(records) {
                     buffer.position(buffer.position() + NORMAL_BYTES)
                     repeat(3) {
+                        val x = buffer.float.toDouble()
+                        val y = buffer.float.toDouble()
+                        val z = buffer.float.toDouble()
                         requirePoint(
-                            x = buffer.float.toDouble(),
-                            y = buffer.float.toDouble(),
-                            z = buffer.float.toDouble(),
+                            x = transformedX(transform, x, y, z),
+                            y = transformedY(transform, x, y, z),
+                            z = transformedZ(transform, x, y, z),
                             context = "Model vertex $vertexNumber",
                         )
                         vertexNumber++
@@ -147,6 +151,15 @@ data class PrinterEnvelope(
         )
         check(file.isFile && file.length() > 0L) { "Unable to write the printer envelope" }
     }
+
+    private fun transformedX(transform: StlSliceTransform?, x: Double, y: Double, z: Double): Double =
+        transform?.let { it.linear[0] * x + it.linear[1] * y + it.linear[2] * z + it.translationXmm } ?: x
+
+    private fun transformedY(transform: StlSliceTransform?, x: Double, y: Double, z: Double): Double =
+        transform?.let { it.linear[3] * x + it.linear[4] * y + it.linear[5] * z + it.translationYmm } ?: y
+
+    private fun transformedZ(transform: StlSliceTransform?, x: Double, y: Double, z: Double): Double =
+        transform?.let { it.linear[6] * x + it.linear[7] * y + it.linear[8] * z + it.translationZmm } ?: z
 
     private fun requirePoint(x: Double, y: Double, z: Double, context: String) {
         if (contains(x, y, z)) return

@@ -41,14 +41,10 @@ internal object CuraResolvedSettingsWriter {
                 ?.takeIf(String::isNotBlank)
                 ?: PrinterEnvelope.DEFAULT_GCODE_FLAVOR,
         )
-        printerEnvelope.requireBinaryStlFits(modelFile)
+        printerEnvelope.requireBinaryStlFits(modelFile, modelTransform)
         printerEnvelope.writeTo(File(modelDirectory, PrinterEnvelope.METADATA_FILE_NAME))
 
-        val stagedDisplayedFile = findStagedDisplayedFile(modelDirectory)
-        val stagedTransform = stagedDisplayedFile?.let { displayed ->
-            copyResolvedSourceSnapshot(displayed, modelFile)
-        }
-        val effectiveTransform = modelTransform ?: stagedTransform
+        val effectiveTransform = modelTransform
 
         val machineCenterX = if (centerIsZero) 0.0 else machineWidth / 2.0
         val machineCenterY = if (centerIsZero) 0.0 else machineDepth / 2.0
@@ -100,17 +96,14 @@ internal object CuraResolvedSettingsWriter {
         }
     }
 
-    internal fun findStagedDisplayedFile(modelDirectory: File): File? =
-        generateSequence(modelDirectory) { current -> current.parentFile }
-            .take(MAX_CACHE_ANCESTORS)
-            .map { ancestor -> File(ancestor, STAGED_DISPLAYED_MODEL_PATH) }
-            .firstOrNull(File::isFile)
-
     internal fun copyResolvedSourceSnapshot(
         stagedDisplayedFile: File,
         destination: File,
         copyFile: (File, File) -> Unit = { source, target -> source.copyTo(target, overwrite = true) },
     ): StlSliceTransform? {
+        require(stagedDisplayedFile.isFile && stagedDisplayedFile.length() > 0L) {
+            "The transformed STL is unavailable for resolved source staging"
+        }
         val sourceFile = File(
             stagedDisplayedFile.parentFile,
             "${stagedDisplayedFile.nameWithoutExtension}.slice-source.stl",
@@ -170,9 +163,6 @@ internal object CuraResolvedSettingsWriter {
     private const val AFFINE_TRANSLATION_X = "enderslicer_mesh_translation_x"
     private const val AFFINE_TRANSLATION_Y = "enderslicer_mesh_translation_y"
     private const val AFFINE_TRANSLATION_Z = "enderslicer_mesh_translation_z"
-    private const val STAGED_DISPLAYED_MODEL_PATH = "model-placement/current-transformed.stl"
-    private const val MAX_CACHE_ANCESTORS = 8
-
     private val IDENTITY = listOf(
         1.0, 0.0, 0.0,
         0.0, 1.0, 0.0,

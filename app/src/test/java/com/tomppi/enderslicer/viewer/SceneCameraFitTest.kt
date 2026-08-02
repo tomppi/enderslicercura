@@ -4,6 +4,7 @@ import com.tomppi.enderslicer.model.PrinterDefinition
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import kotlin.math.atan
+import kotlin.math.sin
 import kotlin.math.tan
 
 class SceneCameraFitTest {
@@ -46,7 +47,7 @@ class SceneCameraFitTest {
         val verticalHalf = Math.toRadians(21.0).toFloat()
         val horizontalHalf = atan(tan(verticalHalf) * 0.4f)
 
-        assertTrue(fit.radius / fit.distance < tan(horizontalHalf))
+        assertTrue(fit.distance >= fit.radius / sin(horizontalHalf) * 1.15f)
         assertTrue(fit.nearPlane > 0f)
         assertTrue(fit.farPlane > fit.nearPlane)
     }
@@ -70,7 +71,7 @@ class SceneCameraFitTest {
 
             assertTrue(fit.centerX > 115f)
             assertTrue(fit.centerY < 115f)
-            assertTrue(fit.radius / fit.distance < tan(limitingHalf))
+            assertTrue(fit.distance >= fit.radius / sin(limitingHalf) * 1.15f)
         }
     }
 }

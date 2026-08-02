@@ -45,6 +45,14 @@ class CalibrationFirmwareEncoder private constructor(
         LayerEventType.CUSTOM_GCODE -> text.lineSequence().map(String::trim).filter(String::isNotEmpty).toList()
     }
 
+    fun requireVerifiedCalibrationDialect() {
+        if (dialect == FirmwareDialect.GENERIC) {
+            throw UnsupportedFirmwareCommand(
+                "$declaredFlavor is not a verified calibration firmware dialect",
+            )
+        }
+    }
+
     fun requireDistinctCalibrationSequence(
         type: LayerEventType,
         values: List<Double>,

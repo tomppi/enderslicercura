@@ -123,10 +123,23 @@ class CuraEngineRunner(private val context: Context) {
         try {
             require(isAvailable()) { status() }
             require(modelFile.isFile && modelFile.length() > 0L) { "The imported STL is no longer available" }
-            copyStable(modelFile, workspace.model, "The model changed while it was being staged")
+            val resolutionProfile = profile?.let(::completeDefinitionStack)
+            val modelTransform = if (resolutionProfile != null) {
+                CuraResolvedSettingsWriter.copyResolvedSourceSnapshot(
+                    stagedDisplayedFile = modelFile,
+                    destination = workspace.model,
+                    copyFile = { source, destination ->
+                        copyStable(source, destination, "The original model changed while it was being staged")
+                    },
+                )
+            } else {
+                null
+            }
+            if (modelTransform == null) {
+                copyStable(modelFile, workspace.model, "The model changed while it was being staged")
+            }
             throwIfInterrupted()
 
-            val resolutionProfile = profile?.let(::completeDefinitionStack)
             val definitions = prepareDefinitions(workspace.directory, log, resolutionProfile)
             throwIfInterrupted()
 
@@ -140,9 +153,10 @@ class CuraEngineRunner(private val context: Context) {
                     endGcode,
                 )
                 CuraResolvedSettingsWriter.write(
-                    workspace.resolvedSettings,
-                    workspace.model.name,
-                    resolved,
+                    destination = workspace.resolvedSettings,
+                    modelFileName = workspace.model.name,
+                    resolved = resolved,
+                    modelTransform = modelTransform,
                 )
                 CuraEngineCommand.buildResolved(
                     executable.absolutePath,

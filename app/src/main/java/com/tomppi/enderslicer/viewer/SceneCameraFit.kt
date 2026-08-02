@@ -4,6 +4,7 @@ import com.tomppi.enderslicer.model.PrinterDefinition
 import kotlin.math.atan
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.sin
 import kotlin.math.sqrt
 import kotlin.math.tan
 
@@ -54,7 +55,7 @@ internal object SceneCameraFit {
         val verticalHalfFov = Math.toRadians(verticalFieldOfViewDegrees.toDouble() / 2.0).toFloat()
         val horizontalHalfFov = atan(tan(verticalHalfFov) * aspect)
         val limitingHalfFov = min(verticalHalfFov, horizontalHalfFov).coerceAtLeast(0.01f)
-        val fittedDistance = radius / tan(limitingHalfFov) * margin
+        val fittedDistance = radius / sin(limitingHalfFov) * margin
         val distance = max(fittedDistance / zoom, radius + 1f)
         val near = max(0.05f, distance - radius * 1.5f)
         val far = max(near + 10f, distance + radius * 2.5f + 10f)
