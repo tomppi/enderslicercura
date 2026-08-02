@@ -9,155 +9,12 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.head.ref || github.ref_name }}
   cancel-in-progress: true
 
-permissions:
-  contents: write
-
 jobs:
   build:
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          fetch-depth: 0
-
-      # ROUND2_PUBLISHER_START
-      - name: Publish reviewed round 2 source fixups
-        if: github.event_name == 'pull_request' && github.head_ref == 'fix/bug-fix-round-2'
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-
-          def replace(path, old, new):
-              p = Path(path)
-              text = p.read_text()
-              if old not in text:
-                  raise SystemExit(f"Expected source block not found in {path}")
-              p.write_text(text.replace(old, new, 1))
-
-          resolver = "app/src/main/java/com/tomppi/enderslicer/profile/CuraDefinitionResolver.kt"
-          replace(resolver, '''        document.settings.forEach { (key, child) ->
-            val parent = result[key]
-            result[key] = SettingDefinition(
-                defaultValue = child.defaultValue ?: parent?.defaultValue,
-                expression = child.expression ?: parent?.expression,
-                settablePerMesh = child.settablePerMesh ?: parent?.settablePerMesh,
-                type = child.type ?: parent?.type,
-                options = child.options ?: parent?.options,
-            )
-        }
-''', '''        document.settings.forEach { (key, child) ->
-            val parent = result[key]
-            // Keep Cura's existing value/default override semantics. Only
-            // schema metadata is inherited when the child omits it.
-            result[key] = child.copy(
-                settablePerMesh = child.settablePerMesh ?: parent?.settablePerMesh,
-                type = child.type ?: parent?.type,
-                options = child.options ?: parent?.options,
-            )
-        }
-''')
-          replace(resolver, '''            val options = setting.optJSONObject("options")?.let { optionObject ->
-                buildSet {
-                    val optionKeys = optionObject.keys()
-                    while (optionKeys.hasNext()) add(optionKeys.next())
-                }
-            }
-''', '''            val options = setting.optJSONObject("options")?.let { optionObject ->
-                buildSet {
-                    // Cura maps translated labels to the actual values stored
-                    // in profiles and consumed by CuraEngine.
-                    val optionLabels = optionObject.keys()
-                    while (optionLabels.hasNext()) {
-                        val label = optionLabels.next()
-                        val value = optionObject.opt(label)
-                        if (value != null && value != JSONObject.NULL) add(value.toString())
-                    }
-                }
-            }
-''')
-
-          publisher = "app/src/main/java/com/tomppi/enderslicer/engine/SliceArtifactPublisher.kt"
-          replace(publisher, '''            if (!marker.isFile || marker.readText().trim() != directory.name) return false
-''', '''            if (!marker.isFile || !runCatching { marker.readText().trim() == directory.name }.getOrDefault(false)) return false
-''')
-
-          gradle = "app/build.gradle.kts"
-          replace(gradle, '''    inputs.file(curaEngineExecutable)
-
-    doLast {
-''', '''    // Keep the actionable failure below instead of allowing Gradle to
-    // emit a generic missing-input validation error first.
-    outputs.upToDateWhen { false }
-
-    doLast {
-''')
-
-          repo = "app/src/main/java/com/tomppi/enderslicer/octoprint/OctoPrintRepository.kt"
-          replace(repo, '''        val remoteName = sanitizeGcodeName(suggestedName.ifBlank { source.name })
-        val requestGeneration = generation
-        _state.update {
-''', '''        val remoteName = sanitizeGcodeName(suggestedName.ifBlank { source.name })
-        val requestGeneration = generation
-        val sourceLease = runCatching { SliceArtifactPublisher.acquireLease(source) }.getOrElse { error ->
-            setError(error)
-            return
-        }
-        _state.update {
-''')
-          replace(repo, '''        sessionScope.launch {
-            runCatching {
-                withContext(Dispatchers.IO) {
-                    val uploadSource = SliceArtifactPublisher.acquireLease(source).use {
-                        snapshotGcodeForUpload(source)
-                    }
-''', '''        val uploadJob = sessionScope.launch {
-            runCatching {
-                withContext(Dispatchers.IO) {
-                    val uploadSource = snapshotGcodeForUpload(source)
-''')
-          replace(repo, '''            }.onFailure { error ->
-                if (!isCurrent(requestGeneration) || error is CancellationException) return@onFailure
-                _state.update { it.copy(isUploading = false, uploadProgress = null) }
-                handleSessionError(error, requestGeneration, forbiddenMeansInvalidKey = false)
-            }
-        }
-    }
-
-    fun selectFile''', '''            }.onFailure { error ->
-                if (!isCurrent(requestGeneration) || error is CancellationException) return@onFailure
-                _state.update { it.copy(isUploading = false, uploadProgress = null) }
-                handleSessionError(error, requestGeneration, forbiddenMeansInvalidKey = false)
-            }
-        }
-        uploadJob.invokeOnCompletion { sourceLease.close() }
-    }
-
-    fun selectFile''')
-
-          workflow = Path('.github/workflows/build.yml')
-          text = workflow.read_text().replace(
-              '          gradle :app:assembleDebug --stacktrace 2>&1 | tee apk-build.log\n',
-              '          gradle :app:verifyDebugApkContents --stacktrace 2>&1 | tee apk-build.log\n',
-              1,
-          )
-          start = text.index('      # ROUND2_PUBLISHER_START\n')
-          end_marker = '      # ROUND2_PUBLISHER_END\n'
-          end = text.index(end_marker, start) + len(end_marker)
-          workflow.write_text(text[:start] + text[end:])
-          PY
-
-          rm -f \
-            .github/round2-fixup-trigger \
-            .github/workflows/apply-round2-fixups.yml
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git diff --cached --check
-          git commit -m "fix: preserve Cura inheritance and build diagnostics"
-          git push origin HEAD:fix/bug-fix-round-2
-      # ROUND2_PUBLISHER_END
 
       - uses: actions/setup-java@v4
         with:
@@ -262,7 +119,7 @@ jobs:
       - name: Build debug APK
         run: |
           set -o pipefail
-          gradle :app:assembleDebug --stacktrace 2>&1 | tee apk-build.log
+          gradle :app:verifyDebugApkContents --stacktrace 2>&1 | tee apk-build.log
           unzip -l app/build/outputs/apk/debug/app-debug.apk | tee apk-contents.log
           grep -q 'lib/arm64-v8a/libcuraengine_exec.so' apk-contents.log
           grep -q 'assets/cura/definitions/version.txt' apk-contents.log
