@@ -1,0 +1,443 @@
+diff --git a/app/src/main/java/com/tomppi/enderslicer/smartinfill/SmartInfillPackage.kt b/app/src/main/java/com/tomppi/enderslicer/smartinfill/SmartInfillPackage.kt
+index 8765dc1..0000000 100644
+--- a/app/src/main/java/com/tomppi/enderslicer/smartinfill/SmartInfillPackage.kt
++++ b/app/src/main/java/com/tomppi/enderslicer/smartinfill/SmartInfillPackage.kt
+@@ -18,6 +18,18 @@ import java.util.zip.ZipInputStream
+ private const val STL_HEADER_BYTES = 84L
+ private const val STL_TRIANGLE_BYTES = 50L
+ 
++internal data class BinaryStlBounds(
++    val minX: Double,
++    val minY: Double,
++    val minZ: Double,
++    val maxX: Double,
++    val maxY: Double,
++    val maxZ: Double,
++) {
++    val centerX: Double get() = (minX + maxX) * 0.5
++    val centerY: Double get() = (minY + maxY) * 0.5
++}
++
+ /** One filaSim modifier volume and the Cura sparse-infill density it applies. */
+ data class SmartInfillModifier(
+     val densityPercent: Int,
+@@ -74,30 +86,75 @@ data class SmartInfillPackage(
+         }
+     }
+ 
+-    /** Copies immutable, validated modifier snapshots into a CuraEngine request workspace. */
+-    fun stageModifiers(destination: File): List<SmartInfillModifier> {
++    /**
++     * Stages filaSim modifier volumes in the displayed model's printer coordinates.
++     * filaSim centers imported geometry around local X/Y zero and grounds it at
++     * local Z zero. The analyzed STL is already placed on the build plate, so its
++     * center/base translation must be restored before CuraEngine sees the volume.
++     */
++    fun stageModifiers(destination: File, analyzedSource: File): List<SmartInfillModifier> {
+         require(destination.mkdirs() || destination.isDirectory) {
+             "Unable to create the Smart Infill staging directory"
+         }
++        requireMatchesSource(analyzedSource)
++        val triangleLimit = MeshTriangleLimits.current()
++        val sourceBounds = binaryStlBounds(analyzedSource, triangleLimit)
+         return modifiers.mapIndexed { index, modifier ->
+-            requireValidBinaryStl(modifier.file, MeshTriangleLimits.current())
++            requireValidBinaryStl(modifier.file, triangleLimit)
+             val target = File(destination, "smart-infill-${index + 1}-${modifier.densityPercent}pct.stl")
+-            copyStable(modifier.file, target)
+-            requireValidBinaryStl(target, MeshTriangleLimits.current())
++            translateStable(
++                source = modifier.file,
++                target = target,
++                translationX = sourceBounds.centerX,
++                translationY = sourceBounds.centerY,
++                translationZ = sourceBounds.minZ,
++            )
++            requireValidBinaryStl(target, triangleLimit)
+             SmartInfillModifier(modifier.densityPercent, target)
+         }
+     }
+ 
+-    private fun copyStable(source: File, target: File) {
++    private fun translateStable(
++        source: File,
++        target: File,
++        translationX: Double,
++        translationY: Double,
++        translationZ: Double,
++    ) {
++        require(listOf(translationX, translationY, translationZ).all(Double::isFinite)) {
++            "Smart Infill source placement is not finite"
++        }
+         val size = source.length()
+         val modified = source.lastModified()
+-        source.inputStream().buffered().use { input ->
+-            target.outputStream().buffered().use(input::copyTo)
++        RandomAccessFile(source, "r").use { input ->
++            FileOutputStream(target).use { output ->
++                val header = ByteArray(STL_HEADER_BYTES.toInt())
++                input.readFully(header)
++                output.write(header)
++                val triangleCount = ByteBuffer.wrap(header, 80, 4)
++                    .order(ByteOrder.LITTLE_ENDIAN)
++                    .int
++                val triangle = ByteArray(STL_TRIANGLE_BYTES.toInt())
++                repeat(triangleCount) {
++                    input.readFully(triangle)
++                    val buffer = ByteBuffer.wrap(triangle).order(ByteOrder.LITTLE_ENDIAN)
++                    repeat(3) { vertex ->
++                        val offset = 12 + vertex * 12
++                        val x = buffer.getFloat(offset).toDouble() + translationX
++                        val y = buffer.getFloat(offset + 4).toDouble() + translationY
++                        val z = buffer.getFloat(offset + 8).toDouble() + translationZ
++                        require(listOf(x, y, z).all(Double::isFinite)) {
++                            "Smart Infill modifier translation produced a non-finite vertex"
++                        }
++                        buffer.putFloat(offset, x.toFloat())
++                        buffer.putFloat(offset + 4, y.toFloat())
++                        buffer.putFloat(offset + 8, z.toFloat())
++                    }
++                    output.write(triangle)
++                }
++                output.fd.sync()
++            }
+         }
+         check(target.length() == size && source.length() == size && source.lastModified() == modified) {
+             target.delete()
+@@ -184,6 +241,11 @@ class SmartInfillPackageStore(private val context: Context) {
+         activeFile.delete()
+     }
+ 
++    fun clearAll() {
++        clearActive()
++        packagesDirectory.listFiles().orEmpty().forEach { it.deleteRecursively() }
++    }
++
+     fun activate(packageValue: SmartInfillPackage) {
+         require(packageValue.directory.parentFile?.canonicalFile == packagesDirectory.canonicalFile) {
+             "Smart Infill package is outside private storage"
+@@ -412,6 +474,43 @@ class SmartInfillPackageStore(private val context: Context) {
+     }
+ }
+ 
++internal fun binaryStlBounds(file: File, maxTriangles: Int): BinaryStlBounds {
++    requireValidBinaryStl(file, maxTriangles)
++    var minX = Double.POSITIVE_INFINITY
++    var minY = Double.POSITIVE_INFINITY
++    var minZ = Double.POSITIVE_INFINITY
++    var maxX = Double.NEGATIVE_INFINITY
++    var maxY = Double.NEGATIVE_INFINITY
++    var maxZ = Double.NEGATIVE_INFINITY
++    RandomAccessFile(file, "r").use { input ->
++        input.seek(STL_HEADER_BYTES)
++        val triangle = ByteArray(STL_TRIANGLE_BYTES.toInt())
++        val triangleCount = ((file.length() - STL_HEADER_BYTES) / STL_TRIANGLE_BYTES).toInt()
++        repeat(triangleCount) {
++            input.readFully(triangle)
++            val buffer = ByteBuffer.wrap(triangle).order(ByteOrder.LITTLE_ENDIAN)
++            repeat(3) { vertex ->
++                val offset = 12 + vertex * 12
++                val x = buffer.getFloat(offset).toDouble()
++                val y = buffer.getFloat(offset + 4).toDouble()
++                val z = buffer.getFloat(offset + 8).toDouble()
++                require(listOf(x, y, z).all(Double::isFinite)) {
++                    "Smart Infill STL contains a non-finite vertex"
++                }
++                minX = minOf(minX, x)
++                minY = minOf(minY, y)
++                minZ = minOf(minZ, z)
++                maxX = maxOf(maxX, x)
++                maxY = maxOf(maxY, y)
++                maxZ = maxOf(maxZ, z)
++            }
++        }
++    }
++    return BinaryStlBounds(minX, minY, minZ, maxX, maxY, maxZ)
++}
++
+ internal fun requireValidBinaryStl(file: File, maxTriangles: Int) {
+     require(file.isFile && file.length() >= STL_HEADER_BYTES) { "Smart Infill modifier STL is missing or empty" }
+     RandomAccessFile(file, "r").use { input ->
+diff --git a/app/src/main/java/com/tomppi/enderslicer/smartinfill/SmartInfillRuntime.kt b/app/src/main/java/com/tomppi/enderslicer/smartinfill/SmartInfillRuntime.kt
+index 77ef2b0..0000000 100644
+--- a/app/src/main/java/com/tomppi/enderslicer/smartinfill/SmartInfillRuntime.kt
++++ b/app/src/main/java/com/tomppi/enderslicer/smartinfill/SmartInfillRuntime.kt
+@@ -21,8 +21,8 @@ data class SmartInfillSliceSnapshot internal constructor(
+ 
+     fun requireMatchesSource(source: File) = packageValue.requireMatchesSource(source)
+ 
+-    fun stageModifiers(destination: File): List<SmartInfillModifier> =
+-        packageValue.stageModifiers(destination)
++    fun stageModifiers(destination: File, analyzedSource: File): List<SmartInfillModifier> =
++        packageValue.stageModifiers(destination, analyzedSource)
+ }
+ 
+ /**
+diff --git a/app/src/main/java/com/tomppi/enderslicer/engine/CuraEngineRunner.kt b/app/src/main/java/com/tomppi/enderslicer/engine/CuraEngineRunner.kt
+index 81961a9..0000000 100644
+--- a/app/src/main/java/com/tomppi/enderslicer/engine/CuraEngineRunner.kt
++++ b/app/src/main/java/com/tomppi/enderslicer/engine/CuraEngineRunner.kt
+@@ -157,7 +157,7 @@ class CuraEngineRunner(private val context: Context) {
+                 copyStable(modelFile, workspace.model, "The model changed while it was being staged")
+             }
+             val smartInfillModifiers = smartInfillSnapshot
+-                ?.stageModifiers(workspace.directory)
++                ?.stageModifiers(workspace.directory, modelFile)
+                 .orEmpty()
+             throwIfInterrupted()
+ 
+diff --git a/app/src/main/java/com/tomppi/enderslicer/ui/MainViewModel.kt b/app/src/main/java/com/tomppi/enderslicer/ui/MainViewModel.kt
+index 3c12236..0000000 100644
+--- a/app/src/main/java/com/tomppi/enderslicer/ui/MainViewModel.kt
++++ b/app/src/main/java/com/tomppi/enderslicer/ui/MainViewModel.kt
+@@ -239,6 +239,53 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
+         }
+     }
+ 
++    fun clearBuildPlate() {
++        val snapshot = _uiState.value
++        if (!beginOperation("Clearing build plate…")) return
++        val pendingSettingsWrite = settingsPersistenceJob
++        val artifactId = snapshot.gcodePath?.let(::File)?.parentFile?.name
++        viewModelScope.launch {
++            runCatching {
++                withContext(Dispatchers.IO) {
++                    pendingSettingsWrite?.join()
++                    workspaceStore.clear()
++                    File(app.filesDir, "models").listFiles().orEmpty().forEach { it.delete() }
++                    artifactId?.let(engine::releaseArtifact)
++                }
++            }.onSuccess {
++                CalibrationSliceState.clear()
++                sourceMesh = null
++                importedScene = null
++                plannedCalibrationEvents = emptyList()
++                _uiState.update { current ->
++                    current.copy(
++                        mesh = null,
++                        modelPath = null,
++                        modelPlacement = null,
++                        importedSceneTransformAvailable = false,
++                        importedSceneModelName = null,
++                        sliceResultId = null,
++                        gcodePath = null,
++                        baseGcodePath = null,
++                        layerPreview = null,
++                        layerEvents = emptyList(),
++                        calibrationDescription = null,
++                        estimatedPrintSeconds = null,
++                        sliceLogPath = null,
++                        sliceDurationMilliseconds = null,
++                        warnings = current.warnings.filterNot {
++                            it.startsWith("Imported Cura transform is for")
++                        },
++                        isBusy = false,
++                        statusMessage = "Build plate cleared; import an STL to begin",
++                    )
++                }
++            }.onFailure(::showOperationFailure)
++        }
++    }
++
+     fun moveModel(centerXmm: Double, centerYmm: Double, baseZmm: Double) {
+         changePlacement("Model position changed") { placement, _ ->
+             placement.moved(centerXmm, centerYmm, baseZmm)
+diff --git a/app/src/main/java/com/tomppi/enderslicer/ui/IntegratedEnderSlicerApp.kt b/app/src/main/java/com/tomppi/enderslicer/ui/IntegratedEnderSlicerApp.kt
+index ade218b..0000000 100644
+--- a/app/src/main/java/com/tomppi/enderslicer/ui/IntegratedEnderSlicerApp.kt
++++ b/app/src/main/java/com/tomppi/enderslicer/ui/IntegratedEnderSlicerApp.kt
+@@ -177,6 +177,18 @@ fun IntegratedEnderSlicerApp(
+         }
+     }
+ 
++    fun clearBuildPlate() {
++        if (slicerState.isBusy) {
++            Toast.makeText(context, "Finish the current operation first", Toast.LENGTH_SHORT).show()
++            return
++        }
++        smartInfillStore.clearAll()
++        SmartInfillRuntime.activate(null)
++        smartInfillPackage = null
++        smartInfillOpen = false
++        slicerViewModel.clearBuildPlate()
++    }
++
+     fun launchSmartInfill() {
+         val mesh = slicerState.mesh
+         if (mesh == null || slicerState.isBusy) {
+@@ -218,6 +230,14 @@ fun IntegratedEnderSlicerApp(
+ 
+     Box(modifier = Modifier.fillMaxSize()) {
+         EnderSlicerApp(slicerViewModel)
++        ExtendedFloatingActionButton(
++            onClick = ::clearBuildPlate,
++            modifier = Modifier
++                .align(Alignment.TopStart)
++                .padding(top = 72.dp, start = 12.dp),
++        ) {
++            Text("Clear plate")
++        }
+         ExtendedFloatingActionButton(
+             onClick = { octoPrintOpen = true },
+             modifier = Modifier
+diff --git a/scripts/prepare-filasim-assets.py b/scripts/prepare-filasim-assets.py
+index 2f75049..0000000 100755
+--- a/scripts/prepare-filasim-assets.py
++++ b/scripts/prepare-filasim-assets.py
+@@ -17,7 +17,7 @@ import zipfile
+ 
+ FILASIM_COMMIT = "e7485ec22d4ebe8baca04190404fbb877c90e031"
+-ASSET_FORMAT = 4
++ASSET_FORMAT = 5
+ HASH_MANIFEST = "SHA256SUMS"
+ MINIMUM_NODE_VERSION = (22, 18, 0)
+ 
+@@ -162,6 +162,22 @@ def patch_android_export(store_file: pathlib.Path) -> None:
+     store_file.write_text(text, encoding="utf-8")
+ 
+ 
++def patch_android_startup(app_file: pathlib.Path) -> None:
++    text = app_file.read_text(encoding="utf-8")
++    old = '    if (!s.sampleSkipped) void s.loadSampleModel();'
++    marker = "EnderSlicer Android host supplies the exact displayed model"
++    if marker not in text:
++        if old not in text:
++            raise RuntimeError("Unable to locate filaSim sample startup for Android patching")
++        new = (
++            f"    // {marker}.\n"
++            '    if (!new URLSearchParams(window.location.search).has("android") && !s.sampleSkipped) {\n'
++            "      void s.loadSampleModel();\n"
++            "    }"
++        )
++        text = text.replace(old, new, 1)
++    app_file.write_text(text, encoding="utf-8")
++
++
+ def inject_bridge(index_file: pathlib.Path) -> None:
+     text = index_file.read_text(encoding="utf-8")
+     script = '<script src="./android-bridge.js"></script>'
+@@ -239,10 +255,12 @@ def main() -> int:
+ 
+     web_root = source_root / "web"
+     store_file = web_root / "src/store.ts"
+-    if not store_file.is_file():
+-        raise RuntimeError("Pinned filaSim source did not contain web/src/store.ts")
++    app_file = web_root / "src/App.tsx"
++    if not store_file.is_file() or not app_file.is_file():
++        raise RuntimeError("Pinned filaSim source did not contain its Android patch targets")
+     patch_android_export(store_file)
++    patch_android_startup(app_file)
+ 
+     npm_environment = {"NPM_CONFIG_ENGINE_STRICT": "true"}
+     run(["npm", "ci", "--no-audit", "--no-fund"], cwd=web_root, env=npm_environment)
+diff --git a/build.gradle.kts b/build.gradle.kts
+index 7f4b592..0000000 100644
+--- a/build.gradle.kts
++++ b/build.gradle.kts
+@@ -4,7 +4,7 @@ plugins {
+ }
+ 
+ val filaSimCommit = "e7485ec22d4ebe8baca04190404fbb877c90e031"
+-val filaSimFormat = 4
++val filaSimFormat = 5
+ val filaSimScript = layout.projectDirectory.file("scripts/prepare-filasim-assets.py")
+ val filaSimBridge = layout.projectDirectory.file("app/src/main/filasim/android-bridge.js")
+ val filaSimAssetsDirectory = layout.projectDirectory.dir("app/src/main/assets/filasim")
+diff --git a/.github/workflows/build.yml b/.github/workflows/build.yml
+index 8358709..0000000 100644
+--- a/.github/workflows/build.yml
++++ b/.github/workflows/build.yml
+@@ -121,12 +121,13 @@ jobs:
+           test -s app/src/main/assets/filasim/SHA256SUMS
+           test -s app/src/main/assets/filasim/source-manifest/Cargo.lock
+           test -s app/src/main/assets/filasim/source-manifest/web-package-lock.json
+-          grep -q 'format=4' app/src/main/assets/filasim/.source-version
++          grep -q 'format=5' app/src/main/assets/filasim/.source-version
+           grep -q 'commit=e7485ec22d4ebe8baca04190404fbb877c90e031' app/src/main/assets/filasim/.source-version
+           grep -q 'android-bridge.js' app/src/main/assets/filasim/index.html
+           grep -R -q 'EnderSlicerBridge.*captureModifierZip' .build/filasim-android/e7485ec22d4ebe8baca04190404fbb877c90e031/web/src/store.ts
+           grep -R -q 'EnderSlicerBridge.*captureOptimizedShape' .build/filasim-android/e7485ec22d4ebe8baca04190404fbb877c90e031/web/src/store.ts
+           grep -R -q 'state.optMode === "binary" ? state.solidPattern : state.pattern' .build/filasim-android/e7485ec22d4ebe8baca04190404fbb877c90e031/web/src/store.ts
++          grep -R -q 'EnderSlicer Android host supplies the exact displayed model' .build/filasim-android/e7485ec22d4ebe8baca04190404fbb877c90e031/web/src/App.tsx
+           test -n "$(find app/src/main/assets/filasim -type f -name '*.wasm' -size +0c -print -quit)"
+           (cd app/src/main/assets/filasim && sha256sum --check SHA256SUMS)
+           gradle :app:prepareFilaSimAssets --info | tee filasim-warm-build.log
+diff --git a/app/src/test/java/com/tomppi/enderslicer/smartinfill/SmartInfillModifierPlacementTest.kt b/app/src/test/java/com/tomppi/enderslicer/smartinfill/SmartInfillModifierPlacementTest.kt
+new file mode 100644
+index 0000000..0000000
+--- /dev/null
++++ b/app/src/test/java/com/tomppi/enderslicer/smartinfill/SmartInfillModifierPlacementTest.kt
+@@ -0,0 +1,79 @@
++package com.tomppi.enderslicer.smartinfill
++
++import java.io.File
++import java.nio.ByteBuffer
++import java.nio.ByteOrder
++import java.nio.file.Files
++import org.junit.Assert.assertEquals
++import org.junit.Test
++
++class SmartInfillModifierPlacementTest {
++    @Test
++    fun localFilaSimModifierIsTranslatedBackToAnalyzedPrinterCoordinates() {
++        val root = Files.createTempDirectory("smart-infill-placement").toFile()
++        try {
++            val source = File(root, "source.stl")
++            val modifier = File(root, "modifier-40pct.stl")
++            writeTriangle(
++                source,
++                listOf(
++                    floatArrayOf(100f, 105f, 5f),
++                    floatArrayOf(130f, 105f, 5f),
++                    floatArrayOf(100f, 125f, 30f),
++                ),
++            )
++            writeTriangle(
++                modifier,
++                listOf(
++                    floatArrayOf(-10f, -5f, 1f),
++                    floatArrayOf(10f, -5f, 1f),
++                    floatArrayOf(-10f, 5f, 20f),
++                ),
++            )
++            val packageValue = SmartInfillPackage(
++                id = "filasim-test",
++                directory = root,
++                sourceName = "source.stl",
++                sourceSha256 = sha256(source),
++                baseDensityPercent = 10.0,
++                pattern = "cubic",
++                mode = "graded",
++                perimeters = 2,
++                lineWidthMm = 0.45,
++                topBottomLayers = 5,
++                layerHeightMm = 0.2,
++                upstreamCommit = "e7485ec22d4ebe8baca04190404fbb877c90e031",
++                modifiers = listOf(SmartInfillModifier(40, modifier)),
++            )
++
++            val staged = packageValue.stageModifiers(File(root, "request"), source).single().file
++            val bounds = binaryStlBounds(staged, 10)
++            assertEquals(105.0, bounds.minX, 0.0001)
++            assertEquals(125.0, bounds.maxX, 0.0001)
++            assertEquals(110.0, bounds.minY, 0.0001)
++            assertEquals(120.0, bounds.maxY, 0.0001)
++            assertEquals(6.0, bounds.minZ, 0.0001)
++            assertEquals(25.0, bounds.maxZ, 0.0001)
++        } finally {
++            root.deleteRecursively()
++        }
++    }
++
++    private fun writeTriangle(file: File, vertices: List<FloatArray>) {
++        val bytes = ByteBuffer.allocate(84 + 50).order(ByteOrder.LITTLE_ENDIAN)
++        bytes.position(80)
++        bytes.putInt(1)
++        bytes.putFloat(0f)
++        bytes.putFloat(0f)
++        bytes.putFloat(1f)
++        vertices.forEach { point -> point.forEach { value -> bytes.putFloat(value) } }
++        bytes.putShort(0)
++        file.writeBytes(bytes.array())
++    }
++}
