@@ -22,19 +22,40 @@ jobs:
           fetch-depth: 0
       - name: Verify reviewed source bundle
         run: |
-          test "$(wc -c < scripts/cura-settings-source.part00)" -eq 14000
-          test "$(wc -c < scripts/cura-settings-source.part01)" -eq 14000
-          test "$(wc -c < scripts/cura-settings-source.part02)" -eq 14000
-          test "$(wc -c < scripts/cura-settings-source.part03)" -eq 11900
-          echo 'd2541b5667e541fa6bcf451ceb11268568772544f69021dbc03024065c3549bc  scripts/cura-settings-source.part00' | sha256sum -c -
-          echo '60c1c5382be8f40356d4a36b88688e1a89ce7ca136d8d00a086c0ec34611cc20  scripts/cura-settings-source.part01' | sha256sum -c -
-          echo '9148f7fcb6a7a07a94d5de45f3148695c8eee85680caf4fcb9e12ea746891023  scripts/cura-settings-source.part02' | sha256sum -c -
-          echo 'f916ae5187be341dcacd0996fc7c26d4fb0a7c54a1adb0e46fd2141f3c84e934  scripts/cura-settings-source.part03' | sha256sum -c -
-          cat scripts/cura-settings-source.part00 scripts/cura-settings-source.part01 scripts/cura-settings-source.part02 scripts/cura-settings-source.part03 > /tmp/cura-settings-source.tar.gz.b64
-          test "$(wc -c < /tmp/cura-settings-source.tar.gz.b64)" -eq 53900
-          echo 'f6ee35764f1024d29d4bdd336f4f25db4451d8e884a82722c922fc55103adf25  /tmp/cura-settings-source.tar.gz.b64' | sha256sum -c -
-          base64 -d /tmp/cura-settings-source.tar.gz.b64 > /tmp/cura-settings-source.tar.gz
-          echo 'a50fd5582586e903d3375ae1f89a8a22e34cb2b9a62df515667fdf659de01a06  /tmp/cura-settings-source.tar.gz' | sha256sum -c -
+          python3 - <<'PY'
+          import base64
+          import hashlib
+          import pathlib
+
+          expected = {
+              'scripts/cura-settings-source.part00': (14000, 'd2541b5667e541fa6bcf451ceb11268568772544f69021dbc03024065c3549bc'),
+              'scripts/cura-settings-source.part01': (14000, '60c1c5382be8f40356d4a36b88688e1a89ce7ca136d8d00a086c0ec34611cc20'),
+              'scripts/cura-settings-source.part02': (14000, '9148f7fcb6a7a07a94d5de45f3148695c8eee85680caf4fcb9e12ea746891023'),
+              'scripts/cura-settings-source.part03': (11900, 'f916ae5187be341dcacd0996fc7c26d4fb0a7c54a1adb0e46fd2141f3c84e934'),
+          }
+          errors = []
+          parts = []
+          for name, (expected_size, expected_digest) in expected.items():
+              data = pathlib.Path(name).read_bytes()
+              digest = hashlib.sha256(data).hexdigest()
+              print(f'{name}: bytes={len(data)} sha256={digest}')
+              if len(data) != expected_size or digest != expected_digest:
+                  errors.append(name)
+              parts.append(data)
+          joined = b''.join(parts)
+          joined_digest = hashlib.sha256(joined).hexdigest()
+          print(f'joined base64: bytes={len(joined)} sha256={joined_digest}')
+          if len(joined) != 53900 or joined_digest != 'f6ee35764f1024d29d4bdd336f4f25db4451d8e884a82722c922fc55103adf25':
+              errors.append('joined base64')
+          if errors:
+              raise SystemExit('Verification failed: ' + ', '.join(errors))
+          archive = base64.b64decode(joined, validate=True)
+          archive_digest = hashlib.sha256(archive).hexdigest()
+          print(f'decoded archive: bytes={len(archive)} sha256={archive_digest}')
+          if archive_digest != 'a50fd5582586e903d3375ae1f89a8a22e34cb2b9a62df515667fdf659de01a06':
+              raise SystemExit('Decoded archive checksum mismatch')
+          pathlib.Path('/tmp/cura-settings-source.tar.gz').write_bytes(archive)
+          PY
       - name: Validate archive paths and extract
         run: |
           python3 - <<'PY'
