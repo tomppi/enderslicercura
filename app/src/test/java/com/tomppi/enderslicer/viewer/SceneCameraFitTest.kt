@@ -6,6 +6,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import kotlin.math.atan
 import kotlin.math.sin
+import kotlin.math.sqrt
 import kotlin.math.tan
 
 class SceneCameraFitTest {
@@ -90,6 +91,31 @@ class SceneCameraFitTest {
         assertTrue("Near plane must not collapse to the emergency minimum", fit.nearPlane > 1f)
         assertTrue(
             "A tight far/near ratio prevents hidden triangles bleeding through the shell",
+            fit.farPlane / fit.nearPlane < 100f,
+        )
+    }
+
+    @Test
+    fun zoomingOutKeepsTheWholeBuildPlateInsideTheFarPlane() {
+        val bounds = MeshBounds(
+            minX = 100f,
+            minY = 105f,
+            minZ = 0f,
+            maxX = 130f,
+            maxY = 125f,
+            maxZ = 27.5f,
+        )
+
+        val fit = SceneCameraFit.calculate(printer, bounds, 0.8f, 0.2f, 42f)
+        val eyeDistance = fit.distance * sqrt(1f + 0.62f * 0.62f)
+        val sceneRadius = sqrt(115f * 115f + 115f * 115f + 13.75f * 13.75f)
+
+        assertTrue(
+            "Far plane must include the back build-plate corner after zooming out",
+            fit.farPlane > eyeDistance + sceneRadius,
+        )
+        assertTrue(
+            "Extra render distance must not sacrifice useful depth precision",
             fit.farPlane / fit.nearPlane < 100f,
         )
     }
