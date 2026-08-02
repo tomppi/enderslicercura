@@ -13,6 +13,8 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     timeout-minutes: 180
+    env:
+      NPM_CONFIG_ENGINE_STRICT: "true"
     steps:
       - uses: actions/checkout@v4
 
@@ -27,7 +29,13 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22.18.0'
+
+      - name: Verify JavaScript toolchain
+        run: |
+          test "$(node --version)" = "v22.18.0"
+          node --version
+          npm --version
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -112,15 +120,19 @@ jobs:
           test -s app/src/main/assets/filasim/android-bridge.js
           test -s app/src/main/assets/filasim/LICENSE
           test -s app/src/main/assets/filasim/SOURCE.md
+          test -s app/src/main/assets/filasim/SHA256SUMS
           test -s app/src/main/assets/filasim/source-manifest/Cargo.lock
           test -s app/src/main/assets/filasim/source-manifest/web-package-lock.json
-          grep -q 'format=3' app/src/main/assets/filasim/.source-version
+          grep -q 'format=4' app/src/main/assets/filasim/.source-version
           grep -q 'commit=e7485ec22d4ebe8baca04190404fbb877c90e031' app/src/main/assets/filasim/.source-version
           grep -q 'android-bridge.js' app/src/main/assets/filasim/index.html
           grep -R -q 'EnderSlicerBridge.*captureModifierZip' .build/filasim-android/e7485ec22d4ebe8baca04190404fbb877c90e031/web/src/store.ts
           grep -R -q 'EnderSlicerBridge.*captureOptimizedShape' .build/filasim-android/e7485ec22d4ebe8baca04190404fbb877c90e031/web/src/store.ts
           grep -R -q 'state.optMode === "binary" ? state.solidPattern : state.pattern' .build/filasim-android/e7485ec22d4ebe8baca04190404fbb877c90e031/web/src/store.ts
           test -n "$(find app/src/main/assets/filasim -type f -name '*.wasm' -size +0c -print -quit)"
+          (cd app/src/main/assets/filasim && sha256sum --check SHA256SUMS)
+          gradle :app:prepareFilaSimAssets --info | tee filasim-warm-build.log
+          grep -q 'prepareFilaSimAssets UP-TO-DATE' filasim-warm-build.log
 
       - name: Build and package CuraEngine ARM64
         env:
@@ -169,6 +181,7 @@ jobs:
           grep -q 'assets/filasim/android-bridge.js' apk-contents.log
           grep -q 'assets/filasim/LICENSE' apk-contents.log
           grep -q 'assets/filasim/SOURCE.md' apk-contents.log
+          grep -q 'assets/filasim/SHA256SUMS' apk-contents.log
           grep -q 'assets/filasim/source-manifest/Cargo.lock' apk-contents.log
           grep -q 'assets/filasim/source-manifest/web-package-lock.json' apk-contents.log
           grep -Eq 'assets/filasim/.*\.wasm' apk-contents.log
@@ -184,16 +197,17 @@ jobs:
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: enderslicercura-0.9.0-dev-smart-infill-debug-apk
+          name: enderslicercura-0.9.0-dev-smart-infill-fixes-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
 
       - name: Upload build logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: enderslicercura-build-logs
+          name: enderslicercura-smart-infill-fix-build-logs
           path: |
             filasim-build.log
+            filasim-warm-build.log
             curaengine-android-build.log
             curaengine-needed.log
             unit-tests.log
