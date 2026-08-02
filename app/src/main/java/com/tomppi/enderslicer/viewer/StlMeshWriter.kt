@@ -84,7 +84,7 @@ object StlMeshWriter {
             }
 
             requireBytes(80 + Int.SIZE_BYTES)
-            repeat(80) { buffer.put(0) }
+            repeat(80) { buffer.put(0.toByte()) }
             buffer.putInt(triangleCount)
 
             var index = 0
@@ -99,7 +99,7 @@ object StlMeshWriter {
                     buffer.putFloat(vertices[base + 1])
                     buffer.putFloat(vertices[base + 2])
                 }
-                buffer.putShort(0)
+                buffer.putShort(0.toShort())
                 index += 18
             }
             if (buffer.position() > 0) flush()
