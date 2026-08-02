@@ -8,6 +8,8 @@ import com.tomppi.enderslicer.model.resolveStartGcode
 import com.tomppi.enderslicer.model.withSettings
 import com.tomppi.enderslicer.profile.CuraEngineProfile
 import com.tomppi.enderslicer.profile.CuraSettingDelta
+import com.tomppi.enderslicer.smartinfill.SmartInfillModifier
+import com.tomppi.enderslicer.smartinfill.requireValidBinaryStl
 import java.io.File
 
 object CuraEngineCommand {
@@ -46,6 +48,7 @@ object CuraEngineCommand {
         startGcode: String,
         endGcode: String,
         profile: CuraEngineProfile? = null,
+        smartInfillModifiers: List<SmartInfillModifier> = emptyList(),
         threadCount: Int = recommendedThreadCount(),
     ): List<String> {
         require(profile == null) {
@@ -60,12 +63,16 @@ object CuraEngineCommand {
             modelPath,
             outputPath,
         ).forEach(::requireSafeArgument)
+        smartInfillModifiers.forEach { modifier ->
+            requireSafeArgument(modifier.file.absolutePath)
+            requireValidBinaryStl(modifier.file, Int.MAX_VALUE)
+        }
 
         val effectiveSettings = CalibrationSliceState.effective(settings)
         val effectivePrinter = printer.withSettings(effectiveSettings)
-        File(modelPath).takeIf(File::isFile)?.let { stagedModel ->
-            PrinterEnvelope.from(effectivePrinter).requireBinaryStlFits(stagedModel)
-        }
+        val printerEnvelope = PrinterEnvelope.from(effectivePrinter)
+        File(modelPath).takeIf(File::isFile)?.let(printerEnvelope::requireBinaryStlFits)
+        smartInfillModifiers.forEach { modifier -> printerEnvelope.requireBinaryStlFits(modifier.file) }
         val effectiveStartGcode = effectiveSettings.resolveStartGcode(startGcode)
         val effectiveEndGcode = effectiveSettings.resolveEndGcode(endGcode)
         val engineOffsetX = if (effectivePrinter.originAtCenter) 0.0 else -effectivePrinter.widthMm / 2.0
@@ -102,6 +109,17 @@ object CuraEngineCommand {
             CalibrationSliceState.engineOverrides().forEach { (key, value) -> setting(key, value) }
         }
 
+        fun applyFinalMeshTransform() {
+            setting("center_object", false)
+            setting("mesh_rotation_matrix", "[[1,0,0],[0,1,0],[0,0,1]]")
+            setting("enderslicer_mesh_translation_x", 0)
+            setting("enderslicer_mesh_translation_y", 0)
+            setting("enderslicer_mesh_translation_z", 0)
+            setting("mesh_position_x", engineOffsetX)
+            setting("mesh_position_y", engineOffsetY)
+            setting("mesh_position_z", 0)
+        }
+
         setting("machine_name", effectivePrinter.name)
         setting("machine_width", effectivePrinter.widthMm)
         setting("machine_depth", effectivePrinter.depthMm)
@@ -121,10 +139,7 @@ object CuraEngineCommand {
             "machine_head_with_fans_polygon",
             "[[${effectivePrinter.printheadXMinMm},${effectivePrinter.printheadYMaxMm}],[${effectivePrinter.printheadXMinMm},${effectivePrinter.printheadYMinMm}],[${effectivePrinter.printheadXMaxMm},${effectivePrinter.printheadYMinMm}],[${effectivePrinter.printheadXMaxMm},${effectivePrinter.printheadYMaxMm}]]",
         )
-        setting("center_object", false)
-        setting("mesh_position_x", engineOffsetX)
-        setting("mesh_position_y", engineOffsetY)
-        setting("mesh_position_z", 0)
+        applyFinalMeshTransform()
         applyStandaloneSettings()
 
         command += listOf(
@@ -155,12 +170,30 @@ object CuraEngineCommand {
         setting("support_roof_line_distance", lineDistance)
         setting("support_bottom_line_distance", lineDistance)
 
-        setting("center_object", false)
-        setting("mesh_position_x", engineOffsetX)
-        setting("mesh_position_y", engineOffsetY)
-        setting("mesh_position_z", 0)
+        applyFinalMeshTransform()
+        setting("infill_mesh", false)
+        setting("support_mesh", false)
+        setting("anti_overhang_mesh", false)
+        setting("cutting_mesh", false)
+        command += listOf("-l", modelPath)
 
-        command += listOf("-l", modelPath, "-o", outputPath)
+        smartInfillModifiers
+            .sortedBy(SmartInfillModifier::densityPercent)
+            .forEachIndexed { index, modifier ->
+                // The modifier STL came from the already transformed model, so
+                // it uses identity geometry with only Cura's bed-origin offset.
+                applyFinalMeshTransform()
+                setting("extruder_nr", 0)
+                setting("infill_mesh", true)
+                setting("infill_mesh_order", index + 1)
+                setting("infill_sparse_density", modifier.densityPercent)
+                setting("support_mesh", false)
+                setting("anti_overhang_mesh", false)
+                setting("cutting_mesh", false)
+                command += listOf("-l", modifier.file.absolutePath)
+            }
+
+        command += listOf("-o", outputPath)
         return command
     }
 
