@@ -119,17 +119,41 @@ fun IntegratedEnderSlicerApp(
     ) { result ->
         if (result.resultCode != Activity.RESULT_OK) return@rememberLauncherForActivityResult
         val data = result.data
-        val archiveUri = data?.data
-        val metadata = data?.getStringExtra(SmartInfillActivity.EXTRA_METADATA_JSON)
-        val sourceSha = data?.getStringExtra(SmartInfillActivity.EXTRA_SOURCE_SHA256)
-        if (archiveUri == null || metadata.isNullOrBlank() || sourceSha.isNullOrBlank()) {
-            Toast.makeText(context, "filaSim returned an incomplete Smart Infill package", Toast.LENGTH_LONG).show()
+        val exportUri = data?.data
+        val resultKind = data?.getStringExtra(SmartInfillActivity.EXTRA_RESULT_KIND)
+        if (exportUri == null || resultKind.isNullOrBlank()) {
+            Toast.makeText(context, "filaSim returned an incomplete export", Toast.LENGTH_LONG).show()
+            return@rememberLauncherForActivityResult
+        }
+
+        if (resultKind == SmartInfillActivity.RESULT_SHAPE) {
+            smartInfillStore.clearActive()
+            SmartInfillRuntime.activate(null)
+            smartInfillPackage = null
+            smartInfillOpen = false
+            slicerViewModel.importStl(exportUri)
+            Toast.makeText(
+                context,
+                "Imported the filaSim Part Topo shape; inspect and slice it as a new model",
+                Toast.LENGTH_LONG,
+            ).show()
+            return@rememberLauncherForActivityResult
+        }
+
+        if (resultKind != SmartInfillActivity.RESULT_MODIFIERS) {
+            Toast.makeText(context, "filaSim returned an unknown export type", Toast.LENGTH_LONG).show()
+            return@rememberLauncherForActivityResult
+        }
+        val metadata = data.getStringExtra(SmartInfillActivity.EXTRA_METADATA_JSON)
+        val sourceSha = data.getStringExtra(SmartInfillActivity.EXTRA_SOURCE_SHA256)
+        if (metadata.isNullOrBlank() || sourceSha.isNullOrBlank()) {
+            Toast.makeText(context, "filaSim returned incomplete Smart Infill metadata", Toast.LENGTH_LONG).show()
             return@rememberLauncherForActivityResult
         }
         scope.launch {
             runCatching {
                 withContext(Dispatchers.IO) {
-                    smartInfillStore.importPackage(archiveUri, metadata, sourceSha)
+                    smartInfillStore.importPackage(exportUri, metadata, sourceSha)
                 }
             }.onSuccess { packageValue ->
                 SmartInfillRuntime.activate(packageValue)
@@ -274,7 +298,9 @@ private fun SmartInfillSheet(
         Text("Load-optimized Smart Infill")
         val summary = packageValue?.summary
         if (summary == null) {
-            Text("filaSim analyzes the current model and creates Cura modifier volumes with regional infill densities.")
+            Text(
+                "filaSim can create Cura density modifiers for graded/binary infill or return a Part Topo replacement shape.",
+            )
             Button(onClick = onGenerate, modifier = Modifier.fillMaxWidth()) {
                 Text("Open filaSim")
             }
