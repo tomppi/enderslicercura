@@ -63,6 +63,9 @@ chmod 755 "$ARTIFACT"
 source "$CONAN_RUN_ENV"
 : "${LD_LIBRARY_PATH:?Conan runtime environment did not define LD_LIBRARY_PATH}"
 printf 'LD_LIBRARY_PATH=%s\n' "$LD_LIBRARY_PATH" > "$RUNTIME_ENV"
+if [[ -n "${GITHUB_ENV:-}" ]]; then
+  cat "$RUNTIME_ENV" >> "$GITHUB_ENV"
+fi
 
 file "$ARTIFACT"
 ldd "$ARTIFACT"
