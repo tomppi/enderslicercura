@@ -66,19 +66,12 @@ fun IntegratedEnderSlicerApp(
         SmartInfillRuntime.activate(smartInfillPackage)
     }
 
-    // The modifier field is valid only for the exact transformed STL filaSim
-    // analyzed. Model import, rotation, movement, lay-flat, BumpMesh or a
-    // calibration model all change this deterministic binary snapshot and
-    // automatically invalidate the active package.
+    // A null mesh is also the normal transient state while MainViewModel
+    // restores the workspace after process recreation. Keep the persisted
+    // package until a concrete mesh exists, then validate its exact digest.
     LaunchedEffect(slicerState.mesh, smartInfillPackage?.id) {
         val packageValue = smartInfillPackage ?: return@LaunchedEffect
-        val mesh = slicerState.mesh
-        if (mesh == null) {
-            smartInfillStore.clearActive()
-            SmartInfillRuntime.activate(null)
-            smartInfillPackage = null
-            return@LaunchedEffect
-        }
+        val mesh = slicerState.mesh ?: return@LaunchedEffect
         runCatching {
             withContext(Dispatchers.IO) {
                 val validationFile = File(context.cacheDir, "filasim-source/current-validation.stl")
