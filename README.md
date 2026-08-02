@@ -119,7 +119,7 @@ Requirements:
 - CMake `3.22.1` and `3.31.6`
 - Gradle `9.4.1`
 - Python 3
-- Node.js 20+
+- Node.js `22.18.0` or newer
 - Stable Rust with `wasm32-unknown-unknown`
 - `wasm-pack 0.15.0`
 
@@ -136,7 +136,7 @@ scripts/build-curaengine-android.sh
 gradle :app:verifyDebugApkContents
 ```
 
-Gradle prepares pinned offline BumpMesh and filaSim assets before `preBuild`. `verifyDebugApkContents` builds the debug APK and verifies the ARM64 CuraEngine package. GitHub Actions also builds filaSim's WASM engine, runs unit/regression and definition audits, verifies packaged assets, and uploads the APK and logs.
+Gradle prepares pinned offline BumpMesh and filaSim assets before `preBuild`. The filaSim workspace includes a verified `SHA256SUMS` manifest, and Gradle tracks the complete generated directory so stale or incomplete warm-build output is regenerated. `verifyDebugApkContents` builds the debug APK and verifies the ARM64 CuraEngine package. GitHub Actions also builds filaSim's WASM engine, runs unit/regression and definition audits, verifies packaged assets, and uploads the APK and logs.
 
 ## Safety
 
