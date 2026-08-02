@@ -284,6 +284,12 @@ class OctoPrintRepository(
         }
         val remoteName = sanitizeGcodeName(suggestedName.ifBlank { source.name })
         val requestGeneration = generation
+        val sourceLease = runCatching {
+            SliceArtifactPublisher.acquireLease(source)
+        }.getOrElse { error ->
+            setError(error)
+            return
+        }
         _state.update {
             it.copy(
                 isUploading = true,
@@ -293,15 +299,14 @@ class OctoPrintRepository(
                 errorMessage = null,
             )
         }
-        sessionScope.launch {
+        val uploadJob = sessionScope.launch {
             runCatching {
-                withContext(Dispatchers.IO) {
-                    val uploadSource = SliceArtifactPublisher.acquireLease(source).use {
-                        snapshotGcodeForUpload(source)
-                    }
-                    try {
-                        requireClient().upload(uploadSource, remoteName, cleanDirectory, action) { sent, total ->
-                            if (!isCurrent(requestGeneration)) return@upload
+                val uploadSource = withContext(Dispatchers.IO) {
+                    snapshotGcodeForUpload(source)
+                }
+                try {
+                    val onProgress: (Long, Long) -> Unit = { sent, total ->
+                        if (isCurrent(requestGeneration)) {
                             val progress = if (total <= 0L) {
                                 null
                             } else {
@@ -309,9 +314,32 @@ class OctoPrintRepository(
                             }
                             _state.update { current -> current.copy(uploadProgress = progress) }
                         }
-                    } finally {
-                        uploadSource.delete()
                     }
+                    if (action == OctoPrintUploadAction.UPLOAD_AND_PRINT) {
+                        commandMutex.withLock {
+                            if (!isCurrent(requestGeneration)) {
+                                throw CancellationException("OctoPrint configuration changed before upload")
+                            }
+                            val client = requireClient()
+                            val freshState = freshSafetyState(client, requestGeneration)
+                            noActiveJobGuard("uploading and starting a print")(freshState)?.let { reason ->
+                                throw IllegalStateException(reason)
+                            }
+                            if (!isCurrent(requestGeneration)) {
+                                throw CancellationException("OctoPrint configuration changed before print upload")
+                            }
+                            withContext(Dispatchers.IO) {
+                                client.upload(uploadSource, remoteName, cleanDirectory, action, onProgress)
+                            }
+                        }
+                    } else {
+                        val client = requireClient()
+                        withContext(Dispatchers.IO) {
+                            client.upload(uploadSource, remoteName, cleanDirectory, action, onProgress)
+                        }
+                    }
+                } finally {
+                    uploadSource.delete()
                 }
             }.onSuccess { response ->
                 if (!isCurrent(requestGeneration)) return@onSuccess
@@ -344,6 +372,7 @@ class OctoPrintRepository(
                 handleSessionError(error, requestGeneration, forbiddenMeansInvalidKey = false)
             }
         }
+        uploadJob.invokeOnCompletion { sourceLease.close() }
     }
 
     fun selectFile(path: String, print: Boolean) = operation(
