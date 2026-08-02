@@ -149,6 +149,7 @@ internal object CuraResolvedSettingsWriter {
         require(stagedDisplayedFile.isFile && stagedDisplayedFile.length() > 0L) {
             "The transformed STL is unavailable for resolved source staging"
         }
+        SmartInfillRuntime.current()?.requireMatchesSource(stagedDisplayedFile)
         val sourceFile = File(
             stagedDisplayedFile.parentFile,
             "${stagedDisplayedFile.nameWithoutExtension}.slice-source.stl",
