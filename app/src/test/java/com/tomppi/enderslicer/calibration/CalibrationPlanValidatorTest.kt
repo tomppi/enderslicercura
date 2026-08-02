@@ -80,7 +80,7 @@ class CalibrationPlanValidatorTest {
     private fun validSpec(type: CalibrationTestType): CalibrationTowerSpec = when (type) {
         CalibrationTestType.TEMPERATURE -> CalibrationTowerSpec(type, 200.0, 5.0, 3)
         CalibrationTestType.FLOW -> CalibrationTowerSpec(type, 90.0, 5.0, 3)
-        CalibrationTestType.PRINT_SPEED -> CalibrationTowerSpec(type, 80.0, 10.0, 3)
+        CalibrationTestType.SPEED -> CalibrationTowerSpec(type, 80.0, 10.0, 3)
         CalibrationTestType.FAN -> CalibrationTowerSpec(type, 20.0, 20.0, 3)
         CalibrationTestType.RETRACTION -> CalibrationTowerSpec(type, 0.5, 0.5, 3)
         CalibrationTestType.PRESSURE_ADVANCE -> CalibrationTowerSpec(type, 0.0, 0.02, 3)
