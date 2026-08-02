@@ -1,6 +1,7 @@
 package com.tomppi.enderslicer.viewer
 
 import com.tomppi.enderslicer.model.PrinterDefinition
+import kotlin.math.abs
 import kotlin.math.atan
 import kotlin.math.max
 import kotlin.math.min
@@ -72,37 +73,38 @@ internal object SceneCameraFit {
         val sceneMaxY = max(bedMaxY, meshBounds?.maxY?.toDouble() ?: bedMaxY)
         val sceneMinZ = min(0.0, meshBounds?.minZ?.toDouble() ?: 0.0)
         val sceneMaxZ = max(0.0, meshBounds?.maxZ?.toDouble() ?: 0.0)
-        val clipRadius = listOf(
-            distance(centerX, centerY, centerZ, sceneMinX, sceneMinY, sceneMinZ),
-            distance(centerX, centerY, centerZ, sceneMinX, sceneMaxY, sceneMinZ),
-            distance(centerX, centerY, centerZ, sceneMaxX, sceneMinY, sceneMinZ),
-            distance(centerX, centerY, centerZ, sceneMaxX, sceneMaxY, sceneMaxZ),
-        ).maxOrNull()?.toFloat()?.coerceAtLeast(framingRadius) ?: framingRadius
+        val clipHalfX = max(abs(sceneMinX - centerX), abs(sceneMaxX - centerX))
+        val clipHalfY = max(abs(sceneMinY - centerY), abs(sceneMaxY - centerY))
+        val clipHalfZ = max(abs(sceneMinZ - centerZ), abs(sceneMaxZ - centerZ))
+        val clipRadius = sqrt(
+            clipHalfX * clipHalfX + clipHalfY * clipHalfY + clipHalfZ * clipHalfZ,
+        ).toFloat().coerceAtLeast(framingRadius)
 
         val verticalHalfFov = Math.toRadians(verticalFieldOfViewDegrees.toDouble() / 2.0).toFloat()
         val horizontalHalfFov = atan(tan(verticalHalfFov) * aspect)
         val limitingHalfFov = min(verticalHalfFov, horizontalHalfFov).coerceAtLeast(0.01f)
         val fittedDistance = framingRadius / sin(limitingHalfFov) * margin
-        val distance = max(fittedDistance / zoom, framingRadius + 1f)
-        val near = max(0.05f, distance - clipRadius * 1.35f)
-        val far = max(near + 10f, distance + clipRadius * 2.5f + 10f)
-        return Fit(centerX, centerY, centerZ, framingRadius, distance, near, far)
-    }
+        val minimumDistance = max(framingRadius + 1f, modelRadius * MIN_CAMERA_RADIUS_SCALE)
+        val distance = max(fittedDistance / zoom, minimumDistance)
 
-    private fun distance(
-        centerX: Float,
-        centerY: Float,
-        centerZ: Float,
-        x: Double,
-        y: Double,
-        z: Double,
-    ): Double {
-        val dx = x - centerX
-        val dy = y - centerY
-        val dz = z - centerZ
-        return sqrt(dx * dx + dy * dy + dz * dz)
+        // Do not derive the near plane from the complete bed radius. A small
+        // centered model plus a large bed previously collapsed this to 0.05 mm,
+        // wasting almost all precision in the mobile depth buffer and allowing
+        // hidden triangles to bleed through the visible shell.
+        val focusSafeNear = distance - modelRadius * FOCUS_CLIP_MARGIN
+        val preferredNear = distance * PREFERRED_NEAR_FRACTION
+        val near = min(preferredNear, focusSafeNear).coerceAtLeast(MIN_NEAR_PLANE)
+        val far = max(near + MIN_DEPTH_RANGE, distance + clipRadius * FAR_CLIP_MARGIN + FAR_PADDING)
+        return Fit(centerX, centerY, centerZ, framingRadius, distance, near, far)
     }
 
     private const val BED_CONTEXT_FRACTION = 0.28f
     private const val MAX_CONTEXT_SCALE = 2.25f
+    private const val MIN_CAMERA_RADIUS_SCALE = 1.08f
+    private const val FOCUS_CLIP_MARGIN = 1.04f
+    private const val PREFERRED_NEAR_FRACTION = 0.10f
+    private const val MIN_NEAR_PLANE = 0.1f
+    private const val FAR_CLIP_MARGIN = 1.10f
+    private const val FAR_PADDING = 10f
+    private const val MIN_DEPTH_RANGE = 10f
 }

@@ -32,6 +32,7 @@ class ModelSurfaceView(
 
     init {
         setEGLContextClientVersion(2)
+        setEGLConfigChooser(8, 8, 8, 8, 24, 0)
         preserveEGLContextOnPause = true
         setRenderer(modelRenderer)
         renderMode = RENDERMODE_WHEN_DIRTY
@@ -203,8 +204,10 @@ private class ModelRenderer(
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
         GLES20.glClearColor(0.055f, 0.065f, 0.08f, 1f)
         GLES20.glClearDepthf(1f)
+        GLES20.glDisable(GLES20.GL_BLEND)
         GLES20.glEnable(GLES20.GL_DEPTH_TEST)
-        GLES20.glDepthFunc(GLES20.GL_LEQUAL)
+        GLES20.glDepthMask(true)
+        GLES20.glDepthFunc(GLES20.GL_LESS)
         GLES20.glDisable(GLES20.GL_CULL_FACE)
         meshProgram = createProgram(MESH_VERTEX_SHADER, MESH_FRAGMENT_SHADER)
         lineProgram = createProgram(LINE_VERTEX_SHADER, LINE_FRAGMENT_SHADER)
