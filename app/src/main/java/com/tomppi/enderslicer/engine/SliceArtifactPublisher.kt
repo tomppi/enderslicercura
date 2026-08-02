@@ -1,6 +1,8 @@
 package com.tomppi.enderslicer.engine
 
+import java.io.Closeable
 import java.io.File
+import java.util.UUID
 
 /** Publishes completed slices by atomically renaming a fully prepared directory. */
 internal class SliceArtifactPublisher(
@@ -16,6 +18,16 @@ internal class SliceArtifactPublisher(
         val baseGcodeFile: File,
     )
 
+    init {
+        synchronized(ARTIFACT_LOCK) {
+            if (rootDirectory.mkdirs() || rootDirectory.isDirectory) {
+                cleanupAbandonedPublishingDirectories()
+                cleanupStaleLeases()
+                cleanupCompletedArtifacts(emptySet())
+            }
+        }
+    }
+
     fun publish(
         id: String,
         gcodeSource: File,
@@ -26,7 +38,11 @@ internal class SliceArtifactPublisher(
         require(gcodeSource.isFile && gcodeSource.length() > 0L) { "Validated G-code is unavailable" }
         require(baseGcodeSource.isFile && baseGcodeSource.length() > 0L) { "Base G-code is unavailable" }
         check(rootDirectory.mkdirs() || rootDirectory.isDirectory) { "Unable to create the slice result directory" }
-        cleanupAbandonedPublishingDirectories()
+
+        synchronized(ARTIFACT_LOCK) {
+            cleanupAbandonedPublishingDirectories()
+            cleanupStaleLeases()
+        }
 
         val finalDirectory = File(rootDirectory, id)
         check(!finalDirectory.exists()) { "Slice artifact already exists: $id" }
@@ -47,18 +63,36 @@ internal class SliceArtifactPublisher(
             effectiveEnvelope.writeTo(File(publishingDirectory, PrinterEnvelope.METADATA_FILE_NAME))
             File(publishingDirectory, COMPLETE_MARKER_FILE_NAME).writeText(id)
 
-            check(publishingDirectory.renameTo(finalDirectory)) {
-                "Unable to atomically publish the validated slice"
+            val artifact = synchronized(ARTIFACT_LOCK) {
+                check(publishingDirectory.renameTo(finalDirectory)) {
+                    "Unable to atomically publish the validated slice"
+                }
+                val published = PublishedArtifact(
+                    id = id,
+                    directory = finalDirectory,
+                    gcodeFile = File(finalDirectory, GCODE_FILE_NAME),
+                    baseGcodeFile = File(finalDirectory, BASE_GCODE_FILE_NAME),
+                )
+                cleanupCompletedArtifacts(setOf(id))
+                published
             }
-            return PublishedArtifact(
-                id = id,
-                directory = finalDirectory,
-                gcodeFile = File(finalDirectory, GCODE_FILE_NAME),
-                baseGcodeFile = File(finalDirectory, BASE_GCODE_FILE_NAME),
-            )
+            return artifact
         } catch (error: Throwable) {
             publishingDirectory.deleteRecursively()
             throw error
+        }
+    }
+
+    fun release(id: String) {
+        if (!id.matches(ID_PATTERN)) return
+        synchronized(ARTIFACT_LOCK) {
+            val directory = File(rootDirectory, id)
+            if (!isCompletedDirectory(directory)) return
+            if (hasActiveLease(directory)) {
+                File(directory, RELEASE_MARKER_FILE_NAME).writeText(id)
+            } else {
+                directory.deleteRecursively()
+            }
         }
     }
 
@@ -81,10 +115,41 @@ internal class SliceArtifactPublisher(
             .forEach(File::deleteRecursively)
     }
 
+    private fun cleanupStaleLeases() {
+        val cutoff = System.currentTimeMillis() - STALE_LEASE_MILLIS
+        rootDirectory.listFiles().orEmpty()
+            .filter(File::isDirectory)
+            .flatMap { directory ->
+                directory.listFiles().orEmpty().filter {
+                    it.isFile && it.name.startsWith(LEASE_FILE_PREFIX) && it.lastModified() < cutoff
+                }
+            }
+            .forEach(File::delete)
+    }
+
+    private fun cleanupCompletedArtifacts(protectedIds: Set<String>) {
+        val completed = rootDirectory.listFiles().orEmpty()
+            .filter(::isCompletedDirectory)
+            .sortedByDescending(File::lastModified)
+        val retained = completed.take(MAX_RETAINED_COMPLETED).mapTo(hashSetOf(), File::getName)
+        completed.forEach { directory ->
+            if (directory.name in protectedIds || directory.name in retained) return@forEach
+            if (hasActiveLease(directory)) {
+                File(directory, RELEASE_MARKER_FILE_NAME).writeText(directory.name)
+            } else {
+                directory.deleteRecursively()
+            }
+        }
+    }
+
     companion object {
         const val GCODE_FILE_NAME = "print.gcode"
         const val BASE_GCODE_FILE_NAME = "base.gcode"
         const val COMPLETE_MARKER_FILE_NAME = ".complete"
+        private const val RELEASE_MARKER_FILE_NAME = ".released"
+        private const val LEASE_FILE_PREFIX = ".lease-"
+        private const val MAX_RETAINED_COMPLETED = 8
+        private const val STALE_LEASE_MILLIS = 24L * 60L * 60L * 1_000L
 
         fun isCompleteGcode(file: File, expectedId: String? = null): Boolean {
             if (!file.isFile || file.name != GCODE_FILE_NAME || file.length() <= 0L) return false
@@ -107,6 +172,39 @@ internal class SliceArtifactPublisher(
             )
         }
 
+        fun acquireLease(artifactFile: File): Closeable = synchronized(ARTIFACT_LOCK) {
+            val id = completedArtifactId(artifactFile) ?: return@synchronized Closeable { }
+            val directory = artifactFile.parentFile
+                ?: return@synchronized Closeable { }
+            val lease = File(directory, "$LEASE_FILE_PREFIX${UUID.randomUUID()}")
+            check(lease.createNewFile()) { "Unable to lease the slice artifact" }
+            lease.writeText(id)
+            Closeable {
+                synchronized(ARTIFACT_LOCK) {
+                    lease.delete()
+                    if (
+                        File(directory, RELEASE_MARKER_FILE_NAME).isFile &&
+                        !hasActiveLease(directory)
+                    ) {
+                        directory.deleteRecursively()
+                    }
+                }
+            }
+        }
+
+        private fun isCompletedDirectory(directory: File): Boolean {
+            if (!directory.isDirectory) return false
+            val marker = File(directory, COMPLETE_MARKER_FILE_NAME)
+            if (!marker.isFile || marker.readText().trim() != directory.name) return false
+            return File(directory, GCODE_FILE_NAME).isFile &&
+                File(directory, BASE_GCODE_FILE_NAME).isFile &&
+                File(directory, PrinterEnvelope.METADATA_FILE_NAME).isFile
+        }
+
+        private fun hasActiveLease(directory: File): Boolean = directory.listFiles().orEmpty().any {
+            it.isFile && it.name.startsWith(LEASE_FILE_PREFIX)
+        }
+
         private fun completedArtifactId(file: File): String? {
             val directory = file.parentFile ?: return null
             val marker = File(directory, COMPLETE_MARKER_FILE_NAME)
@@ -115,6 +213,7 @@ internal class SliceArtifactPublisher(
             return id.takeIf { it.isNotBlank() && it == directory.name }
         }
 
+        private val ARTIFACT_LOCK = Any()
         private val ARTIFACT_FILE_NAMES = setOf(GCODE_FILE_NAME, BASE_GCODE_FILE_NAME)
         private val ID_PATTERN = Regex("[A-Za-z0-9._-]{1,128}")
     }

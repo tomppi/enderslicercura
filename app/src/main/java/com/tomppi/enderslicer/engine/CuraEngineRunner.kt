@@ -71,6 +71,8 @@ class CuraEngineRunner(private val context: Context) {
         else -> "CuraEngine 5.11.0-beta.1 ARM64 ready"
     }
 
+    fun releaseArtifact(id: String) = publisher.release(id)
+
     suspend fun slice(
         modelFile: File,
         printer: PrinterDefinition,

@@ -16,7 +16,9 @@ internal object CuraDefinitionResolver {
     private data class SettingDefinition(
         val defaultValue: Any?,
         val expression: String?,
-        val settablePerMesh: Boolean,
+        val settablePerMesh: Boolean?,
+        val type: String?,
+        val options: Set<String>?,
     )
 
     private data class DefinitionDocument(
@@ -122,6 +124,9 @@ internal object CuraDefinitionResolver {
             ) { (key, reason) -> "$key ($reason)" }
         }
 
+        validateResolvedScope("global", machineDefinitions, globalValues)
+        validateResolvedScope("extruder", combinedExtruderDefinitions, extruderValues)
+
         val formattedGlobal = globalValues.mapValues { formatValue(it.value) }
         val formattedExtruder = extruderValues.mapValues { formatValue(it.value) }
 
@@ -131,7 +136,7 @@ internal object CuraDefinitionResolver {
         // settable_per_mesh into the model section.
         val formattedModel = linkedMapOf<String, String>().apply {
             combinedExtruderDefinitions.forEach { (key, definition) ->
-                if (!definition.settablePerMesh) return@forEach
+                if (definition.settablePerMesh != true) return@forEach
                 val value = extruderValues[key] ?: globalValues[key] ?: return@forEach
                 put(key, formatValue(value))
             }
@@ -167,7 +172,16 @@ internal object CuraDefinitionResolver {
                 ),
             )
         }
-        result.putAll(document.settings)
+        document.settings.forEach { (key, child) ->
+            val parent = result[key]
+            result[key] = SettingDefinition(
+                defaultValue = child.defaultValue ?: parent?.defaultValue,
+                expression = child.expression ?: parent?.expression,
+                settablePerMesh = child.settablePerMesh ?: parent?.settablePerMesh,
+                type = child.type ?: parent?.type,
+                options = child.options ?: parent?.options,
+            )
+        }
         visiting.remove(fileName)
         cache[fileName] = result
         return result
@@ -201,11 +215,28 @@ internal object CuraDefinitionResolver {
                 .takeIf { it.startsWith("=") }
                 ?.removePrefix("=")
                 ?.trim()
-            if (defaultValue != null || expression != null) {
+            val type = setting.optString("type")
+                .trim()
+                .lowercase()
+                .ifEmpty { null }
+            val options = setting.optJSONObject("options")?.let { optionObject ->
+                buildSet {
+                    val optionKeys = optionObject.keys()
+                    while (optionKeys.hasNext()) add(optionKeys.next())
+                }
+            }
+            val settablePerMesh = if (setting.has("settable_per_mesh")) {
+                booleanValue(setting.opt("settable_per_mesh"))
+            } else {
+                null
+            }
+            if (defaultValue != null || expression != null || type != null || options != null || settablePerMesh != null) {
                 output[key] = SettingDefinition(
                     defaultValue = defaultValue,
                     expression = expression,
-                    settablePerMesh = booleanValue(setting.opt("settable_per_mesh")) ?: false,
+                    settablePerMesh = settablePerMesh,
+                    type = type,
+                    options = options,
                 )
             }
             setting.optJSONObject("children")?.let { collectSettings(it, output) }
@@ -312,6 +343,59 @@ internal object CuraDefinitionResolver {
         }
     }
 
+    private fun validateResolvedScope(
+        scope: String,
+        definitions: Map<String, SettingDefinition>,
+        values: Map<String, Any?>,
+    ) {
+        definitions.forEach { (key, definition) ->
+            if (key !in values) return@forEach
+            validateResolvedValue(scope, key, definition, values[key])
+        }
+    }
+
+    private fun validateResolvedValue(
+        scope: String,
+        key: String,
+        definition: SettingDefinition,
+        value: Any?,
+    ) {
+        fun invalid(expected: String): Nothing = throw IllegalArgumentException(
+            "Resolved Cura setting has invalid type/domain: scope=$scope key=$key " +
+                "declared=${definition.type ?: "unspecified"} value=${formatValue(value)} expected=$expected",
+        )
+
+        when (definition.type) {
+            "bool", "boolean" -> {
+                val valid = when (value) {
+                    is Boolean -> true
+                    is Number -> value.toDouble().isFinite() &&
+                        (value.toDouble() == 0.0 || value.toDouble() == 1.0)
+                    is String -> value.trim().lowercase() in BOOLEAN_LITERALS
+                    else -> false
+                }
+                if (!valid) invalid("boolean or numeric 0/1")
+            }
+            "int", "integer" -> {
+                val number = value as? Number ?: invalid("integer")
+                val double = number.toDouble()
+                if (!double.isFinite() || double % 1.0 != 0.0) invalid("finite integer")
+            }
+            "float", "double" -> {
+                val number = value as? Number ?: invalid("number")
+                if (!number.toDouble().isFinite()) invalid("finite number")
+            }
+            "enum" -> {
+                val option = value as? String ?: invalid("enum option")
+                val allowed = definition.options
+                if (!allowed.isNullOrEmpty() && option !in allowed) {
+                    invalid("one of ${allowed.sorted().joinToString()}")
+                }
+            }
+            "str", "string" -> if (value !is String) invalid("string")
+        }
+    }
+
     private fun normalize(value: Any?): Any? {
         if (value !is String) return value
         val trimmed = value.trim()
@@ -361,6 +445,7 @@ internal object CuraDefinitionResolver {
         return if (name.endsWith(".def.json")) name else "$name.def.json"
     }
 
+    private val BOOLEAN_LITERALS = setOf("true", "false", "1", "0", "yes", "no", "on", "off")
     private const val MAX_PASSES = 64
     private const val MAX_REPORTED_UNRESOLVED = 12
 }

@@ -20,6 +20,7 @@ import com.tomppi.enderslicer.engine.LayerEvent
 import com.tomppi.enderslicer.engine.LayerEventSource
 import com.tomppi.enderslicer.engine.LayerEventType
 import com.tomppi.enderslicer.engine.PlannedLayerEvent
+import com.tomppi.enderslicer.engine.SliceArtifactPublisher
 import com.tomppi.enderslicer.mesh.MeshTriangleLimits
 import com.tomppi.enderslicer.model.ModelPlacement
 import com.tomppi.enderslicer.model.SlicerSettings
@@ -395,6 +396,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
             }.onSuccess { result ->
+                val previousArtifactId = _uiState.value.gcodePath?.let(::File)?.parentFile?.name
                 _uiState.update { current ->
                     val printTime = result.estimatedPrintSeconds?.let(::formatPrintTime)
                     current.copy(
@@ -415,6 +417,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         },
                     )
                 }
+                previousArtifactId
+                    ?.takeIf { it != result.artifactId }
+                    ?.let(engine::releaseArtifact)
             }.onFailure(::showSliceFailure)
         }
     }
@@ -534,9 +539,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             runCatching {
                 withContext(Dispatchers.IO) { engine.applyLayerEvents(File(basePath), events) }
             }.onSuccess { result ->
+                val previousArtifactId = _uiState.value.gcodePath?.let(::File)?.parentFile?.name
                 _uiState.update { current ->
                     current.copy(
-                        sliceResultId = result.artifactId,
+                        // Event rematerialization is a new immutable artifact,
+                        // not a new logical Cura slice. Preserve editor context.
+                        sliceResultId = current.sliceResultId ?: result.artifactId,
                         gcodePath = result.gcodeFile.absolutePath,
                         baseGcodePath = result.baseGcodeFile.absolutePath,
                         layerPreview = result.layerPreview,
@@ -546,6 +554,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         statusMessage = "$message · ${result.layerEvents.size} active events",
                     )
                 }
+                previousArtifactId
+                    ?.takeIf { it != result.artifactId }
+                    ?.let(engine::releaseArtifact)
             }.onFailure(::showEventFailure)
         }
     }
@@ -563,9 +574,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 withContext(Dispatchers.IO) {
                     val source = File(sourcePath)
                     check(source.isFile && source.length() > 0L) { "Generated G-code is no longer available" }
-                    app.contentResolver.openOutputStream(uri, "w")?.buffered()?.use { output ->
-                        source.inputStream().buffered().use { input -> input.copyTo(output) }
-                    } ?: error("Unable to open the G-code destination")
+                    SliceArtifactPublisher.acquireLease(source).use {
+                        app.contentResolver.openOutputStream(uri, "w")?.buffered()?.use { output ->
+                            source.inputStream().buffered().use { input -> input.copyTo(output) }
+                        } ?: error("Unable to open the G-code destination")
+                    }
                 }
             }.onSuccess {
                 _uiState.update { it.copy(isBusy = false, statusMessage = "G-code exported") }
@@ -914,7 +927,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         scene: CuraProjectScene?,
         statusMessage: String?,
     ) {
-        importedSettingsBaseline = settings.copy(overriddenSettingKeys = emptySet())
+        importedSettingsBaseline = config.mappedSettings.copy(overriddenSettingKeys = emptySet())
         importedScene = scene
         val original = sourceMesh
         val autoPlacement = if (

@@ -1,6 +1,7 @@
 package com.tomppi.enderslicer.octoprint
 
 import android.content.Context
+import com.tomppi.enderslicer.engine.SliceArtifactPublisher
 import java.io.File
 import java.util.Locale
 import kotlinx.coroutines.CancellationException
@@ -295,7 +296,9 @@ class OctoPrintRepository(
         sessionScope.launch {
             runCatching {
                 withContext(Dispatchers.IO) {
-                    val uploadSource = snapshotGcodeForUpload(source)
+                    val uploadSource = SliceArtifactPublisher.acquireLease(source).use {
+                        snapshotGcodeForUpload(source)
+                    }
                     try {
                         requireClient().upload(uploadSource, remoteName, cleanDirectory, action) { sent, total ->
                             if (!isCurrent(requestGeneration)) return@upload
@@ -681,13 +684,35 @@ class OctoPrintRepository(
         sessionScope.launch {
             commandMutex.withLock {
                 if (!isCurrent(requestGeneration)) return@withLock
-                guard?.invoke(_state.value)?.let { reason ->
+                val client = runCatching { requireClient() }.getOrElse { error ->
+                    if (error !is CancellationException) {
+                        handleSessionError(error, requestGeneration, forbiddenMeansInvalidKey = false)
+                    }
+                    return@withLock
+                }
+                val guardState = if (guard == null) {
+                    _state.value
+                } else {
+                    runCatching { freshSafetyState(client, requestGeneration) }.getOrElse { error ->
+                        if (error !is CancellationException) {
+                            handleSessionError(error, requestGeneration, forbiddenMeansInvalidKey = false)
+                        }
+                        return@withLock
+                    }
+                }
+                if (!isCurrent(requestGeneration)) return@withLock
+                guard?.invoke(guardState)?.let { reason ->
                     setError(IllegalStateException(reason))
                     return@withLock
                 }
                 setStatus(message)
                 runCatching {
-                    withContext(Dispatchers.IO) { requireClient().block() }
+                    withContext(Dispatchers.IO) {
+                        if (!isCurrent(requestGeneration)) {
+                            throw CancellationException("OctoPrint configuration changed before command execution")
+                        }
+                        client.block()
+                    }
                 }.onSuccess {
                     if (!isCurrent(requestGeneration)) return@onSuccess
                     if (refreshFileList) refreshFiles(force = true)
@@ -699,6 +724,55 @@ class OctoPrintRepository(
                 }
             }
         }
+    }
+
+    /**
+     * Fetches the minimum current server state immediately before a guarded
+     * command. This deliberately does not call refreshAll while commandMutex is
+     * held, avoiding refresh/command lock recursion while still failing closed.
+     */
+    private suspend fun freshSafetyState(
+        client: OctoPrintClient,
+        requestGeneration: Long,
+    ): OctoPrintUiState = coroutineScope {
+        val job = async(Dispatchers.IO) { client.jobState() }
+        val connection = async(Dispatchers.IO) { client.connectionState() }
+        val printer = async(Dispatchers.IO) {
+            try {
+                client.printerState()
+            } catch (error: OctoPrintClient.OctoPrintHttpException) {
+                if (error.statusCode != 409) throw error
+                OctoPrintPrinterState(text = connection.await().state)
+            }
+        }
+        val freshJob = job.await()
+        val freshConnection = connection.await()
+        val freshPrinter = printer.await()
+        if (!isCurrent(requestGeneration)) {
+            throw CancellationException("OctoPrint configuration changed during safety preflight")
+        }
+        val refreshedAt = System.currentTimeMillis()
+        val merged = OctoPrintSafetyPreflight.merge(
+            cached = _state.value,
+            job = freshJob,
+            connection = freshConnection,
+            printer = freshPrinter,
+            refreshedAtEpochMillis = refreshedAt,
+        )
+        _state.update { current ->
+            if (isCurrent(requestGeneration)) {
+                OctoPrintSafetyPreflight.merge(
+                    cached = current,
+                    job = freshJob,
+                    connection = freshConnection,
+                    printer = freshPrinter,
+                    refreshedAtEpochMillis = refreshedAt,
+                )
+            } else {
+                current
+            }
+        }
+        merged
     }
 
     private fun idlePrinterGuard(action: String): (OctoPrintUiState) -> String? = { current ->

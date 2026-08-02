@@ -81,6 +81,38 @@ class SliceArtifactPublisherTest {
     }
 
     @Test
+    fun releasedArtifactWaitsForActiveLease() {
+        val root = kotlin.io.path.createTempDirectory("enderslicer-results").toFile()
+        val sourceDirectory = kotlin.io.path.createTempDirectory("enderslicer-staging").toFile()
+        val gcode = File(sourceDirectory, "output.gcode").apply { writeText("validated-output") }
+        val base = File(sourceDirectory, "base.gcode").apply { writeText("validated-base") }
+        val publisher = SliceArtifactPublisher(root)
+        val artifact = publisher.publish("slice-lease", gcode, base, envelope())
+
+        val lease = SliceArtifactPublisher.acquireLease(artifact.gcodeFile)
+        publisher.release(artifact.id)
+        assertTrue(artifact.directory.isDirectory)
+
+        lease.close()
+        assertFalse(artifact.directory.exists())
+    }
+
+    @Test
+    fun completedArtifactsAreBounded() {
+        val root = kotlin.io.path.createTempDirectory("enderslicer-results").toFile()
+        val sourceDirectory = kotlin.io.path.createTempDirectory("enderslicer-staging").toFile()
+        val gcode = File(sourceDirectory, "output.gcode").apply { writeText("validated-output") }
+        val base = File(sourceDirectory, "base.gcode").apply { writeText("validated-base") }
+        val publisher = SliceArtifactPublisher(root)
+
+        repeat(12) { index ->
+            publisher.publish("slice-retained-$index", gcode, base, envelope())
+        }
+
+        assertTrue(root.listFiles().orEmpty().count(File::isDirectory) <= 8)
+    }
+
+    @Test
     fun missingEnvelopeMakesAnOtherwiseMarkedArtifactIncomplete() {
         val root = kotlin.io.path.createTempDirectory("enderslicer-results").toFile()
         val directory = File(root, "slice-5").apply { mkdirs() }
