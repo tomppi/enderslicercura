@@ -4,10 +4,10 @@ plugins {
 }
 
 val filaSimCommit = "e7485ec22d4ebe8baca04190404fbb877c90e031"
-val filaSimFormat = 3
+val filaSimFormat = 4
 val filaSimScript = layout.projectDirectory.file("scripts/prepare-filasim-assets.py")
 val filaSimBridge = layout.projectDirectory.file("app/src/main/filasim/android-bridge.js")
-val filaSimMarker = layout.projectDirectory.file("app/src/main/assets/filasim/.source-version")
+val filaSimAssetsDirectory = layout.projectDirectory.dir("app/src/main/assets/filasim")
 
 project(":app") {
     val prepareFilaSimAssets = tasks.register<org.gradle.api.tasks.Exec>("prepareFilaSimAssets") {
@@ -17,8 +17,9 @@ project(":app") {
         inputs.property("filaSimFormat", filaSimFormat)
         inputs.file(filaSimScript)
         inputs.file(filaSimBridge)
-        outputs.file(filaSimMarker)
+        outputs.dir(filaSimAssetsDirectory)
         workingDir(rootProject.projectDir)
+        environment("NPM_CONFIG_ENGINE_STRICT", "true")
         commandLine(
             "python3",
             filaSimScript.asFile.absolutePath,
