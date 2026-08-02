@@ -34,6 +34,22 @@ The app is currently **0.9.0-dev**, targets Android 10+ on **ARM64**, and bundle
 - Separate support, support-interface, adhesion, arc-overhang and wave-overhang colors
 - Full-height sampled previews for very large G-code files without shortening the exported G-code
 
+### Smart Infill with filaSim
+
+The packaged **filaSim** workspace performs load-dependent FEA and density optimization entirely on the device. Select supports and loads, verify the setup, optimize the part, then return the generated density regions directly to EnderSlicerCura.
+
+- Fixed, elastic, frictionless, displacement and cylindrical supports
+- Force and pressure loading with structural verification views
+- Uniform-print analysis, stress, displacement and safety-factor results
+- Graded and binary infill optimization with configurable density levels
+- Stiffest-at-budget, match-uniform-stiffness and strength-target goals
+- Cura modifier-volume transport using regional `infill_sparse_density`
+- Exact model fingerprinting so movement, rotation or geometry changes invalidate stale results
+- filaSim wall, line-width, layer-height, shell, pattern and base-density assumptions applied to the Cura slice
+- Fully offline pinned Rust/WASM and React workspace; the model is not uploaded
+
+The first complete integration uses filaSim modifier volumes with CuraEngine's infill-mesh system. Smart Infill remains experimental until regional-density G-code and physical prints have been validated across more models and load cases.
+
 ### Print editing and calibration
 
 - Non-destructive layer events without re-running CuraEngine
@@ -60,30 +76,13 @@ The configurable triangle limit ranges from 100,000 to 8 million. Very large mes
 
 ### OctoPrint
 
-The integrated OctoPrint client includes:
-
-- Browser Application Keys authorization and manual API-key fallback
-- Android Keystore encrypted credentials
-- Upload, select and explicitly confirmed print start
-- File browsing and common file operations
-- Printer/job/temperature monitoring and webcam snapshots
-- Start, pause, resume, restart and cancel controls
-- Connection, homing, jog, temperature, extrusion and feed/flow controls
-- Guarded single-line terminal commands
-
-Commands are serialized and rechecked against printer state immediately before execution. OctoPrint is covered by automated tests but still needs broader validation against real servers and connected printers.
+The integrated OctoPrint client includes encrypted authorization, upload/select/print, file management, monitoring, webcam snapshots and guarded printer controls. Commands are serialized and rechecked against printer state immediately before execution.
 
 See [`docs/octoprint-integration.md`](docs/octoprint-integration.md) for implementation and security details.
 
 ## Reference printer
 
-The built-in baseline is a modified Ender 3 V2 with:
-
-- 230 × 230 × 250 mm build volume
-- 0.4 mm nozzle and 1.75 mm filament
-- Marlin G-code
-- Direct drive, dual Z and a Z probe
-- Heated bed and editable start/end G-code
+The built-in baseline is a modified Ender 3 V2 with a 230 × 230 × 250 mm build volume, 0.4 mm nozzle, 1.75 mm filament, Marlin, direct drive, dual Z, a Z probe and a heated bed.
 
 ## Cura comparison
 
@@ -99,14 +98,15 @@ One reference model sliced from the same Cura `5.11.0-beta.1` project data produ
 | Estimated time | 4806.07 s | 4883.65 s | −1.59% |
 | Firmware retracts | 1352 / 1351 | 1352 / 1351 | Exact |
 
-Printed geometry and extrusion destinations were extremely close. The larger travel difference came mainly from Cura Desktop taking longer segmented combing detours. This is a useful reference result, not proof of parity for every model or Cura setting.
+Printed geometry and extrusion destinations were extremely close. This is a useful reference result, not proof of parity for every model or Cura setting.
 
 ## Current limitations
 
-- Single-model and single-extruder slicing workflow
+- Single printable model and single extruder
 - No duplicate/auto-arrange workflow or Cura plugin compatibility
-- Arc and Wave overhangs remain experimental
-- High-density models may exceed the Android heap
+- Smart Infill, Arc Overhangs and Wave Overhangs still need broader physical print validation
+- filaSim currently uses its single-threaded WASM fallback inside Android WebView
+- High-density models and fine FEA grids may exceed the Android heap
 - OctoPrint still needs broader real-server and real-printer validation
 - Printer-specific calibration commands must be verified against the installed firmware
 
@@ -115,10 +115,13 @@ Printed geometry and extrusion destinations were extremely close. The larger tra
 Requirements:
 
 - JDK 17
-- Android SDK 36
-- Android NDK `28.2.13676358`
+- Android SDK 36 and NDK `28.2.13676358`
 - CMake `3.22.1` and `3.31.6`
 - Gradle `9.4.1`
+- Python 3
+- Node.js 20+
+- Stable Rust with `wasm32-unknown-unknown`
+- `wasm-pack 0.15.0`
 
 From a clean checkout:
 
@@ -133,16 +136,18 @@ scripts/build-curaengine-android.sh
 gradle :app:verifyDebugApkContents
 ```
 
-`verifyDebugApkContents` builds the debug APK and verifies that the ARM64 CuraEngine executable is packaged. GitHub Actions runs the native build, unit/regression tests, Cura definition audits and APK-content checks, then uploads the APK and logs as workflow artifacts.
+Gradle prepares pinned offline BumpMesh and filaSim assets before `preBuild`. `verifyDebugApkContents` builds the debug APK and verifies the ARM64 CuraEngine package. GitHub Actions also builds filaSim's WASM engine, runs unit/regression and definition audits, verifies packaged assets, and uploads the APK and logs.
 
 ## Safety
 
 Generated G-code is checked for valid extrusion temperatures, machine bounds, metadata and filename formatting before export. Remote printing requires explicit confirmation.
 
+Smart Infill is an engineering aid, not a certified structural analysis. Loads, constraints, material data, layer adhesion, print orientation and safety factors must match the real use case. Inspect the layer preview and test a non-critical part before relying on an optimized design.
+
 Always verify the printer condition, model placement, build volume, temperatures, filament, first layer and custom G-code. Terminal commands can move axes, heat the printer, modify firmware state or stop a print.
 
 ## License
 
-EnderSlicerCura is distributed under GNU AGPL-3.0-or-later because it links to CuraEngine. The embedded BumpMesh source is retained under `AGPL-3.0-only`.
+EnderSlicerCura is distributed under GNU AGPL-3.0-or-later because it links to CuraEngine. The embedded BumpMesh and filaSim source are retained under `AGPL-3.0-only`.
 
 See [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) for attribution and dependency details. UltiMaker and Cura are trademarks of their respective owners. EnderSlicerCura is not an official UltiMaker, Creality or CNC Kitchen application.
