@@ -4,7 +4,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENGINE_ROOT="${ENGINE_ROOT:-$ROOT/.build/CuraEngine}"
 OUTPUT_ROOT="${OUTPUT_ROOT:-$ROOT/.build/curaengine-host-tests}"
-ARTIFACT="$OUTPUT_ROOT/artifacts/CuraEngine"
+ARTIFACT_ROOT="$OUTPUT_ROOT/artifacts"
+ARTIFACT="$ARTIFACT_ROOT/CuraEngine"
+RUNTIME_ENV="$ARTIFACT_ROOT/runtime.env"
 
 if [[ ! -d "$ENGINE_ROOT/.git" ]]; then
   echo "Patched CuraEngine source is missing. Run scripts/build-curaengine-android.sh first." >&2
@@ -44,10 +46,26 @@ if [[ -z "$ENGINE_BINARY" ]]; then
   exit 3
 fi
 
-mkdir -p "$(dirname "$ARTIFACT")"
+CONAN_RUN_ENV="$(find "$OUTPUT_ROOT" -type f -path '*/generators/conanrun.sh' | head -n 1 || true)"
+if [[ -z "$CONAN_RUN_ENV" ]]; then
+  echo "Conan did not generate a runtime environment for host CuraEngine" >&2
+  exit 4
+fi
+
+mkdir -p "$ARTIFACT_ROOT"
 cp -v "$ENGINE_BINARY" "$ARTIFACT"
 chmod 755 "$ARTIFACT"
 
+# oneTBB intentionally remains a runtime library in the host fixture. Source
+# Conan's generated environment, verify the executable, and persist the exact
+# path for the Gradle process that launches the real-engine tests.
+# shellcheck disable=SC1090
+source "$CONAN_RUN_ENV"
+: "${LD_LIBRARY_PATH:?Conan runtime environment did not define LD_LIBRARY_PATH}"
+printf 'LD_LIBRARY_PATH=%s\n' "$LD_LIBRARY_PATH" > "$RUNTIME_ENV"
+
 file "$ARTIFACT"
+ldd "$ARTIFACT"
+! ldd "$ARTIFACT" | grep -q 'not found'
 "$ARTIFACT" help >/dev/null
 printf '%s\n' "$ARTIFACT"
