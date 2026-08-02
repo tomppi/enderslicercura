@@ -23,7 +23,7 @@ internal object LayerEventOrdering {
         // format; otherwise retain the caller's stable insertion order.
         if (ordinals.any { it == null }) return events
         return events.indices
-            .sortedWith(compareBy({ ordinals[it] }, { events[it].index }))
+            .sortedWith(compareBy({ ordinals[it]!! }, { events[it].index }))
             .map(events::get)
     }
 
