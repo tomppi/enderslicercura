@@ -32,7 +32,7 @@ internal object CuraDefinitionResolver {
         extruderDefinitionFileName: String,
         globalOverrides: Map<String, String>,
         extruderOverrides: Map<String, String>,
-        definitionExpressionKeys: Set<String> = emptySet(),
+        definitionExpressionKeys: Set<String> = DENSITY_DEPENDENT_EXPRESSION_KEYS,
     ): Result {
         require(definitionFiles.isNotEmpty()) { "No Cura definitions were available for expression resolution" }
         val documents = definitionFiles.mapValues { (name, content) ->
@@ -468,6 +468,12 @@ internal object CuraDefinitionResolver {
         return if (name.endsWith(".def.json")) name else "$name.def.json"
     }
 
+    private val DENSITY_DEPENDENT_EXPRESSION_KEYS = setOf(
+        "infill_line_distance",
+        "infill_overlap",
+        "infill_overlap_mm",
+        "extra_infill_lines_to_support_skins",
+    )
     private val BOOLEAN_LITERALS = setOf("true", "false", "1", "0", "yes", "no", "on", "off")
     private const val MAX_PASSES = 64
     private const val MAX_REPORTED_UNRESOLVED = 12
