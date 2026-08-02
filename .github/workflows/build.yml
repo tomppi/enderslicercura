@@ -114,11 +114,12 @@ jobs:
           test -s app/src/main/assets/filasim/SOURCE.md
           test -s app/src/main/assets/filasim/source-manifest/Cargo.lock
           test -s app/src/main/assets/filasim/source-manifest/web-package-lock.json
-          grep -q 'format=2' app/src/main/assets/filasim/.source-version
+          grep -q 'format=3' app/src/main/assets/filasim/.source-version
           grep -q 'commit=e7485ec22d4ebe8baca04190404fbb877c90e031' app/src/main/assets/filasim/.source-version
           grep -q 'android-bridge.js' app/src/main/assets/filasim/index.html
           grep -R -q 'EnderSlicerBridge.*captureModifierZip' .build/filasim-android/e7485ec22d4ebe8baca04190404fbb877c90e031/web/src/store.ts
           grep -R -q 'EnderSlicerBridge.*captureOptimizedShape' .build/filasim-android/e7485ec22d4ebe8baca04190404fbb877c90e031/web/src/store.ts
+          grep -R -q 'state.optMode === "binary" ? state.solidPattern : state.pattern' .build/filasim-android/e7485ec22d4ebe8baca04190404fbb877c90e031/web/src/store.ts
           test -n "$(find app/src/main/assets/filasim -type f -name '*.wasm' -size +0c -print -quit)"
 
       - name: Build and package CuraEngine ARM64
