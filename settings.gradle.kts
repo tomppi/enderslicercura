@@ -15,7 +15,7 @@ dependencyResolutionManagement {
 }
 
 val filaSimCommit = "e7485ec22d4ebe8baca04190404fbb877c90e031"
-val filaSimFormat = 2
+val filaSimFormat = 3
 
 gradle.beforeProject { project ->
     if (project.path == ":app") {
