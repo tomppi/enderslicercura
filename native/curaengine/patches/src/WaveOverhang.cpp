@@ -53,22 +53,32 @@ bool appendIsland(
         return false;
     }
 
-    const coord_t seed_expansion = std::max<coord_t>(parameters.line_spacing, 10);
-    Shape current = island.intersection(supported_region.offset(seed_expansion));
-    if (current.empty())
-    {
-        return false;
-    }
-
     Shape trim_boundary = island.offset(-std::max<coord_t>(parameters.line_spacing / 2 - parameters.perimeter_overlap, 0));
     if (trim_boundary.empty())
     {
         trim_boundary = island;
     }
 
+    // The seed centreline must overlap already printed model material. Starting
+    // one complete spacing away would leave the first extrusion unsupported,
+    // and emitting only the following expansion would double that gap.
+    const coord_t seed_expansion = std::max<coord_t>(parameters.perimeter_overlap, 10);
+    Shape current = island.intersection(supported_region.offset(seed_expansion));
+    if (current.empty())
+    {
+        return false;
+    }
+
     std::vector<OpenLinesSet> levels;
     levels.reserve(std::min<size_t>(parameters.max_iterations, 256));
-    for (size_t iteration = 0; iteration < parameters.max_iterations; ++iteration)
+    OpenLinesSet seed_front = contoursOf(current, trim_boundary);
+    if (seed_front.empty())
+    {
+        return false;
+    }
+    levels.emplace_back(std::move(seed_front));
+
+    for (size_t iteration = 1; iteration < parameters.max_iterations; ++iteration)
     {
         const Shape next = current.offset(parameters.line_spacing).intersection(island);
         if (next.empty())
@@ -130,7 +140,7 @@ bool WaveOverhangGenerator::generate(
 {
     output.getLines().clear();
     if (area.empty() || supported_region.empty() || parameters.line_spacing <= 0
-        || parameters.max_iterations == 0
+        || parameters.max_iterations < 2
         || (parameters.pattern != "smart" && parameters.pattern != "monotonic" && parameters.pattern != "zigzag"))
     {
         return false;
