@@ -22,6 +22,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -232,7 +233,7 @@ private fun NumberField(
     source: String,
     onValue: (Double) -> Unit,
 ) {
-    var text by remember(value) { mutableStateOf(value.toString().trimEnd('0').trimEnd('.')) }
+    var text by rememberSaveable(value) { mutableStateOf(value.toString().trimEnd('0').trimEnd('.')) }
     Column {
         OutlinedTextField(
             value = text,

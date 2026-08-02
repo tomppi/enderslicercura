@@ -19,6 +19,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -32,13 +33,13 @@ internal fun CalibrationGeneratorSheet(
     onGenerate: (CalibrationTowerSpec) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var type by remember { mutableStateOf(CalibrationTestType.TEMPERATURE) }
-    var start by remember(type) { mutableStateOf(format(type.defaultStart)) }
-    var step by remember(type) { mutableStateOf(format(type.defaultStep)) }
-    var levels by remember(type) { mutableStateOf(type.defaultLevels.toString()) }
-    var sectionHeight by remember { mutableStateOf("4") }
-    var width by remember { mutableStateOf("16") }
-    var typeMenu by remember { mutableStateOf(false) }
+    var type by rememberSaveable { mutableStateOf(CalibrationTestType.TEMPERATURE) }
+    var start by rememberSaveable(type) { mutableStateOf(format(type.defaultStart)) }
+    var step by rememberSaveable(type) { mutableStateOf(format(type.defaultStep)) }
+    var levels by rememberSaveable(type) { mutableStateOf(type.defaultLevels.toString()) }
+    var sectionHeight by rememberSaveable { mutableStateOf("4") }
+    var width by rememberSaveable { mutableStateOf("16") }
+    var typeMenu by rememberSaveable { mutableStateOf(false) }
 
     val spec = runCatching {
         CalibrationTowerSpec(

@@ -252,10 +252,9 @@ class CuraEngineRunner(private val context: Context) {
             copyStable(baseGcodeFile, workspace.base, "The original sliced G-code changed while it was being read")
             val preview = GcodeLayerPreviewParser.parse(workspace.base)
             val layers = preview.layers.mapTo(hashSetOf()) { it.number }
-            val validEvents = events
-                .filter { it.layerNumber in layers }
-                .distinctBy(LayerEvent::id)
-                .sortedWith(compareBy(LayerEvent::layerNumber, LayerEvent::source, LayerEvent::id))
+            val validEvents = LayerEventOrdering.normalize(
+                events.filter { it.layerNumber in layers },
+            )
             val transport = workspace.base.bufferedReader().useLines { lines ->
                 lines.firstOrNull { it.startsWith(";ENDERSLICER_SETTINGS_TRANSPORT:") }
                     ?.substringAfter(':')
@@ -266,7 +265,12 @@ class CuraEngineRunner(private val context: Context) {
             if (validEvents.isEmpty()) {
                 workspace.base.copyTo(workspace.output)
             } else {
-                GcodeLayerEventProcessor.materialize(workspace.base, workspace.output, validEvents)
+                GcodeLayerEventProcessor.materialize(
+                    workspace.base,
+                    workspace.output,
+                    validEvents,
+                    CalibrationFirmwareEncoder.fromFlavor(printerEnvelope.gcodeFlavor),
+                )
             }
             val summary = GcodeSanitizer.validateAndRepair(
                 file = workspace.output,

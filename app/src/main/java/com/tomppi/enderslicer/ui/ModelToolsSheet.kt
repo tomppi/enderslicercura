@@ -19,6 +19,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -40,9 +41,9 @@ fun ModelToolsSheet(
     modifier: Modifier = Modifier,
 ) {
     val placement = state.modelPlacement
-    var xText by remember { mutableStateOf(placement?.centerXmm?.formatPosition().orEmpty()) }
-    var yText by remember { mutableStateOf(placement?.centerYmm?.formatPosition().orEmpty()) }
-    var zText by remember { mutableStateOf(placement?.baseZmm?.formatPosition().orEmpty()) }
+    var xText by rememberSaveable(placement) { mutableStateOf(placement?.centerXmm?.formatPosition().orEmpty()) }
+    var yText by rememberSaveable(placement) { mutableStateOf(placement?.centerYmm?.formatPosition().orEmpty()) }
+    var zText by rememberSaveable(placement) { mutableStateOf(placement?.baseZmm?.formatPosition().orEmpty()) }
     val computedSnapshot by produceState<CuraComputedSnapshot?>(
         initialValue = null,
         state.engineProfile,
@@ -66,12 +67,6 @@ fun ModelToolsSheet(
                 }.getOrNull()
             }
         }
-    }
-
-    LaunchedEffect(placement) {
-        xText = placement?.centerXmm?.formatPosition().orEmpty()
-        yText = placement?.centerYmm?.formatPosition().orEmpty()
-        zText = placement?.baseZmm?.formatPosition().orEmpty()
     }
 
     Column(

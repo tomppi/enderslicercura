@@ -21,6 +21,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,7 +54,7 @@ internal fun LayerPreviewView(
     val visibleSupportCount = visibleLayers.sumOf { it.supportSegmentCount }
     val visibleInterfaceCount = visibleLayers.sumOf { it.supportInterfaceSegmentCount }
     val layerEvents = events.filter { it.layerNumber == layer.number }
-    var style by remember { mutableStateOf(LayerPreviewStyle.CURRENT_LAYER) }
+    var style by rememberSaveable { mutableStateOf(LayerPreviewStyle.CURRENT_LAYER) }
 
     Column(modifier = modifier) {
         AndroidView(

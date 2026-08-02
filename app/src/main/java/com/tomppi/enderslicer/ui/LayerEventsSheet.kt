@@ -21,6 +21,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -43,11 +44,11 @@ internal fun LayerEventsSheet(
     onClearUserEvents: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var type by remember { mutableStateOf(LayerEventType.PAUSE) }
-    var typeMenu by remember { mutableStateOf(false) }
-    var value by remember(type) { mutableStateOf(defaultValue(type, settings)) }
-    var secondary by remember(type) { mutableStateOf(defaultSecondary(type, settings)) }
-    var text by remember(type) { mutableStateOf("") }
+    var type by rememberSaveable(layer.number) { mutableStateOf(LayerEventType.PAUSE) }
+    var typeMenu by rememberSaveable(layer.number) { mutableStateOf(false) }
+    var value by rememberSaveable(layer.number, type) { mutableStateOf(defaultValue(type, settings)) }
+    var secondary by rememberSaveable(layer.number, type) { mutableStateOf(defaultSecondary(type, settings)) }
+    var text by rememberSaveable(layer.number, type) { mutableStateOf("") }
     val layerEvents = events.filter { it.layerNumber == layer.number }
 
     Column(

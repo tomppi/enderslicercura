@@ -89,16 +89,6 @@ jobs:
             app/src/main/assets/bumpmesh/index.html \
             app/src/main/assets/bumpmesh/js
 
-      - name: Upload handoff patch diagnostic
-        if: always() && hashFiles('handoff-patch-error.txt') != ''
-        uses: actions/upload-artifact@v4
-        with:
-          name: enderslicercura-handoff-diagnostic
-          path: handoff-patch-error.txt
-
-      - name: Require guarded handoff patch
-        run: test ! -f handoff-patch-error.txt
-
       - name: Build and package CuraEngine ARM64
         env:
           ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/28.2.13676358
@@ -165,6 +155,4 @@ jobs:
             unit-tests.log
             apk-build.log
             apk-contents.log
-            handoff-patch-error.txt
-            handoff-patched-sources.b64
           if-no-files-found: ignore

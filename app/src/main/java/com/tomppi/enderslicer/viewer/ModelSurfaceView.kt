@@ -219,44 +219,34 @@ private class ModelRenderer(
 
     override fun onDrawFrame(gl: GL10?) {
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
-        val distance = cameraDistance()
         val aspect = viewportWidth.toFloat() / viewportHeight.toFloat()
-        val bedMax = max(printer.widthMm, printer.depthMm).toFloat()
-        val meshHeight = mesh?.bounds?.height ?: 0f
-        val nearPlane = max(0.5f, distance * 0.015f)
-        val farPlane = max(nearPlane + 100f, distance * 4.0f + bedMax + meshHeight * 2f)
+        val fit = sceneFit(aspect)
+        val distance = fit.distance
 
-        Matrix.perspectiveM(projection, 0, FIELD_OF_VIEW_DEGREES, aspect, nearPlane, farPlane)
+        Matrix.perspectiveM(projection, 0, FIELD_OF_VIEW_DEGREES, aspect, fit.nearPlane, fit.farPlane)
         Matrix.setLookAtM(view, 0, 0f, -distance, distance * 0.62f, 0f, 0f, 0f, 0f, 0f, 1f)
         Matrix.translateM(view, 0, panX, panY, 0f)
 
         Matrix.setIdentityM(scene, 0)
         Matrix.rotateM(scene, 0, pitch, 1f, 0f, 0f)
         Matrix.rotateM(scene, 0, yaw, 0f, 0f, 1f)
-        Matrix.translateM(
-            scene,
-            0,
-            (-printer.widthMm / 2.0).toFloat(),
-            (-printer.depthMm / 2.0).toFloat(),
-            0f,
-        )
+        Matrix.translateM(scene, 0, -fit.centerX, -fit.centerY, -fit.centerZ)
 
         drawGrid()
         drawMesh()
     }
 
-    private fun cameraDistance(): Float {
-        val bedMax = max(printer.widthMm, printer.depthMm).toFloat()
-        val bounds = mesh?.bounds
-        val meshRadius = if (bounds == null) {
-            0f
-        } else {
-            val diagonal = sqrt(bounds.width * bounds.width + bounds.depth * bounds.depth + bounds.height * bounds.height)
-            diagonal * 0.5f
-        }
-        val requested = (bedMax * 1.55f + (bounds?.height ?: 0f) * 0.35f) / zoom
-        return max(requested, meshRadius * 1.12f + 4f)
-    }
+    private fun cameraDistance(): Float = sceneFit(
+        viewportWidth.toFloat() / max(viewportHeight, 1).toFloat(),
+    ).distance
+
+    private fun sceneFit(aspect: Float): SceneCameraFit.Fit = SceneCameraFit.calculate(
+        printer = printer,
+        meshBounds = mesh?.bounds,
+        aspect = aspect.coerceAtLeast(0.01f),
+        zoom = zoom,
+        verticalFieldOfViewDegrees = FIELD_OF_VIEW_DEGREES,
+    )
 
     private fun drawGrid() {
         val buffer = gridBuffer ?: return

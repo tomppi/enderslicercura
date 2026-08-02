@@ -195,7 +195,7 @@ class WorkspaceStateStore(private val filesDirectory: File) {
             val digest = MessageDigest.getInstance("SHA-256")
             parts.forEach { part ->
                 digest.update((part?.toString() ?: "<null>").toByteArray(Charsets.UTF_8))
-                digest.update(0)
+                digest.update(0.toByte())
             }
             return digest.digest().joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
         }

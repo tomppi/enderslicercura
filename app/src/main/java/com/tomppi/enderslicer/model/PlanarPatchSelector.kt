@@ -232,7 +232,7 @@ internal object PlanarPatchSelector {
                 secondRoot = swap
             }
             parent[secondRoot] = firstRoot
-            if (rank[firstRoot] == rank[secondRoot]) rank[firstRoot]++
+            if (rank[firstRoot] == rank[secondRoot]) rank[firstRoot] = (rank[firstRoot] + 1).toByte()
         }
     }
 
