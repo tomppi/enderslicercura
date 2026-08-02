@@ -68,9 +68,12 @@ object StlParser {
                 buffer.flip()
 
                 repeat(records) {
-                    var nx = buffer.float
-                    var ny = buffer.float
-                    var nz = buffer.float
+                    // STL facet normals are advisory and are frequently stale,
+                    // unnormalised or unrelated to the final vertex winding.
+                    // Consume them, but derive the renderer normal from geometry.
+                    buffer.float
+                    buffer.float
+                    buffer.float
                     val x0 = buffer.float
                     val y0 = buffer.float
                     val z0 = buffer.float
@@ -88,26 +91,24 @@ object StlParser {
                             x2.isFinite() && y2.isFinite() && z2.isFinite(),
                     ) { "STL contains non-finite coordinates" }
 
-                    if (!normalIsUsable(nx, ny, nz)) {
-                        val ax = x1 - x0
-                        val ay = y1 - y0
-                        val az = z1 - z0
-                        val bx = x2 - x0
-                        val by = y2 - y0
-                        val bz = z2 - z0
-                        nx = ay * bz - az * by
-                        ny = az * bx - ax * bz
-                        nz = ax * by - ay * bx
-                        val length = sqrt(nx * nx + ny * ny + nz * nz)
-                        if (length > NORMAL_EPSILON) {
-                            nx /= length
-                            ny /= length
-                            nz /= length
-                        } else {
-                            nx = 0f
-                            ny = 0f
-                            nz = 0f
-                        }
+                    val ax = x1 - x0
+                    val ay = y1 - y0
+                    val az = z1 - z0
+                    val bx = x2 - x0
+                    val by = y2 - y0
+                    val bz = z2 - z0
+                    var nx = ay * bz - az * by
+                    var ny = az * bx - ax * bz
+                    var nz = ax * by - ay * bx
+                    val length = sqrt(nx * nx + ny * ny + nz * nz)
+                    if (length > NORMAL_EPSILON) {
+                        nx /= length
+                        ny /= length
+                        nz /= length
+                    } else {
+                        nx = 0f
+                        ny = 0f
+                        nz = 0f
                     }
 
                     fun writeVertex(x: Float, y: Float, z: Float) {
@@ -142,9 +143,6 @@ object StlParser {
             maxTriangles = maxTriangles,
             consumer = object : TriangleConsumer {
                 override fun accept(
-                    declaredNx: Double,
-                    declaredNy: Double,
-                    declaredNz: Double,
                     x0: Double,
                     y0: Double,
                     z0: Double,
@@ -155,29 +153,24 @@ object StlParser {
                     y2: Double,
                     z2: Double,
                 ) {
-                    var nx = declaredNx
-                    var ny = declaredNy
-                    var nz = declaredNz
-                    if (!normalIsUsable(nx, ny, nz)) {
-                        val ax = x1 - x0
-                        val ay = y1 - y0
-                        val az = z1 - z0
-                        val bx = x2 - x0
-                        val by = y2 - y0
-                        val bz = z2 - z0
-                        nx = ay * bz - az * by
-                        ny = az * bx - ax * bz
-                        nz = ax * by - ay * bx
-                        val length = sqrt(nx * nx + ny * ny + nz * nz)
-                        if (length > NORMAL_EPSILON_DOUBLE) {
-                            nx /= length
-                            ny /= length
-                            nz /= length
-                        } else {
-                            nx = 0.0
-                            ny = 0.0
-                            nz = 0.0
-                        }
+                    val ax = x1 - x0
+                    val ay = y1 - y0
+                    val az = z1 - z0
+                    val bx = x2 - x0
+                    val by = y2 - y0
+                    val bz = z2 - z0
+                    var nx = ay * bz - az * by
+                    var ny = az * bx - ax * bz
+                    var nz = ax * by - ay * bx
+                    val length = sqrt(nx * nx + ny * ny + nz * nz)
+                    if (length > NORMAL_EPSILON_DOUBLE) {
+                        nx /= length
+                        ny /= length
+                        nz /= length
+                    } else {
+                        nx = 0.0
+                        ny = 0.0
+                        nz = 0.0
                     }
                     val nxf = nx.toFloat()
                     val nyf = ny.toFloat()
@@ -230,9 +223,6 @@ object StlParser {
         var sawFacet = false
         var triangleCount = 0
         var vertexCount = 0
-        var nx = 0.0
-        var ny = 0.0
-        var nz = 0.0
         var x0 = 0.0
         var y0 = 0.0
         var z0 = 0.0
@@ -271,9 +261,9 @@ object StlParser {
                         require(tokens.size == 5 && tokens[1].equals("normal", ignoreCase = true)) {
                             "Malformed facet normal at line $lineNumber"
                         }
-                        nx = parseFinite(tokens[2], "facet normal", lineNumber)
-                        ny = parseFinite(tokens[3], "facet normal", lineNumber)
-                        nz = parseFinite(tokens[4], "facet normal", lineNumber)
+                        parseFinite(tokens[2], "facet normal", lineNumber)
+                        parseFinite(tokens[3], "facet normal", lineNumber)
+                        parseFinite(tokens[4], "facet normal", lineNumber)
                         sawFacet = true
                         vertexCount = 0
                         state = AsciiState.EXPECT_OUTER_LOOP
@@ -322,7 +312,7 @@ object StlParser {
                         require(triangleCount <= maxTriangles) {
                             "STL has more than ${MeshTriangleLimits.formatCount(maxTriangles)} triangles"
                         }
-                        consumer?.accept(nx, ny, nz, x0, y0, z0, x1, y1, z1, x2, y2, z2)
+                        consumer?.accept(x0, y0, z0, x1, y1, z1, x2, y2, z2)
                         state = AsciiState.EXPECT_FACET
                     }
                     "endsolid" -> {
@@ -362,17 +352,8 @@ object StlParser {
         }
     }
 
-    private fun normalIsUsable(x: Float, y: Float, z: Float): Boolean =
-        x.isFinite() && y.isFinite() && z.isFinite() && (x * x + y * y + z * z) > NORMAL_EPSILON
-
-    private fun normalIsUsable(x: Double, y: Double, z: Double): Boolean =
-        x.isFinite() && y.isFinite() && z.isFinite() && (x * x + y * y + z * z) > NORMAL_EPSILON_DOUBLE
-
     private interface TriangleConsumer {
         fun accept(
-            declaredNx: Double,
-            declaredNy: Double,
-            declaredNz: Double,
             x0: Double,
             y0: Double,
             z0: Double,
@@ -395,8 +376,8 @@ object StlParser {
     private enum class AsciiState {
         EXPECT_FACET_OR_SOLID,
         EXPECT_FACET,
-        EXPECT_OUTER_LOOP,
         EXPECT_VERTEX,
+        EXPECT_OUTER_LOOP,
         EXPECT_END_LOOP,
         EXPECT_END_FACET,
     }
