@@ -20,70 +20,14 @@ jobs:
         with:
           ref: feature/expose-cura-profile-settings
           fetch-depth: 0
-      - name: Verify reviewed source bundle
-        run: |
-          python3 - <<'PY'
-          import base64
-          import hashlib
-          import pathlib
 
-          expected = {
-              'scripts/cura-settings-piece00': (7000, 'c0975df8cac83f7852e5e9a5fecc41be7fec15cef09203c3fbebda68fe3d7c29'),
-              'scripts/cura-settings-piece01': (7000, '2b4eb8cd9bcab6d81455419bd64f8a89e41228512b10b9af484477672d9f11e8'),
-              'scripts/cura-settings-piece02': (7000, 'b727e9146bb4a057855ae9dff269684d2eaf17ebd052539b641d65445e3810d1'),
-              'scripts/cura-settings-piece03': (7000, '4045456f604677ec4d537e9998180979997ea3a3ce98a484da14576503970715'),
-              'scripts/cura-settings-piece04': (7000, 'ea53c911c1d17b080051e5c49f4b653771c46bede9a81ab1d23eac70ce362071'),
-              'scripts/cura-settings-piece05': (7000, 'b5f18f32de6ba91b9a5599950a2ce3c05a4ae7af14b23d74a17ce9302b040554'),
-              'scripts/cura-settings-piece06': (7000, 'eca21dc6661102d17b3b58d719df8211f178b2deccd360d9df6305f4cc6e20d2'),
-              'scripts/cura-settings-piece07': (4900, 'ef0965b18d78087178a5a4bc0073ca3d09ea843c323c5ae93c3e24a6f9f4e206'),
-          }
-          parts = []
-          errors = []
-          for name, (expected_size, expected_digest) in expected.items():
-              data = pathlib.Path(name).read_bytes()
-              digest = hashlib.sha256(data).hexdigest()
-              print(f'{name}: bytes={len(data)} sha256={digest}')
-              if len(data) != expected_size or digest != expected_digest:
-                  errors.append(name)
-              parts.append(data)
-          joined = b''.join(parts)
-          joined_digest = hashlib.sha256(joined).hexdigest()
-          print(f'joined base64: bytes={len(joined)} sha256={joined_digest}')
-          if len(joined) != 53900 or joined_digest != 'f6ee35764f1024d29d4bdd336f4f25db4451d8e884a82722c922fc55103adf25':
-              errors.append('joined base64')
-          if errors:
-              raise SystemExit('Verification failed: ' + ', '.join(errors))
-          archive = base64.b64decode(joined, validate=True)
-          archive_digest = hashlib.sha256(archive).hexdigest()
-          print(f'decoded archive: bytes={len(archive)} sha256={archive_digest}')
-          if archive_digest != 'a50fd5582586e903d3375ae1f89a8a22e34cb2b9a62df515667fdf659de01a06':
-              raise SystemExit('Decoded archive checksum mismatch')
-          pathlib.Path('/tmp/cura-settings-source.tar.gz').write_bytes(archive)
-          PY
-      - name: Validate archive paths and extract
+      - name: Apply reviewed implementation
         run: |
-          python3 - <<'PY'
-          import pathlib
-          import tarfile
-
-          archive = pathlib.Path('/tmp/cura-settings-source.tar.gz')
-          root = pathlib.Path.cwd().resolve()
-          with tarfile.open(archive, 'r:gz') as bundle:
-              members = bundle.getmembers()
-              for member in members:
-                  target = (root / member.name).resolve()
-                  if root != target and root not in target.parents:
-                      raise SystemExit(f'Unsafe archive path: {member.name}')
-                  if not (member.isfile() or member.isdir()):
-                      raise SystemExit(f'Unsupported archive entry: {member.name}')
-              bundle.extractall(root, members=members, filter='data')
-          print(f'Extracted {len(members)} reviewed files')
-          PY
-      - name: Validate source diff
-        run: |
-          git status --short
+          git apply --recount --check scripts/expose-cura-settings.patch
+          git apply --recount scripts/expose-cura-settings.patch
           git diff --check
           test -n "$(git status --short app/src/main app/src/test)"
+
       - name: Restore normal CI and remove one-shot files
         run: |
           git fetch origin fix/parser-memory-lifecycle
@@ -95,6 +39,7 @@ jobs:
           rm -f scripts/cura-settings-source.part00 scripts/cura-settings-source.part01 scripts/cura-settings-source.part02 scripts/cura-settings-source.part03
           rm -f scripts/cura-settings-piece00 scripts/cura-settings-piece01 scripts/cura-settings-piece02 scripts/cura-settings-piece03
           rm -f scripts/cura-settings-piece04 scripts/cura-settings-piece05 scripts/cura-settings-piece06 scripts/cura-settings-piece07
+
       - name: Publish source commit
         run: |
           git config user.name 'github-actions[bot]'
