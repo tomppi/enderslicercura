@@ -42,7 +42,10 @@ import com.tomppi.enderslicer.smartinfill.SmartInfillPackageStore
 import com.tomppi.enderslicer.smartinfill.SmartInfillRuntime
 import com.tomppi.enderslicer.viewer.StlMeshWriter
 import java.io.File
+import java.util.UUID
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -61,6 +64,10 @@ fun IntegratedEnderSlicerApp(
     var octoPrintOpen by rememberSaveable { mutableStateOf(false) }
     var smartInfillOpen by rememberSaveable { mutableStateOf(false) }
 
+    fun deleteHandoff(uri: Uri) {
+        runCatching { context.contentResolver.delete(uri, null, null) }
+    }
+
     LaunchedEffect(smartInfillPackage) {
         SmartInfillRuntime.activate(smartInfillPackage)
     }
@@ -71,22 +78,34 @@ fun IntegratedEnderSlicerApp(
     LaunchedEffect(slicerState.mesh, smartInfillPackage?.id) {
         val packageValue = smartInfillPackage ?: return@LaunchedEffect
         val mesh = slicerState.mesh ?: return@LaunchedEffect
-        runCatching {
+        try {
             withContext(Dispatchers.IO) {
-                val validationFile = File(context.cacheDir, "filasim-source/current-validation.stl")
+                val validationFile = File(
+                    context.cacheDir,
+                    "filasim-source/validation-${packageValue.id}-${UUID.randomUUID()}.stl",
+                )
                 validationFile.parentFile?.mkdirs()
-                StlMeshWriter.writeBinary(mesh, validationFile)
-                packageValue.requireMatchesSource(validationFile)
+                try {
+                    StlMeshWriter.writeBinary(mesh, validationFile)
+                    packageValue.requireMatchesSource(validationFile)
+                } finally {
+                    validationFile.delete()
+                }
             }
-        }.onFailure {
-            smartInfillStore.clearActive()
-            SmartInfillRuntime.activate(null)
-            smartInfillPackage = null
-            Toast.makeText(
-                context,
-                "Smart Infill was cleared because the model geometry or placement changed",
-                Toast.LENGTH_LONG,
-            ).show()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Throwable) {
+            // A canceled A validation must never clear a newer B package.
+            if (SmartInfillRuntime.current()?.id == packageValue.id) {
+                smartInfillStore.clearActive()
+                SmartInfillRuntime.activate(null)
+                smartInfillPackage = null
+                Toast.makeText(
+                    context,
+                    "Smart Infill was cleared because the model geometry or placement changed",
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
         }
     }
 
@@ -114,54 +133,89 @@ fun IntegratedEnderSlicerApp(
         val exportUri = data?.data
         val resultKind = data?.getStringExtra(SmartInfillActivity.EXTRA_RESULT_KIND)
         if (exportUri == null || resultKind.isNullOrBlank()) {
+            exportUri?.let(::deleteHandoff)
             Toast.makeText(context, "filaSim returned an incomplete export", Toast.LENGTH_LONG).show()
             return@rememberLauncherForActivityResult
         }
-
-        if (resultKind == SmartInfillActivity.RESULT_SHAPE) {
-            smartInfillStore.clearActive()
-            SmartInfillRuntime.activate(null)
-            smartInfillPackage = null
-            smartInfillOpen = false
-            slicerViewModel.importStl(exportUri)
+        if (slicerViewModel.uiState.value.isBusy) {
+            deleteHandoff(exportUri)
             Toast.makeText(
                 context,
-                "Imported the filaSim Part Topo shape; inspect and slice it as a new model",
+                "Smart Infill export was not applied because another operation is active",
                 Toast.LENGTH_LONG,
             ).show()
             return@rememberLauncherForActivityResult
         }
 
+        if (resultKind == SmartInfillActivity.RESULT_SHAPE) {
+            scope.launch {
+                val previousPath = slicerViewModel.uiState.value.modelPath
+                slicerViewModel.importStl(exportUri)
+                val started = slicerViewModel.uiState.value.isBusy
+                val completed = if (started) {
+                    slicerViewModel.uiState.first { state -> !state.isBusy }
+                } else {
+                    slicerViewModel.uiState.value
+                }
+                val imported = completed.mesh != null && completed.modelPath != previousPath
+                if (imported) {
+                    smartInfillStore.clearActive()
+                    SmartInfillRuntime.activate(null)
+                    smartInfillPackage = null
+                    smartInfillOpen = false
+                    Toast.makeText(
+                        context,
+                        "Imported the filaSim Part Topo shape; inspect and slice it as a new model",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                } else {
+                    Toast.makeText(
+                        context,
+                        "The filaSim Part Topo shape could not be imported; the previous model and Smart Infill package were kept",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                }
+                deleteHandoff(exportUri)
+            }
+            return@rememberLauncherForActivityResult
+        }
+
         if (resultKind != SmartInfillActivity.RESULT_MODIFIERS) {
+            deleteHandoff(exportUri)
             Toast.makeText(context, "filaSim returned an unknown export type", Toast.LENGTH_LONG).show()
             return@rememberLauncherForActivityResult
         }
-        val metadata = data?.getStringExtra(SmartInfillActivity.EXTRA_METADATA_JSON)
-        val sourceSha = data?.getStringExtra(SmartInfillActivity.EXTRA_SOURCE_SHA256)
+        val metadata = data.getStringExtra(SmartInfillActivity.EXTRA_METADATA_JSON)
+        val sourceSha = data.getStringExtra(SmartInfillActivity.EXTRA_SOURCE_SHA256)
         if (metadata.isNullOrBlank() || sourceSha.isNullOrBlank()) {
+            deleteHandoff(exportUri)
             Toast.makeText(context, "filaSim returned incomplete Smart Infill metadata", Toast.LENGTH_LONG).show()
             return@rememberLauncherForActivityResult
         }
         scope.launch {
-            runCatching {
-                withContext(Dispatchers.IO) {
-                    smartInfillStore.importPackage(exportUri, metadata, sourceSha)
+            try {
+                runCatching {
+                    withContext(Dispatchers.IO) {
+                        smartInfillStore.importPackage(exportUri, metadata, sourceSha)
+                    }
+                }.onSuccess { packageValue ->
+                    SmartInfillRuntime.activate(packageValue)
+                    smartInfillPackage = packageValue
+                    smartInfillOpen = true
+                    Toast.makeText(
+                        context,
+                        "Smart Infill enabled with ${packageValue.modifiers.size} density regions",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                }.onFailure { error ->
+                    Toast.makeText(
+                        context,
+                        error.message ?: "Unable to import the filaSim modifier package",
+                        Toast.LENGTH_LONG,
+                    ).show()
                 }
-            }.onSuccess { packageValue ->
-                SmartInfillRuntime.activate(packageValue)
-                smartInfillPackage = packageValue
-                smartInfillOpen = true
-                Toast.makeText(
-                    context,
-                    "Smart Infill enabled with ${packageValue.modifiers.size} density regions",
-                    Toast.LENGTH_LONG,
-                ).show()
-            }.onFailure { error ->
-                Toast.makeText(
-                    context,
-                    error.message ?: "Unable to import the filaSim modifier package",
-                    Toast.LENGTH_LONG,
-                ).show()
+            } finally {
+                deleteHandoff(exportUri)
             }
         }
     }
@@ -169,7 +223,7 @@ fun IntegratedEnderSlicerApp(
     fun launchSmartInfill() {
         val mesh = slicerState.mesh
         if (mesh == null || slicerState.isBusy) {
-            Toast.makeText(context, "Import a model before opening Smart Infill", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Import a model and finish the current operation first", Toast.LENGTH_SHORT).show()
             return
         }
         scope.launch {
@@ -216,7 +270,13 @@ fun IntegratedEnderSlicerApp(
         }
         ExtendedFloatingActionButton(
             onClick = {
-                if (smartInfillPackage == null) launchSmartInfill() else smartInfillOpen = true
+                if (slicerState.isBusy) {
+                    Toast.makeText(context, "Finish the current operation first", Toast.LENGTH_SHORT).show()
+                } else if (smartInfillPackage == null) {
+                    launchSmartInfill()
+                } else {
+                    smartInfillOpen = true
+                }
             },
             modifier = Modifier
                 .align(Alignment.TopEnd)
@@ -257,6 +317,7 @@ fun IntegratedEnderSlicerApp(
         ) {
             SmartInfillSheet(
                 packageValue = smartInfillPackage,
+                enabled = !slicerState.isBusy,
                 onGenerate = {
                     smartInfillOpen = false
                     launchSmartInfill()
@@ -277,6 +338,7 @@ fun IntegratedEnderSlicerApp(
 @Composable
 private fun SmartInfillSheet(
     packageValue: SmartInfillPackage?,
+    enabled: Boolean,
     onGenerate: () -> Unit,
     onRemove: () -> Unit,
     modifier: Modifier = Modifier,
@@ -293,7 +355,7 @@ private fun SmartInfillSheet(
             Text(
                 "filaSim can create Cura density modifiers for graded/binary infill or return a Part Topo replacement shape.",
             )
-            Button(onClick = onGenerate, modifier = Modifier.fillMaxWidth()) {
+            Button(onClick = onGenerate, enabled = enabled, modifier = Modifier.fillMaxWidth()) {
                 Text("Open filaSim")
             }
         } else {
@@ -312,10 +374,10 @@ private fun SmartInfillSheet(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                Button(onClick = onGenerate, modifier = Modifier.weight(1f)) {
+                Button(onClick = onGenerate, enabled = enabled, modifier = Modifier.weight(1f)) {
                     Text("Regenerate")
                 }
-                OutlinedButton(onClick = onRemove, modifier = Modifier.weight(1f)) {
+                OutlinedButton(onClick = onRemove, enabled = enabled, modifier = Modifier.weight(1f)) {
                     Text("Remove")
                 }
             }
