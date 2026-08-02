@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
 import pathlib
 import shutil
@@ -14,7 +15,9 @@ import urllib.request
 import zipfile
 
 FILASIM_COMMIT = "e7485ec22d4ebe8baca04190404fbb877c90e031"
-ASSET_FORMAT = 3
+ASSET_FORMAT = 4
+HASH_MANIFEST = "SHA256SUMS"
+MINIMUM_NODE_VERSION = (22, 18, 0)
 
 
 def run(command: list[str], cwd: pathlib.Path, env: dict[str, str] | None = None) -> None:
@@ -23,6 +26,54 @@ def run(command: list[str], cwd: pathlib.Path, env: dict[str, str] | None = None
     if env:
         merged.update(env)
     subprocess.run(command, cwd=cwd, env=merged, check=True)
+
+
+def require_supported_node() -> None:
+    raw = subprocess.check_output(["node", "--version"], text=True).strip().lstrip("v")
+    try:
+        parts = tuple(int(value) for value in raw.split(".")[:3])
+    except ValueError as error:
+        raise RuntimeError(f"Unable to parse Node.js version: {raw}") from error
+    if len(parts) != 3 or parts < MINIMUM_NODE_VERSION:
+        expected = ".".join(str(value) for value in MINIMUM_NODE_VERSION)
+        raise RuntimeError(f"filaSim requires Node.js {expected} or newer; found {raw}")
+
+
+def sha256_file(path: pathlib.Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        while chunk := source.read(1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def write_hash_manifest(root: pathlib.Path) -> None:
+    entries: list[str] = []
+    for path in sorted(root.rglob("*")):
+        if not path.is_file() or path.name == HASH_MANIFEST:
+            continue
+        relative = path.relative_to(root).as_posix()
+        entries.append(f"{sha256_file(path)}  {relative}")
+    if not entries:
+        raise RuntimeError("filaSim asset workspace is empty")
+    (root / HASH_MANIFEST).write_text("\n".join(entries) + "\n", encoding="utf-8")
+
+
+def verify_hash_manifest(root: pathlib.Path) -> None:
+    manifest = root / HASH_MANIFEST
+    if not manifest.is_file():
+        raise RuntimeError("filaSim asset hash manifest is missing")
+    seen: set[str] = set()
+    for raw_line in manifest.read_text(encoding="utf-8").splitlines():
+        expected, separator, relative = raw_line.partition("  ")
+        if not separator or len(expected) != 64 or relative in seen:
+            raise RuntimeError(f"Invalid filaSim asset hash entry: {raw_line}")
+        seen.add(relative)
+        path = (root / pathlib.PurePosixPath(relative)).resolve()
+        if root.resolve() not in path.parents:
+            raise RuntimeError(f"Unsafe filaSim asset hash path: {relative}")
+        if not path.is_file() or sha256_file(path) != expected:
+            raise RuntimeError(f"filaSim asset hash mismatch: {relative}")
 
 
 def safe_extract(archive: zipfile.ZipFile, destination: pathlib.Path) -> pathlib.Path:
@@ -123,7 +174,7 @@ def patch_android_export(store_file: pathlib.Path) -> None:
             1,
         )
 
-    # Upgrade already-patched cached sources from the earlier Android format.
+    # Upgrade already-patched cached sources from earlier Android formats.
     text = text.replace(
         '          pattern: state.pattern,\n          mode: state.optMode,',
         '          pattern: state.optMode === "binary" ? state.solidPattern : state.pattern,\n          mode: state.optMode,',
@@ -170,19 +221,6 @@ def main() -> int:
     output = project_root / "app/src/main/assets/filasim"
     bridge = project_root / "app/src/main/filasim/android-bridge.js"
     marker_text = f"format={ASSET_FORMAT}\ncommit={FILASIM_COMMIT}\n"
-    marker = output / ".source-version"
-
-    if (
-        marker.is_file()
-        and marker.read_text(encoding="utf-8") == marker_text
-        and (output / "index.html").is_file()
-        and (output / "android-bridge.js").is_file()
-        and (output / "LICENSE").is_file()
-        and (output / "source-manifest/Cargo.lock").is_file()
-        and (output / "source-manifest/web-package-lock.json").is_file()
-    ):
-        print("Pinned filaSim Android assets are already prepared")
-        return 0
 
     if not bridge.is_file():
         raise RuntimeError(f"Android filaSim bridge is missing: {bridge}")
@@ -192,6 +230,7 @@ def main() -> int:
                 f"{executable} is required to prepare filaSim assets. "
                 "Install Rust, wasm-pack and Node.js before building EnderSlicerCura."
             )
+    require_supported_node()
 
     build_root = project_root / ".build/filasim-android"
     build_root.mkdir(parents=True, exist_ok=True)
@@ -216,9 +255,10 @@ def main() -> int:
         raise RuntimeError("Pinned filaSim source did not contain web/src/store.ts")
     patch_android_export(store_file)
 
-    run(["npm", "ci", "--no-audit", "--no-fund"], cwd=web_root)
+    npm_environment = {"NPM_CONFIG_ENGINE_STRICT": "true"}
+    run(["npm", "ci", "--no-audit", "--no-fund"], cwd=web_root, env=npm_environment)
     run(["node", "scripts/build-wasm.mjs", "st"], cwd=web_root)
-    run(["npm", "run", "build"], cwd=web_root, env={"VITE_BASE": "./"})
+    run(["npm", "run", "build"], cwd=web_root, env={**npm_environment, "VITE_BASE": "./"})
 
     dist = web_root / "dist"
     if not (dist / "index.html").is_file():
@@ -240,11 +280,14 @@ def main() -> int:
     )
     inject_bridge(staging / "index.html")
     (staging / ".source-version").write_text(marker_text, encoding="utf-8")
+    write_hash_manifest(staging)
+    verify_hash_manifest(staging)
 
     shutil.rmtree(output, ignore_errors=True)
     output.parent.mkdir(parents=True, exist_ok=True)
     shutil.move(str(staging), output)
-    print(f"Prepared filaSim Android assets at {output}")
+    verify_hash_manifest(output)
+    print(f"Prepared and verified filaSim Android assets at {output}")
     return 0
 
 
