@@ -1,9 +1,19 @@
 # Third-party notices
 
+## filaSim / Smart Infill Generator
+
+- Project: `CNCKitchen/smartInfillGenerator` (product name: filaSim)
+- Pinned source commit: `e7485ec22d4ebe8baca04190404fbb877c90e031`
+- License: GNU Affero General Public License v3.0 only (`AGPL-3.0-only`)
+- Copyright: CNC Kitchen (Stefan Hermann) and contributors
+
+EnderSlicerCura builds filaSim's single-threaded Rust/WASM engine and React interface from the pinned source, packages the resulting workspace for offline Android use, and adds an Android-only model/modifier handoff. The APK retains filaSim's license and a source notice. The complete corresponding source, Cargo lockfile and npm lockfile are the upstream repository at the pinned commit together with EnderSlicerCura's `scripts/prepare-filasim-assets.py` and `app/src/main/filasim/android-bridge.js`.
+
+The filaSim web build includes its declared permissive or AGPL-compatible dependencies, including React/React DOM 19, Three.js 0.180, Zustand 5 and meshStep 0.1.1. Exact transitive versions and license metadata are recorded by the pinned `Cargo.lock`, `package-lock.json`, `Cargo.toml`, `package.json` and `deny.toml` files.
+
 ## Wave-overhang algorithm research and reference implementation
 
 The native EnderSlicerCura wavefront generator is an independent CuraEngine adaptation of the propagation method documented by `dennisklappe/OrcaSlicer-WaveOverhangs`, itself based on `stmcculloch/PrusaSlicer-WaveOverhangs`. Those projects and CuraEngine are distributed under the GNU AGPL. The adapted source is retained under `native/curaengine/patches/` with attribution headers.
-
 
 ## BumpMesh / stlTexturizer
 
@@ -16,11 +26,12 @@ The Android build downloads the pinned source archive, retains its license file 
 
 ## Three.js
 
-- Version: r170 / 0.170.0
+- BumpMesh workspace version: r170 / 0.170.0
+- filaSim workspace version: 0.180.x
 - License: MIT
 - Copyright: Three.js authors
 
-The build packages `three.module.js` and the `examples/jsm` modules required by BumpMesh. The upstream license is retained at `assets/bumpmesh/vendor/three/LICENSE` inside the APK.
+The BumpMesh build retains the upstream license at `assets/bumpmesh/vendor/three/LICENSE`. filaSim's exact dependency version is recorded in its pinned npm lockfile.
 
 ## fflate
 
@@ -32,13 +43,12 @@ The official npm package supplies the browser ESM build used by BumpMesh. Its pa
 
 ## meshStep
 
-- Version: 0.1.0
+- BumpMesh workspace version: 0.1.0
+- filaSim workspace version: 0.1.1
 - License: GNU Affero General Public License v3.0 only (`AGPL-3.0-only`)
 - Copyright: CNC Kitchen and contributors
 
-The official npm package supplies the browser module used for BumpMesh STEP import. Its complete published TypeScript source, generated distribution, package metadata, README and AGPL license are packaged under `assets/bumpmesh/vendor/meshstep/`.
-
-EnderSlicerCura's integrated workflow supplies an STL, but meshStep is localized so the embedded BumpMesh workspace does not require a CDN if STEP import is used.
+BumpMesh packages the published TypeScript source, generated distribution, metadata, README and AGPL license under `assets/bumpmesh/vendor/meshstep/`. filaSim's corresponding source is available through its pinned dependency and source tree.
 
 ## CuraEngine and Cura resources
 
@@ -52,7 +62,7 @@ UltiMaker and Cura are trademarks of their respective owners.
 - Native Multiplex reference: `rvmn/SuperPleccer`
 - Licenses: GPL-3.0 for the original prototype and AGPL-3.0 for SuperPleccer
 
-enderslicercura contains a CuraEngine-oriented native reimplementation of the Multiplex arc-overhang path-generation behavior. Attribution and implementation details are retained in `native/curaengine/patches/ARC_OVERHANG_NOTICE.md` and the native source headers.
+EnderSlicerCura contains a CuraEngine-oriented native reimplementation of the Multiplex arc-overhang path-generation behavior. Attribution and implementation details are retained in `native/curaengine/patches/ARC_OVERHANG_NOTICE.md` and the native source headers.
 
 ## Android Open Source Project and AndroidX
 
