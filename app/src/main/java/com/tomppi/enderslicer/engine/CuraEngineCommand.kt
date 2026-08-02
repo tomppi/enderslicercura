@@ -130,10 +130,18 @@ object CuraEngineCommand {
         // CuraEngine does not evaluate Cura frontend formulas for command-line
         // values. A density label without these derived values does not change
         // the actual regional toolpath spacing. Reproduce the pinned Cura 5.11
-        // formulas for every fallback Smart Infill mesh.
+        // formulas whenever an active filaSim package supplies the print model.
+        // Explicit modifier callers still retain their requested density label.
         fun applySmartInfillDensity(densityPercent: Double) {
-            val packageValue = activeSmartInfill ?: return
             require(densityPercent in 0.0..100.0) { "Invalid Smart Infill density: $densityPercent" }
+            val densityArgument: Number = if (densityPercent % 1.0 == 0.0) {
+                densityPercent.toInt()
+            } else {
+                densityPercent
+            }
+            setting("infill_sparse_density", densityArgument)
+
+            val packageValue = activeSmartInfill ?: return
             val lineWidth = packageValue.lineWidthMm
             val pattern = effectiveSettings.infillPattern.lowercase()
             val patternFactor = when (pattern) {
@@ -156,12 +164,6 @@ object CuraEngineCommand {
             } else {
                 0.0
             }
-            val densityArgument: Number = if (densityPercent % 1.0 == 0.0) {
-                densityPercent.toInt()
-            } else {
-                densityPercent
-            }
-            setting("infill_sparse_density", densityArgument)
             setting("infill_pattern", pattern)
             applySmartInfillWidths()
             setting("infill_line_distance", lineDistance)
