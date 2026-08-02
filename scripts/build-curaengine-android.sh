@@ -299,7 +299,8 @@ replace(
 replace(
     fff_gcode_writer_cpp,
     '''    const bool monotonic = mesh.settings.get<bool>("skin_monotonic");
-    if (wave_overhang_enabled && ! wave_supported_skin_regions.empty())
+    processSkinPrintFeature(''',
+    '''    if (wave_overhang_enabled && ! wave_supported_skin_regions.empty())
     {
         WaveOverhangParameters wave_parameters;
         wave_parameters.line_spacing = mesh.settings.get<coord_t>("enderslicer_wave_overhang_line_spacing");
@@ -350,8 +351,7 @@ replace(
         // Incomplete propagation falls through to Cura's normal bridge/skin path.
     }
 
-    processSkinPrintFeature(''',
-    '''    if (arc_overhang_enabled && ! arc_supported_skin_regions.empty())
+    if (arc_overhang_enabled && ! arc_supported_skin_regions.empty())
     {
         ArcOverhangParameters arc_parameters;
         arc_parameters.line_spacing = std::max<coord_t>(
