@@ -23,8 +23,8 @@ jobs:
 
       - name: Apply reviewed implementation
         run: |
-          git apply --recount --check scripts/expose-cura-settings.patch
-          git apply --recount scripts/expose-cura-settings.patch
+          git apply --recount --3way scripts/expose-cura-settings.patch
+          test -z "$(git diff --name-only --diff-filter=U)"
           git diff --check
           test -n "$(git status --short app/src/main app/src/test)"
 
