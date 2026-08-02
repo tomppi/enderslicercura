@@ -8,6 +8,7 @@ import com.tomppi.enderslicer.model.resolveStartGcode
 import com.tomppi.enderslicer.model.withSettings
 import com.tomppi.enderslicer.profile.CuraEngineProfile
 import com.tomppi.enderslicer.profile.CuraSettingDelta
+import java.io.File
 
 object CuraEngineCommand {
     fun buildResolved(
@@ -62,6 +63,9 @@ object CuraEngineCommand {
 
         val effectiveSettings = CalibrationSliceState.effective(settings)
         val effectivePrinter = printer.withSettings(effectiveSettings)
+        File(modelPath).takeIf(File::isFile)?.let { stagedModel ->
+            PrinterEnvelope.from(effectivePrinter).requireBinaryStlFits(stagedModel)
+        }
         val effectiveStartGcode = effectiveSettings.resolveStartGcode(startGcode)
         val effectiveEndGcode = effectiveSettings.resolveEndGcode(endGcode)
         val engineOffsetX = if (effectivePrinter.originAtCenter) 0.0 else -effectivePrinter.widthMm / 2.0

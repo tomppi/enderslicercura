@@ -2,40 +2,36 @@ package com.tomppi.enderslicer.data
 
 import android.content.res.AssetManager
 import com.tomppi.enderslicer.model.PrinterDefinition
-import org.json.JSONObject
 
+/** Built-in default without synchronous asset parsing during ViewModel construction. */
 object PrinterDefinitionLoader {
-    fun loadModifiedEnder3V2(assets: AssetManager): PrinterDefinition {
-        val text = assets.open("printers/modified_ender3_v2.json")
-            .bufferedReader()
-            .use { it.readText() }
-        val json = JSONObject(text)
+    @Suppress("UNUSED_PARAMETER")
+    fun loadModifiedEnder3V2(assets: AssetManager): PrinterDefinition = MODIFIED_ENDER_3_V2
 
-        return PrinterDefinition(
-            id = json.getString("id"),
-            name = json.getString("name"),
-            manufacturer = json.getString("manufacturer"),
-            widthMm = json.getDouble("machine_width"),
-            depthMm = json.getDouble("machine_depth"),
-            heightMm = json.getDouble("machine_height"),
-            buildPlateShape = json.getString("build_plate_shape"),
-            originAtCenter = json.getBoolean("origin_at_center"),
-            heatedBed = json.getBoolean("heated_bed"),
-            heatedBuildVolume = json.getBoolean("heated_build_volume"),
-            gcodeFlavor = json.getString("gcode_flavor"),
-            extruders = json.getInt("extruders"),
-            nozzleSizeMm = json.getDouble("nozzle_size"),
-            filamentDiameterMm = json.getDouble("filament_diameter"),
-            printheadXMinMm = json.getDouble("printhead_x_min"),
-            printheadYMinMm = json.getDouble("printhead_y_min"),
-            printheadXMaxMm = json.getDouble("printhead_x_max"),
-            printheadYMaxMm = json.getDouble("printhead_y_max"),
-            gantryHeightMm = json.getDouble("gantry_height"),
-            directDrive = json.getBoolean("direct_drive"),
-            dualZ = json.getBoolean("dual_z"),
-            zProbe = json.getBoolean("z_probe"),
-            bedLeveling = json.getString("bed_leveling"),
-            ublMeshSlot = json.getInt("ubl_mesh_slot"),
-        )
-    }
+    private val MODIFIED_ENDER_3_V2 = PrinterDefinition(
+        id = "modified_ender3_v2",
+        name = "Modified Ender 3 V2",
+        manufacturer = "Creality",
+        widthMm = 230.0,
+        depthMm = 230.0,
+        heightMm = 250.0,
+        buildPlateShape = "rectangular",
+        originAtCenter = false,
+        heatedBed = true,
+        heatedBuildVolume = false,
+        gcodeFlavor = "Marlin",
+        extruders = 1,
+        nozzleSizeMm = 0.4,
+        filamentDiameterMm = 1.75,
+        printheadXMinMm = -26.0,
+        printheadYMinMm = -32.0,
+        printheadXMaxMm = 32.0,
+        printheadYMaxMm = 34.0,
+        gantryHeightMm = 25.0,
+        directDrive = true,
+        dualZ = true,
+        zProbe = true,
+        bedLeveling = "UBL",
+        ublMeshSlot = 0,
+    )
 }

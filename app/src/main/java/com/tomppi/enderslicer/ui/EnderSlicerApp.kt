@@ -39,6 +39,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -66,28 +67,32 @@ fun EnderSlicerApp(viewModel: MainViewModel = viewModel()) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var menuExpanded by remember { mutableStateOf(false) }
-    var settingsOpen by remember { mutableStateOf(false) }
-    var profilesOpen by remember { mutableStateOf(false) }
-    var machineSettingsOpen by remember { mutableStateOf(false) }
-    var modelToolsOpen by remember { mutableStateOf(false) }
-    var calibrationOpen by remember { mutableStateOf(false) }
-    var layerEventsOpen by remember { mutableStateOf(false) }
-    var meshLimitOpen by remember { mutableStateOf(false) }
-    var viewerMode by remember { mutableStateOf(ViewerMode.MODEL) }
-    var selectedLayerIndex by remember { mutableStateOf(0) }
+    var menuExpanded by rememberSaveable { mutableStateOf(false) }
+    var settingsOpen by rememberSaveable { mutableStateOf(false) }
+    var profilesOpen by rememberSaveable { mutableStateOf(false) }
+    var machineSettingsOpen by rememberSaveable { mutableStateOf(false) }
+    var modelToolsOpen by rememberSaveable { mutableStateOf(false) }
+    var calibrationOpen by rememberSaveable { mutableStateOf(false) }
+    var layerEventsOpen by rememberSaveable { mutableStateOf(false) }
+    var meshLimitOpen by rememberSaveable { mutableStateOf(false) }
+    var viewerMode by rememberSaveable { mutableStateOf(ViewerMode.MODEL) }
+    var selectedLayerIndex by rememberSaveable { mutableStateOf(0) }
+    var lastAutoSelectedResultId by rememberSaveable { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(state.layerPreview) {
+    LaunchedEffect(state.sliceResultId, state.layerPreview) {
         val preview = state.layerPreview
+        val resultId = state.sliceResultId
         if (preview == null) {
             viewerMode = ViewerMode.MODEL
             selectedLayerIndex = 0
-        } else {
+            if (resultId == null) lastAutoSelectedResultId = null
+        } else if (resultId != null && lastAutoSelectedResultId != resultId) {
             val firstSupport = preview.layers.indexOfFirst {
                 it.supportSegmentCount > 0 || it.supportInterfaceSegmentCount > 0
             }
             selectedLayerIndex = if (firstSupport >= 0) firstSupport else 0
             viewerMode = ViewerMode.LAYERS
+            lastAutoSelectedResultId = resultId
         }
     }
 

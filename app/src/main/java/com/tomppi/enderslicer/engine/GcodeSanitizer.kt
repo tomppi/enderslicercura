@@ -23,6 +23,7 @@ object GcodeSanitizer {
     fun validateAndRepair(
         file: File,
         settingsTransport: String = "auto",
+        printerEnvelope: PrinterEnvelope? = null,
     ): Summary {
         require('\n' !in settingsTransport && '\r' !in settingsTransport) {
             "Settings transport marker contains a line break"
@@ -37,11 +38,10 @@ object GcodeSanitizer {
         var layerCount = 0
         var currentLayer: Int? = null
         var lastElapsed: Double? = null
-        var absoluteExtrusion = true
+        val modalState = GcodeModalState()
         var currentE = 0.0
         var modelFilament = 0.0
         var totalFilament = 0.0
-        var absolutePosition = true
         var x = 0.0
         var y = 0.0
         var z = 0.0
@@ -56,12 +56,17 @@ object GcodeSanitizer {
         var nozzleTargetLine: Int? = null
         var nozzleTargetLayer: Int? = null
         var lineNumber = 0
+        var temperatureCalibration = false
 
         file.bufferedReader().useLines { lines ->
             lines.forEach { rawLine ->
                 lineNumber++
                 val line = rawLine.trimStart()
                 when {
+                    line.startsWith(";ENDERSLICER_LAYER_EVENT:") &&
+                        line.contains(":NOZZLE_TEMPERATURE:CALIBRATION") -> {
+                        temperatureCalibration = true
+                    }
                     line.startsWith(";LAYER_COUNT:") -> {
                         line.substringAfter(':').trim().toIntOrNull()?.let { layerCount = it }
                     }
@@ -78,11 +83,8 @@ object GcodeSanitizer {
                 }
 
                 val command = GcodeCommand.parse(rawLine) ?: return@forEach
+                if (modalState.apply(command)) return@forEach
                 when (command.opcode) {
-                    "M82" -> absoluteExtrusion = true
-                    "M83" -> absoluteExtrusion = false
-                    "G90" -> absolutePosition = true
-                    "G91" -> absolutePosition = false
                     "G92" -> {
                         command.value('E')?.let { currentE = it }
                         command.value('X')?.let { x = it }
@@ -101,12 +103,12 @@ object GcodeSanitizer {
                         val startX = x
                         val startY = y
                         val startZ = z
-                        command.value('X')?.let { x = if (absolutePosition) it else x + it }
-                        command.value('Y')?.let { y = if (absolutePosition) it else y + it }
-                        command.value('Z')?.let { z = if (absolutePosition) it else z + it }
+                        x = modalState.position(x, command.value('X'))
+                        y = modalState.position(y, command.value('Y'))
+                        z = modalState.position(z, command.value('Z'))
                         var positiveExtrusion = 0.0
                         command.value('E')?.let { requested ->
-                            val nextE = if (absoluteExtrusion) requested else currentE + requested
+                            val nextE = modalState.extrusion(currentE, requested)
                             val delta = nextE - currentE
                             if (delta > 0.0) {
                                 positiveExtrusion = delta
@@ -124,6 +126,16 @@ object GcodeSanitizer {
                                             "The G-code was not made available for export.",
                                     )
                                 }
+                                printerEnvelope?.requireExtrusionMove(
+                                    startX = startX,
+                                    startY = startY,
+                                    startZ = startZ,
+                                    endX = x,
+                                    endY = y,
+                                    endZ = z,
+                                    lineNumber = lineNumber,
+                                    layerNumber = currentLayer,
+                                )
                             }
                             currentE = nextE
                         }
@@ -153,6 +165,7 @@ object GcodeSanitizer {
             file.bufferedReader().useLines { lines ->
                 lines.forEach { originalLine ->
                     val line = when {
+                        originalLine.contains(TEMPERATURE_CALIBRATION_SHUTDOWN_COMMENT) -> return@forEach
                         originalLine.startsWith(";ENDERSLICER_VERSION:") ||
                             originalLine.startsWith(";ENDERSLICER_COORDINATE_TRANSPORT:") ||
                             originalLine.startsWith(";ENDERSLICER_SETTINGS_TRANSPORT:") -> return@forEach
@@ -179,11 +192,21 @@ object GcodeSanitizer {
                     }
                 }
             }
+            if (temperatureCalibration) {
+                writer.write(TEMPERATURE_CALIBRATION_SHUTDOWN_COMMAND)
+                writer.write(PRINTER_LINE_ENDING)
+            }
         }
         check(temporary.length() > 0L) { "Validated G-code output is empty" }
         if (file.exists()) file.delete()
         check(temporary.renameTo(file) || temporary.copyTo(file, overwrite = true).let { temporary.delete(); true }) {
             "Unable to replace generated G-code with the validated output"
+        }
+        if (temperatureCalibration && finalNozzleTarget(file) != 0.0) {
+            throw UnsafeGcodeException(
+                "Temperature calibration did not finish with the hotend target disabled. " +
+                    "The G-code was not made available for export.",
+            )
         }
 
         return Summary(
@@ -200,8 +223,25 @@ object GcodeSanitizer {
         )
     }
 
+    private fun finalNozzleTarget(file: File): Double? {
+        var target: Double? = null
+        file.bufferedReader().useLines { lines ->
+            lines.forEach { line ->
+                val command = GcodeCommand.parse(line) ?: return@forEach
+                if (command.opcode == "M104" || command.opcode == "M109") {
+                    target = command.value('S') ?: command.value('R') ?: target
+                }
+            }
+        }
+        return target
+    }
+
     private fun format(value: Double): String = "%.5f".format(java.util.Locale.US, value).trimEnd('0').trimEnd('.')
 
+    private const val TEMPERATURE_CALIBRATION_SHUTDOWN_COMMENT =
+        "enderslicercura temperature calibration safety shutdown"
+    private const val TEMPERATURE_CALIBRATION_SHUTDOWN_COMMAND =
+        "M104 S0 ; $TEMPERATURE_CALIBRATION_SHUTDOWN_COMMENT"
     private const val MINIMUM_ACTIVE_NOZZLE_C = 150.0
     private const val PRINTER_LINE_ENDING = "\r\n"
 }

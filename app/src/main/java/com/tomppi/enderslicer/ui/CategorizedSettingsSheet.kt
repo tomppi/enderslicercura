@@ -171,6 +171,9 @@ internal fun CategorizedSettingsSheet(
         }
 
         SettingsCategory("Walls and top/bottom") {
+            NumberField("Wall thickness (mm)", settings.wallThicknessMm, source(state, SlicerSettings.Keys.WALL_THICKNESS)) {
+                onSettings(SlicerSettings.Keys.WALL_THICKNESS) { current -> current.copy(wallThicknessMm = it.coerceIn(0.0, 100.0)) }
+            }
             NumberField("Wall line count", settings.wallLineCount.toDouble(), source(state, SlicerSettings.Keys.WALL_LINE_COUNT), decimals = 0) {
                 onSettings(SlicerSettings.Keys.WALL_LINE_COUNT) { current -> current.copy(wallLineCount = it.toInt().coerceIn(0, 1000)) }
             }
@@ -179,6 +182,18 @@ internal fun CategorizedSettingsSheet(
             }
             NumberField("Bottom layers", settings.bottomLayers.toDouble(), source(state, SlicerSettings.Keys.BOTTOM_LAYERS), decimals = 0) {
                 onSettings(SlicerSettings.Keys.BOTTOM_LAYERS) { current -> current.copy(bottomLayers = it.toInt().coerceIn(0, 1000000)) }
+            }
+            NumberField("Top/bottom thickness (mm)", settings.topBottomThicknessMm, source(state, SlicerSettings.Keys.TOP_BOTTOM_THICKNESS)) {
+                onSettings(SlicerSettings.Keys.TOP_BOTTOM_THICKNESS) { current -> current.copy(topBottomThicknessMm = it.coerceIn(0.0, current.machineHeightMm)) }
+            }
+            NumberField("Initial bottom layers", settings.initialBottomLayers.toDouble(), source(state, SlicerSettings.Keys.INITIAL_BOTTOM_LAYERS), decimals = 0) {
+                onSettings(SlicerSettings.Keys.INITIAL_BOTTOM_LAYERS) { current -> current.copy(initialBottomLayers = it.toInt().coerceIn(0, 1000000)) }
+            }
+            NumberField("Hole horizontal expansion (mm)", settings.holeHorizontalExpansionMm, source(state, SlicerSettings.Keys.HOLE_HORIZONTAL_EXPANSION), decimals = 3) {
+                onSettings(SlicerSettings.Keys.HOLE_HORIZONTAL_EXPANSION) { current -> current.copy(holeHorizontalExpansionMm = it.coerceIn(-10.0, 10.0)) }
+            }
+            NumberField("Initial-layer horizontal expansion (mm)", settings.initialLayerHorizontalExpansionMm, source(state, SlicerSettings.Keys.INITIAL_LAYER_HORIZONTAL_EXPANSION), decimals = 3) {
+                onSettings(SlicerSettings.Keys.INITIAL_LAYER_HORIZONTAL_EXPANSION) { current -> current.copy(initialLayerHorizontalExpansionMm = it.coerceIn(-10.0, 10.0)) }
             }
             OptionField(
                 label = "Z seam alignment",
@@ -249,6 +264,13 @@ internal fun CategorizedSettingsSheet(
             ) {
                 onSettings(SlicerSettings.Keys.INFILL_PATTERN) { current -> current.copy(infillPattern = it) }
             }
+            SwitchRow(
+                "Connect infill lines",
+                settings.zigZagConnectInfill,
+                source(state, SlicerSettings.Keys.ZIG_ZAG_CONNECT_INFILL),
+            ) {
+                onSettings(SlicerSettings.Keys.ZIG_ZAG_CONNECT_INFILL) { current -> current.copy(zigZagConnectInfill = it) }
+            }
         }
 
         SettingsCategory("Speed") {
@@ -279,6 +301,18 @@ internal fun CategorizedSettingsSheet(
         }
 
         SettingsCategory("Material") {
+            Text(
+                "${settings.materialBrand} ${settings.materialType} · density ${settings.materialDensityGPerCm3} g/cm³",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (settings.materialGuid.isNotBlank()) {
+                Text("Material GUID: ${settings.materialGuid}", style = MaterialTheme.typography.labelSmall)
+            }
+            Text(
+                "Enabled extruders: ${settings.enabledExtruderCount} (EnderSlicer currently slices with extruder 1)",
+                style = MaterialTheme.typography.labelSmall,
+            )
             NumberField("Nozzle temperature (°C)", settings.nozzleTemperatureC.toDouble(), source(state, SlicerSettings.Keys.NOZZLE_TEMPERATURE), decimals = 0) {
                 onSettings(SlicerSettings.Keys.NOZZLE_TEMPERATURE) { current -> current.copy(nozzleTemperatureC = it.toInt().coerceIn(150, 500)) }
             }
@@ -287,6 +321,21 @@ internal fun CategorizedSettingsSheet(
             }
             NumberField("Bed temperature (°C)", settings.bedTemperatureC.toDouble(), source(state, SlicerSettings.Keys.BED_TEMPERATURE), decimals = 0) {
                 onSettings(SlicerSettings.Keys.BED_TEMPERATURE) { current -> current.copy(bedTemperatureC = it.toInt().coerceIn(0, 200)) }
+            }
+            NumberField("Build-volume temperature (°C)", settings.buildVolumeTemperatureC, source(state, SlicerSettings.Keys.BUILD_VOLUME_TEMPERATURE), decimals = 1) {
+                onSettings(SlicerSettings.Keys.BUILD_VOLUME_TEMPERATURE) { current -> current.copy(buildVolumeTemperatureC = it.coerceIn(-273.15, 285.0)) }
+            }
+            NumberField("Standby temperature (°C)", settings.materialStandbyTemperatureC, source(state, SlicerSettings.Keys.MATERIAL_STANDBY_TEMPERATURE), decimals = 0) {
+                onSettings(SlicerSettings.Keys.MATERIAL_STANDBY_TEMPERATURE) { current -> current.copy(materialStandbyTemperatureC = it.coerceIn(-273.15, 500.0)) }
+            }
+            NumberField("Material density (g/cm³)", settings.materialDensityGPerCm3, source(state, SlicerSettings.Keys.MATERIAL_DENSITY), decimals = 3) {
+                onSettings(SlicerSettings.Keys.MATERIAL_DENSITY) { current -> current.copy(materialDensityGPerCm3 = it.coerceIn(0.01, 100.0)) }
+            }
+            NumberField("Adhesion tendency (0–10)", settings.materialAdhesionTendency.toDouble(), source(state, SlicerSettings.Keys.MATERIAL_ADHESION_TENDENCY), decimals = 0) {
+                onSettings(SlicerSettings.Keys.MATERIAL_ADHESION_TENDENCY) { current -> current.copy(materialAdhesionTendency = it.toInt().coerceIn(0, 10)) }
+            }
+            NumberField("Surface energy (%)", settings.materialSurfaceEnergyPercent.toDouble(), source(state, SlicerSettings.Keys.MATERIAL_SURFACE_ENERGY), decimals = 0) {
+                onSettings(SlicerSettings.Keys.MATERIAL_SURFACE_ENERGY) { current -> current.copy(materialSurfaceEnergyPercent = it.toInt().coerceIn(0, 100)) }
             }
             NumberField("Material flow (%)", settings.materialFlowPercent, source(state, SlicerSettings.Keys.MATERIAL_FLOW)) {
                 onSettings(SlicerSettings.Keys.MATERIAL_FLOW) { current -> current.copy(materialFlowPercent = it.coerceIn(1.0, 300.0)) }
@@ -354,6 +403,9 @@ internal fun CategorizedSettingsSheet(
                 if (settings.supportInterfaceEnabled) {
                     NumberField("Interface density (%)", settings.supportInterfaceDensityPercent, source(state, SlicerSettings.Keys.SUPPORT_INTERFACE_DENSITY)) {
                         onSettings(SlicerSettings.Keys.SUPPORT_INTERFACE_DENSITY) { current -> current.copy(supportInterfaceDensityPercent = it.coerceIn(0.0, 100.0)) }
+                    }
+                    NumberField("Interface thickness (mm)", settings.supportInterfaceHeightMm, source(state, SlicerSettings.Keys.SUPPORT_INTERFACE_HEIGHT)) {
+                        onSettings(SlicerSettings.Keys.SUPPORT_INTERFACE_HEIGHT) { current -> current.copy(supportInterfaceHeightMm = it.coerceIn(0.0, 100.0)) }
                     }
                     NumberField("Interface speed (mm/s)", settings.supportInterfaceSpeedMmPerSecond, source(state, SlicerSettings.Keys.SUPPORT_INTERFACE_SPEED)) {
                         onSettings(SlicerSettings.Keys.SUPPORT_INTERFACE_SPEED) { current -> current.copy(supportInterfaceSpeedMmPerSecond = it.coerceIn(0.1, 1000.0)) }
@@ -451,16 +503,77 @@ internal fun CategorizedSettingsSheet(
                     onSettings(SlicerSettings.Keys.BRIM_WIDTH) { current -> current.copy(brimWidthMm = it.coerceIn(0.0, 100.0)) }
                 }
             }
+            if (settings.adhesionType == "raft") {
+                NumberField("Raft extra margin (mm)", settings.raftMarginMm, source(state, SlicerSettings.Keys.RAFT_MARGIN)) {
+                    onSettings(SlicerSettings.Keys.RAFT_MARGIN) { current -> current.copy(raftMarginMm = it.coerceIn(0.0, 100.0)) }
+                }
+            }
         }
 
         SettingsCategory("Experimental") {
+            SwitchRow(
+                "Wave overhangs (experimental)",
+                settings.waveOverhangEnabled,
+                source(state, SlicerSettings.Keys.WAVE_OVERHANG_ENABLED),
+            ) {
+                onSettings(SlicerSettings.Keys.WAVE_OVERHANG_ENABLED) { current ->
+                    current.copy(
+                        waveOverhangEnabled = it,
+                        arcOverhangEnabled = if (it) false else current.arcOverhangEnabled,
+                    )
+                }
+            }
+            if (settings.waveOverhangEnabled) {
+                Text(
+                    "Expanding wavefronts grow from model-supported material into open-air bottom skin. Use maximum cooling and verify the layer preview before printing.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+                OptionField(
+                    label = "Wave traversal",
+                    value = settings.waveOverhangPattern,
+                    options = listOf(
+                        "smart" to "Smart · supported-first",
+                        "monotonic" to "Monotonic · independent fronts",
+                        "zigzag" to "Zigzag · alternating fronts",
+                    ),
+                    source = source(state, SlicerSettings.Keys.WAVE_OVERHANG_PATTERN),
+                ) {
+                    onSettings(SlicerSettings.Keys.WAVE_OVERHANG_PATTERN) { current -> current.copy(waveOverhangPattern = it) }
+                }
+                NumberField("Wave spacing (mm)", settings.waveOverhangLineSpacingMm, source(state, SlicerSettings.Keys.WAVE_OVERHANG_LINE_SPACING), decimals = 3) {
+                    onSettings(SlicerSettings.Keys.WAVE_OVERHANG_LINE_SPACING) { current -> current.copy(waveOverhangLineSpacingMm = it.coerceIn(0.1, 2.0)) }
+                }
+                NumberField("Wave flow (mm³/mm)", settings.waveOverhangFlowMm3PerMm, source(state, SlicerSettings.Keys.WAVE_OVERHANG_FLOW), decimals = 3) {
+                    onSettings(SlicerSettings.Keys.WAVE_OVERHANG_FLOW) { current -> current.copy(waveOverhangFlowMm3PerMm = it.coerceIn(0.02, 1.5)) }
+                }
+                NumberField("Wave speed (mm/s)", settings.waveOverhangSpeedMmPerSecond, source(state, SlicerSettings.Keys.WAVE_OVERHANG_SPEED)) {
+                    onSettings(SlicerSettings.Keys.WAVE_OVERHANG_SPEED) { current -> current.copy(waveOverhangSpeedMmPerSecond = it.coerceIn(0.5, 50.0)) }
+                }
+                NumberField("Wave fan speed (%)", settings.waveOverhangFanSpeedPercent, source(state, SlicerSettings.Keys.WAVE_OVERHANG_FAN_SPEED), decimals = 0) {
+                    onSettings(SlicerSettings.Keys.WAVE_OVERHANG_FAN_SPEED) { current -> current.copy(waveOverhangFanSpeedPercent = it.coerceIn(0.0, 100.0)) }
+                }
+                NumberField("Perimeter overlap (mm)", settings.waveOverhangPerimeterOverlapMm, source(state, SlicerSettings.Keys.WAVE_OVERHANG_PERIMETER_OVERLAP), decimals = 3) {
+                    onSettings(SlicerSettings.Keys.WAVE_OVERHANG_PERIMETER_OVERLAP) { current -> current.copy(waveOverhangPerimeterOverlapMm = it.coerceIn(0.0, 2.0)) }
+                }
+                NumberField("Minimum wave width (mm)", settings.waveOverhangMinimumWidthMm, source(state, SlicerSettings.Keys.WAVE_OVERHANG_MINIMUM_WIDTH), decimals = 3) {
+                    onSettings(SlicerSettings.Keys.WAVE_OVERHANG_MINIMUM_WIDTH) { current -> current.copy(waveOverhangMinimumWidthMm = it.coerceIn(0.0, 10.0)) }
+                }
+                NumberField("Maximum wavefronts", settings.waveOverhangMaxIterations.toDouble(), source(state, SlicerSettings.Keys.WAVE_OVERHANG_MAX_ITERATIONS), decimals = 0) {
+                    onSettings(SlicerSettings.Keys.WAVE_OVERHANG_MAX_ITERATIONS) { current -> current.copy(waveOverhangMaxIterations = it.toInt().coerceIn(1, 2000)) }
+                }
+                SwitchRow("Reverse wave direction on odd layers", settings.waveOverhangReverseOddLayers, source(state, SlicerSettings.Keys.WAVE_OVERHANG_REVERSE_ODD_LAYERS)) {
+                    onSettings(SlicerSettings.Keys.WAVE_OVERHANG_REVERSE_ODD_LAYERS) { current -> current.copy(waveOverhangReverseOddLayers = it) }
+                }
+            }
+
             SwitchRow(
                 "Arc overhangs (Multiplex)",
                 settings.arcOverhangEnabled,
                 source(state, SlicerSettings.Keys.ARC_OVERHANG_ENABLED),
             ) {
                 onSettings(SlicerSettings.Keys.ARC_OVERHANG_ENABLED) { current ->
-                    current.copy(arcOverhangEnabled = it)
+                    current.copy(arcOverhangEnabled = it, waveOverhangEnabled = if (it) false else current.waveOverhangEnabled)
                 }
             }
             if (settings.arcOverhangEnabled) {
@@ -565,6 +678,13 @@ internal fun CategorizedSettingsSheet(
                 onSettings(SlicerSettings.Keys.IRONING_ENABLED) { current -> current.copy(ironingEnabled = it) }
             }
             if (settings.ironingEnabled) {
+                SwitchRow(
+                    "Iron only the highest layer",
+                    settings.ironingOnlyHighestLayer,
+                    source(state, SlicerSettings.Keys.IRONING_ONLY_HIGHEST_LAYER),
+                ) {
+                    onSettings(SlicerSettings.Keys.IRONING_ONLY_HIGHEST_LAYER) { current -> current.copy(ironingOnlyHighestLayer = it) }
+                }
                 NumberField("Ironing flow (%)", settings.ironingFlowPercent, source(state, SlicerSettings.Keys.IRONING_FLOW)) {
                     onSettings(SlicerSettings.Keys.IRONING_FLOW) { current -> current.copy(ironingFlowPercent = it.coerceIn(0.0, 100.0)) }
                 }

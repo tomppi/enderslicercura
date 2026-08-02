@@ -37,6 +37,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -69,10 +70,10 @@ fun HardenedOctoPrintSheet(
     viewModel: OctoPrintViewModel,
     modifier: Modifier = Modifier,
 ) {
-    var page by remember {
+    var page by rememberSaveable {
         mutableStateOf(if (state.isReady) HardenedOctoPrintPage.STATUS else HardenedOctoPrintPage.SETUP)
     }
-    var pendingUploadPrintDirectory by remember { mutableStateOf<String?>(null) }
+    var pendingUploadPrintDirectory by rememberSaveable { mutableStateOf<String?>(null) }
     var confirmStart by remember { mutableStateOf(false) }
     var confirmRestart by remember { mutableStateOf(false) }
     var confirmCancel by remember { mutableStateOf(false) }
@@ -288,7 +289,7 @@ private fun HardenedStatusPage(
     onConfirmCancel: () -> Unit,
     modifier: Modifier,
 ) {
-    var remoteDirectory by remember { mutableStateOf("") }
+    var remoteDirectory by rememberSaveable { mutableStateOf("") }
     Column(
         modifier = modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -469,11 +470,11 @@ private fun HardenedFilesPage(
     onPrint: (OctoPrintFileEntry) -> Unit,
     modifier: Modifier,
 ) {
-    var filter by remember { mutableStateOf("") }
-    var parentPath by remember { mutableStateOf("") }
-    var folderName by remember { mutableStateOf("") }
+    var filter by rememberSaveable { mutableStateOf("") }
+    var parentPath by rememberSaveable { mutableStateOf("") }
+    var folderName by rememberSaveable { mutableStateOf("") }
     var selected by remember { mutableStateOf<OctoPrintFileEntry?>(null) }
-    var destination by remember { mutableStateOf("") }
+    var destination by rememberSaveable { mutableStateOf("") }
     val visibleFiles = state.files.filter {
         filter.isBlank() || it.name.contains(filter, true) || it.path.contains(filter, true)
     }
@@ -589,19 +590,19 @@ private fun HardenedControlPage(
     viewModel: OctoPrintViewModel,
     modifier: Modifier,
 ) {
-    var port by remember { mutableStateOf("") }
-    var baudrate by remember { mutableStateOf("") }
-    var profile by remember { mutableStateOf("") }
-    var saveConnection by remember { mutableStateOf(false) }
-    var autoConnect by remember { mutableStateOf(false) }
-    var autoConnectEdited by remember { mutableStateOf(false) }
-    var jogStep by remember { mutableStateOf(1.0) }
-    var toolTarget by remember { mutableStateOf("200") }
-    var bedTarget by remember { mutableStateOf("60") }
-    var extrusion by remember { mutableStateOf("5") }
-    var feedRate by remember { mutableStateOf("100") }
-    var flowRate by remember { mutableStateOf("100") }
-    var command by remember { mutableStateOf("") }
+    var port by rememberSaveable { mutableStateOf("") }
+    var baudrate by rememberSaveable { mutableStateOf("") }
+    var profile by rememberSaveable { mutableStateOf("") }
+    var saveConnection by rememberSaveable { mutableStateOf(false) }
+    var autoConnect by rememberSaveable { mutableStateOf(false) }
+    var autoConnectEdited by rememberSaveable { mutableStateOf(false) }
+    var jogStep by rememberSaveable { mutableStateOf(1.0) }
+    var toolTarget by rememberSaveable { mutableStateOf("200") }
+    var bedTarget by rememberSaveable { mutableStateOf("60") }
+    var extrusion by rememberSaveable { mutableStateOf("5") }
+    var feedRate by rememberSaveable { mutableStateOf("100") }
+    var flowRate by rememberSaveable { mutableStateOf("100") }
+    var command by rememberSaveable { mutableStateOf("") }
 
     LaunchedEffect(state.connection) {
         if (port.isBlank()) port = state.connection.portPreference ?: state.connection.port.orEmpty()
@@ -779,11 +780,11 @@ private fun HardenedSetupPage(
     viewModel: OctoPrintViewModel,
     modifier: Modifier,
 ) {
-    var baseUrl by remember { mutableStateOf(state.config.baseUrl) }
-    var username by remember { mutableStateOf(state.config.username) }
-    var apiKey by remember { mutableStateOf("") }
-    var snapshotUrl by remember { mutableStateOf(state.config.snapshotUrlOverride) }
-    var pollSeconds by remember { mutableStateOf(state.config.pollIntervalSeconds.toString()) }
+    var baseUrl by rememberSaveable(state.config.baseUrl) { mutableStateOf(state.config.baseUrl) }
+    var username by rememberSaveable(state.config.username) { mutableStateOf(state.config.username) }
+    var apiKey by rememberSaveable { mutableStateOf("") }
+    var snapshotUrl by rememberSaveable(state.config.snapshotUrlOverride) { mutableStateOf(state.config.snapshotUrlOverride) }
+    var pollSeconds by rememberSaveable(state.config.pollIntervalSeconds) { mutableStateOf(state.config.pollIntervalSeconds.toString()) }
     var confirmClear by remember { mutableStateOf(false) }
 
     LaunchedEffect(state.config) {

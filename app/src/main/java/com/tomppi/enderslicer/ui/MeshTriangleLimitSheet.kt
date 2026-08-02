@@ -19,6 +19,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -31,8 +32,8 @@ internal fun MeshTriangleLimitSheet(
     onSave: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var valueText by remember(currentLimit) { mutableStateOf(currentLimit.toString()) }
-    var presetMenu by remember { mutableStateOf(false) }
+    var valueText by rememberSaveable(currentLimit) { mutableStateOf(currentLimit.toString()) }
+    var presetMenu by rememberSaveable { mutableStateOf(false) }
     val parsed = valueText.filter(Char::isDigit).toIntOrNull()
     val valid = parsed?.takeIf { it in MeshTriangleLimits.MIN_TRIANGLES..MeshTriangleLimits.MAX_TRIANGLES }
     val selectedPreset = valid?.let { value -> MeshTriangleLimits.presets.firstOrNull { it.triangles == value } }

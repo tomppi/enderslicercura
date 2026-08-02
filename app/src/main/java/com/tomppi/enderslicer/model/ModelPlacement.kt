@@ -130,7 +130,12 @@ data class ModelPlacement(
         centerXmm: Double = this.centerXmm,
         centerYmm: Double = this.centerYmm,
         baseZmm: Double = this.baseZmm,
-    ): ModelPlacement = copy(centerXmm = centerXmm, centerYmm = centerYmm, baseZmm = baseZmm, source = "Manual placement")
+    ): ModelPlacement = copy(
+        centerXmm = centerXmm,
+        centerYmm = centerYmm,
+        baseZmm = baseZmm,
+        source = "Manual placement",
+    )
 
     fun droppedToBed(): ModelPlacement = copy(baseZmm = 0.0, source = "Dropped to build plate")
 
@@ -148,55 +153,26 @@ data class ModelPlacement(
     }
 
     fun layFlat(mesh: StlMesh): ModelPlacement {
-        val values = mesh.interleavedVertices
-        var bestInputOffset = -1
-        var bestAreaSquared = -1.0
-        var bestNormal = doubleArrayOf(0.0, 0.0, 0.0)
-        var offset = 0
-        repeat(mesh.triangleCount) {
-            val x0 = transformX(linear, values[offset].toDouble(), values[offset + 1].toDouble(), values[offset + 2].toDouble())
-            val y0 = transformY(linear, values[offset].toDouble(), values[offset + 1].toDouble(), values[offset + 2].toDouble())
-            val z0 = transformZ(linear, values[offset].toDouble(), values[offset + 1].toDouble(), values[offset + 2].toDouble())
-            val x1 = transformX(linear, values[offset + 6].toDouble(), values[offset + 7].toDouble(), values[offset + 8].toDouble())
-            val y1 = transformY(linear, values[offset + 6].toDouble(), values[offset + 7].toDouble(), values[offset + 8].toDouble())
-            val z1 = transformZ(linear, values[offset + 6].toDouble(), values[offset + 7].toDouble(), values[offset + 8].toDouble())
-            val x2 = transformX(linear, values[offset + 12].toDouble(), values[offset + 13].toDouble(), values[offset + 14].toDouble())
-            val y2 = transformY(linear, values[offset + 12].toDouble(), values[offset + 13].toDouble(), values[offset + 14].toDouble())
-            val z2 = transformZ(linear, values[offset + 12].toDouble(), values[offset + 13].toDouble(), values[offset + 14].toDouble())
-            val ax = x1 - x0
-            val ay = y1 - y0
-            val az = z1 - z0
-            val bx = x2 - x0
-            val by = y2 - y0
-            val bz = z2 - z0
-            val nx = ay * bz - az * by
-            val ny = az * bx - ax * bz
-            val nz = ax * by - ay * bx
-            val areaSquared = nx * nx + ny * ny + nz * nz
-            if (areaSquared > bestAreaSquared) {
-                bestAreaSquared = areaSquared
-                bestInputOffset = offset
-                bestNormal = doubleArrayOf(nx, ny, nz)
-            }
-            offset += 18
-        }
-        require(bestInputOffset >= 0 && bestAreaSquared > 1e-18) { "No usable triangle face was found for lay flat" }
-
-        val normal = normalized(bestNormal)
+        val patch = PlanarPatchSelector.largest(mesh, linear)
         val candidates = listOf(
-            alignVector(normal, doubleArrayOf(0.0, 0.0, 1.0)),
-            alignVector(normal, doubleArrayOf(0.0, 0.0, -1.0)),
+            alignVector(patch.normal, doubleArrayOf(0.0, 0.0, 1.0)),
+            alignVector(patch.normal, doubleArrayOf(0.0, 0.0, -1.0)),
         )
         val selected = candidates.minBy { candidate ->
             val candidateLinear = multiply(candidate, linear)
             val candidateBounds = boundsFor(mesh, candidateLinear)
-            val faceZ = triangleAverageZ(mesh, bestInputOffset, candidateLinear)
+            val faceZ = transformZ(
+                candidate,
+                patch.centroid[0],
+                patch.centroid[1],
+                patch.centroid[2],
+            )
             abs(faceZ - candidateBounds.minZ)
         }
         return copy(
             linear = multiply(selected, linear),
             baseZmm = 0.0,
-            source = "Laid flat on largest face",
+            source = "Laid flat on largest planar face",
         )
     }
 
@@ -205,11 +181,20 @@ data class ModelPlacement(
     companion object {
         val IDENTITY = listOf(1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
 
-        fun centeredOnBed(mesh: StlMesh, bedWidthMm: Double, bedDepthMm: Double): ModelPlacement = ModelPlacement(
-            centerXmm = bedWidthMm / 2.0,
-            centerYmm = bedDepthMm / 2.0,
-            baseZmm = 0.0,
-        )
+        fun centeredOnBed(
+            mesh: StlMesh,
+            bedWidthMm: Double,
+            bedDepthMm: Double,
+            originAtCenter: Boolean = false,
+        ): ModelPlacement {
+            require(bedWidthMm.isFinite() && bedWidthMm > 0.0) { "Bed width must be positive" }
+            require(bedDepthMm.isFinite() && bedDepthMm > 0.0) { "Bed depth must be positive" }
+            return ModelPlacement(
+                centerXmm = if (originAtCenter) 0.0 else bedWidthMm / 2.0,
+                centerYmm = if (originAtCenter) 0.0 else bedDepthMm / 2.0,
+                baseZmm = 0.0,
+            )
+        }
 
         fun from3mf(
             mesh: StlMesh,
@@ -217,15 +202,41 @@ data class ModelPlacement(
             dropToBuildPlate: Boolean,
         ): ModelPlacement {
             require(affine.linear.size == 9)
-            val targetCenterX = affine.targetCenterXmm ?: affine.translationXmm
-            val targetCenterY = affine.targetCenterYmm ?: affine.translationYmm
-            val targetBaseZ = affine.targetBaseZmm ?: affine.translationZmm
+            val transformedBounds = boundsFor(mesh, affine.linear)
+            val transformedOriginX = transformX(
+                affine.linear,
+                mesh.sourceOriginXmm,
+                mesh.sourceOriginYmm,
+                mesh.sourceOriginZmm,
+            )
+            val transformedOriginY = transformY(
+                affine.linear,
+                mesh.sourceOriginXmm,
+                mesh.sourceOriginYmm,
+                mesh.sourceOriginZmm,
+            )
+            val transformedOriginZ = transformZ(
+                affine.linear,
+                mesh.sourceOriginXmm,
+                mesh.sourceOriginYmm,
+                mesh.sourceOriginZmm,
+            )
+            val targetCenterX = affine.targetCenterXmm
+                ?: transformedBounds.centerX + transformedOriginX + affine.translationXmm
+            val targetCenterY = affine.targetCenterYmm
+                ?: transformedBounds.centerY + transformedOriginY + affine.translationYmm
+            val targetBaseZ = affine.targetBaseZmm
+                ?: transformedBounds.minZ + transformedOriginZ + affine.translationZmm
             return ModelPlacement(
                 linear = affine.linear,
                 centerXmm = targetCenterX,
                 centerYmm = targetCenterY,
                 baseZmm = if (dropToBuildPlate) 0.0 else targetBaseZ,
-                source = if (dropToBuildPlate) "Imported Cura transform · drop to bed" else "Imported Cura transform",
+                source = if (dropToBuildPlate) {
+                    "Imported Cura transform · drop to bed"
+                } else {
+                    "Imported Cura transform"
+                },
             )
         }
 
@@ -257,15 +268,6 @@ data class ModelPlacement(
             return BoundsDouble(minX, minY, minZ, maxX, maxY, maxZ)
         }
 
-        private fun triangleAverageZ(mesh: StlMesh, offset: Int, matrix: List<Double>): Double {
-            val values = mesh.interleavedVertices
-            return (
-                transformZ(matrix, values[offset].toDouble(), values[offset + 1].toDouble(), values[offset + 2].toDouble()) +
-                    transformZ(matrix, values[offset + 6].toDouble(), values[offset + 7].toDouble(), values[offset + 8].toDouble()) +
-                    transformZ(matrix, values[offset + 12].toDouble(), values[offset + 13].toDouble(), values[offset + 14].toDouble())
-                ) / 3.0
-        }
-
         private fun transformX(matrix: List<Double>, x: Double, y: Double, z: Double): Double =
             matrix[0] * x + matrix[1] * y + matrix[2] * z
 
@@ -293,11 +295,17 @@ data class ModelPlacement(
             val crossLength = sqrt(vx * vx + vy * vy + vz * vz)
             if (crossLength < 1e-12) {
                 if (dot > 0.0) return IDENTITY
-                val axis = if (abs(from[0]) < 0.9) normalized(doubleArrayOf(0.0, -from[2], from[1]))
-                else normalized(doubleArrayOf(-from[1], from[0], 0.0))
+                val axis = if (abs(from[0]) < 0.9) {
+                    normalized(doubleArrayOf(0.0, -from[2], from[1]))
+                } else {
+                    normalized(doubleArrayOf(-from[1], from[0], 0.0))
+                }
                 return axisAngle(axis, Math.PI)
             }
-            return axisAngle(doubleArrayOf(vx / crossLength, vy / crossLength, vz / crossLength), acos(dot))
+            return axisAngle(
+                doubleArrayOf(vx / crossLength, vy / crossLength, vz / crossLength),
+                acos(dot),
+            )
         }
 
         private fun axisAngle(axis: DoubleArray, angle: Double): List<Double> {

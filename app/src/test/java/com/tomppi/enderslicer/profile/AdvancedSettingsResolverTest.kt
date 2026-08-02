@@ -3,6 +3,7 @@ package com.tomppi.enderslicer.profile
 import com.tomppi.enderslicer.model.PrinterDefinition
 import com.tomppi.enderslicer.model.SlicerSettings
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 
@@ -52,6 +53,51 @@ class AdvancedSettingsResolverTest {
         assertNumeric(resolved, "coasting_volume", 0.08)
         assertNumeric(resolved, "coasting_min_volume", 1.2)
         assertNumeric(resolved, "coasting_speed", 92.0)
+    }
+
+    @Test
+    fun completeImportedDefinitionsResolveFormulaBackedUiValues() {
+        val baseProfile = profile()
+        val formulaProfile = baseProfile.copy(
+            rawGlobalValues = baseProfile.rawGlobalValues + mapOf(
+                "build_volume_temperature" to "28",
+            ),
+            rawExtruderValues = baseProfile.rawExtruderValues + mapOf(
+                "wall_thickness" to "=line_width*2",
+                "top_bottom_thickness" to "=layer_height_0+layer_height*3",
+                "support_interface_height" to "=layer_height*4",
+                "hole_xy_offset" to "0",
+                "xy_offset_layer_0" to "0",
+                "zig_zaggify_infill" to "true",
+                "material_standby_temperature" to "180",
+                "material_density" to "1.24",
+                "material_adhesion_tendency" to "0",
+                "material_surface_energy" to "100",
+                "extruders_enabled_count" to "1",
+                "raft_margin" to "10",
+                "ironing_only_highest_layer" to "false",
+            ),
+        )
+        val config = ImportedCuraConfig(
+            name = "Uploaded profile",
+            source = "Cura project: test.3mf",
+            rawValues = formulaProfile.rawGlobalValues + formulaProfile.rawExtruderValues,
+            mappedSettings = SlicerSettings(),
+            engineProfile = formulaProfile,
+            warnings = listOf("5 imported formulas will be resolved with the complete Cura definitions at slice time"),
+        )
+
+        val resolved = CuraImportedSettingsResolver.resolveForUi(
+            config = config,
+            printer = printer(),
+            fallbackStartGcode = "G28",
+            fallbackEndGcode = "M104 S0",
+        )
+
+        assertEquals(0.8, resolved.mappedSettings.wallThicknessMm, 1e-7)
+        assertEquals(0.88, resolved.mappedSettings.topBottomThicknessMm, 1e-7)
+        assertEquals(0.8, resolved.mappedSettings.supportInterfaceHeightMm, 1e-7)
+        assertTrue(resolved.warnings.none { "formula" in it.lowercase() })
     }
 
     private fun profile(): CuraEngineProfile = CuraEngineProfile(

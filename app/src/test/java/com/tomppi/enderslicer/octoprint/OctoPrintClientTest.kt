@@ -73,6 +73,27 @@ class OctoPrintClientTest {
     }
 
     @Test
+    fun freshSafetySnapshotOverridesCachedIdleState() {
+        val cached = OctoPrintUiState(
+            config = OctoPrintConfig(baseUrl = "http://octopi.local"),
+            hasApiKey = true,
+            printer = OctoPrintPrinterState(operational = true, ready = true),
+            job = OctoPrintJobState(state = "Operational"),
+        )
+        val fresh = OctoPrintSafetyPreflight.merge(
+            cached = cached,
+            job = OctoPrintJobState(state = "Printing"),
+            connection = OctoPrintConnectionState(state = "Operational"),
+            printer = OctoPrintPrinterState(operational = true, printing = true),
+            refreshedAtEpochMillis = 1234L,
+        )
+
+        assertTrue(fresh.hasActiveJob)
+        assertTrue(fresh.isPrinting)
+        assertEquals(1234L, fresh.lastUpdatedEpochMillis)
+    }
+
+    @Test
     fun parsesPrinterTemperaturesAndFlags() {
         val printer = OctoPrintJson.parsePrinter(
             JSONObject(

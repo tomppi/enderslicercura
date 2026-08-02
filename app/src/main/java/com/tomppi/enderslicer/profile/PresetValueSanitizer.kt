@@ -31,6 +31,9 @@ internal object PresetValueSanitizer {
                 require(settings.arcOverhangMinRadiusMm <= settings.arcOverhangMaxRadiusMm) {
                     "Arc-overhang minimum radius must not exceed its maximum radius"
                 }
+                require(!(settings.arcOverhangEnabled && settings.waveOverhangEnabled)) {
+                    "Arc and Wave overhangs cannot both be enabled"
+                }
             }
 
             PresetKind.FILAMENT -> {
@@ -109,6 +112,12 @@ internal object PresetValueSanitizer {
             }
         }
 
+        val arcEnabled = values.opt(SlicerSettings.Keys.ARC_OVERHANG_ENABLED) as? Boolean
+        val waveEnabled = values.opt(SlicerSettings.Keys.WAVE_OVERHANG_ENABLED) as? Boolean
+        require(arcEnabled != true || waveEnabled != true) {
+            "Arc and Wave overhangs cannot both be enabled"
+        }
+
         val coastingVolume = number(SlicerSettings.Keys.COASTING_VOLUME)
         val coastingMinimum = number(SlicerSettings.Keys.COASTING_MINIMUM_VOLUME)
         if (coastingVolume != null && coastingMinimum != null) {
@@ -121,11 +130,15 @@ internal object PresetValueSanitizer {
     private val booleanKeys = setOf(
         SlicerSettings.Keys.ADAPTIVE_LAYER_HEIGHT_ENABLED,
         SlicerSettings.Keys.Z_SEAM_RELATIVE,
+        SlicerSettings.Keys.ZIG_ZAG_CONNECT_INFILL,
         SlicerSettings.Keys.SUPPORTS_ENABLED,
         SlicerSettings.Keys.SUPPORT_INTERFACE_ENABLED,
         SlicerSettings.Keys.AVOID_PRINTED_PARTS,
         SlicerSettings.Keys.ARC_OVERHANG_ENABLED,
+        SlicerSettings.Keys.WAVE_OVERHANG_ENABLED,
+        SlicerSettings.Keys.WAVE_OVERHANG_REVERSE_ODD_LAYERS,
         SlicerSettings.Keys.IRONING_ENABLED,
+        SlicerSettings.Keys.IRONING_ONLY_HIGHEST_LAYER,
         SlicerSettings.Keys.RETRACT_AT_LAYER_CHANGE,
         SlicerSettings.Keys.Z_HOP,
         SlicerSettings.Keys.FIRMWARE_RETRACTION,
@@ -136,11 +149,15 @@ internal object PresetValueSanitizer {
         SlicerSettings.Keys.WALL_LINE_COUNT,
         SlicerSettings.Keys.TOP_LAYERS,
         SlicerSettings.Keys.BOTTOM_LAYERS,
+        SlicerSettings.Keys.INITIAL_BOTTOM_LAYERS,
         SlicerSettings.Keys.SKIRT_LINE_COUNT,
         SlicerSettings.Keys.NOZZLE_TEMPERATURE,
         SlicerSettings.Keys.INITIAL_NOZZLE_TEMPERATURE,
         SlicerSettings.Keys.BED_TEMPERATURE,
+        SlicerSettings.Keys.MATERIAL_ADHESION_TENDENCY,
+        SlicerSettings.Keys.MATERIAL_SURFACE_ENERGY,
         SlicerSettings.Keys.FAN_FULL_AT_LAYER,
+        SlicerSettings.Keys.WAVE_OVERHANG_MAX_ITERATIONS,
     )
 
     private val stringKeys = setOf(
@@ -153,6 +170,7 @@ internal object PresetValueSanitizer {
         SlicerSettings.Keys.SUPPORT_PATTERN,
         SlicerSettings.Keys.COMBING_MODE,
         SlicerSettings.Keys.ADHESION_TYPE,
+        SlicerSettings.Keys.WAVE_OVERHANG_PATTERN,
     )
 
     private val strictOptions = mapOf(
@@ -165,6 +183,7 @@ internal object PresetValueSanitizer {
             "z_seam_corner_any",
             "z_seam_corner_weighted",
         ),
+        SlicerSettings.Keys.WAVE_OVERHANG_PATTERN to setOf("smart", "monotonic", "zigzag"),
     )
 
     private val numericRanges: Map<String, ClosedFloatingPointRange<Double>> = mapOf(
@@ -175,8 +194,13 @@ internal object PresetValueSanitizer {
         SlicerSettings.Keys.ADAPTIVE_LAYER_HEIGHT_THRESHOLD to 0.0..1.0,
         SlicerSettings.Keys.LINE_WIDTH to 0.01..5.0,
         SlicerSettings.Keys.WALL_LINE_COUNT to 0.0..1_000_000.0,
+        SlicerSettings.Keys.WALL_THICKNESS to 0.0..100.0,
         SlicerSettings.Keys.TOP_LAYERS to 0.0..1_000_000.0,
         SlicerSettings.Keys.BOTTOM_LAYERS to 0.0..1_000_000.0,
+        SlicerSettings.Keys.TOP_BOTTOM_THICKNESS to 0.0..2000.0,
+        SlicerSettings.Keys.INITIAL_BOTTOM_LAYERS to 0.0..1_000_000.0,
+        SlicerSettings.Keys.HOLE_HORIZONTAL_EXPANSION to -10.0..10.0,
+        SlicerSettings.Keys.INITIAL_LAYER_HORIZONTAL_EXPANSION to -10.0..10.0,
         SlicerSettings.Keys.Z_SEAM_X to -2000.0..2000.0,
         SlicerSettings.Keys.Z_SEAM_Y to -2000.0..2000.0,
         SlicerSettings.Keys.INFILL_DENSITY to 0.0..100.0,
@@ -191,6 +215,7 @@ internal object PresetValueSanitizer {
         SlicerSettings.Keys.SUPPORT_ANGLE to 0.0..90.0,
         SlicerSettings.Keys.SUPPORT_DENSITY to 0.0..100.0,
         SlicerSettings.Keys.SUPPORT_INTERFACE_DENSITY to 0.0..100.0,
+        SlicerSettings.Keys.SUPPORT_INTERFACE_HEIGHT to 0.0..100.0,
         SlicerSettings.Keys.SUPPORT_Z_DISTANCE to 0.0..20.0,
         SlicerSettings.Keys.SUPPORT_XY_DISTANCE to 0.0..20.0,
         SlicerSettings.Keys.SUPPORT_SPEED to 0.1..1000.0,
@@ -198,6 +223,7 @@ internal object PresetValueSanitizer {
         SlicerSettings.Keys.TRAVEL_AVOID_DISTANCE to 0.0..100.0,
         SlicerSettings.Keys.SKIRT_LINE_COUNT to 0.0..1000.0,
         SlicerSettings.Keys.BRIM_WIDTH to 0.0..100.0,
+        SlicerSettings.Keys.RAFT_MARGIN to 0.0..100.0,
         SlicerSettings.Keys.ARC_OVERHANG_SPEED to 0.1..1000.0,
         SlicerSettings.Keys.ARC_OVERHANG_FLOW to 1.0..300.0,
         SlicerSettings.Keys.ARC_OVERHANG_LINE_SPACING to 1.0..1000.0,
@@ -206,12 +232,24 @@ internal object PresetValueSanitizer {
         SlicerSettings.Keys.ARC_OVERHANG_MAX_AREA to 0.0..100_000_000.0,
         SlicerSettings.Keys.ARC_OVERHANG_RESOLUTION to 0.001..10.0,
         SlicerSettings.Keys.ARC_OVERHANG_FAN_SPEED to 0.0..100.0,
+        SlicerSettings.Keys.WAVE_OVERHANG_LINE_SPACING to 0.1..2.0,
+        SlicerSettings.Keys.WAVE_OVERHANG_FLOW to 0.02..1.5,
+        SlicerSettings.Keys.WAVE_OVERHANG_SPEED to 0.5..50.0,
+        SlicerSettings.Keys.WAVE_OVERHANG_FAN_SPEED to 0.0..100.0,
+        SlicerSettings.Keys.WAVE_OVERHANG_PERIMETER_OVERLAP to 0.0..2.0,
+        SlicerSettings.Keys.WAVE_OVERHANG_MINIMUM_WIDTH to 0.0..10.0,
+        SlicerSettings.Keys.WAVE_OVERHANG_MAX_ITERATIONS to 1.0..2000.0,
         SlicerSettings.Keys.IRONING_FLOW to 0.0..100.0,
         SlicerSettings.Keys.IRONING_SPEED to 0.1..1000.0,
         SlicerSettings.Keys.FILAMENT_DIAMETER to 0.5..5.0,
         SlicerSettings.Keys.NOZZLE_TEMPERATURE to 150.0..500.0,
         SlicerSettings.Keys.INITIAL_NOZZLE_TEMPERATURE to 150.0..500.0,
         SlicerSettings.Keys.BED_TEMPERATURE to 0.0..200.0,
+        SlicerSettings.Keys.BUILD_VOLUME_TEMPERATURE to -273.15..285.0,
+        SlicerSettings.Keys.MATERIAL_STANDBY_TEMPERATURE to -273.15..500.0,
+        SlicerSettings.Keys.MATERIAL_DENSITY to 0.01..100.0,
+        SlicerSettings.Keys.MATERIAL_ADHESION_TENDENCY to 0.0..10.0,
+        SlicerSettings.Keys.MATERIAL_SURFACE_ENERGY to 0.0..100.0,
         SlicerSettings.Keys.MATERIAL_FLOW to 1.0..300.0,
         SlicerSettings.Keys.FAN_SPEED to 0.0..100.0,
         SlicerSettings.Keys.INITIAL_FAN_SPEED to 0.0..100.0,

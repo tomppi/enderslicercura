@@ -62,8 +62,17 @@ internal object CuraSettingDelta {
         putValue(SlicerSettings.Keys.LINE_WIDTH, "line_width", settings.lineWidthMm)
         putValue(SlicerSettings.Keys.SLICING_TOLERANCE, "slicing_tolerance", settings.slicingTolerance)
         putValue(SlicerSettings.Keys.WALL_LINE_COUNT, "wall_line_count", settings.wallLineCount)
+        putValue(SlicerSettings.Keys.WALL_THICKNESS, "wall_thickness", settings.wallThicknessMm)
         putValue(SlicerSettings.Keys.TOP_LAYERS, "top_layers", settings.topLayers)
         putValue(SlicerSettings.Keys.BOTTOM_LAYERS, "bottom_layers", settings.bottomLayers)
+        putValue(SlicerSettings.Keys.TOP_BOTTOM_THICKNESS, "top_bottom_thickness", settings.topBottomThicknessMm)
+        putValue(SlicerSettings.Keys.INITIAL_BOTTOM_LAYERS, "initial_bottom_layers", settings.initialBottomLayers)
+        putValue(SlicerSettings.Keys.HOLE_HORIZONTAL_EXPANSION, "hole_xy_offset", settings.holeHorizontalExpansionMm)
+        putValue(
+            SlicerSettings.Keys.INITIAL_LAYER_HORIZONTAL_EXPANSION,
+            "xy_offset_layer_0",
+            settings.initialLayerHorizontalExpansionMm,
+        )
         putValue(SlicerSettings.Keys.Z_SEAM_TYPE, "z_seam_type", settings.zSeamType)
         putValue(SlicerSettings.Keys.Z_SEAM_X, "z_seam_x", settings.zSeamXmm)
         putValue(SlicerSettings.Keys.Z_SEAM_Y, "z_seam_y", settings.zSeamYmm)
@@ -71,6 +80,7 @@ internal object CuraSettingDelta {
         putValue(SlicerSettings.Keys.Z_SEAM_CORNER, "z_seam_corner", settings.zSeamCorner)
         putValue(SlicerSettings.Keys.INFILL_DENSITY, "infill_sparse_density", settings.infillDensityPercent)
         putValue(SlicerSettings.Keys.INFILL_PATTERN, "infill_pattern", settings.infillPattern)
+        putValue(SlicerSettings.Keys.ZIG_ZAG_CONNECT_INFILL, "zig_zaggify_infill", settings.zigZagConnectInfill)
 
         putValue(SlicerSettings.Keys.PRINT_SPEED, "speed_print", settings.printSpeedMmPerSecond)
         putValue(SlicerSettings.Keys.WALL_SPEED, "speed_wall", settings.wallSpeedMmPerSecond)
@@ -90,6 +100,27 @@ internal object CuraSettingDelta {
             settings.initialNozzleTemperatureC,
         )
         putValue(SlicerSettings.Keys.BED_TEMPERATURE, "material_bed_temperature", settings.bedTemperatureC)
+        putValue(
+            SlicerSettings.Keys.BUILD_VOLUME_TEMPERATURE,
+            "build_volume_temperature",
+            settings.buildVolumeTemperatureC,
+        )
+        putValue(
+            SlicerSettings.Keys.MATERIAL_STANDBY_TEMPERATURE,
+            "material_standby_temperature",
+            settings.materialStandbyTemperatureC,
+        )
+        putValue(SlicerSettings.Keys.MATERIAL_DENSITY, "material_density", settings.materialDensityGPerCm3)
+        putValue(
+            SlicerSettings.Keys.MATERIAL_ADHESION_TENDENCY,
+            "material_adhesion_tendency",
+            settings.materialAdhesionTendency,
+        )
+        putValue(
+            SlicerSettings.Keys.MATERIAL_SURFACE_ENERGY,
+            "material_surface_energy",
+            settings.materialSurfaceEnergyPercent,
+        )
         putValue(SlicerSettings.Keys.MATERIAL_FLOW, "material_flow", settings.materialFlowPercent)
         putValue(SlicerSettings.Keys.FAN_SPEED, "cool_fan_speed", settings.fanSpeedPercent)
         putValue(SlicerSettings.Keys.INITIAL_FAN_SPEED, "cool_fan_speed_0", settings.initialFanSpeedPercent)
@@ -119,6 +150,11 @@ internal object CuraSettingDelta {
             SlicerSettings.Keys.SUPPORT_INTERFACE_DENSITY,
             "support_interface_density",
             settings.supportInterfaceDensityPercent,
+        )
+        putValue(
+            SlicerSettings.Keys.SUPPORT_INTERFACE_HEIGHT,
+            "support_interface_height",
+            settings.supportInterfaceHeightMm,
         )
         putValue(SlicerSettings.Keys.SUPPORT_Z_DISTANCE, "support_z_distance", settings.supportZDistanceMm)
         putValue(SlicerSettings.Keys.SUPPORT_XY_DISTANCE, "support_xy_distance", settings.supportXyDistanceMm)
@@ -162,7 +198,13 @@ internal object CuraSettingDelta {
         putValue(SlicerSettings.Keys.ADHESION_TYPE, "adhesion_type", settings.adhesionType)
         putValue(SlicerSettings.Keys.SKIRT_LINE_COUNT, "skirt_line_count", settings.skirtLineCount)
         putValue(SlicerSettings.Keys.BRIM_WIDTH, "brim_width", settings.brimWidthMm)
+        putValue(SlicerSettings.Keys.RAFT_MARGIN, "raft_margin", settings.raftMarginMm)
         putValue(SlicerSettings.Keys.IRONING_ENABLED, "ironing_enabled", settings.ironingEnabled)
+        putValue(
+            SlicerSettings.Keys.IRONING_ONLY_HIGHEST_LAYER,
+            "ironing_only_highest_layer",
+            settings.ironingOnlyHighestLayer,
+        )
         putValue(SlicerSettings.Keys.IRONING_FLOW, "ironing_flow", settings.ironingFlowPercent)
         putValue(SlicerSettings.Keys.IRONING_SPEED, "speed_ironing", settings.ironingSpeedMmPerSecond)
     }

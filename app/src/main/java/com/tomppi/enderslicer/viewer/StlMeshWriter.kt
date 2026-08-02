@@ -3,8 +3,10 @@ package com.tomppi.enderslicer.viewer
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.io.FileOutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.nio.channels.FileChannel
 
 object StlMeshWriter {
     data class ResolvedSliceSource(
@@ -68,35 +70,56 @@ object StlMeshWriter {
 
     private fun writeBinaryVertices(vertices: FloatArray, triangleCount: Int, destination: File) {
         destination.parentFile?.mkdirs()
-        destination.outputStream().buffered().use { output ->
-            output.write(ByteArray(80))
-            output.write(intLittleEndian(triangleCount))
+        FileOutputStream(destination).channel.use { channel ->
+            val buffer = ByteBuffer.allocateDirect(WRITE_BUFFER_BYTES).order(ByteOrder.LITTLE_ENDIAN)
+
+            fun flush() {
+                buffer.flip()
+                writeFully(channel, buffer)
+                buffer.clear()
+            }
+
+            fun requireBytes(byteCount: Int) {
+                if (buffer.remaining() < byteCount) flush()
+            }
+
+            requireBytes(80 + Int.SIZE_BYTES)
+            repeat(80) { buffer.put(0.toByte()) }
+            buffer.putInt(triangleCount)
+
             var index = 0
             repeat(triangleCount) {
-                val normalX = vertices[index + 3]
-                val normalY = vertices[index + 4]
-                val normalZ = vertices[index + 5]
-                output.write(floatLittleEndian(normalX))
-                output.write(floatLittleEndian(normalY))
-                output.write(floatLittleEndian(normalZ))
+                requireBytes(STL_TRIANGLE_BYTES.toInt())
+                buffer.putFloat(vertices[index + 3])
+                buffer.putFloat(vertices[index + 4])
+                buffer.putFloat(vertices[index + 5])
                 repeat(3) { vertex ->
                     val base = index + vertex * 6
-                    output.write(floatLittleEndian(vertices[base]))
-                    output.write(floatLittleEndian(vertices[base + 1]))
-                    output.write(floatLittleEndian(vertices[base + 2]))
+                    buffer.putFloat(vertices[base])
+                    buffer.putFloat(vertices[base + 1])
+                    buffer.putFloat(vertices[base + 2])
                 }
-                output.write(byteArrayOf(0, 0))
+                buffer.putShort(0.toShort())
                 index += 18
             }
+            if (buffer.position() > 0) flush()
+            channel.force(true)
         }
-        check(destination.isFile && destination.length() == STL_HEADER_BYTES + triangleCount * STL_TRIANGLE_BYTES) {
+        val expectedBytes = STL_HEADER_BYTES + triangleCount.toLong() * STL_TRIANGLE_BYTES
+        check(destination.isFile && destination.length() == expectedBytes) {
             "Unable to write the staged STL"
+        }
+    }
+
+    private fun writeFully(channel: FileChannel, buffer: ByteBuffer) {
+        while (buffer.hasRemaining()) {
+            check(channel.write(buffer) > 0) { "Unable to write the staged STL" }
         }
     }
 
     private fun validateVertices(vertices: FloatArray, triangleCount: Int) {
         require(triangleCount > 0) { "Cannot write an empty STL mesh" }
-        require(vertices.size == triangleCount * 18) {
+        require(vertices.size == Math.multiplyExact(triangleCount, 18)) {
             "STL mesh vertex data does not match its triangle count"
         }
         require(vertices.all(Float::isFinite)) { "STL mesh contains a non-finite value" }
@@ -112,16 +135,7 @@ object StlMeshWriter {
         "${destination.nameWithoutExtension}.slice-transform.json",
     )
 
-    private fun intLittleEndian(value: Int): ByteArray = ByteBuffer.allocate(4)
-        .order(ByteOrder.LITTLE_ENDIAN)
-        .putInt(value)
-        .array()
-
-    private fun floatLittleEndian(value: Float): ByteArray = ByteBuffer.allocate(4)
-        .order(ByteOrder.LITTLE_ENDIAN)
-        .putFloat(value)
-        .array()
-
+    private const val WRITE_BUFFER_BYTES = 64 * 1024
     private const val STL_HEADER_BYTES = 84L
     private const val STL_TRIANGLE_BYTES = 50L
 }

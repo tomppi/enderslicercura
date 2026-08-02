@@ -1,7 +1,9 @@
 package com.tomppi.enderslicer.calibration
 
+import com.tomppi.enderslicer.engine.CalibrationFirmwareEncoder
+import com.tomppi.enderslicer.engine.LayerEventType
+import com.tomppi.enderslicer.engine.PrinterEnvelope
 import com.tomppi.enderslicer.model.SlicerSettings
-import java.util.Locale
 import kotlin.math.roundToInt
 
 /**
@@ -112,23 +114,42 @@ internal object CalibrationSliceState {
         }
     }
 
-    fun retractionRestoreCommand(): String? {
+    fun retractionRestoreCommand(
+        firmware: CalibrationFirmwareEncoder = defaultFirmware(),
+    ): String? {
         if (activeType != CalibrationTestType.RETRACTION) return null
         val distance = restoreRetractionDistanceMm ?: return null
         val speed = restoreRetractionSpeedMmPerSecond ?: return null
-        return "M207 S${format(distance)} F${format(speed * 60.0)}"
+        return firmware.commands(
+            type = LayerEventType.RETRACTION,
+            layerNumber = 0,
+            value = distance,
+            secondaryValue = speed,
+        ).singleOrNull()
     }
 
-    fun pressureAdvanceRestoreCommand(): String? {
+    fun pressureAdvanceRestoreCommand(
+        firmware: CalibrationFirmwareEncoder = defaultFirmware(),
+    ): String? {
         if (activeType != CalibrationTestType.PRESSURE_ADVANCE) return null
         val baseline = firstValue ?: return null
-        return "M900 K${format(baseline)}"
+        return firmware.commands(
+            type = LayerEventType.PRESSURE_ADVANCE,
+            layerNumber = 0,
+            value = baseline,
+        ).singleOrNull()
     }
 
-    fun junctionDeviationRestoreCommand(): String? {
+    fun junctionDeviationRestoreCommand(
+        firmware: CalibrationFirmwareEncoder = defaultFirmware(),
+    ): String? {
         if (activeType != CalibrationTestType.JUNCTION_DEVIATION) return null
         val baseline = firstValue ?: return null
-        return "M205 J${format(baseline)}"
+        return firmware.commands(
+            type = LayerEventType.JUNCTION_DEVIATION,
+            layerNumber = 0,
+            value = baseline,
+        ).singleOrNull()
     }
 
     internal fun policyForTests(type: CalibrationTestType): CalibrationOverridePolicy = policy(type)
@@ -164,8 +185,8 @@ internal object CalibrationSliceState {
         )
     }
 
-    private fun format(value: Double): String =
-        String.format(Locale.US, "%.5f", value).trimEnd('0').trimEnd('.')
+    private fun defaultFirmware(): CalibrationFirmwareEncoder =
+        CalibrationFirmwareEncoder.fromFlavor(PrinterEnvelope.DEFAULT_GCODE_FLAVOR)
 }
 
 internal data class CalibrationOverridePolicy(

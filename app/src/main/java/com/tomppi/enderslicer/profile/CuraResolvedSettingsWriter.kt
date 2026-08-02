@@ -1,6 +1,7 @@
 package com.tomppi.enderslicer.profile
 
 import com.tomppi.enderslicer.calibration.CalibrationSliceState
+import com.tomppi.enderslicer.engine.PrinterEnvelope
 import com.tomppi.enderslicer.viewer.StlMeshWriter
 import com.tomppi.enderslicer.viewer.StlSliceTransform
 import org.json.JSONObject
@@ -23,59 +24,42 @@ internal object CuraResolvedSettingsWriter {
             "Resolved Cura STL is missing or empty: ${modelFile.absolutePath}"
         }
 
-        // MainViewModel still writes the displayed transformed STL so the
-        // profile-less fallback path remains unchanged. For resolved Cura
-        // slicing, StlMeshWriter also stages the original geometry and affine in
-        // the sibling model-placement directory. Replace only the temporary
-        // resolved model copy with that source STL.
-        val stagedDisplayedFile = modelDirectory.parentFile
-            ?.let { cacheRoot -> File(cacheRoot, "model-placement/current-transformed.stl") }
-        val stagedSource = stagedDisplayedFile
-            ?.takeIf(File::isFile)
-            ?.let(StlMeshWriter::resolvedSliceSource)
-        if (stagedSource != null) {
-            stagedSource.modelFile.copyTo(modelFile, overwrite = true)
-            check(modelFile.length() == stagedSource.modelFile.length()) {
-                "Unable to stage original STL geometry for direct Cura transformation"
-            }
-        }
-        val effectiveTransform = modelTransform ?: stagedSource?.transform
+        val machineWidth = requiredNumber(resolved.globalValues, "machine_width")
+        val machineDepth = requiredNumber(resolved.globalValues, "machine_depth")
+        val machineHeight = requiredNumber(resolved.globalValues, "machine_height")
+        val centerIsZero = requiredBoolean(resolved.globalValues, "machine_center_is_zero")
+        val printerEnvelope = PrinterEnvelope(
+            widthMm = machineWidth,
+            depthMm = machineDepth,
+            heightMm = machineHeight,
+            buildPlateShape = resolved.globalValues["machine_shape"]
+                ?: error("Resolved Cura setting is missing: machine_shape"),
+            originAtCenter = centerIsZero,
+            gcodeFlavor = resolved.globalValues["machine_gcode_flavor"]
+                ?.trim()
+                ?.trim('"')
+                ?.takeIf(String::isNotBlank)
+                ?: PrinterEnvelope.DEFAULT_GCODE_FLAVOR,
+        )
+        printerEnvelope.requireBinaryStlFits(modelFile, modelTransform)
+        printerEnvelope.writeTo(File(modelDirectory, PrinterEnvelope.METADATA_FILE_NAME))
 
-        // Cura's frontend applies the complete affine before converting mesh
-        // vertices into integer microns. A normal CuraEngine command-line slice
-        // applies mesh_position only afterwards, which computes
-        // round(linear * vertex) + round(translation) instead of Cura's
-        // round(linear * vertex + translation). The native resolved-loader patch
-        // consumes these translation keys in Matrix4x3D before STL conversion.
-        val centerIsZero = resolved.globalValues["machine_center_is_zero"]
-            ?.trim()
-            ?.equals("true", ignoreCase = true)
-            ?: false
-        val machineCenterX = if (centerIsZero) 0.0 else requiredNumber(resolved.globalValues, "machine_width") / 2.0
-        val machineCenterY = if (centerIsZero) 0.0 else requiredNumber(resolved.globalValues, "machine_depth") / 2.0
+        val effectiveTransform = modelTransform
+
+        val machineCenterX = if (centerIsZero) 0.0 else machineWidth / 2.0
+        val machineCenterY = if (centerIsZero) 0.0 else machineDepth / 2.0
         val linear = effectiveTransform?.linear ?: IDENTITY
         val affineTranslationX = effectiveTransform?.translationXmm ?: 0.0
         val affineTranslationY = effectiveTransform?.translationYmm ?: 0.0
         val affineTranslationZ = effectiveTransform?.translationZmm ?: 0.0
         val rotationMatrix = matrixString(linear)
-
-        // Matrix4x3D now creates final build-plate coordinates directly. Cancel
-        // only CuraEngine's automatic front-left-bed half-width/depth offset in
-        // MeshGroup::finalize; no model translation belongs in mesh_position.
         val enginePositionX = -machineCenterX
         val enginePositionY = -machineCenterY
         val enginePositionZ = 0.0
 
-        // CuraEngine's command-line model loader constructs the single model
-        // from the extruder stack. Copy all resolved per-mesh values into that
-        // stack as well as retaining the model section. The native resolved-model
-        // patch also copies the model section onto the actual Mesh.
         val calibrationOverrides = CalibrationSliceState.engineOverrides()
         val extruderValues = JSONObject(resolved.extruderValues)
         resolved.modelValues.forEach { (key, value) -> extruderValues.put(key, value) }
-        // Some calibration-sensitive values (notably bridge fan settings) are
-        // settable per mesh. Re-apply temporary calibration overrides after the
-        // normal model-to-extruder copy so model scope cannot undo the test.
         calibrationOverrides.forEach { (key, value) -> extruderValues.put(key, value) }
         extruderValues
             .put("center_object", false)
@@ -112,6 +96,46 @@ internal object CuraResolvedSettingsWriter {
         }
     }
 
+    internal fun copyResolvedSourceSnapshot(
+        stagedDisplayedFile: File,
+        destination: File,
+        copyFile: (File, File) -> Unit = { source, target -> source.copyTo(target, overwrite = true) },
+    ): StlSliceTransform? {
+        require(stagedDisplayedFile.isFile && stagedDisplayedFile.length() > 0L) {
+            "The transformed STL is unavailable for resolved source staging"
+        }
+        val sourceFile = File(
+            stagedDisplayedFile.parentFile,
+            "${stagedDisplayedFile.nameWithoutExtension}.slice-source.stl",
+        )
+        val transformFile = File(
+            stagedDisplayedFile.parentFile,
+            "${stagedDisplayedFile.nameWithoutExtension}.slice-transform.json",
+        )
+        if (!sourceFile.isFile || !transformFile.isFile) return null
+
+        val displayedStamp = fileStamp(stagedDisplayedFile)
+        val sourceStamp = fileStamp(sourceFile)
+        val transformStamp = fileStamp(transformFile)
+        val stagedSource = StlMeshWriter.resolvedSliceSource(stagedDisplayedFile) ?: return null
+        copyFile(stagedSource.modelFile, destination)
+        check(destination.isFile && destination.length() == sourceStamp.length) {
+            "Unable to stage original STL geometry for direct Cura transformation"
+        }
+        check(fileStamp(stagedDisplayedFile) == displayedStamp) {
+            "The transformed STL changed while its resolved source was being staged"
+        }
+        check(fileStamp(sourceFile) == sourceStamp) {
+            "The original STL changed while it was being staged"
+        }
+        check(fileStamp(transformFile) == transformStamp) {
+            "The STL transform changed while it was being staged"
+        }
+        return stagedSource.transform
+    }
+
+    private fun fileStamp(file: File): FileStamp = FileStamp(file.length(), file.lastModified())
+
     private fun matrixString(linear: List<Double>): String {
         require(linear.size == 9 && linear.all(Double::isFinite)) {
             "Resolved Cura model transform must contain nine finite values"
@@ -128,10 +152,17 @@ internal object CuraResolvedSettingsWriter {
         return value
     }
 
+    private fun requiredBoolean(values: Map<String, String>, key: String): Boolean {
+        val raw = values[key] ?: error("Resolved Cura setting is missing: $key")
+        return raw.toBooleanStrictOrNull()
+            ?: error("Resolved Cura setting is not boolean: $key=$raw")
+    }
+
+    private data class FileStamp(val length: Long, val modified: Long)
+
     private const val AFFINE_TRANSLATION_X = "enderslicer_mesh_translation_x"
     private const val AFFINE_TRANSLATION_Y = "enderslicer_mesh_translation_y"
     private const val AFFINE_TRANSLATION_Z = "enderslicer_mesh_translation_z"
-
     private val IDENTITY = listOf(
         1.0, 0.0, 0.0,
         0.0, 1.0, 0.0,

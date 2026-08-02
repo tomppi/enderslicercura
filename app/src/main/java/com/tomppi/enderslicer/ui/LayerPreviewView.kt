@@ -3,12 +3,16 @@ package com.tomppi.enderslicer.ui
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
@@ -21,6 +25,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,22 +58,36 @@ internal fun LayerPreviewView(
     val visibleSupportCount = visibleLayers.sumOf { it.supportSegmentCount }
     val visibleInterfaceCount = visibleLayers.sumOf { it.supportInterfaceSegmentCount }
     val layerEvents = events.filter { it.layerNumber == layer.number }
-    var style by remember { mutableStateOf(LayerPreviewStyle.CURRENT_LAYER) }
+    var style by rememberSaveable { mutableStateOf(LayerPreviewStyle.CURRENT_LAYER) }
 
-    Column(modifier = modifier) {
-        AndroidView(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth(),
-            factory = { context -> LayerPreviewSurfaceView(context) },
-            update = { view -> view.setPreview(preview, safeIndex, style) },
-        )
+    BoxWithConstraints(modifier = modifier) {
+        val shortWindow = maxHeight < 520.dp
+        val controlsMaximum = if (shortWindow) {
+            (maxHeight * 0.58f).coerceAtLeast(180.dp)
+        } else {
+            360.dp
+        }
+        Column {
+            AndroidView(
+                modifier = Modifier
+                    .weight(1f)
+                    .heightIn(min = if (shortWindow) 120.dp else 180.dp)
+                    .fillMaxWidth(),
+                factory = { context -> LayerPreviewSurfaceView(context) },
+                update = { view -> view.setPreview(preview, safeIndex, style) },
+            )
 
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(7.dp),
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = controlsMaximum),
             ) {
+                Column(
+                    modifier = Modifier
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(7.dp),
+                ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -144,6 +163,7 @@ internal fun LayerPreviewView(
                         "Layer-height range %.3f–%.3f mm".format(preview.minLayerHeightMm, preview.maxLayerHeightMm),
                         style = MaterialTheme.typography.labelSmall,
                     )
+                }
                 }
             }
         }

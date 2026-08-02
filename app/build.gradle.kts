@@ -2,6 +2,7 @@ import java.io.File
 import java.io.InputStream
 import java.net.URI
 import java.util.zip.GZIPInputStream
+import java.util.zip.ZipFile
 import java.util.zip.ZipInputStream
 
 plugins {
@@ -72,6 +73,50 @@ android {
 
 kotlin {
     jvmToolchain(17)
+}
+
+val curaEngineExecutable = layout.projectDirectory.file("src/main/jniLibs/arm64-v8a/libcuraengine_exec.so")
+
+val verifyCuraEngineExecutable by tasks.registering {
+    group = "verification"
+    description = "Fails unless the packaged CuraEngine executable is a non-empty ARM64 ELF"
+    // Keep this task uncached instead of declaring a mandatory input: Gradle
+    // would otherwise emit a generic missing-input error before the actionable
+    // prerequisite command below can be shown.
+    outputs.upToDateWhen { false }
+
+    doLast {
+        val executable = curaEngineExecutable.asFile
+        check(executable.isFile && executable.length() > 0L) {
+            "CuraEngine ARM64 is missing. Run scripts/build-curaengine-android.sh before Gradle assembly."
+        }
+        val header = executable.inputStream().use { input -> input.readNBytes(20) }
+        check(header.size >= 20) { "CuraEngine package is too small to be a valid ELF" }
+        check(header[0] == 0x7f.toByte() && header[1] == 'E'.code.toByte() && header[2] == 'L'.code.toByte() && header[3] == 'F'.code.toByte()) {
+            "CuraEngine package is not an ELF executable"
+        }
+        check(header[4] == 2.toByte() && header[5] == 1.toByte()) {
+            "CuraEngine package must be a 64-bit little-endian ELF"
+        }
+        val machine = (header[18].toInt() and 0xff) or ((header[19].toInt() and 0xff) shl 8)
+        check(machine == 183) { "CuraEngine package has ELF machine $machine; expected AArch64 (183)" }
+    }
+}
+
+val verifyDebugApkContents by tasks.registering {
+    group = "verification"
+    description = "Builds the debug APK and verifies that CuraEngine is packaged"
+    dependsOn("assembleDebug")
+    doLast {
+        val apk = layout.buildDirectory.file("outputs/apk/debug/app-debug.apk").get().asFile
+        check(apk.isFile && apk.length() > 0L) { "Debug APK was not created" }
+        ZipFile(apk).use { zip ->
+            val entry = zip.getEntry("lib/arm64-v8a/libcuraengine_exec.so")
+            check(entry != null && entry.size > 0L) {
+                "Debug APK does not contain the ARM64 CuraEngine executable"
+            }
+        }
+    }
 }
 
 val bumpMeshCommit = "a6ac179149b8a17c71a9469dd4cb6f866c0c01d1"
@@ -323,6 +368,7 @@ val prepareBumpMeshAssets by tasks.registering {
 
 tasks.matching { it.name == "preBuild" }.configureEach {
     dependsOn(prepareBumpMeshAssets)
+    dependsOn(verifyCuraEngineExecutable)
 }
 
 tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {

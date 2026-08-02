@@ -2,6 +2,7 @@ package com.tomppi.enderslicer.profile
 
 import com.tomppi.enderslicer.calibration.CalibrationSliceState
 import com.tomppi.enderslicer.engine.ArcOverhangEngineSettings
+import com.tomppi.enderslicer.engine.WaveOverhangEngineSettings
 import com.tomppi.enderslicer.model.PrinterDefinition
 import com.tomppi.enderslicer.model.SlicerSettings
 import com.tomppi.enderslicer.model.resolveEndGcode
@@ -84,6 +85,7 @@ internal object CuraSliceSettingsResolver {
                 put("cool_min_temperature", requireNotNull(get("material_print_temperature")))
             }
             putAll(ArcOverhangEngineSettings.values(effectiveSettings))
+            putAll(WaveOverhangEngineSettings.values(effectiveSettings))
         }
 
         // First verify that the resolved Cura dependency graph still matches all
@@ -155,6 +157,10 @@ internal object CuraSliceSettingsResolver {
                 "Resolved Cura setting is outside its safe range: $key=$value, expected $minimum..$maximum"
             }
         }
+        fun optionalAnyRange(key: String, minimum: Double, maximum: Double) {
+            if (key !in global && key !in extruder) return
+            anyRange(key, minimum, maximum)
+        }
 
         range(global, "layer_height", 0.01, 5.0)
         anyRange("adaptive_layer_height_variation", 0.0, 5.0)
@@ -178,8 +184,13 @@ internal object CuraSliceSettingsResolver {
         range(extruder, "material_diameter", 0.5, 5.0)
         range(extruder, "line_width", 0.01, 5.0)
         range(extruder, "wall_line_count", 0.0, 1000.0)
+        range(extruder, "wall_thickness", 0.0, 100.0)
         range(extruder, "top_layers", 0.0, 1000000.0)
         range(extruder, "bottom_layers", 0.0, 1000000.0)
+        range(extruder, "top_bottom_thickness", 0.0, 2000.0)
+        range(extruder, "initial_bottom_layers", 0.0, 1000000.0)
+        range(extruder, "hole_xy_offset", -10.0, 10.0)
+        range(extruder, "xy_offset_layer_0", -10.0, 10.0)
         option(extruder, "z_seam_type", setOf("back", "shortest", "random", "sharpest_corner"))
         option(
             extruder,
@@ -199,6 +210,12 @@ internal object CuraSliceSettingsResolver {
         range(extruder, "material_print_temperature_layer_0", 150.0, 500.0)
         range(extruder, "cool_min_temperature", 150.0, 500.0)
         range(global, "material_bed_temperature", 0.0, 200.0)
+        anyRange("build_volume_temperature", -273.15, 285.0)
+        anyRange("material_standby_temperature", -273.15, 500.0)
+        optionalAnyRange("material_density", 0.01, 100.0)
+        anyRange("material_adhesion_tendency", 0.0, 10.0)
+        anyRange("material_surface_energy", 0.0, 100.0)
+        anyRange("extruders_enabled_count", 1.0, 16.0)
         range(extruder, "material_flow", 1.0, 300.0)
         range(extruder, "cool_fan_speed", 0.0, 100.0)
         range(extruder, "cool_fan_speed_0", 0.0, 100.0)
@@ -218,6 +235,7 @@ internal object CuraSliceSettingsResolver {
         ).forEach { key -> range(extruder, key, 0.1, 1000.0) }
         range(extruder, "support_infill_rate", 0.0, 100.0)
         range(extruder, "support_interface_density", 0.0, 100.0)
+        range(extruder, "support_interface_height", 0.0, 100.0)
         range(extruder, "support_z_distance", 0.0, 20.0)
         range(extruder, "support_xy_distance", 0.0, 20.0)
         range(extruder, "retraction_amount", 0.0, 100.0)
@@ -235,6 +253,7 @@ internal object CuraSliceSettingsResolver {
         }
         range(extruder, "skirt_line_count", 0.0, 1000.0)
         range(extruder, "brim_width", 0.0, 100.0)
+        range(extruder, "raft_margin", 0.0, 100.0)
         range(extruder, "ironing_flow", 0.0, 100.0)
     }
 }

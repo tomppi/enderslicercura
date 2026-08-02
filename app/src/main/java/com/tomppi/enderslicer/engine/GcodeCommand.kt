@@ -13,6 +13,8 @@ internal object GcodeCommand {
         private val parameters: Map<Char, Double>,
     ) {
         fun value(letter: Char): Double? = parameters[letter.uppercaseChar()]
+
+        fun has(letter: Char): Boolean = parameters.containsKey(letter.uppercaseChar())
     }
 
     fun parse(rawLine: String): Parsed? {

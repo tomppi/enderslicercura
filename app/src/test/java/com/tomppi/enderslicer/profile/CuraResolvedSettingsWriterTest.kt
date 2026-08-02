@@ -78,11 +78,11 @@ class CuraResolvedSettingsWriterTest {
     }
 
     @Test
-    fun replacesTemporaryDisplayedMeshAndWritesTranslationBeforeMicronRounding() {
-        val cacheRoot = Files.createTempDirectory("enderslicer-direct-affine").toFile()
+    fun writesExplicitRequestTransformForTheRequestLocalSourceMesh() {
+        val requestRoot = Files.createTempDirectory("enderslicer-direct-affine").toFile()
         try {
-            val placementDirectory = File(cacheRoot, "model-placement").apply { mkdirs() }
-            val displayedFile = File(placementDirectory, "current-transformed.stl")
+            val stagingDirectory = File(requestRoot, "staging").apply { mkdirs() }
+            val displayedFile = File(stagingDirectory, "transformed.stl")
             val sourceVertices = interleavedTriangle(10f, 20f, 30f)
             val displayedVertices = interleavedTriangle(100f, 110f, 0f)
             val transform = StlSliceTransform(
@@ -108,18 +108,20 @@ class CuraResolvedSettingsWriterTest {
             )
             val stagedSource = requireNotNull(StlMeshWriter.resolvedSliceSource(displayedFile))
 
-            val engineDirectory = File(cacheRoot, "curaengine").apply { mkdirs() }
-            val modelFile = File(engineDirectory, "current.stl")
-            displayedFile.copyTo(modelFile)
-            val destination = File(engineDirectory, "resolved-settings.json")
+            val requestDirectory = File(requestRoot, "request").apply { mkdirs() }
+            val modelFile = File(requestDirectory, "current.stl")
+            stagedSource.modelFile.copyTo(modelFile)
+            val sourceBytes = modelFile.readBytes()
+            val destination = File(requestDirectory, "resolved-settings.json")
 
             CuraResolvedSettingsWriter.write(
                 destination = destination,
                 modelFileName = modelFile.name,
                 resolved = resolvedSettings(centerIsZero = false),
+                modelTransform = stagedSource.transform,
             )
 
-            assertArrayEquals(stagedSource.modelFile.readBytes(), modelFile.readBytes())
+            assertArrayEquals(sourceBytes, modelFile.readBytes())
             val firstVertex = firstVertex(modelFile)
             assertEquals(10.0, firstVertex[0].toDouble(), 1e-6)
             assertEquals(20.0, firstVertex[1].toDouble(), 1e-6)
@@ -140,7 +142,7 @@ class CuraResolvedSettingsWriterTest {
             assertEquals(114.75, extruder.getDouble("enderslicer_mesh_translation_y"), 1e-12)
             assertEquals(22.462965929567872, extruder.getDouble("enderslicer_mesh_translation_z"), 1e-12)
         } finally {
-            cacheRoot.deleteRecursively()
+            requestRoot.deleteRecursively()
         }
     }
 
@@ -177,6 +179,8 @@ class CuraResolvedSettingsWriterTest {
         globalValues = mapOf(
             "machine_width" to "230",
             "machine_depth" to "230",
+            "machine_height" to "250",
+            "machine_shape" to "rectangular",
             "machine_center_is_zero" to centerIsZero.toString(),
         ),
         extruderValues = mapOf(

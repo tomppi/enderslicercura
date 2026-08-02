@@ -18,6 +18,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -35,7 +36,7 @@ fun IntegratedEnderSlicerApp(
     val slicerState by slicerViewModel.uiState.collectAsStateWithLifecycle()
     val octoPrintState by octoPrintViewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
-    var octoPrintOpen by remember { mutableStateOf(false) }
+    var octoPrintOpen by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(octoPrintState.authorizationDialogLaunchNonce) {
         if (octoPrintState.authorizationDialogLaunchNonce == 0L) return@LaunchedEffect
@@ -80,7 +81,7 @@ fun IntegratedEnderSlicerApp(
         ) {
             HardenedOctoPrintSheet(
                 state = octoPrintState,
-                localGcodePath = slicerState.gcodePath,
+                localGcodePath = slicerState.gcodePath.takeUnless { slicerState.isBusy },
                 suggestedFileName = suggestedOctoPrintName(slicerState),
                 viewModel = octoPrintViewModel,
                 modifier = Modifier

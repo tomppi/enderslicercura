@@ -28,6 +28,7 @@ EnderSlicerCura already produces output very close to Cura Desktop for the curre
 - Native CuraEngine adaptive layer-height controls
 - Tree and normal supports, support interfaces and support preview
 - Native experimental Multiplex arc-overhang paths with bridge fallback
+- Native experimental wave-overhang wavefront paths with all-or-nothing bridge fallback
 - Cura estimated print time and repaired G-code metadata
 - CRLF printer-compatible export with unique `.gcode` filenames
 
@@ -137,6 +138,13 @@ Open **Menu → Calibration generator** to create a compact test. Temperature mo
 Calibration slicing applies minimal type-specific overrides instead of disabling all advanced settings. These overrides never modify the saved profile.
 
 ## Native arc overhangs
+## Native wave overhangs
+
+Enable **Print settings → Experimental → Wave overhangs** to replace eligible open-air bottom skin with expanding, clipped wavefronts seeded on material from the previous model layer. Smart, monotonic and zigzag traversal are available. Wave paths are turquoise in the layer preview and use an absolute mm³/mm flow setting because the bead is deposited into open air.
+
+Wave and Arc overhangs are mutually exclusive. The generator is all-or-nothing per skin island: missing anchors, incomplete propagation or iteration limits retain Cura's normal bridge/skin path. The feature is disabled by default and remains experimental; maximum cooling and a small test model are strongly recommended.
+
+## Native arc overhangs
 
 Enable **Print settings → Experimental → Arc overhangs (Multiplex)** to replace eligible bridge-classified bottom skin with expanding native arc paths. The port runs inside CuraEngine, uses the sliced bottom-skin polygon and material from the preceding layer, retains one center for a connected island, clips radii to the island and inserts the ordered paths into the `LayerPlan`.
 
@@ -220,15 +228,24 @@ Requirements:
 - ARM64 Android device (`arm64-v8a`)
 - Network access on the first clean build to fetch pinned Cura and BumpMesh sources
 
-Build the Android app with:
+From a clean checkout, prepare the pinned Cura resources and ARM64 CuraEngine before asking Gradle to package the app:
 
 ```bash
-gradle :app:assembleDebug
+chmod +x scripts/fetch-cura-resources.sh scripts/build-curaengine-android.sh
+scripts/fetch-cura-resources.sh
+
+export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358"
+export APP_JNILIBS_DIR="$PWD/app/src/main/jniLibs"
+scripts/build-curaengine-android.sh
+
+gradle :app:verifyDebugApkContents
 ```
+
+`verifyDebugApkContents` assembles the debug APK and verifies that it contains a non-empty ARM64 CuraEngine entry. Direct Gradle assembly also validates the staged native executable and fails early with the required native-build command when the file is missing, empty, not an ELF, or not AArch64.
 
 The Gradle project prepares the pinned BumpMesh workspace before `preBuild`. Generated assets are stored under `app/src/main/assets/bumpmesh/`, ignored by Git and reused while the source marker remains unchanged.
 
-GitHub Actions builds CuraEngine, prepares BumpMesh, runs unit/regression and complete-definition audits, assembles the debug APK and uploads the artifacts.
+GitHub Actions follows the same native preparation and APK-verification contract, runs unit/regression and complete-definition audits, and uploads the APK and build logs.
 
 ## Safety
 

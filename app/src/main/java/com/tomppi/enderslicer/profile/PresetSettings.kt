@@ -15,8 +15,13 @@ object PresetSettings {
         SlicerSettings.Keys.LINE_WIDTH,
         SlicerSettings.Keys.SLICING_TOLERANCE,
         SlicerSettings.Keys.WALL_LINE_COUNT,
+        SlicerSettings.Keys.WALL_THICKNESS,
         SlicerSettings.Keys.TOP_LAYERS,
         SlicerSettings.Keys.BOTTOM_LAYERS,
+        SlicerSettings.Keys.TOP_BOTTOM_THICKNESS,
+        SlicerSettings.Keys.INITIAL_BOTTOM_LAYERS,
+        SlicerSettings.Keys.HOLE_HORIZONTAL_EXPANSION,
+        SlicerSettings.Keys.INITIAL_LAYER_HORIZONTAL_EXPANSION,
         SlicerSettings.Keys.Z_SEAM_TYPE,
         SlicerSettings.Keys.Z_SEAM_X,
         SlicerSettings.Keys.Z_SEAM_Y,
@@ -24,6 +29,7 @@ object PresetSettings {
         SlicerSettings.Keys.Z_SEAM_CORNER,
         SlicerSettings.Keys.INFILL_DENSITY,
         SlicerSettings.Keys.INFILL_PATTERN,
+        SlicerSettings.Keys.ZIG_ZAG_CONNECT_INFILL,
         SlicerSettings.Keys.PRINT_SPEED,
         SlicerSettings.Keys.WALL_SPEED,
         SlicerSettings.Keys.OUTER_WALL_SPEED,
@@ -40,6 +46,7 @@ object PresetSettings {
         SlicerSettings.Keys.SUPPORT_PATTERN,
         SlicerSettings.Keys.SUPPORT_INTERFACE_ENABLED,
         SlicerSettings.Keys.SUPPORT_INTERFACE_DENSITY,
+        SlicerSettings.Keys.SUPPORT_INTERFACE_HEIGHT,
         SlicerSettings.Keys.SUPPORT_Z_DISTANCE,
         SlicerSettings.Keys.SUPPORT_XY_DISTANCE,
         SlicerSettings.Keys.SUPPORT_SPEED,
@@ -50,6 +57,7 @@ object PresetSettings {
         SlicerSettings.Keys.ADHESION_TYPE,
         SlicerSettings.Keys.SKIRT_LINE_COUNT,
         SlicerSettings.Keys.BRIM_WIDTH,
+        SlicerSettings.Keys.RAFT_MARGIN,
         SlicerSettings.Keys.ARC_OVERHANG_ENABLED,
         SlicerSettings.Keys.ARC_OVERHANG_SPEED,
         SlicerSettings.Keys.ARC_OVERHANG_FLOW,
@@ -59,7 +67,18 @@ object PresetSettings {
         SlicerSettings.Keys.ARC_OVERHANG_MAX_AREA,
         SlicerSettings.Keys.ARC_OVERHANG_RESOLUTION,
         SlicerSettings.Keys.ARC_OVERHANG_FAN_SPEED,
+        SlicerSettings.Keys.WAVE_OVERHANG_ENABLED,
+        SlicerSettings.Keys.WAVE_OVERHANG_PATTERN,
+        SlicerSettings.Keys.WAVE_OVERHANG_LINE_SPACING,
+        SlicerSettings.Keys.WAVE_OVERHANG_FLOW,
+        SlicerSettings.Keys.WAVE_OVERHANG_SPEED,
+        SlicerSettings.Keys.WAVE_OVERHANG_FAN_SPEED,
+        SlicerSettings.Keys.WAVE_OVERHANG_PERIMETER_OVERLAP,
+        SlicerSettings.Keys.WAVE_OVERHANG_MINIMUM_WIDTH,
+        SlicerSettings.Keys.WAVE_OVERHANG_MAX_ITERATIONS,
+        SlicerSettings.Keys.WAVE_OVERHANG_REVERSE_ODD_LAYERS,
         SlicerSettings.Keys.IRONING_ENABLED,
+        SlicerSettings.Keys.IRONING_ONLY_HIGHEST_LAYER,
         SlicerSettings.Keys.IRONING_FLOW,
         SlicerSettings.Keys.IRONING_SPEED,
     )
@@ -69,6 +88,11 @@ object PresetSettings {
         SlicerSettings.Keys.NOZZLE_TEMPERATURE,
         SlicerSettings.Keys.INITIAL_NOZZLE_TEMPERATURE,
         SlicerSettings.Keys.BED_TEMPERATURE,
+        SlicerSettings.Keys.BUILD_VOLUME_TEMPERATURE,
+        SlicerSettings.Keys.MATERIAL_STANDBY_TEMPERATURE,
+        SlicerSettings.Keys.MATERIAL_DENSITY,
+        SlicerSettings.Keys.MATERIAL_ADHESION_TENDENCY,
+        SlicerSettings.Keys.MATERIAL_SURFACE_ENERGY,
         SlicerSettings.Keys.MATERIAL_FLOW,
         SlicerSettings.Keys.FAN_SPEED,
         SlicerSettings.Keys.INITIAL_FAN_SPEED,
@@ -122,8 +146,15 @@ object PresetSettings {
                 SlicerSettings.Keys.LINE_WIDTH -> changed.copy(lineWidthMm = values.optDouble(key, changed.lineWidthMm))
                 SlicerSettings.Keys.SLICING_TOLERANCE -> changed.copy(slicingTolerance = values.optString(key, changed.slicingTolerance))
                 SlicerSettings.Keys.WALL_LINE_COUNT -> changed.copy(wallLineCount = values.optInt(key, changed.wallLineCount))
+                SlicerSettings.Keys.WALL_THICKNESS -> changed.copy(wallThicknessMm = values.optDouble(key, changed.wallThicknessMm))
                 SlicerSettings.Keys.TOP_LAYERS -> changed.copy(topLayers = values.optInt(key, changed.topLayers))
                 SlicerSettings.Keys.BOTTOM_LAYERS -> changed.copy(bottomLayers = values.optInt(key, changed.bottomLayers))
+                SlicerSettings.Keys.TOP_BOTTOM_THICKNESS -> changed.copy(topBottomThicknessMm = values.optDouble(key, changed.topBottomThicknessMm))
+                SlicerSettings.Keys.INITIAL_BOTTOM_LAYERS -> changed.copy(initialBottomLayers = values.optInt(key, changed.initialBottomLayers))
+                SlicerSettings.Keys.HOLE_HORIZONTAL_EXPANSION -> changed.copy(holeHorizontalExpansionMm = values.optDouble(key, changed.holeHorizontalExpansionMm))
+                SlicerSettings.Keys.INITIAL_LAYER_HORIZONTAL_EXPANSION -> changed.copy(
+                    initialLayerHorizontalExpansionMm = values.optDouble(key, changed.initialLayerHorizontalExpansionMm),
+                )
                 SlicerSettings.Keys.Z_SEAM_TYPE -> changed.copy(zSeamType = values.optString(key, changed.zSeamType))
                 SlicerSettings.Keys.Z_SEAM_X -> changed.copy(zSeamXmm = values.optDouble(key, changed.zSeamXmm))
                 SlicerSettings.Keys.Z_SEAM_Y -> changed.copy(zSeamYmm = values.optDouble(key, changed.zSeamYmm))
@@ -131,6 +162,7 @@ object PresetSettings {
                 SlicerSettings.Keys.Z_SEAM_CORNER -> changed.copy(zSeamCorner = values.optString(key, changed.zSeamCorner))
                 SlicerSettings.Keys.INFILL_DENSITY -> changed.copy(infillDensityPercent = values.optDouble(key, changed.infillDensityPercent))
                 SlicerSettings.Keys.INFILL_PATTERN -> changed.copy(infillPattern = values.optString(key, changed.infillPattern))
+                SlicerSettings.Keys.ZIG_ZAG_CONNECT_INFILL -> changed.copy(zigZagConnectInfill = values.optBoolean(key, changed.zigZagConnectInfill))
                 SlicerSettings.Keys.PRINT_SPEED -> changed.copy(printSpeedMmPerSecond = values.optDouble(key, changed.printSpeedMmPerSecond))
                 SlicerSettings.Keys.WALL_SPEED -> changed.copy(wallSpeedMmPerSecond = values.optDouble(key, changed.wallSpeedMmPerSecond))
                 SlicerSettings.Keys.OUTER_WALL_SPEED -> changed.copy(outerWallSpeedMmPerSecond = values.optDouble(key, changed.outerWallSpeedMmPerSecond))
@@ -147,6 +179,7 @@ object PresetSettings {
                 SlicerSettings.Keys.SUPPORT_PATTERN -> changed.copy(supportPattern = values.optString(key, changed.supportPattern))
                 SlicerSettings.Keys.SUPPORT_INTERFACE_ENABLED -> changed.copy(supportInterfaceEnabled = values.optBoolean(key, changed.supportInterfaceEnabled))
                 SlicerSettings.Keys.SUPPORT_INTERFACE_DENSITY -> changed.copy(supportInterfaceDensityPercent = values.optDouble(key, changed.supportInterfaceDensityPercent))
+                SlicerSettings.Keys.SUPPORT_INTERFACE_HEIGHT -> changed.copy(supportInterfaceHeightMm = values.optDouble(key, changed.supportInterfaceHeightMm))
                 SlicerSettings.Keys.SUPPORT_Z_DISTANCE -> changed.copy(supportZDistanceMm = values.optDouble(key, changed.supportZDistanceMm))
                 SlicerSettings.Keys.SUPPORT_XY_DISTANCE -> changed.copy(supportXyDistanceMm = values.optDouble(key, changed.supportXyDistanceMm))
                 SlicerSettings.Keys.SUPPORT_SPEED -> changed.copy(supportSpeedMmPerSecond = values.optDouble(key, changed.supportSpeedMmPerSecond))
@@ -157,6 +190,7 @@ object PresetSettings {
                 SlicerSettings.Keys.ADHESION_TYPE -> changed.copy(adhesionType = values.optString(key, changed.adhesionType))
                 SlicerSettings.Keys.SKIRT_LINE_COUNT -> changed.copy(skirtLineCount = values.optInt(key, changed.skirtLineCount))
                 SlicerSettings.Keys.BRIM_WIDTH -> changed.copy(brimWidthMm = values.optDouble(key, changed.brimWidthMm))
+                SlicerSettings.Keys.RAFT_MARGIN -> changed.copy(raftMarginMm = values.optDouble(key, changed.raftMarginMm))
                 SlicerSettings.Keys.ARC_OVERHANG_ENABLED -> changed.copy(arcOverhangEnabled = values.optBoolean(key, changed.arcOverhangEnabled))
                 SlicerSettings.Keys.ARC_OVERHANG_SPEED -> changed.copy(arcOverhangSpeedMmPerSecond = values.optDouble(key, changed.arcOverhangSpeedMmPerSecond))
                 SlicerSettings.Keys.ARC_OVERHANG_FLOW -> changed.copy(arcOverhangFlowPercent = values.optDouble(key, changed.arcOverhangFlowPercent))
@@ -166,13 +200,29 @@ object PresetSettings {
                 SlicerSettings.Keys.ARC_OVERHANG_MAX_AREA -> changed.copy(arcOverhangMaxAreaMm2 = values.optDouble(key, changed.arcOverhangMaxAreaMm2))
                 SlicerSettings.Keys.ARC_OVERHANG_RESOLUTION -> changed.copy(arcOverhangResolutionMm = values.optDouble(key, changed.arcOverhangResolutionMm))
                 SlicerSettings.Keys.ARC_OVERHANG_FAN_SPEED -> changed.copy(arcOverhangFanSpeedPercent = values.optDouble(key, changed.arcOverhangFanSpeedPercent))
+                SlicerSettings.Keys.WAVE_OVERHANG_ENABLED -> changed.copy(waveOverhangEnabled = values.optBoolean(key, changed.waveOverhangEnabled))
+                SlicerSettings.Keys.WAVE_OVERHANG_PATTERN -> changed.copy(waveOverhangPattern = values.optString(key, changed.waveOverhangPattern))
+                SlicerSettings.Keys.WAVE_OVERHANG_LINE_SPACING -> changed.copy(waveOverhangLineSpacingMm = values.optDouble(key, changed.waveOverhangLineSpacingMm))
+                SlicerSettings.Keys.WAVE_OVERHANG_FLOW -> changed.copy(waveOverhangFlowMm3PerMm = values.optDouble(key, changed.waveOverhangFlowMm3PerMm))
+                SlicerSettings.Keys.WAVE_OVERHANG_SPEED -> changed.copy(waveOverhangSpeedMmPerSecond = values.optDouble(key, changed.waveOverhangSpeedMmPerSecond))
+                SlicerSettings.Keys.WAVE_OVERHANG_FAN_SPEED -> changed.copy(waveOverhangFanSpeedPercent = values.optDouble(key, changed.waveOverhangFanSpeedPercent))
+                SlicerSettings.Keys.WAVE_OVERHANG_PERIMETER_OVERLAP -> changed.copy(waveOverhangPerimeterOverlapMm = values.optDouble(key, changed.waveOverhangPerimeterOverlapMm))
+                SlicerSettings.Keys.WAVE_OVERHANG_MINIMUM_WIDTH -> changed.copy(waveOverhangMinimumWidthMm = values.optDouble(key, changed.waveOverhangMinimumWidthMm))
+                SlicerSettings.Keys.WAVE_OVERHANG_MAX_ITERATIONS -> changed.copy(waveOverhangMaxIterations = values.optInt(key, changed.waveOverhangMaxIterations))
+                SlicerSettings.Keys.WAVE_OVERHANG_REVERSE_ODD_LAYERS -> changed.copy(waveOverhangReverseOddLayers = values.optBoolean(key, changed.waveOverhangReverseOddLayers))
                 SlicerSettings.Keys.IRONING_ENABLED -> changed.copy(ironingEnabled = values.optBoolean(key, changed.ironingEnabled))
+                SlicerSettings.Keys.IRONING_ONLY_HIGHEST_LAYER -> changed.copy(ironingOnlyHighestLayer = values.optBoolean(key, changed.ironingOnlyHighestLayer))
                 SlicerSettings.Keys.IRONING_FLOW -> changed.copy(ironingFlowPercent = values.optDouble(key, changed.ironingFlowPercent))
                 SlicerSettings.Keys.IRONING_SPEED -> changed.copy(ironingSpeedMmPerSecond = values.optDouble(key, changed.ironingSpeedMmPerSecond))
                 SlicerSettings.Keys.FILAMENT_DIAMETER -> changed.copy(filamentDiameterMm = values.optDouble(key, changed.filamentDiameterMm))
                 SlicerSettings.Keys.NOZZLE_TEMPERATURE -> changed.copy(nozzleTemperatureC = values.optInt(key, changed.nozzleTemperatureC))
                 SlicerSettings.Keys.INITIAL_NOZZLE_TEMPERATURE -> changed.copy(initialNozzleTemperatureC = values.optInt(key, changed.initialNozzleTemperatureC))
                 SlicerSettings.Keys.BED_TEMPERATURE -> changed.copy(bedTemperatureC = values.optInt(key, changed.bedTemperatureC))
+                SlicerSettings.Keys.BUILD_VOLUME_TEMPERATURE -> changed.copy(buildVolumeTemperatureC = values.optDouble(key, changed.buildVolumeTemperatureC))
+                SlicerSettings.Keys.MATERIAL_STANDBY_TEMPERATURE -> changed.copy(materialStandbyTemperatureC = values.optDouble(key, changed.materialStandbyTemperatureC))
+                SlicerSettings.Keys.MATERIAL_DENSITY -> changed.copy(materialDensityGPerCm3 = values.optDouble(key, changed.materialDensityGPerCm3))
+                SlicerSettings.Keys.MATERIAL_ADHESION_TENDENCY -> changed.copy(materialAdhesionTendency = values.optInt(key, changed.materialAdhesionTendency))
+                SlicerSettings.Keys.MATERIAL_SURFACE_ENERGY -> changed.copy(materialSurfaceEnergyPercent = values.optInt(key, changed.materialSurfaceEnergyPercent))
                 SlicerSettings.Keys.MATERIAL_FLOW -> changed.copy(materialFlowPercent = values.optDouble(key, changed.materialFlowPercent))
                 SlicerSettings.Keys.FAN_SPEED -> changed.copy(fanSpeedPercent = values.optDouble(key, changed.fanSpeedPercent))
                 SlicerSettings.Keys.INITIAL_FAN_SPEED -> changed.copy(initialFanSpeedPercent = values.optDouble(key, changed.initialFanSpeedPercent))
@@ -193,6 +243,9 @@ object PresetSettings {
             appliedKeys += key
         }
         require(appliedKeys.isNotEmpty()) { "The preset has no usable ${kind.label.lowercase()} values" }
+        require(!(changed.arcOverhangEnabled && changed.waveOverhangEnabled)) {
+            "Arc and Wave overhangs cannot both be enabled"
+        }
         return changed.copy(overriddenSettingKeys = changed.overriddenSettingKeys + appliedKeys)
     }
 

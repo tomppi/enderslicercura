@@ -25,6 +25,28 @@ class ModelPlacementTest {
     }
 
     @Test
+    fun centeredOriginPlacesTheModelAroundZero() {
+        val mesh = triangleMesh(
+            floatArrayOf(
+                -4f, 8f, -2f,
+                6f, 8f, -2f,
+                -4f, 18f, 3f,
+            ),
+        )
+
+        val transformed = ModelPlacement.centeredOnBed(
+            mesh = mesh,
+            bedWidthMm = 230.0,
+            bedDepthMm = 230.0,
+            originAtCenter = true,
+        ).transformed(mesh)
+
+        assertEquals(0.0, transformed.bounds.centerX.toDouble(), 1e-5)
+        assertEquals(0.0, transformed.bounds.centerY.toDouble(), 1e-5)
+        assertEquals(0.0, transformed.bounds.minZ.toDouble(), 1e-5)
+    }
+
+    @Test
     fun imported3mfTransformUsesEmbeddedTargetBounds() {
         val mesh = triangleMesh(
             floatArrayOf(
