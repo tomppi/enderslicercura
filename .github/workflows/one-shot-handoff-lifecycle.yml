@@ -12,6 +12,7 @@ permissions:
 
 jobs:
   apply:
+    # The workflow removes itself after an assertion-guarded source commit.
     if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
