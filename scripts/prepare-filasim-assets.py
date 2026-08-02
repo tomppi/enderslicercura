@@ -53,7 +53,7 @@ def safe_extract(archive: zipfile.ZipFile, destination: pathlib.Path) -> pathlib
 def patch_android_export(store_file: pathlib.Path) -> None:
     text = store_file.read_text(encoding="utf-8")
 
-    if "EnderSlicerBridge?.captureModifierZip" not in text:
+    if "bridge?.captureModifierZip" not in text:
         old_modifiers = '''  async downloadStls() {
     try {
       const bytes = await engine.exportStls();
@@ -86,7 +86,7 @@ def patch_android_export(store_file: pathlib.Path) -> None:
             raise RuntimeError("Unable to locate filaSim modifier-export function for Android patching")
         text = text.replace(old_modifiers, new_modifiers)
 
-    if "EnderSlicerBridge?.captureOptimizedShape" not in text:
+    if "bridge?.captureOptimizedShape" not in text:
         old_shape = '''  async downloadShape() {
     try {
       const bytes = await engine.exportSolidStl();
