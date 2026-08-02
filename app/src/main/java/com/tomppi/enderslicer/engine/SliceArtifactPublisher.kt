@@ -195,7 +195,10 @@ internal class SliceArtifactPublisher(
         private fun isCompletedDirectory(directory: File): Boolean {
             if (!directory.isDirectory) return false
             val marker = File(directory, COMPLETE_MARKER_FILE_NAME)
-            if (!marker.isFile || marker.readText().trim() != directory.name) return false
+            val markerMatches = marker.isFile && runCatching {
+                marker.readText().trim() == directory.name
+            }.getOrDefault(false)
+            if (!markerMatches) return false
             return File(directory, GCODE_FILE_NAME).isFile &&
                 File(directory, BASE_GCODE_FILE_NAME).isFile &&
                 File(directory, PrinterEnvelope.METADATA_FILE_NAME).isFile
