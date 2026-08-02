@@ -30,8 +30,13 @@ data class SlicerSettings(
     val lineWidthMm: Double = 0.40,
     val slicingTolerance: String = "middle",
     val wallLineCount: Int = 2,
+    val wallThicknessMm: Double = 0.8,
     val topLayers: Int = 5,
     val bottomLayers: Int = 5,
+    val topBottomThicknessMm: Double = 0.8,
+    val initialBottomLayers: Int = 5,
+    val holeHorizontalExpansionMm: Double = 0.0,
+    val initialLayerHorizontalExpansionMm: Double = 0.0,
     val zSeamType: String = "sharpest_corner",
     val zSeamXmm: Double = 115.0,
     val zSeamYmm: Double = 230.0,
@@ -39,6 +44,7 @@ data class SlicerSettings(
     val zSeamCorner: String = "z_seam_corner_inner",
     val infillDensityPercent: Double = 10.0,
     val infillPattern: String = "cubic",
+    val zigZagConnectInfill: Boolean = true,
     val printSpeedMmPerSecond: Double = 200.0,
     val wallSpeedMmPerSecond: Double = 100.0,
     val outerWallSpeedMmPerSecond: Double = 50.0,
@@ -50,6 +56,15 @@ data class SlicerSettings(
     val nozzleTemperatureC: Int = 210,
     val initialNozzleTemperatureC: Int = 235,
     val bedTemperatureC: Int = 60,
+    val buildVolumeTemperatureC: Double = 28.0,
+    val materialStandbyTemperatureC: Double = 180.0,
+    val materialDensityGPerCm3: Double = 1.24,
+    val materialAdhesionTendency: Int = 0,
+    val materialSurfaceEnergyPercent: Int = 100,
+    val materialBrand: String = "Generic",
+    val materialType: String = "PLA",
+    val materialGuid: String = "",
+    val enabledExtruderCount: Int = 1,
     val materialFlowPercent: Double = 100.0,
     val fanSpeedPercent: Double = 100.0,
     val initialFanSpeedPercent: Double = 0.0,
@@ -62,6 +77,7 @@ data class SlicerSettings(
     val supportPattern: String = "zigzag",
     val supportInterfaceEnabled: Boolean = true,
     val supportInterfaceDensityPercent: Double = 100.0,
+    val supportInterfaceHeightMm: Double = 0.8,
     val supportZDistanceMm: Double = 0.20,
     val supportXyDistanceMm: Double = 0.80,
     val supportSpeedMmPerSecond: Double = 100.0,
@@ -83,6 +99,7 @@ data class SlicerSettings(
     val adhesionType: String = "none",
     val skirtLineCount: Int = 1,
     val brimWidthMm: Double = 8.0,
+    val raftMarginMm: Double = 10.0,
     val arcOverhangEnabled: Boolean = false,
     val arcOverhangSpeedMmPerSecond: Double = 5.0,
     val arcOverhangFlowPercent: Double = 105.0,
@@ -93,6 +110,7 @@ data class SlicerSettings(
     val arcOverhangResolutionMm: Double = 0.15,
     val arcOverhangFanSpeedPercent: Double = 100.0,
     val ironingEnabled: Boolean = false,
+    val ironingOnlyHighestLayer: Boolean = false,
     val ironingFlowPercent: Double = 10.0,
     val ironingSpeedMmPerSecond: Double = 20.0,
     val overriddenSettingKeys: Set<String> = emptySet(),
@@ -129,8 +147,13 @@ data class SlicerSettings(
         const val LINE_WIDTH = "lineWidthMm"
         const val SLICING_TOLERANCE = "slicingTolerance"
         const val WALL_LINE_COUNT = "wallLineCount"
+        const val WALL_THICKNESS = "wallThicknessMm"
         const val TOP_LAYERS = "topLayers"
         const val BOTTOM_LAYERS = "bottomLayers"
+        const val TOP_BOTTOM_THICKNESS = "topBottomThicknessMm"
+        const val INITIAL_BOTTOM_LAYERS = "initialBottomLayers"
+        const val HOLE_HORIZONTAL_EXPANSION = "holeHorizontalExpansionMm"
+        const val INITIAL_LAYER_HORIZONTAL_EXPANSION = "initialLayerHorizontalExpansionMm"
         const val Z_SEAM_TYPE = "zSeamType"
         const val Z_SEAM_X = "zSeamXmm"
         const val Z_SEAM_Y = "zSeamYmm"
@@ -138,6 +161,7 @@ data class SlicerSettings(
         const val Z_SEAM_CORNER = "zSeamCorner"
         const val INFILL_DENSITY = "infillDensityPercent"
         const val INFILL_PATTERN = "infillPattern"
+        const val ZIG_ZAG_CONNECT_INFILL = "zigZagConnectInfill"
         const val PRINT_SPEED = "printSpeedMmPerSecond"
         const val WALL_SPEED = "wallSpeedMmPerSecond"
         const val OUTER_WALL_SPEED = "outerWallSpeedMmPerSecond"
@@ -149,6 +173,11 @@ data class SlicerSettings(
         const val NOZZLE_TEMPERATURE = "nozzleTemperatureC"
         const val INITIAL_NOZZLE_TEMPERATURE = "initialNozzleTemperatureC"
         const val BED_TEMPERATURE = "bedTemperatureC"
+        const val BUILD_VOLUME_TEMPERATURE = "buildVolumeTemperatureC"
+        const val MATERIAL_STANDBY_TEMPERATURE = "materialStandbyTemperatureC"
+        const val MATERIAL_DENSITY = "materialDensityGPerCm3"
+        const val MATERIAL_ADHESION_TENDENCY = "materialAdhesionTendency"
+        const val MATERIAL_SURFACE_ENERGY = "materialSurfaceEnergyPercent"
         const val MATERIAL_FLOW = "materialFlowPercent"
         const val FAN_SPEED = "fanSpeedPercent"
         const val INITIAL_FAN_SPEED = "initialFanSpeedPercent"
@@ -161,6 +190,7 @@ data class SlicerSettings(
         const val SUPPORT_PATTERN = "supportPattern"
         const val SUPPORT_INTERFACE_ENABLED = "supportInterfaceEnabled"
         const val SUPPORT_INTERFACE_DENSITY = "supportInterfaceDensityPercent"
+        const val SUPPORT_INTERFACE_HEIGHT = "supportInterfaceHeightMm"
         const val SUPPORT_Z_DISTANCE = "supportZDistanceMm"
         const val SUPPORT_XY_DISTANCE = "supportXyDistanceMm"
         const val SUPPORT_SPEED = "supportSpeedMmPerSecond"
@@ -182,6 +212,7 @@ data class SlicerSettings(
         const val ADHESION_TYPE = "adhesionType"
         const val SKIRT_LINE_COUNT = "skirtLineCount"
         const val BRIM_WIDTH = "brimWidthMm"
+        const val RAFT_MARGIN = "raftMarginMm"
         const val ARC_OVERHANG_ENABLED = "arcOverhangEnabled"
         const val ARC_OVERHANG_SPEED = "arcOverhangSpeedMmPerSecond"
         const val ARC_OVERHANG_FLOW = "arcOverhangFlowPercent"
@@ -192,6 +223,7 @@ data class SlicerSettings(
         const val ARC_OVERHANG_RESOLUTION = "arcOverhangResolutionMm"
         const val ARC_OVERHANG_FAN_SPEED = "arcOverhangFanSpeedPercent"
         const val IRONING_ENABLED = "ironingEnabled"
+        const val IRONING_ONLY_HIGHEST_LAYER = "ironingOnlyHighestLayer"
         const val IRONING_FLOW = "ironingFlowPercent"
         const val IRONING_SPEED = "ironingSpeedMmPerSecond"
     }

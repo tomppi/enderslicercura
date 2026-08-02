@@ -23,6 +23,7 @@ import com.tomppi.enderslicer.engine.PlannedLayerEvent
 import com.tomppi.enderslicer.mesh.MeshTriangleLimits
 import com.tomppi.enderslicer.model.ModelPlacement
 import com.tomppi.enderslicer.model.SlicerSettings
+import com.tomppi.enderslicer.profile.CuraImportedSettingsResolver
 import com.tomppi.enderslicer.profile.CuraProfileParser
 import com.tomppi.enderslicer.profile.CuraProjectAudit
 import com.tomppi.enderslicer.profile.CuraProjectParser
@@ -657,13 +658,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 withContext(Dispatchers.IO) {
                     val saved = stateStore.savedImport()
                     val config = saved?.let { persisted ->
-                        persisted.file.inputStream().use { input ->
+                        val parsed = persisted.file.inputStream().use { input ->
                             when (persisted.kind) {
                                 AppStateStore.KIND_PROJECT -> CuraProjectParser.parse(input, persisted.displayName, SlicerSettings())
                                 AppStateStore.KIND_PROFILE -> CuraProfileParser.parse(input, persisted.displayName, SlicerSettings())
                                 else -> error("Unknown persisted Cura import kind: ${persisted.kind}")
                             }
                         }
+                        CuraImportedSettingsResolver.resolveForUi(
+                            config = parsed,
+                            printer = printer,
+                            fallbackStartGcode = initialStartGcode,
+                            fallbackEndGcode = initialEndGcode,
+                        )
                     }
                     val scene = saved?.takeIf { it.kind == AppStateStore.KIND_PROJECT }
                         ?.file
@@ -883,10 +890,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
         importedScene = pending.scene
-        val baseline = pending.config.mappedSettings.copy(overriddenSettingKeys = emptySet())
+        val resolvedConfig = withContext(Dispatchers.Default) {
+            CuraImportedSettingsResolver.resolveForUi(
+                config = pending.config,
+                printer = printer,
+                fallbackStartGcode = initialStartGcode,
+                fallbackEndGcode = initialEndGcode,
+            )
+        }
+        val baseline = resolvedConfig.mappedSettings.copy(overriddenSettingKeys = emptySet())
         withContext(Dispatchers.IO) { stateStore.saveSettings(baseline) }
         applyImportedConfig(
-            config = pending.config,
+            config = resolvedConfig,
             settings = baseline,
             scene = pending.scene,
             statusMessage = null,
@@ -899,7 +914,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         scene: CuraProjectScene?,
         statusMessage: String?,
     ) {
-        importedSettingsBaseline = config.mappedSettings.copy(overriddenSettingKeys = emptySet())
+        importedSettingsBaseline = settings.copy(overriddenSettingKeys = emptySet())
         importedScene = scene
         val original = sourceMesh
         val autoPlacement = if (
@@ -1126,6 +1141,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     .put("adaptiveLayerHeightVariationStepMm", settings.adaptiveLayerHeightVariationStepMm)
                     .put("adaptiveLayerHeightThreshold", settings.adaptiveLayerHeightThreshold)
                     .put("lineWidthMm", settings.lineWidthMm)
+                    .put("wallThicknessMm", settings.wallThicknessMm)
+                    .put("topBottomThicknessMm", settings.topBottomThicknessMm)
+                    .put("initialBottomLayers", settings.initialBottomLayers)
+                    .put("holeHorizontalExpansionMm", settings.holeHorizontalExpansionMm)
+                    .put("initialLayerHorizontalExpansionMm", settings.initialLayerHorizontalExpansionMm)
+                    .put("zigZagConnectInfill", settings.zigZagConnectInfill)
                     .put("printSpeedMmPerSecond", settings.printSpeedMmPerSecond)
                     .put("nozzleTemperatureC", settings.nozzleTemperatureC)
                     .put("initialNozzleTemperatureC", settings.initialNozzleTemperatureC)
@@ -1139,6 +1160,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     .put("supportPattern", settings.supportPattern)
                     .put("supportInterfaceEnabled", settings.supportInterfaceEnabled)
                     .put("supportInterfaceDensityPercent", settings.supportInterfaceDensityPercent)
+                    .put("supportInterfaceHeightMm", settings.supportInterfaceHeightMm)
                     .put("supportZDistanceMm", settings.supportZDistanceMm)
                     .put("supportXyDistanceMm", settings.supportXyDistanceMm)
                     .put("supportSpeedMmPerSecond", settings.supportSpeedMmPerSecond)
@@ -1150,6 +1172,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     .put("zHopEnabled", settings.zHopEnabled)
                     .put("firmwareRetraction", settings.firmwareRetraction)
                     .put("fanSpeedPercent", settings.fanSpeedPercent)
+                    .put("buildVolumeTemperatureC", settings.buildVolumeTemperatureC)
+                    .put("materialStandbyTemperatureC", settings.materialStandbyTemperatureC)
+                    .put("materialDensityGPerCm3", settings.materialDensityGPerCm3)
+                    .put("materialAdhesionTendency", settings.materialAdhesionTendency)
+                    .put("materialSurfaceEnergyPercent", settings.materialSurfaceEnergyPercent)
+                    .put("materialBrand", settings.materialBrand)
+                    .put("materialType", settings.materialType)
+                    .put("materialGuid", settings.materialGuid)
+                    .put("enabledExtruderCount", settings.enabledExtruderCount)
                     .put("materialFlowPercent", settings.materialFlowPercent)
                     .put("arcOverhangEnabled", settings.arcOverhangEnabled)
                     .put("arcOverhangSpeedMmPerSecond", settings.arcOverhangSpeedMmPerSecond)
@@ -1159,7 +1190,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     .put("arcOverhangMaxRadiusMm", settings.arcOverhangMaxRadiusMm)
                     .put("arcOverhangMaxAreaMm2", settings.arcOverhangMaxAreaMm2)
                     .put("arcOverhangResolutionMm", settings.arcOverhangResolutionMm)
-                    .put("arcOverhangFanSpeedPercent", settings.arcOverhangFanSpeedPercent),
+                    .put("arcOverhangFanSpeedPercent", settings.arcOverhangFanSpeedPercent)
+                    .put("raftMarginMm", settings.raftMarginMm)
+                    .put("ironingOnlyHighestLayer", settings.ironingOnlyHighestLayer),
             )
             .put("startGcode", state.startGcode)
             .put("endGcode", state.endGcode)

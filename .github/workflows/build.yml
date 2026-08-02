@@ -1,280 +1,158 @@
-name: Publish Cura settings implementation
+name: Build Android APK
 
 on:
   push:
-    branches:
-      - feature/expose-cura-profile-settings
   pull_request:
-    branches:
-      - fix/parser-memory-lifecycle
+  workflow_dispatch:
 
-permissions:
-  contents: write
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
 
 jobs:
-  publish:
-    if: github.actor != 'github-actions[bot]'
-    runs-on: ubuntu-latest
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
         with:
-          ref: feature/expose-cura-profile-settings
-          fetch-depth: 0
+          distribution: temurin
+          java-version: '17'
 
-      - name: Apply reviewed implementation
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK and native build tools
         run: |
-          set +e
-          git apply --recount --reject scripts/expose-cura-settings.patch
-          apply_status=$?
-          set -e
-          test "$apply_status" -eq 1
-          find app/src -name '*.rej' -print | sort > /tmp/actual-rejects
-          cat > /tmp/expected-rejects <<'EOF'
-          app/src/main/java/com/tomppi/enderslicer/profile/CuraProjectAudit.kt.rej
-          app/src/test/java/com/tomppi/enderslicer/profile/ExpandedSettingsMapperTest.kt.rej
-          EOF
-          diff -u /tmp/expected-rejects /tmp/actual-rejects
+          yes | sdkmanager --licenses >/dev/null
+          sdkmanager \
+            "platforms;android-36" \
+            "build-tools;36.0.0" \
+            "ndk;28.2.13676358" \
+            "cmake;3.22.1" \
+            "cmake;3.31.6"
+          sudo apt-get update
+          sudo apt-get install -y ninja-build file binutils
 
-          cat > app/src/main/java/com/tomppi/enderslicer/profile/CuraProjectAudit.kt <<'EOF'
-          package com.tomppi.enderslicer.profile
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.4.1'
 
-          object CuraProjectAudit {
-              private val exposedOrMachineKeys = setOf(
-                  "machine_name", "machine_width", "machine_depth", "machine_height", "machine_shape",
-                  "machine_center_is_zero", "machine_heated_bed", "machine_heated_build_volume",
-                  "machine_gcode_flavor", "machine_nozzle_size", "material_diameter", "gantry_height",
-                  "machine_start_gcode", "machine_end_gcode", "layer_height", "layer_height_0",
-                  "adaptive_layer_height_enabled", "adaptive_layer_height_variation",
-                  "adaptive_layer_height_variation_step", "adaptive_layer_height_threshold", "line_width",
-                  "slicing_tolerance", "wall_line_count", "wall_thickness", "top_layers", "bottom_layers",
-                  "top_bottom_thickness", "initial_bottom_layers", "hole_xy_offset", "xy_offset_layer_0",
-                  "z_seam_type", "z_seam_x", "z_seam_y", "z_seam_relative", "z_seam_corner",
-                  "infill_sparse_density", "infill_pattern", "zig_zaggify_infill",
-                  "speed_print", "speed_wall", "speed_wall_0",
-                  "speed_wall_x", "speed_infill", "speed_topbottom", "speed_travel", "speed_layer_0",
-                  "material_print_temperature", "material_print_temperature_layer_0", "material_bed_temperature",
-                  "build_volume_temperature", "material_standby_temperature", "material_density",
-                  "material_adhesion_tendency", "material_surface_energy", "material_brand", "material_type",
-                  "material_guid", "extruders_enabled_count", "material_flow",
-                  "cool_fan_speed", "cool_fan_speed_0", "cool_fan_full_layer",
-                  "support_enable", "support_type", "support_structure", "support_angle", "support_infill_rate",
-                  "support_pattern", "support_interface_enable", "support_interface_density",
-                  "support_interface_height", "support_z_distance", "support_xy_distance",
-                  "speed_support", "speed_support_interface",
-                  "retraction_amount", "retraction_speed", "retraction_min_travel", "retract_at_layer_change",
-                  "retraction_combing", "travel_avoid_other_parts", "travel_avoid_distance",
-                  "retraction_hop_enabled", "retraction_hop", "machine_firmware_retract",
-                  "coasting_enable", "coasting_volume", "coasting_min_volume", "coasting_speed",
-                  "adhesion_type", "skirt_line_count", "brim_width", "raft_margin",
-                  "ironing_enabled", "ironing_only_highest_layer", "ironing_flow", "speed_ironing",
-              )
+      - name: Cache Conan packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.conan2/p
+          key: conan-curaengine-5.11-beta1-android-arm64-v5-${{ hashFiles('scripts/build-curaengine-android.sh', 'native/curaengine/profiles/android-arm64') }}
+          restore-keys: |
+            conan-curaengine-5.11-beta1-android-arm64-v5-
+            conan-curaengine-5.11-android-arm64-v4-
 
-              private val highImpactHiddenKeys = linkedMapOf(
-                  "support_roof_enable" to "support roof",
-                  "support_bottom_enable" to "support floor",
-                  "support_roof_density" to "support-roof density",
-                  "support_bottom_density" to "support-floor density",
-                  "support_tree_branch_diameter" to "tree-support branch diameter",
-                  "support_tree_branch_angle" to "tree-support branch angle",
-                  "support_tree_tip_diameter" to "tree-support tip diameter",
-                  "xy_offset" to "horizontal expansion",
-                  "infill_wipe_dist" to "infill wipe distance",
-                  "bridge_settings_enabled" to "bridge settings",
-                  "bridge_wall_speed" to "bridge wall speed",
-                  "bridge_skin_speed" to "bridge skin speed",
-                  "acceleration_enabled" to "acceleration control",
-                  "jerk_enabled" to "jerk control",
-                  "speed_slowdown_layers" to "initial-layer speed ramp",
-                  "magic_spiralize" to "spiralize outer contour",
-                  "meshfix_union_all" to "mesh union repair",
-                  "meshfix_extensive_stitching" to "extensive mesh stitching",
-                  "meshfix_keep_open_polygons" to "open-polygon handling",
-              )
-
-              fun warnings(rawValues: Map<String, String>): List<String> {
-                  val active = highImpactHiddenKeys.mapNotNull { (key, label) ->
-                      val value = rawValues[key]?.trim()?.takeIf(String::isNotBlank) ?: return@mapNotNull null
-                      "$label ($key=$value)"
-                  }
-                  val unknownConcrete = rawValues.entries
-                      .filter { (key, value) ->
-                          key !in exposedOrMachineKeys &&
-                              key !in highImpactHiddenKeys &&
-                              value.isNotBlank() &&
-                              !value.trim().startsWith("=")
-                      }
-                      .map(Map.Entry<String, String>::key)
-                      .sorted()
-
-                  return buildList {
-                      if (active.isNotEmpty()) {
-                          add("Imported Cura behavior is active but not editable in EnderSlicer: ${active.joinToString(limit = 12, truncated = "…")}")
-                      }
-                      if (unknownConcrete.isNotEmpty()) {
-                          add("${unknownConcrete.size} additional Cura values are passed through in the background but are not exposed in the app")
-                      }
-                  }
-              }
-          }
-          EOF
-
-          cat > app/src/test/java/com/tomppi/enderslicer/profile/ExpandedSettingsMapperTest.kt <<'EOF'
-          package com.tomppi.enderslicer.profile
-
-          import com.tomppi.enderslicer.model.SlicerSettings
-          import org.junit.Assert.assertEquals
-          import org.junit.Assert.assertFalse
-          import org.junit.Assert.assertTrue
-          import org.junit.Test
-
-          class ExpandedSettingsMapperTest {
-              @Test
-              fun importsExpandedCategorizedSettings() {
-                  val mapped = CuraSettingsMapper.apply(
-                      SlicerSettings(),
-                      mapOf(
-                          "adaptive_layer_height_enabled" to "true",
-                          "adaptive_layer_height_variation" to "0.08",
-                          "adaptive_layer_height_variation_step" to "0.01",
-                          "adaptive_layer_height_threshold" to "0.16",
-                          "slicing_tolerance" to "inclusive",
-                          "wall_line_count" to "4",
-                          "wall_thickness" to "1.6",
-                          "top_layers" to "7",
-                          "bottom_layers" to "6",
-                          "top_bottom_thickness" to "1.4",
-                          "initial_bottom_layers" to "3",
-                          "hole_xy_offset" to "-0.1",
-                          "xy_offset_layer_0" to "0.2",
-                          "z_seam_type" to "back",
-                          "z_seam_x" to "12.5",
-                          "z_seam_y" to "220.0",
-                          "z_seam_relative" to "true",
-                          "z_seam_corner" to "z_seam_corner_weighted",
-                          "infill_pattern" to "gyroid",
-                          "zig_zaggify_infill" to "false",
-                          "speed_wall" to "80",
-                          "speed_wall_0" to "45",
-                          "speed_wall_x" to "75",
-                          "speed_infill" to "140",
-                          "speed_topbottom" to "60",
-                          "speed_travel" to "220",
-                          "speed_layer_0" to "25",
-                          "build_volume_temperature" to "35",
-                          "material_standby_temperature" to "175",
-                          "material_density" to "1.31",
-                          "material_adhesion_tendency" to "4",
-                          "material_surface_energy" to "88",
-                          "material_brand" to "Custom",
-                          "material_type" to "PLA+",
-                          "material_guid" to "material-guid",
-                          "extruders_enabled_count" to "1",
-                          "cool_fan_speed_0" to "15",
-                          "cool_fan_full_layer" to "5",
-                          "retraction_min_travel" to "2.5",
-                          "retraction_combing" to "noskin",
-                          "travel_avoid_other_parts" to "true",
-                          "travel_avoid_distance" to "0.8",
-                          "retraction_hop" to "0.4",
-                          "coasting_enable" to "true",
-                          "coasting_volume" to "0.08",
-                          "coasting_min_volume" to "1.2",
-                          "coasting_speed" to "92",
-                          "support_interface_height" to "0.8",
-                          "skirt_line_count" to "3",
-                          "brim_width" to "10",
-                          "raft_margin" to "12",
-                          "ironing_enabled" to "true",
-                          "ironing_only_highest_layer" to "true",
-                          "ironing_flow" to "12",
-                          "speed_ironing" to "18",
-                      ),
-                  )
-
-                  assertTrue(mapped.adaptiveLayerHeightEnabled)
-                  assertEquals(0.08, mapped.adaptiveLayerHeightVariationMm, 0.0)
-                  assertEquals(0.01, mapped.adaptiveLayerHeightVariationStepMm, 0.0)
-                  assertEquals(0.16, mapped.adaptiveLayerHeightThreshold, 0.0)
-                  assertEquals("inclusive", mapped.slicingTolerance)
-                  assertEquals(4, mapped.wallLineCount)
-                  assertEquals(1.6, mapped.wallThicknessMm, 0.0)
-                  assertEquals(7, mapped.topLayers)
-                  assertEquals(6, mapped.bottomLayers)
-                  assertEquals(1.4, mapped.topBottomThicknessMm, 0.0)
-                  assertEquals(3, mapped.initialBottomLayers)
-                  assertEquals(-0.1, mapped.holeHorizontalExpansionMm, 0.0)
-                  assertEquals(0.2, mapped.initialLayerHorizontalExpansionMm, 0.0)
-                  assertEquals("back", mapped.zSeamType)
-                  assertEquals(12.5, mapped.zSeamXmm, 0.0)
-                  assertEquals(220.0, mapped.zSeamYmm, 0.0)
-                  assertTrue(mapped.zSeamRelative)
-                  assertEquals("z_seam_corner_weighted", mapped.zSeamCorner)
-                  assertEquals("gyroid", mapped.infillPattern)
-                  assertFalse(mapped.zigZagConnectInfill)
-                  assertEquals(80.0, mapped.wallSpeedMmPerSecond, 0.0)
-                  assertEquals(45.0, mapped.outerWallSpeedMmPerSecond, 0.0)
-                  assertEquals(75.0, mapped.innerWallSpeedMmPerSecond, 0.0)
-                  assertEquals(140.0, mapped.infillSpeedMmPerSecond, 0.0)
-                  assertEquals(60.0, mapped.topBottomSpeedMmPerSecond, 0.0)
-                  assertEquals(220.0, mapped.travelSpeedMmPerSecond, 0.0)
-                  assertEquals(25.0, mapped.initialLayerSpeedMmPerSecond, 0.0)
-                  assertEquals(35.0, mapped.buildVolumeTemperatureC, 0.0)
-                  assertEquals(175.0, mapped.materialStandbyTemperatureC, 0.0)
-                  assertEquals(1.31, mapped.materialDensityGPerCm3, 0.0)
-                  assertEquals(4, mapped.materialAdhesionTendency)
-                  assertEquals(88, mapped.materialSurfaceEnergyPercent)
-                  assertEquals("Custom", mapped.materialBrand)
-                  assertEquals("PLA+", mapped.materialType)
-                  assertEquals("material-guid", mapped.materialGuid)
-                  assertEquals(1, mapped.enabledExtruderCount)
-                  assertEquals(15.0, mapped.initialFanSpeedPercent, 0.0)
-                  assertEquals(5, mapped.fanFullAtLayer)
-                  assertEquals(2.5, mapped.retractionMinimumTravelMm, 0.0)
-                  assertEquals("noskin", mapped.combingMode)
-                  assertTrue(mapped.avoidPrintedParts)
-                  assertEquals(0.8, mapped.travelAvoidDistanceMm, 0.0)
-                  assertEquals(0.4, mapped.zHopHeightMm, 0.0)
-                  assertTrue(mapped.coastingEnabled)
-                  assertEquals(0.08, mapped.coastingVolumeMm3, 0.0)
-                  assertEquals(1.2, mapped.coastingMinimumVolumeMm3, 0.0)
-                  assertEquals(92.0, mapped.coastingSpeedPercent, 0.0)
-                  assertEquals(0.8, mapped.supportInterfaceHeightMm, 0.0)
-                  assertEquals(3, mapped.skirtLineCount)
-                  assertEquals(10.0, mapped.brimWidthMm, 0.0)
-                  assertEquals(12.0, mapped.raftMarginMm, 0.0)
-                  assertTrue(mapped.ironingEnabled)
-                  assertTrue(mapped.ironingOnlyHighestLayer)
-                  assertEquals(12.0, mapped.ironingFlowPercent, 0.0)
-                  assertEquals(18.0, mapped.ironingSpeedMmPerSecond, 0.0)
-                  assertTrue(mapped.overriddenSettingKeys.isEmpty())
-                  assertFalse(mapped.zHopEnabled)
-              }
-          }
-          EOF
-
-          rm -f app/src/main/java/com/tomppi/enderslicer/profile/CuraProjectAudit.kt.rej
-          rm -f app/src/test/java/com/tomppi/enderslicer/profile/ExpandedSettingsMapperTest.kt.rej
-          test -z "$(find app/src -name '*.rej' -print)"
-          git diff --check
-          test -n "$(git status --short app/src/main app/src/test)"
-
-      - name: Restore normal CI and remove one-shot files
+      - name: Fetch and validate pinned Cura definitions
         run: |
-          git fetch origin fix/parser-memory-lifecycle
-          git show origin/fix/parser-memory-lifecycle:.github/workflows/build.yml > .github/workflows/build.yml
-          rm -f .github/workflows/export-source.yml
-          rm -f .cura-settings-publish-trigger
-          rm -f scripts/expose-cura-settings.patch
-          rm -f scripts/cura-settings-source.tar.gz.b64
-          rm -f scripts/cura-settings-source.part00 scripts/cura-settings-source.part01 scripts/cura-settings-source.part02 scripts/cura-settings-source.part03
-          rm -f scripts/cura-settings-piece00 scripts/cura-settings-piece01 scripts/cura-settings-piece02 scripts/cura-settings-piece03
-          rm -f scripts/cura-settings-piece04 scripts/cura-settings-piece05 scripts/cura-settings-piece06 scripts/cura-settings-piece07
+          chmod +x scripts/fetch-cura-resources.sh
+          scripts/fetch-cura-resources.sh
+          grep -q 'Cura resources: 5.11.0-beta.1' app/src/main/assets/cura/definitions/version.txt
+          for name in \
+            fdmprinter \
+            fdmextruder \
+            creality_base \
+            creality_base_extruder_0 \
+            creality_ender3; do
+            test -s "app/src/main/assets/cura/definitions/$name.def.json"
+          done
 
-      - name: Publish source commit
+      - name: Prepare and validate pinned BumpMesh workspace
         run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -A
-          git diff --cached --check
-          git commit -m 'feat: expose imported Cura profile settings'
-          git push origin HEAD:feature/expose-cura-profile-settings
+          gradle :app:prepareBumpMeshAssets --stacktrace
+          test -s app/src/main/assets/bumpmesh/index.html
+          test -s app/src/main/assets/bumpmesh/LICENSE
+          test -s app/src/main/assets/bumpmesh/android-bridge.js
+          test -s app/src/main/assets/bumpmesh/vendor/three/build/three.module.js
+          test -s app/src/main/assets/bumpmesh/vendor/three/LICENSE
+          test -s app/src/main/assets/bumpmesh/vendor/fflate/esm/browser.js
+          test -s app/src/main/assets/bumpmesh/vendor/fflate/LICENSE
+          test -s app/src/main/assets/bumpmesh/vendor/meshstep/dist/index.js
+          test -s app/src/main/assets/bumpmesh/vendor/meshstep/src/index.ts
+          test -s app/src/main/assets/bumpmesh/vendor/meshstep/LICENSE
+          grep -q 'format=2' app/src/main/assets/bumpmesh/.source-version
+          grep -q 'BumpMesh=a6ac179149b8a17c71a9469dd4cb6f866c0c01d1' app/src/main/assets/bumpmesh/.source-version
+          grep -q './vendor/three/build/three.module.js' app/src/main/assets/bumpmesh/index.html
+          grep -q 'android-bridge.js' app/src/main/assets/bumpmesh/index.html
+          grep -q '../vendor/meshstep/dist/index.js' app/src/main/assets/bumpmesh/js/stepWorker.js
+          grep -q '../vendor/three/build/three.module.js' app/src/main/assets/bumpmesh/js/threeCompat.js
+          ! grep -R 'https://cdn.jsdelivr.net/npm' \
+            app/src/main/assets/bumpmesh/index.html \
+            app/src/main/assets/bumpmesh/js
+
+      - name: Build and package CuraEngine ARM64
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/28.2.13676358
+          APP_JNILIBS_DIR: ${{ github.workspace }}/app/src/main/jniLibs
+        run: |
+          chmod +x scripts/build-curaengine-android.sh
+          set -o pipefail
+          scripts/build-curaengine-android.sh 2>&1 | tee curaengine-android-build.log
+          grep -q 'CuraEngine Android artifacts (5.11.0-beta.1)' curaengine-android-build.log
+          grep -q 'EnderSlicer: Cura.*frontend applies the complete affine' .build/CuraEngine/src/communication/CommandLine.cpp
+          grep -q 'EnderSlicer: resolved model values must live on the' .build/CuraEngine/src/communication/CommandLine.cpp
+          grep -q 'EnderSlicer: zero cool_min_temperature is a Cura frontend sentinel' .build/CuraEngine/src/LayerPlanBuffer.cpp
+          grep -q "Preserve the generator's inner-to-outer order" .build/CuraEngine/src/FffGcodeWriter.cpp
+          grep -q 'One centre is retained for the complete connected island' .build/CuraEngine/include/ArcOverhang.h
+          grep -q 'TYPE:ARC-OVERHANG' .build/CuraEngine/src/LayerPlan.cpp
+          grep -q 'is_arc_overhang' .build/CuraEngine/include/GCodePathConfig.h
+          test -s .build/CuraEngine/src/ArcOverhang.cpp
+          test -s app/src/main/jniLibs/arm64-v8a/libcuraengine_exec.so
+          file app/src/main/jniLibs/arm64-v8a/libcuraengine_exec.so
+          readelf -d app/src/main/jniLibs/arm64-v8a/libcuraengine_exec.so | tee curaengine-needed.log
+          ! grep -q 'libc++_shared.so' curaengine-needed.log
+
+      - name: Unit tests and complete definition audit
+        run: |
+          set -o pipefail
+          gradle :app:testDebugUnitTest --stacktrace 2>&1 | tee unit-tests.log
+
+      - name: Build debug APK
+        run: |
+          set -o pipefail
+          gradle :app:assembleDebug --stacktrace 2>&1 | tee apk-build.log
+          unzip -l app/build/outputs/apk/debug/app-debug.apk | tee apk-contents.log
+          grep -q 'lib/arm64-v8a/libcuraengine_exec.so' apk-contents.log
+          grep -q 'assets/cura/definitions/version.txt' apk-contents.log
+          grep -q 'assets/bumpmesh/index.html' apk-contents.log
+          grep -q 'assets/bumpmesh/LICENSE' apk-contents.log
+          grep -q 'assets/bumpmesh/android-bridge.js' apk-contents.log
+          grep -q 'assets/bumpmesh/vendor/three/build/three.module.js' apk-contents.log
+          grep -q 'assets/bumpmesh/vendor/meshstep/src/index.ts' apk-contents.log
+          grep -q 'assets/bumpmesh/vendor/meshstep/LICENSE' apk-contents.log
+          for name in \
+            fdmprinter \
+            fdmextruder \
+            creality_base \
+            creality_base_extruder_0 \
+            creality_ender3; do
+            grep -q "assets/cura/definitions/$name.def.json" apk-contents.log
+          done
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: enderslicercura-0.9.0-dev-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Upload build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: enderslicercura-build-logs
+          path: |
+            curaengine-android-build.log
+            curaengine-needed.log
+            unit-tests.log
+            apk-build.log
+            apk-contents.log
+          if-no-files-found: ignore
