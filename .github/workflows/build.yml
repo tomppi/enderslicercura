@@ -35,7 +35,10 @@ jobs:
           echo 'f6ee35764f1024d29d4bdd336f4f25db4451d8e884a82722c922fc55103adf25  /tmp/cura-settings-source.tar.gz.b64' | sha256sum -c -
           base64 -d /tmp/cura-settings-source.tar.gz.b64 > /tmp/cura-settings-source.tar.gz
           echo 'a50fd5582586e903d3375ae1f89a8a22e34cb2b9a62df515667fdf659de01a06  /tmp/cura-settings-source.tar.gz' | sha256sum -c -
-          test -z "$(tar -tzf /tmp/cura-settings-source.tar.gz | grep -E '(^/|(^|/)\.\.(/|$))')"
+          if tar -tzf /tmp/cura-settings-source.tar.gz | grep -Eq '(^/|(^|/)\.\.(/|$))'; then
+            echo 'Unsafe archive path detected' >&2
+            exit 1
+          fi
           tar -xzf /tmp/cura-settings-source.tar.gz -C .
           git diff --check
       - name: Restore normal CI and remove one-shot files
