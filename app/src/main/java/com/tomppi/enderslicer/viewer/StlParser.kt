@@ -71,25 +71,46 @@ object StlParser {
                     var nx = buffer.float
                     var ny = buffer.float
                     var nz = buffer.float
-                    val vertices = FloatArray(9)
-                    for (index in vertices.indices) vertices[index] = buffer.float
+                    val x0 = buffer.float
+                    val y0 = buffer.float
+                    val z0 = buffer.float
+                    val x1 = buffer.float
+                    val y1 = buffer.float
+                    val z1 = buffer.float
+                    val x2 = buffer.float
+                    val y2 = buffer.float
+                    val z2 = buffer.float
                     buffer.short
 
+                    require(
+                        x0.isFinite() && y0.isFinite() && z0.isFinite() &&
+                            x1.isFinite() && y1.isFinite() && z1.isFinite() &&
+                            x2.isFinite() && y2.isFinite() && z2.isFinite(),
+                    ) { "STL contains non-finite coordinates" }
+
                     if (!normalIsUsable(nx, ny, nz)) {
-                        val normal = computeNormal(vertices)
-                        nx = normal[0]
-                        ny = normal[1]
-                        nz = normal[2]
+                        val ax = x1 - x0
+                        val ay = y1 - y0
+                        val az = z1 - z0
+                        val bx = x2 - x0
+                        val by = y2 - y0
+                        val bz = z2 - z0
+                        nx = ay * bz - az * by
+                        ny = az * bx - ax * bz
+                        nz = ax * by - ay * bx
+                        val length = sqrt(nx * nx + ny * ny + nz * nz)
+                        if (length > NORMAL_EPSILON) {
+                            nx /= length
+                            ny /= length
+                            nz /= length
+                        } else {
+                            nx = 0f
+                            ny = 0f
+                            nz = 0f
+                        }
                     }
 
-                    for (vertex in 0 until 3) {
-                        val base = vertex * 3
-                        val x = vertices[base]
-                        val y = vertices[base + 1]
-                        val z = vertices[base + 2]
-                        require(x.isFinite() && y.isFinite() && z.isFinite()) {
-                            "STL contains non-finite coordinates"
-                        }
+                    fun writeVertex(x: Float, y: Float, z: Float) {
                         floats[out++] = x
                         floats[out++] = y
                         floats[out++] = z
@@ -98,6 +119,9 @@ object StlParser {
                         floats[out++] = nz
                         bounds.include(x, y, z)
                     }
+                    writeVertex(x0, y0, z0)
+                    writeVertex(x1, y1, z1)
+                    writeVertex(x2, y2, z2)
                 }
                 remaining -= records
             }
@@ -107,79 +131,208 @@ object StlParser {
     }
 
     private fun parseAscii(name: String, file: File, maxTriangles: Int): StlMesh {
-        var vertexLines = 0L
-        file.useLines { lines ->
-            lines.forEach { raw ->
-                val tokens = raw.trim().split(WHITESPACE)
-                if (tokens.size >= 4 && tokens[0].equals("vertex", true)) {
-                    vertexLines++
-                    require(vertexLines <= maxTriangles.toLong() * 3L) {
-                        "STL has more than ${MeshTriangleLimits.formatCount(maxTriangles)} triangles"
-                    }
-                }
-            }
-        }
-        require(vertexLines > 0L && vertexLines % 3L == 0L) { "No complete triangles were found in the STL" }
-        val triangleCount = (vertexLines / 3L).toInt()
+        val triangleCount = scanAscii(file, maxTriangles, consumer = null)
+        require(triangleCount > 0) { "No complete triangles were found in the STL" }
         val floats = FloatArray(Math.multiplyExact(triangleCount, FLOATS_PER_TRIANGLE))
         val bounds = BoundsAccumulator()
-        var currentNormal = floatArrayOf(0f, 0f, 0f)
-        val triangleVertices = FloatArray(9)
-        var vertexCount = 0
         var out = 0
 
-        file.useLines { lines ->
-            lines.forEach { raw ->
-                val tokens = raw.trim().split(WHITESPACE)
-                when {
-                    tokens.size >= 5 && tokens[0].equals("facet", true) && tokens[1].equals("normal", true) -> {
-                        currentNormal = floatArrayOf(
-                            tokens[2].toFloatOrNull() ?: 0f,
-                            tokens[3].toFloatOrNull() ?: 0f,
-                            tokens[4].toFloatOrNull() ?: 0f,
-                        )
-                    }
-
-                    tokens.size >= 4 && tokens[0].equals("vertex", true) -> {
-                        val x = tokens[1].toFloatOrNull() ?: error("Invalid ASCII STL vertex")
-                        val y = tokens[2].toFloatOrNull() ?: error("Invalid ASCII STL vertex")
-                        val z = tokens[3].toFloatOrNull() ?: error("Invalid ASCII STL vertex")
-                        val base = vertexCount * 3
-                        triangleVertices[base] = x
-                        triangleVertices[base + 1] = y
-                        triangleVertices[base + 2] = z
-                        vertexCount++
-
-                        if (vertexCount == 3) {
-                            var normal = currentNormal
-                            if (!normalIsUsable(normal[0], normal[1], normal[2])) {
-                                normal = computeNormal(triangleVertices)
-                            }
-                            for (vertex in 0 until 3) {
-                                val offset = vertex * 3
-                                val vx = triangleVertices[offset]
-                                val vy = triangleVertices[offset + 1]
-                                val vz = triangleVertices[offset + 2]
-                                require(vx.isFinite() && vy.isFinite() && vz.isFinite()) {
-                                    "STL contains non-finite coordinates"
-                                }
-                                floats[out++] = vx
-                                floats[out++] = vy
-                                floats[out++] = vz
-                                floats[out++] = normal[0]
-                                floats[out++] = normal[1]
-                                floats[out++] = normal[2]
-                                bounds.include(vx, vy, vz)
-                            }
-                            vertexCount = 0
+        val parsedCount = scanAscii(
+            file = file,
+            maxTriangles = maxTriangles,
+            consumer = object : TriangleConsumer {
+                override fun accept(
+                    declaredNx: Double,
+                    declaredNy: Double,
+                    declaredNz: Double,
+                    x0: Double,
+                    y0: Double,
+                    z0: Double,
+                    x1: Double,
+                    y1: Double,
+                    z1: Double,
+                    x2: Double,
+                    y2: Double,
+                    z2: Double,
+                ) {
+                    var nx = declaredNx
+                    var ny = declaredNy
+                    var nz = declaredNz
+                    if (!normalIsUsable(nx, ny, nz)) {
+                        val ax = x1 - x0
+                        val ay = y1 - y0
+                        val az = z1 - z0
+                        val bx = x2 - x0
+                        val by = y2 - y0
+                        val bz = z2 - z0
+                        nx = ay * bz - az * by
+                        ny = az * bx - ax * bz
+                        nz = ax * by - ay * bx
+                        val length = sqrt(nx * nx + ny * ny + nz * nz)
+                        if (length > NORMAL_EPSILON_DOUBLE) {
+                            nx /= length
+                            ny /= length
+                            nz /= length
+                        } else {
+                            nx = 0.0
+                            ny = 0.0
+                            nz = 0.0
                         }
                     }
+                    val nxf = nx.toFloat()
+                    val nyf = ny.toFloat()
+                    val nzf = nz.toFloat()
+
+                    fun writeVertex(x: Double, y: Double, z: Double) {
+                        val xf = x.toFloat()
+                        val yf = y.toFloat()
+                        val zf = z.toFloat()
+                        require(xf.isFinite() && yf.isFinite() && zf.isFinite()) {
+                            "ASCII STL coordinate is outside the supported numeric range"
+                        }
+                        floats[out++] = xf
+                        floats[out++] = yf
+                        floats[out++] = zf
+                        floats[out++] = nxf
+                        floats[out++] = nyf
+                        floats[out++] = nzf
+                        bounds.include(xf, yf, zf)
+                    }
+                    writeVertex(x0, y0, z0)
+                    writeVertex(x1, y1, z1)
+                    writeVertex(x2, y2, z2)
+                }
+            },
+        )
+        check(parsedCount == triangleCount && out == floats.size) {
+            "ASCII STL changed while it was being parsed"
+        }
+        return StlMesh(name, floats, triangleCount, bounds.finish())
+    }
+
+    /**
+     * Parses the actual ASCII STL grammar instead of globally grouping every
+     * three lines beginning with `vertex`. The optional consumer keeps the
+     * counting and materialization passes on exactly the same validation path.
+     */
+    private fun scanAscii(file: File, maxTriangles: Int, consumer: TriangleConsumer?): Int {
+        var state = AsciiState.EXPECT_FACET_OR_SOLID
+        var wrapperOpen = false
+        var wrapperClosed = false
+        var sawFacet = false
+        var triangleCount = 0
+        var vertexCount = 0
+        var nx = 0.0
+        var ny = 0.0
+        var nz = 0.0
+        var x0 = 0.0
+        var y0 = 0.0
+        var z0 = 0.0
+        var x1 = 0.0
+        var y1 = 0.0
+        var z1 = 0.0
+        var x2 = 0.0
+        var y2 = 0.0
+        var z2 = 0.0
+
+        file.bufferedReader().useLines { lines ->
+            lines.forEachIndexed { index, raw ->
+                val lineNumber = index + 1
+                val trimmed = raw.trim()
+                if (trimmed.isEmpty()) return@forEachIndexed
+                require(!wrapperClosed) { "Unexpected content after endsolid at line $lineNumber" }
+                val tokens = trimmed.split(WHITESPACE)
+                val keyword = tokens.first().lowercase()
+
+                when (keyword) {
+                    "solid" -> {
+                        require(state == AsciiState.EXPECT_FACET_OR_SOLID && !wrapperOpen && !sawFacet) {
+                            "Unexpected solid at line $lineNumber"
+                        }
+                        wrapperOpen = true
+                        state = AsciiState.EXPECT_FACET
+                    }
+                    "facet" -> {
+                        require(
+                            state == AsciiState.EXPECT_FACET_OR_SOLID ||
+                                state == AsciiState.EXPECT_FACET,
+                        ) { "Unexpected facet at line $lineNumber" }
+                        require(tokens.size == 5 && tokens[1].equals("normal", ignoreCase = true)) {
+                            "Malformed facet normal at line $lineNumber"
+                        }
+                        nx = parseFinite(tokens[2], "facet normal", lineNumber)
+                        ny = parseFinite(tokens[3], "facet normal", lineNumber)
+                        nz = parseFinite(tokens[4], "facet normal", lineNumber)
+                        sawFacet = true
+                        vertexCount = 0
+                        state = AsciiState.EXPECT_OUTER_LOOP
+                    }
+                    "outer" -> {
+                        require(state == AsciiState.EXPECT_OUTER_LOOP) {
+                            "Unexpected outer loop at line $lineNumber"
+                        }
+                        require(tokens.size == 2 && tokens[1].equals("loop", ignoreCase = true)) {
+                            "Malformed outer loop at line $lineNumber"
+                        }
+                        state = AsciiState.EXPECT_VERTEX
+                    }
+                    "vertex" -> {
+                        require(state == AsciiState.EXPECT_VERTEX && vertexCount < 3) {
+                            "Vertex outside a three-vertex outer loop at line $lineNumber"
+                        }
+                        require(tokens.size == 4) { "Malformed vertex at line $lineNumber" }
+                        val x = parseFinite(tokens[1], "vertex", lineNumber)
+                        val y = parseFinite(tokens[2], "vertex", lineNumber)
+                        val z = parseFinite(tokens[3], "vertex", lineNumber)
+                        when (vertexCount) {
+                            0 -> { x0 = x; y0 = y; z0 = z }
+                            1 -> { x1 = x; y1 = y; z1 = z }
+                            2 -> { x2 = x; y2 = y; z2 = z }
+                        }
+                        vertexCount++
+                        if (vertexCount == 3) state = AsciiState.EXPECT_END_LOOP
+                    }
+                    "endloop" -> {
+                        require(state == AsciiState.EXPECT_END_LOOP && tokens.size == 1) {
+                            "Facet must contain exactly three vertices before endloop at line $lineNumber"
+                        }
+                        state = AsciiState.EXPECT_END_FACET
+                    }
+                    "endfacet" -> {
+                        require(state == AsciiState.EXPECT_END_FACET && tokens.size == 1) {
+                            "Unexpected endfacet at line $lineNumber"
+                        }
+                        triangleCount++
+                        require(triangleCount <= maxTriangles) {
+                            "STL has more than ${MeshTriangleLimits.formatCount(maxTriangles)} triangles"
+                        }
+                        consumer?.accept(nx, ny, nz, x0, y0, z0, x1, y1, z1, x2, y2, z2)
+                        state = AsciiState.EXPECT_FACET
+                    }
+                    "endsolid" -> {
+                        require(wrapperOpen && state == AsciiState.EXPECT_FACET) {
+                            "Unexpected endsolid at line $lineNumber"
+                        }
+                        wrapperClosed = true
+                    }
+                    else -> error("Unsupported ASCII STL token '$keyword' at line $lineNumber")
                 }
             }
         }
 
-        require(vertexCount == 0 && out == floats.size) { "ASCII STL ended with an incomplete triangle" }
-        return StlMesh(name, floats, triangleCount, bounds.finish())
+        require(
+            state == AsciiState.EXPECT_FACET ||
+                (!sawFacet && state == AsciiState.EXPECT_FACET_OR_SOLID),
+        ) { "ASCII STL ended inside an incomplete facet" }
+        require(!wrapperOpen || wrapperClosed) { "ASCII STL is missing endsolid" }
+        return triangleCount
+    }
+
+    private fun parseFinite(token: String, subject: String, lineNumber: Int): Double {
+        val value = token.toDoubleOrNull()
+            ?: throw IllegalArgumentException("Invalid $subject number '$token' at line $lineNumber")
+        require(value.isFinite()) { "Non-finite $subject at line $lineNumber" }
+        return value
     }
 
     private fun readFully(channel: FileChannel, buffer: ByteBuffer) {
@@ -188,27 +341,37 @@ object StlParser {
         }
     }
 
-    private fun computeNormal(vertices: FloatArray): FloatArray {
-        val ax = vertices[3] - vertices[0]
-        val ay = vertices[4] - vertices[1]
-        val az = vertices[5] - vertices[2]
-        val bx = vertices[6] - vertices[0]
-        val by = vertices[7] - vertices[1]
-        val bz = vertices[8] - vertices[2]
-        var nx = ay * bz - az * by
-        var ny = az * bx - ax * bz
-        var nz = ax * by - ay * bx
-        val length = sqrt(nx * nx + ny * ny + nz * nz)
-        if (length > 1e-12f) {
-            nx /= length
-            ny /= length
-            nz /= length
-        }
-        return floatArrayOf(nx, ny, nz)
+    private fun normalIsUsable(x: Float, y: Float, z: Float): Boolean =
+        x.isFinite() && y.isFinite() && z.isFinite() && (x * x + y * y + z * z) > NORMAL_EPSILON
+
+    private fun normalIsUsable(x: Double, y: Double, z: Double): Boolean =
+        x.isFinite() && y.isFinite() && z.isFinite() && (x * x + y * y + z * z) > NORMAL_EPSILON_DOUBLE
+
+    private interface TriangleConsumer {
+        fun accept(
+            declaredNx: Double,
+            declaredNy: Double,
+            declaredNz: Double,
+            x0: Double,
+            y0: Double,
+            z0: Double,
+            x1: Double,
+            y1: Double,
+            z1: Double,
+            x2: Double,
+            y2: Double,
+            z2: Double,
+        )
     }
 
-    private fun normalIsUsable(x: Float, y: Float, z: Float): Boolean =
-        x.isFinite() && y.isFinite() && z.isFinite() && (x * x + y * y + z * z) > 1e-12f
+    private enum class AsciiState {
+        EXPECT_FACET_OR_SOLID,
+        EXPECT_FACET,
+        EXPECT_OUTER_LOOP,
+        EXPECT_VERTEX,
+        EXPECT_END_LOOP,
+        EXPECT_END_FACET,
+    }
 
     private class BoundsAccumulator {
         private var minX = Float.POSITIVE_INFINITY
@@ -237,5 +400,7 @@ object StlParser {
     private const val BINARY_BLOCK_TRIANGLES = 4_096
     private const val STL_HEADER_BYTES = 84L
     private const val STL_TRIANGLE_BYTES = 50L
+    private const val NORMAL_EPSILON = 1e-12f
+    private const val NORMAL_EPSILON_DOUBLE = 1e-18
     private val WHITESPACE = Regex("\\s+")
 }
