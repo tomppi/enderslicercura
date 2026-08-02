@@ -25,8 +25,11 @@ data class GcodeLayerPreview(
         val segments: FloatArray,
         val supportSegmentCount: Int,
         val supportInterfaceSegmentCount: Int,
+        /** Source paths before preview sampling. This remains authoritative for event placement. */
+        val sourceSegmentCount: Int = segments.size / VALUES_PER_SEGMENT,
     ) {
         val segmentCount: Int get() = segments.size / VALUES_PER_SEGMENT
+        val hasPrintablePaths: Boolean get() = sourceSegmentCount > 0
     }
 
     enum class Feature(val code: Int) {
@@ -50,6 +53,12 @@ data class GcodeLayerPreview(
 
 object GcodeLayerPreviewParser {
     private const val MAX_SEGMENTS = 800_000
+    private val RARE_FEATURE_PRIORITY = listOf(
+        GcodeLayerPreview.Feature.ARC_OVERHANG,
+        GcodeLayerPreview.Feature.SUPPORT_INTERFACE,
+        GcodeLayerPreview.Feature.SUPPORT,
+        GcodeLayerPreview.Feature.ADHESION,
+    )
 
     fun parse(file: File): GcodeLayerPreview = parse(file, MAX_SEGMENTS)
 
@@ -57,8 +66,11 @@ object GcodeLayerPreviewParser {
         require(file.isFile && file.length() > 0L) { "Generated G-code is not available for layer preview" }
         require(maxSegments > 0) { "Layer preview segment limit must be positive" }
 
-        val sourceSegmentCount = countPrintableSegments(file)
-        require(sourceSegmentCount > 0) { "No printable layer paths were found in the G-code" }
+        val source = scanSource(file)
+        require(source.totalSegmentCount > 0) { "No printable layer paths were found in the G-code" }
+        val reservedIndices = reserveRareFeatureSamples(source, maxSegments)
+        val remainingLimit = (maxSegments - reservedIndices.size).coerceAtLeast(0)
+        val remainingSourceCount = source.totalSegmentCount - reservedIndices.size
 
         val layers = mutableListOf<GcodeLayerPreview.Layer>()
         var currentLayerNumber: Int? = null
@@ -82,8 +94,9 @@ object GcodeLayerPreviewParser {
         var minSpeed = Float.POSITIVE_INFINITY
         var maxSpeed = Float.NEGATIVE_INFINITY
         var sourceSegmentIndex = 0
+        var nonReservedSourceIndex = 0
         var retainedSegments = 0
-        val truncated = sourceSegmentCount > maxSegments
+        val truncated = source.totalSegmentCount > maxSegments
 
         fun finishLayer() {
             val number = currentLayerNumber ?: return
@@ -94,6 +107,7 @@ object GcodeLayerPreviewParser {
                 segments = currentSegments.toArray(),
                 supportSegmentCount = currentSupportCount,
                 supportInterfaceSegmentCount = currentSupportInterfaceCount,
+                sourceSegmentCount = source.layerSegmentCounts[number] ?: 0,
             )
             currentSegments = FloatAccumulator()
             currentSupportCount = 0
@@ -153,12 +167,16 @@ object GcodeLayerPreviewParser {
                             maxSpeed = maxOf(maxSpeed, speed)
                         }
 
-                        val retain = shouldRetainSegment(
-                            sourceIndex = sourceSegmentIndex,
-                            sourceCount = sourceSegmentCount,
-                            retainedLimit = maxSegments,
-                        )
-                        sourceSegmentIndex++
+                        val currentSourceIndex = sourceSegmentIndex++
+                        val retain = if (currentSourceIndex in reservedIndices) {
+                            true
+                        } else {
+                            shouldRetainSegment(
+                                sourceIndex = nonReservedSourceIndex++,
+                                sourceCount = remainingSourceCount,
+                                retainedLimit = remainingLimit,
+                            )
+                        }
                         if (!retain) return@forEach
 
                         currentSegments.add(
@@ -208,19 +226,27 @@ object GcodeLayerPreviewParser {
         )
     }
 
-    private fun countPrintableSegments(file: File): Int {
+    private fun scanSource(file: File): SourceScan {
         var currentLayerNumber: Int? = null
+        var feature = GcodeLayerPreview.Feature.OTHER
         val modalState = GcodeModalState()
         var x = 0.0
         var y = 0.0
         var e = 0.0
         var count = 0
+        val layerCounts = linkedMapOf<Int, Int>()
+        val firstFeatureIndices = IntArray(GcodeLayerPreview.Feature.entries.size) { -1 }
 
         file.bufferedReader().useLines { lines ->
             lines.forEach { rawLine ->
                 val line = rawLine.trimStart()
                 if (line.startsWith(";LAYER:")) {
                     currentLayerNumber = line.substringAfter(':').trim().toIntOrNull()
+                    feature = GcodeLayerPreview.Feature.OTHER
+                    return@forEach
+                }
+                if (line.startsWith(";TYPE:")) {
+                    feature = featureFromType(line.substringAfter(':').trim())
                     return@forEach
                 }
 
@@ -244,14 +270,29 @@ object GcodeLayerPreviewParser {
                         y = nextY
                         e = nextE
 
-                        if (currentLayerNumber != null && deltaE > 0.0 && (startX != nextX || startY != nextY)) {
+                        val layerNumber = currentLayerNumber
+                        if (layerNumber != null && deltaE > 0.0 && (startX != nextX || startY != nextY)) {
+                            if (firstFeatureIndices[feature.ordinal] < 0) {
+                                firstFeatureIndices[feature.ordinal] = count
+                            }
+                            layerCounts[layerNumber] = (layerCounts[layerNumber] ?: 0) + 1
                             count++
                         }
                     }
                 }
             }
         }
-        return count
+        return SourceScan(count, layerCounts, firstFeatureIndices)
+    }
+
+    private fun reserveRareFeatureSamples(source: SourceScan, maxSegments: Int): Set<Int> {
+        val selected = linkedSetOf<Int>()
+        for (feature in RARE_FEATURE_PRIORITY) {
+            if (selected.size >= maxSegments) break
+            val sourceIndex = source.firstFeatureIndices[feature.ordinal]
+            if (sourceIndex >= 0) selected += sourceIndex
+        }
+        return selected
     }
 
     private fun shouldRetainSegment(
@@ -259,6 +300,7 @@ object GcodeLayerPreviewParser {
         sourceCount: Int,
         retainedLimit: Int,
     ): Boolean {
+        if (retainedLimit <= 0 || sourceCount <= 0) return false
         if (sourceCount <= retainedLimit) return true
         val before = sourceIndex.toLong() * retainedLimit / sourceCount
         val after = (sourceIndex.toLong() + 1L) * retainedLimit / sourceCount
@@ -277,6 +319,12 @@ object GcodeLayerPreviewParser {
             else -> GcodeLayerPreview.Feature.OTHER
         }
     }
+
+    private data class SourceScan(
+        val totalSegmentCount: Int,
+        val layerSegmentCounts: Map<Int, Int>,
+        val firstFeatureIndices: IntArray,
+    )
 
     private class FloatAccumulator(initialCapacity: Int = 6 * 2048) {
         private var values = FloatArray(initialCapacity)
