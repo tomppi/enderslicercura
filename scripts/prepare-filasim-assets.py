@@ -65,6 +65,7 @@ def patch_android_export(store_file: pathlib.Path) -> None:
       const bytes = await engine.exportStls();
       const state = get();
       const bridge = (window as any).EnderSlicerBridge;
+      // EnderSlicerBridge captureModifierZip
       if (bridge?.captureModifierZip) {
         if (!state.optSummary) throw new Error("No optimized infill result is available");
         await bridge.captureModifierZip(bytes, {
@@ -97,6 +98,7 @@ def patch_android_export(store_file: pathlib.Path) -> None:
     try {
       const bytes = await engine.exportSolidStl();
       const bridge = (window as any).EnderSlicerBridge;
+      // EnderSlicerBridge captureOptimizedShape
       if (bridge?.captureOptimizedShape) {
         await bridge.captureOptimizedShape(bytes);
         return;
@@ -107,6 +109,19 @@ def patch_android_export(store_file: pathlib.Path) -> None:
         if old_shape not in text:
             raise RuntimeError("Unable to locate filaSim topology-shape export for Android patching")
         text = text.replace(old_shape, new_shape)
+
+    if "EnderSlicerBridge captureModifierZip" not in text:
+        text = text.replace(
+            "      if (bridge?.captureModifierZip) {",
+            "      // EnderSlicerBridge captureModifierZip\n      if (bridge?.captureModifierZip) {",
+            1,
+        )
+    if "EnderSlicerBridge captureOptimizedShape" not in text:
+        text = text.replace(
+            "      if (bridge?.captureOptimizedShape) {",
+            "      // EnderSlicerBridge captureOptimizedShape\n      if (bridge?.captureOptimizedShape) {",
+            1,
+        )
 
     store_file.write_text(text, encoding="utf-8")
 
