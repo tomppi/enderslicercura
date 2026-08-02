@@ -11,6 +11,7 @@
 #include "geometry/ClosedPolyline.h"
 #include "geometry/LinesSet.h"
 #include "geometry/OpenPolyline.h"
+#include "geometry/SingleShape.h"
 
 namespace cura
 {
@@ -43,6 +44,12 @@ bool appendIsland(
     const Shape unsupported = island.difference(supported_region);
     if (unsupported.empty())
     {
+        return false;
+    }
+    if (parameters.minimum_width > 0 && unsupported.offset(-parameters.minimum_width / 2).empty())
+    {
+        // A region narrower than the requested printable width stays on Cura's
+        // normal bridge path instead of producing fragile isolated wavefronts.
         return false;
     }
 
