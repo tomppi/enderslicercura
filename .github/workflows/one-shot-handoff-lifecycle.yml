@@ -24,6 +24,15 @@ jobs:
         shell: bash
         run: |
           set +e
+          tar -czf handoff-original-sources.tar.gz \
+            app/src/main/java/com/tomppi/enderslicer/data/WorkspaceStateStore.kt \
+            app/src/main/java/com/tomppi/enderslicer/viewer/ModelSurfaceView.kt \
+            app/src/main/java/com/tomppi/enderslicer/engine/CuraEngineRunner.kt \
+            app/src/main/java/com/tomppi/enderslicer/ui/LayerPreviewView.kt \
+            app/src/main/java/com/tomppi/enderslicer/ui/IntegratedEnderSlicerApp.kt \
+            app/src/main/java/com/tomppi/enderslicer/ui/EnderSlicerApp.kt \
+            app/src/main/java/com/tomppi/enderslicer/ui/MainViewModel.kt \
+            app/src/main/java/com/tomppi/enderslicer/model/PlanarPatchSelector.kt
           python3 scripts/prepare_handoff_patcher.py > handoff-patch-output.txt 2>&1
           status=$?
           if [ "$status" -eq 0 ]; then
@@ -31,10 +40,16 @@ jobs:
             status=$?
           fi
           if [ "$status" -eq 0 ]; then
+            python3 scripts/finalize_handoff_patched_sources.py >> handoff-patch-output.txt 2>&1
+            status=$?
+          fi
+          if [ "$status" -eq 0 ]; then
             python3 scripts/package_handoff_patched_sources.py >> handoff-patch-output.txt 2>&1
             status=$?
           fi
-          if [ "$status" -ne 0 ]; then
+          if [ "$status" -eq 0 ]; then
+            tar -czf handoff-patched-tree.tar.gz app/src/main/java app/src/test app/build.gradle.kts build.gradle.kts
+          else
             cp handoff-patch-output.txt handoff-patch-error.txt
           fi
           echo "status=$status" >> "$GITHUB_OUTPUT"
@@ -48,6 +63,8 @@ jobs:
             handoff-patch-output.txt
             handoff-patch-error.txt
             handoff-patched-sources.b64
+            handoff-original-sources.tar.gz
+            handoff-patched-tree.tar.gz
           if-no-files-found: error
       - name: Require exact guarded patch
         run: test "${{ steps.patch.outputs.status }}" -eq 0
