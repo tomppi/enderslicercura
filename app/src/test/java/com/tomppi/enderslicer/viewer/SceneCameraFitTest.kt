@@ -75,6 +75,26 @@ class SceneCameraFitTest {
     }
 
     @Test
+    fun smallModelKeepsUsefulDepthBufferPrecision() {
+        val bounds = MeshBounds(
+            minX = 100f,
+            minY = 105f,
+            minZ = 0f,
+            maxX = 130f,
+            maxY = 125f,
+            maxZ = 27.5f,
+        )
+
+        val fit = SceneCameraFit.calculate(printer, bounds, 0.8f, 1f, 42f)
+
+        assertTrue("Near plane must not collapse to the emergency minimum", fit.nearPlane > 1f)
+        assertTrue(
+            "A tight far/near ratio prevents hidden triangles bleeding through the shell",
+            fit.farPlane / fit.nearPlane < 100f,
+        )
+    }
+
+    @Test
     fun displacedModelChangesSceneCenterWithoutBeingPulledBackToTheBed() {
         val bounds = MeshBounds(
             minX = 300f,
