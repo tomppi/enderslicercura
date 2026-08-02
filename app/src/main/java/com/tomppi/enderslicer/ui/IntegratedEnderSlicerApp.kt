@@ -15,12 +15,16 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -63,6 +67,7 @@ fun IntegratedEnderSlicerApp(
     var smartInfillPackage by remember { mutableStateOf(smartInfillStore.loadActive()) }
     var octoPrintOpen by rememberSaveable { mutableStateOf(false) }
     var smartInfillOpen by rememberSaveable { mutableStateOf(false) }
+    var plateMenuExpanded by rememberSaveable { mutableStateOf(false) }
 
     fun deleteHandoff(uri: Uri) {
         runCatching { context.contentResolver.delete(uri, null, null) }
@@ -263,16 +268,58 @@ fun IntegratedEnderSlicerApp(
         }
     }
 
+    val smartSummary = smartInfillPackage?.summary
+    val smartInfillMenuLabel = if (smartSummary == null) {
+        "Smart Infill"
+    } else {
+        "Smart Infill ${smartSummary.baseDensityPercent.toInt()}→${smartSummary.modifierDensitiesPercent.maxOrNull() ?: smartSummary.baseDensityPercent.toInt()}%"
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
         EnderSlicerApp(slicerViewModel)
-        ExtendedFloatingActionButton(
-            onClick = ::clearBuildPlate,
+
+        // Keep model-specific actions in a normal top-app-bar menu. OctoPrint is
+        // intentionally the only floating action button over the model viewer.
+        Box(
             modifier = Modifier
-                .align(Alignment.TopStart)
-                .padding(top = 72.dp, start = 12.dp),
+                .align(Alignment.TopEnd)
+                .statusBarsPadding()
+                .padding(end = 72.dp),
         ) {
-            Text("Clear plate")
+            TextButton(onClick = { plateMenuExpanded = true }) {
+                Text("Plate")
+            }
+            DropdownMenu(
+                expanded = plateMenuExpanded,
+                onDismissRequest = { plateMenuExpanded = false },
+            ) {
+                DropdownMenuItem(
+                    text = { Text(smartInfillMenuLabel) },
+                    onClick = {
+                        plateMenuExpanded = false
+                        if (smartInfillPackage == null) {
+                            launchSmartInfill()
+                        } else {
+                            smartInfillOpen = true
+                        }
+                    },
+                    enabled = slicerState.mesh != null && !slicerState.isBusy,
+                )
+                DropdownMenuItem(
+                    text = { Text("Clear plate") },
+                    onClick = {
+                        plateMenuExpanded = false
+                        clearBuildPlate()
+                    },
+                    enabled = !slicerState.isBusy && (
+                        slicerState.mesh != null ||
+                            slicerState.gcodePath != null ||
+                            smartInfillPackage != null
+                        ),
+                )
+            }
         }
+
         ExtendedFloatingActionButton(
             onClick = { octoPrintOpen = true },
             modifier = Modifier
@@ -286,29 +333,6 @@ fun IntegratedEnderSlicerApp(
                     octoPrintState.isTransitioning -> "OctoPrint busy"
                     octoPrintState.isReady -> "OctoPrint"
                     else -> "Set up OctoPrint"
-                },
-            )
-        }
-        ExtendedFloatingActionButton(
-            onClick = {
-                if (slicerState.isBusy) {
-                    Toast.makeText(context, "Finish the current operation first", Toast.LENGTH_SHORT).show()
-                } else if (smartInfillPackage == null) {
-                    launchSmartInfill()
-                } else {
-                    smartInfillOpen = true
-                }
-            },
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(top = 72.dp, end = 12.dp),
-        ) {
-            val summary = smartInfillPackage?.summary
-            Text(
-                if (summary == null) {
-                    "Smart Infill"
-                } else {
-                    "Smart ${summary.baseDensityPercent.toInt()}→${summary.modifierDensitiesPercent.maxOrNull() ?: summary.baseDensityPercent.toInt()}%"
                 },
             )
         }
