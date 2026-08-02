@@ -3,6 +3,7 @@ package com.tomppi.enderslicer.profile
 import com.tomppi.enderslicer.calibration.CalibrationSliceState
 import com.tomppi.enderslicer.engine.PrinterEnvelope
 import com.tomppi.enderslicer.smartinfill.SmartInfillModifier
+import com.tomppi.enderslicer.smartinfill.SmartInfillRuntime
 import com.tomppi.enderslicer.smartinfill.requireValidBinaryStl
 import com.tomppi.enderslicer.viewer.StlMeshWriter
 import com.tomppi.enderslicer.viewer.StlSliceTransform
@@ -26,6 +27,11 @@ internal object CuraResolvedSettingsWriter {
         require(modelFile.isFile && modelFile.length() > 0L) {
             "Resolved Cura STL is missing or empty: ${modelFile.absolutePath}"
         }
+        val effectiveSmartInfillModifiers = if (smartInfillModifiers.isNotEmpty()) {
+            smartInfillModifiers
+        } else {
+            SmartInfillRuntime.current()?.stageModifiers(modelDirectory).orEmpty()
+        }
 
         val machineWidth = requiredNumber(resolved.globalValues, "machine_width")
         val machineDepth = requiredNumber(resolved.globalValues, "machine_depth")
@@ -45,7 +51,7 @@ internal object CuraResolvedSettingsWriter {
                 ?: PrinterEnvelope.DEFAULT_GCODE_FLAVOR,
         )
         printerEnvelope.requireBinaryStlFits(modelFile, modelTransform)
-        smartInfillModifiers.forEach { modifier ->
+        effectiveSmartInfillModifiers.forEach { modifier ->
             require(modifier.file.parentFile?.canonicalFile == modelDirectory.canonicalFile) {
                 "Smart Infill modifier was not staged inside the CuraEngine request"
             }
@@ -102,7 +108,7 @@ internal object CuraResolvedSettingsWriter {
             .put("extruder.0", extruderValues)
             .put(modelFileName, modelValues)
 
-        smartInfillModifiers
+        effectiveSmartInfillModifiers
             .sortedBy(SmartInfillModifier::densityPercent)
             .forEachIndexed { index, modifier ->
                 val values = JSONObject(resolved.modelValues)
@@ -213,7 +219,7 @@ internal object CuraResolvedSettingsWriter {
     }
 
     private fun requiredBoolean(values: Map<String, String>, key: String): Boolean {
-        val raw = values[key] ?: error("Resolved Cura setting is missing: $key=$raw")
+        val raw = values[key] ?: error("Resolved Cura setting is missing: $key")
         return raw.toBooleanStrictOrNull()
             ?: error("Resolved Cura setting is not boolean: $key=$raw")
     }
