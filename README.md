@@ -220,15 +220,24 @@ Requirements:
 - ARM64 Android device (`arm64-v8a`)
 - Network access on the first clean build to fetch pinned Cura and BumpMesh sources
 
-Build the Android app with:
+From a clean checkout, prepare the pinned Cura resources and ARM64 CuraEngine before asking Gradle to package the app:
 
 ```bash
-gradle :app:assembleDebug
+chmod +x scripts/fetch-cura-resources.sh scripts/build-curaengine-android.sh
+scripts/fetch-cura-resources.sh
+
+export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358"
+export APP_JNILIBS_DIR="$PWD/app/src/main/jniLibs"
+scripts/build-curaengine-android.sh
+
+gradle :app:verifyDebugApkContents
 ```
+
+`verifyDebugApkContents` assembles the debug APK and verifies that it contains a non-empty ARM64 CuraEngine entry. Direct Gradle assembly also validates the staged native executable and fails early with the required native-build command when the file is missing, empty, not an ELF, or not AArch64.
 
 The Gradle project prepares the pinned BumpMesh workspace before `preBuild`. Generated assets are stored under `app/src/main/assets/bumpmesh/`, ignored by Git and reused while the source marker remains unchanged.
 
-GitHub Actions builds CuraEngine, prepares BumpMesh, runs unit/regression and complete-definition audits, assembles the debug APK and uploads the artifacts.
+GitHub Actions follows the same native preparation and APK-verification contract, runs unit/regression and complete-definition audits, and uploads the APK and build logs.
 
 ## Safety
 
