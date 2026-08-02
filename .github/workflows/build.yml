@@ -20,17 +20,23 @@ jobs:
         with:
           ref: feature/expose-cura-profile-settings
           fetch-depth: 0
-      - name: Apply reviewed implementation
+      - name: Verify and extract reviewed source bundle
         run: |
-          git apply --check scripts/expose-cura-settings.patch
-          git apply scripts/expose-cura-settings.patch
+          test "$(wc -c < scripts/cura-settings-source.tar.gz.b64)" -eq 53900
+          echo 'f6ee35764f1024d29d4bdd336f4f25db4451d8e884a82722c922fc55103adf25  scripts/cura-settings-source.tar.gz.b64' | sha256sum -c -
+          base64 -d scripts/cura-settings-source.tar.gz.b64 > /tmp/cura-settings-source.tar.gz
+          echo 'a50fd5582586e903d3375ae1f89a8a22e34cb2b9a62df515667fdf659de01a06  /tmp/cura-settings-source.tar.gz' | sha256sum -c -
+          tar -tzf /tmp/cura-settings-source.tar.gz | grep -Ev '(^/|(^|/)\.\.(/|$))' >/dev/null
+          tar -xzf /tmp/cura-settings-source.tar.gz -C .
+          git diff --check
       - name: Restore normal CI and remove one-shot files
         run: |
           git fetch origin fix/parser-memory-lifecycle
           git show origin/fix/parser-memory-lifecycle:.github/workflows/build.yml > .github/workflows/build.yml
           rm -f .github/workflows/export-source.yml
           rm -f .cura-settings-publish-trigger
-          rm scripts/expose-cura-settings.patch
+          rm -f scripts/expose-cura-settings.patch
+          rm -f scripts/cura-settings-source.tar.gz.b64
       - name: Publish source commit
         run: |
           git config user.name 'github-actions[bot]'
