@@ -5,6 +5,9 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.head.ref || github.ref_name }}
   cancel-in-progress: true
@@ -15,6 +18,27 @@ jobs:
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Publish reviewed wave-overhang implementation
+        if: github.event_name == 'push' && hashFiles('.github/wave-overhang-trigger') != ''
+        run: |
+          python3 scripts/apply-wave-overhang-port.py
+          grep -q 'waveOverhangEnabled' app/src/main/java/com/tomppi/enderslicer/model/SlicerSettings.kt
+          grep -q 'WaveOverhangEngineSettings.values' app/src/main/java/com/tomppi/enderslicer/profile/CuraSliceSettingsResolver.kt
+          grep -q 'TYPE:WAVE-OVERHANG' scripts/build-curaengine-android.sh
+          grep -q 'src/WaveOverhang.cpp' scripts/build-curaengine-android.sh
+          grep -q 'WAVE_OVERHANG' app/src/main/java/com/tomppi/enderslicer/engine/GcodeLayerPreview.kt
+          rm -f .github/wave-overhang-trigger
+          rm -f .github/workflows/apply-wave-overhang-port.yml
+          rm -f scripts/apply-wave-overhang-port.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "feat: add native wave overhangs and model-priority camera fit"
+          git push origin HEAD:feature/wave-overhangs-viewer-fit
 
       - uses: actions/setup-java@v4
         with:
