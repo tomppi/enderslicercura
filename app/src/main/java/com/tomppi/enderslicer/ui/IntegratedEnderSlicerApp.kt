@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.weight
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
@@ -74,6 +75,7 @@ fun IntegratedEnderSlicerApp(
         val mesh = slicerState.mesh
         if (mesh == null) {
             smartInfillStore.clearActive()
+            SmartInfillRuntime.activate(null)
             smartInfillPackage = null
             return@LaunchedEffect
         }
@@ -86,6 +88,7 @@ fun IntegratedEnderSlicerApp(
             }
         }.onFailure {
             smartInfillStore.clearActive()
+            SmartInfillRuntime.activate(null)
             smartInfillPackage = null
             Toast.makeText(
                 context,
@@ -129,6 +132,7 @@ fun IntegratedEnderSlicerApp(
                     smartInfillStore.importPackage(archiveUri, metadata, sourceSha)
                 }
             }.onSuccess { packageValue ->
+                SmartInfillRuntime.activate(packageValue)
                 smartInfillPackage = packageValue
                 smartInfillOpen = true
                 Toast.makeText(
@@ -243,6 +247,7 @@ fun IntegratedEnderSlicerApp(
                 },
                 onRemove = {
                     smartInfillStore.clearActive()
+                    SmartInfillRuntime.activate(null)
                     smartInfillPackage = null
                     smartInfillOpen = false
                     Toast.makeText(context, "Smart Infill removed", Toast.LENGTH_SHORT).show()
