@@ -67,12 +67,13 @@ object CuraEngineCommand {
 
         val workspace = File(outputPath).parentFile
             ?: error("CuraEngine output path has no parent workspace")
+        val analyzedSource = File(modelPath)
         val activeSmartInfill = SmartInfillRuntime.current()
-        activeSmartInfill?.requireMatchesSource(File(modelPath))
+        activeSmartInfill?.requireMatchesSource(analyzedSource)
         val effectiveSmartInfillModifiers = if (smartInfillModifiers.isNotEmpty()) {
             smartInfillModifiers
         } else {
-            activeSmartInfill?.stageModifiers(workspace).orEmpty()
+            activeSmartInfill?.stageModifiers(workspace, analyzedSource).orEmpty()
         }
         effectiveSmartInfillModifiers.forEach { modifier ->
             requireSafeArgument(modifier.file.absolutePath)
@@ -82,7 +83,7 @@ object CuraEngineCommand {
         val effectiveSettings = CalibrationSliceState.effective(settings)
         val effectivePrinter = printer.withSettings(effectiveSettings)
         val printerEnvelope = PrinterEnvelope.from(effectivePrinter)
-        File(modelPath).takeIf(File::isFile)?.let(printerEnvelope::requireBinaryStlFits)
+        analyzedSource.takeIf(File::isFile)?.let(printerEnvelope::requireBinaryStlFits)
         effectiveSmartInfillModifiers.forEach { modifier -> printerEnvelope.requireBinaryStlFits(modifier.file) }
         val effectiveStartGcode = effectiveSettings.resolveStartGcode(startGcode)
         val effectiveEndGcode = effectiveSettings.resolveEndGcode(endGcode)
