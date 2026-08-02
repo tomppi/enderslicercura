@@ -1,4 +1,4 @@
-name: Export source snapshot
+name: Publish Cura settings implementation
 
 on:
   push:
@@ -6,28 +6,32 @@ on:
       - feature/expose-cura-profile-settings
     paths:
       - .github/workflows/export-source.yml
-  pull_request:
-    branches:
-      - fix/parser-memory-lifecycle
-    paths:
-      - .github/workflows/export-source.yml
+
+permissions:
+  contents: write
 
 jobs:
-  export:
+  publish:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Archive source
-        run: |
-          tar -czf enderslicercura-source.tar.gz \
-            app/src/main \
-            app/src/test \
-            app/build.gradle.kts \
-            build.gradle.kts \
-            settings.gradle.kts \
-            gradle.properties
-      - uses: actions/upload-artifact@v4
         with:
-          name: enderslicercura-source
-          path: enderslicercura-source.tar.gz
-          if-no-files-found: error
+          ref: feature/expose-cura-profile-settings
+          fetch-depth: 0
+      - name: Apply reviewed source patch
+        run: |
+          git apply --check scripts/expose-cura-settings.patch
+          git apply scripts/expose-cura-settings.patch
+      - name: Remove one-shot machinery
+        run: |
+          rm scripts/expose-cura-settings.patch
+          rm .github/workflows/export-source.yml
+      - name: Commit implementation
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --check
+          git commit -m 'feat: expose imported Cura profile settings'
+          git push origin HEAD:feature/expose-cura-profile-settings
