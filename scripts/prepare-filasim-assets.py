@@ -14,7 +14,7 @@ import urllib.request
 import zipfile
 
 FILASIM_COMMIT = "e7485ec22d4ebe8baca04190404fbb877c90e031"
-ASSET_FORMAT = 2
+ASSET_FORMAT = 3
 
 
 def run(command: list[str], cwd: pathlib.Path, env: dict[str, str] | None = None) -> None:
@@ -216,7 +216,7 @@ def main() -> int:
         raise RuntimeError("Pinned filaSim source did not contain web/src/store.ts")
     patch_android_export(store_file)
 
-    run(["npm", "install", "--no-audit", "--no-fund"], cwd=web_root)
+    run(["npm", "ci", "--no-audit", "--no-fund"], cwd=web_root)
     run(["node", "scripts/build-wasm.mjs", "st"], cwd=web_root)
     run(["npm", "run", "build"], cwd=web_root, env={"VITE_BASE": "./"})
 
