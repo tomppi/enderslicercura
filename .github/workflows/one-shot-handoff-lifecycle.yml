@@ -1,39 +1,53 @@
-name: Apply one-shot handoff lifecycle patch
+name: Validate handoff lifecycle patch
 
 on:
   push:
     branches:
       - fix/parser-memory-lifecycle
-    paths:
-      - .github/workflows/one-shot-handoff-lifecycle.yml
+  pull_request:
+    branches:
+      - main
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  apply:
-    # The workflow removes itself after an assertion-guarded source commit.
-    if: github.actor != 'github-actions[bot]'
+  validate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: fix/parser-memory-lifecycle
-          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Apply guarded source patch
-        run: python3 scripts/apply_handoff_lifecycle_patch.py
-      - name: Remove one-shot patch machinery
+      - name: Apply guarded patch in disposable checkout
+        id: patch
+        shell: bash
         run: |
-          rm scripts/apply_handoff_lifecycle_patch.py
-          rm .github/workflows/one-shot-handoff-lifecycle.yml
-      - name: Commit patched sources
-        run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -A
-          git diff --cached --exit-code && exit 1 || true
-          git commit -m 'fix: restore workspace and resilient UI lifecycle'
-          git push origin HEAD:fix/parser-memory-lifecycle
+          set +e
+          python3 scripts/prepare_handoff_patcher.py > handoff-patch-output.txt 2>&1
+          status=$?
+          if [ "$status" -eq 0 ]; then
+            python3 scripts/apply_handoff_lifecycle_patch.py >> handoff-patch-output.txt 2>&1
+            status=$?
+          fi
+          if [ "$status" -eq 0 ]; then
+            python3 scripts/package_handoff_patched_sources.py >> handoff-patch-output.txt 2>&1
+            status=$?
+          fi
+          if [ "$status" -ne 0 ]; then
+            cp handoff-patch-output.txt handoff-patch-error.txt
+          fi
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          exit 0
+      - name: Upload guarded patch result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: enderslicercura-handoff-patch
+          path: |
+            handoff-patch-output.txt
+            handoff-patch-error.txt
+            handoff-patched-sources.b64
+          if-no-files-found: error
+      - name: Require exact guarded patch
+        run: test "${{ steps.patch.outputs.status }}" -eq 0
