@@ -20,7 +20,7 @@ jobs:
         with:
           ref: feature/expose-cura-profile-settings
           fetch-depth: 0
-      - name: Verify and extract reviewed source bundle
+      - name: Verify reviewed source bundle
         run: |
           test "$(wc -c < scripts/cura-settings-source.part00)" -eq 14000
           test "$(wc -c < scripts/cura-settings-source.part01)" -eq 14000
@@ -35,12 +35,34 @@ jobs:
           echo 'f6ee35764f1024d29d4bdd336f4f25db4451d8e884a82722c922fc55103adf25  /tmp/cura-settings-source.tar.gz.b64' | sha256sum -c -
           base64 -d /tmp/cura-settings-source.tar.gz.b64 > /tmp/cura-settings-source.tar.gz
           echo 'a50fd5582586e903d3375ae1f89a8a22e34cb2b9a62df515667fdf659de01a06  /tmp/cura-settings-source.tar.gz' | sha256sum -c -
-          if tar -tzf /tmp/cura-settings-source.tar.gz | grep -Eq '(^/|(^|/)\.\.(/|$))'; then
-            echo 'Unsafe archive path detected' >&2
+      - name: Validate archive paths and extract
+        run: |
+          python3 - <<'PY'
+          import pathlib
+          import tarfile
+
+          archive = pathlib.Path('/tmp/cura-settings-source.tar.gz')
+          root = pathlib.Path.cwd().resolve()
+          with tarfile.open(archive, 'r:gz') as bundle:
+              members = bundle.getmembers()
+              for member in members:
+                  target = (root / member.name).resolve()
+                  if root != target and root not in target.parents:
+                      raise SystemExit(f'Unsafe archive path: {member.name}')
+                  if not (member.isfile() or member.isdir()):
+                      raise SystemExit(f'Unsupported archive entry: {member.name}')
+              bundle.extractall(root, members=members, filter='data')
+          print(f'Extracted {len(members)} reviewed files')
+          PY
+      - name: Validate source diff
+        run: |
+          git status --short
+          if ! git diff --check > /tmp/diff-check.log 2>&1; then
+            cat /tmp/diff-check.log
             exit 1
           fi
-          tar -xzf /tmp/cura-settings-source.tar.gz -C .
-          git diff --check
+          test -n "$(git status --short app/src/main app/src/test)"
+          echo 'Reviewed source diff is clean'
       - name: Restore normal CI and remove one-shot files
         run: |
           git fetch origin fix/parser-memory-lifecycle
