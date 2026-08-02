@@ -1,5 +1,6 @@
 package com.tomppi.enderslicer.engine
 
+import com.tomppi.enderslicer.calibration.CalibrationPlacementPolicy
 import java.io.File
 
 /** Finalizes staged engine output before it is eligible for immutable publication. */
@@ -21,6 +22,7 @@ internal object CuraEnginePostProcessor {
         printerEnvelope: PrinterEnvelope,
     ): Result {
         val effectiveEnvelope = resolvedEnvelope(outputFile.parentFile) ?: printerEnvelope
+        val firmware = CalibrationFirmwareEncoder.fromFlavor(effectiveEnvelope.gcodeFlavor)
         val baseSummary = GcodeSanitizer.validateAndRepair(
             file = outputFile,
             settingsTransport = settingsTransport,
@@ -38,7 +40,18 @@ internal object CuraEnginePostProcessor {
                 GcodeLayerEventProcessor.resolve(plannedLayerEvents, basePreview)
             )
             .distinctBy(LayerEvent::id)
-            .sortedWith(compareBy(LayerEvent::layerNumber, LayerEvent::source, LayerEvent::id))
+            .sortedWith(LayerEventOrdering.comparator)
+
+        if (plannedLayerEvents.isNotEmpty()) {
+            CalibrationPlacementPolicy.requireNoRaft(baseGcodeFile)
+            firmware.requireDistinctCalibrationSequence(
+                type = plannedLayerEvents.first().type,
+                values = plannedLayerEvents.map { event ->
+                    requireNotNull(event.value) { "Calibration event ${event.label} has no value" }
+                },
+                secondaryValue = plannedLayerEvents.first().secondaryValue,
+            )
+        }
 
         if (resolvedEvents.isEmpty()) {
             return Result(
@@ -50,7 +63,7 @@ internal object CuraEnginePostProcessor {
             )
         }
 
-        GcodeLayerEventProcessor.materialize(baseGcodeFile, outputFile, resolvedEvents)
+        GcodeLayerEventProcessor.materialize(baseGcodeFile, outputFile, resolvedEvents, firmware)
         val summary = GcodeSanitizer.validateAndRepair(
             file = outputFile,
             settingsTransport = "$settingsTransport+layer-events",
