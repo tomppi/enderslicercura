@@ -25,9 +25,11 @@ data class SmartInfillSliceSnapshot internal constructor(
 }
 
 /**
- * Process-local selector for the package shown in the UI. Slicing code must use
- * [snapshot] once and pass that snapshot explicitly; repeated [current] reads
- * are intentionally reserved for UI/status checks.
+ * Process-local selector for the package shown in the UI. Slicing captures one
+ * generation with [snapshot] and installs it with [withSnapshot]. Legacy slice
+ * helpers that still call [current] therefore observe the same immutable
+ * generation throughout the synchronous Cura request instead of racing UI
+ * activation/removal.
  */
 object SmartInfillRuntime {
     private data class State(
@@ -35,7 +37,10 @@ object SmartInfillRuntime {
         val packageValue: SmartInfillPackage?,
     )
 
+    private data class SliceOverride(val snapshot: SmartInfillSliceSnapshot?)
+
     private val state = AtomicReference(State(generation = 0L, packageValue = null))
+    private val sliceOverride = ThreadLocal<SliceOverride?>()
 
     fun activate(packageValue: SmartInfillPackage?) {
         while (true) {
@@ -45,12 +50,25 @@ object SmartInfillRuntime {
         }
     }
 
-    fun current(): SmartInfillPackage? = state.get().packageValue
+    fun current(): SmartInfillPackage? {
+        val override = sliceOverride.get()
+        return if (override != null) override.snapshot?.packageValue else state.get().packageValue
+    }
 
     fun snapshot(): SmartInfillSliceSnapshot? {
         val captured = state.get()
         return captured.packageValue?.let { packageValue ->
             SmartInfillSliceSnapshot(captured.generation, packageValue)
+        }
+    }
+
+    fun <T> withSnapshot(snapshot: SmartInfillSliceSnapshot?, block: () -> T): T {
+        val previous = sliceOverride.get()
+        sliceOverride.set(SliceOverride(snapshot))
+        return try {
+            block()
+        } finally {
+            if (previous == null) sliceOverride.remove() else sliceOverride.set(previous)
         }
     }
 
