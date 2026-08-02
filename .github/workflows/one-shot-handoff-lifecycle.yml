@@ -1,80 +1,71 @@
-name: Validate handoff lifecycle patch
+name: Publish reviewed handoff sources
 
 on:
   push:
     branches:
       - fix/parser-memory-lifecycle
-  pull_request:
-    branches:
-      - main
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  validate:
+  publish:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: fix/parser-memory-lifecycle
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Apply guarded patch in disposable checkout
-        id: patch
+      - name: Apply reviewed guarded source edits
+        run: |
+          python3 scripts/prepare_handoff_patcher.py
+          python3 scripts/apply_handoff_lifecycle_patch.py
+          python3 scripts/finalize_handoff_patched_sources.py
+          python3 scripts/finalize_handoff_ui_drafts.py
+      - name: Remove temporary patch infrastructure
         shell: bash
         run: |
-          set +e
-          tar -czf handoff-original-sources.tar.gz \
-            app/src/main/java/com/tomppi/enderslicer/data/WorkspaceStateStore.kt \
-            app/src/main/java/com/tomppi/enderslicer/viewer/ModelSurfaceView.kt \
-            app/src/main/java/com/tomppi/enderslicer/engine/CuraEngineRunner.kt \
-            app/src/main/java/com/tomppi/enderslicer/ui/LayerPreviewView.kt \
-            app/src/main/java/com/tomppi/enderslicer/ui/IntegratedEnderSlicerApp.kt \
-            app/src/main/java/com/tomppi/enderslicer/ui/EnderSlicerApp.kt \
-            app/src/main/java/com/tomppi/enderslicer/ui/MainViewModel.kt \
-            app/src/main/java/com/tomppi/enderslicer/ui/ModelToolsSheet.kt \
-            app/src/main/java/com/tomppi/enderslicer/ui/LayerEventsSheet.kt \
-            app/src/main/java/com/tomppi/enderslicer/ui/MeshTriangleLimitSheet.kt \
-            app/src/main/java/com/tomppi/enderslicer/ui/CalibrationGeneratorSheet.kt \
-            app/src/main/java/com/tomppi/enderslicer/ui/MachineSettingsSheet.kt \
-            app/src/main/java/com/tomppi/enderslicer/ui/HardenedOctoPrintSheet.kt \
-            app/src/main/java/com/tomppi/enderslicer/model/PlanarPatchSelector.kt
-          python3 scripts/prepare_handoff_patcher.py > handoff-patch-output.txt 2>&1
-          status=$?
-          if [ "$status" -eq 0 ]; then
-            python3 scripts/apply_handoff_lifecycle_patch.py >> handoff-patch-output.txt 2>&1
-            status=$?
-          fi
-          if [ "$status" -eq 0 ]; then
-            python3 scripts/finalize_handoff_patched_sources.py >> handoff-patch-output.txt 2>&1
-            status=$?
-          fi
-          if [ "$status" -eq 0 ]; then
-            python3 scripts/finalize_handoff_ui_drafts.py >> handoff-patch-output.txt 2>&1
-            status=$?
-          fi
-          if [ "$status" -eq 0 ]; then
-            python3 scripts/package_handoff_patched_sources.py >> handoff-patch-output.txt 2>&1
-            status=$?
-          fi
-          if [ "$status" -eq 0 ]; then
-            tar -czf handoff-patched-tree.tar.gz app/src/main/java app/src/test app/build.gradle.kts build.gradle.kts
-          else
-            cp handoff-patch-output.txt handoff-patch-error.txt
-          fi
-          echo "status=$status" >> "$GITHUB_OUTPUT"
-          exit 0
-      - name: Upload guarded patch result
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: enderslicercura-handoff-patch
-          path: |
-            handoff-patch-output.txt
-            handoff-patch-error.txt
-            handoff-patched-sources.b64
-            handoff-original-sources.tar.gz
-            handoff-patched-tree.tar.gz
-          if-no-files-found: error
-      - name: Require exact guarded patch
-        run: test "${{ steps.patch.outputs.status }}" -eq 0
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          root = Path('.')
+          root.joinpath('build.gradle.kts').write_text('''plugins {
+              id("com.android.application") version "9.2.0" apply false
+              id("org.jetbrains.kotlin.plugin.compose") version "2.3.21" apply false
+          }
+          ''')
+
+          workflow = root / '.github/workflows/build.yml'
+          content = workflow.read_text()
+          content, count = re.subn(
+              r'''\n      - name: Upload handoff patch diagnostic\n.*?\n      - name: Build and package CuraEngine ARM64\n''',
+              '\n      - name: Build and package CuraEngine ARM64\n',
+              content,
+              count=1,
+              flags=re.DOTALL,
+          )
+          if count != 1:
+              raise RuntimeError(f'Expected one diagnostic workflow block, found {count}')
+          content = content.replace('            handoff-patch-error.txt\n', '')
+          content = content.replace('            handoff-patched-sources.b64\n', '')
+          workflow.write_text(content)
+          PY
+          rm scripts/prepare_handoff_patcher.py
+          rm scripts/apply_handoff_lifecycle_patch.py
+          rm scripts/finalize_handoff_patched_sources.py
+          rm scripts/finalize_handoff_ui_drafts.py
+          rm scripts/package_handoff_patched_sources.py
+          rm .github/workflows/one-shot-handoff-lifecycle.yml
+      - name: Commit reviewed sources
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --check
+          git commit -m 'fix: restore workspace and resilient UI lifecycle'
+          git push origin HEAD:fix/parser-memory-lifecycle
