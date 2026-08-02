@@ -7,7 +7,6 @@ import com.tomppi.enderslicer.model.PrinterDefinition
 import com.tomppi.enderslicer.model.SlicerSettings
 import com.tomppi.enderslicer.profile.CuraComputedValue
 import com.tomppi.enderslicer.profile.CuraEngineProfile
-import com.tomppi.enderslicer.smartinfill.SmartInfillSummary
 import com.tomppi.enderslicer.viewer.StlMesh
 
 data class MainUiState(
@@ -18,7 +17,6 @@ data class MainUiState(
     val modelPlacement: ModelPlacement? = null,
     val importedSceneTransformAvailable: Boolean = false,
     val importedSceneModelName: String? = null,
-    val smartInfill: SmartInfillSummary? = null,
     val sliceResultId: String? = null,
     val gcodePath: String? = null,
     val baseGcodePath: String? = null,
