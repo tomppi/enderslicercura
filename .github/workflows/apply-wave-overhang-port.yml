@@ -1,0 +1,42 @@
+name: Apply wave overhang port
+
+on:
+  push:
+    branches: [feature/wave-overhangs-viewer-fit]
+    paths: [.github/wave-overhang-trigger]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/wave-overhangs-viewer-fit
+          fetch-depth: 0
+
+      - name: Apply reviewed source changes
+        run: python3 scripts/apply-wave-overhang-port.py
+
+      - name: Verify patch structure
+        run: |
+          python3 -m py_compile scripts/apply-wave-overhang-port.py
+          grep -q 'waveOverhangEnabled' app/src/main/java/com/tomppi/enderslicer/model/SlicerSettings.kt
+          grep -q 'WaveOverhangEngineSettings.values' app/src/main/java/com/tomppi/enderslicer/profile/CuraSliceSettingsResolver.kt
+          grep -q 'TYPE:WAVE-OVERHANG' scripts/build-curaengine-android.sh
+          grep -q 'src/WaveOverhang.cpp' scripts/build-curaengine-android.sh
+          grep -q 'WAVE_OVERHANG' app/src/main/java/com/tomppi/enderslicer/engine/GcodeLayerPreview.kt
+          git diff --check
+
+      - name: Commit source implementation
+        run: |
+          rm -f .github/wave-overhang-trigger
+          rm -f .github/workflows/apply-wave-overhang-port.yml
+          rm -f scripts/apply-wave-overhang-port.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "feat: add native wave overhangs and model-priority camera fit"
+          git push origin HEAD:feature/wave-overhangs-viewer-fit
