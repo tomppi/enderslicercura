@@ -4,6 +4,8 @@ import com.tomppi.enderslicer.engine.CalibrationFirmwareEncoder
 import com.tomppi.enderslicer.engine.LayerEventType
 import com.tomppi.enderslicer.engine.PrinterEnvelope
 import com.tomppi.enderslicer.model.SlicerSettings
+import com.tomppi.enderslicer.smartinfill.SmartInfillRuntime
+import com.tomppi.enderslicer.smartinfill.applyTo
 import kotlin.math.roundToInt
 
 /**
@@ -39,15 +41,16 @@ internal object CalibrationSliceState {
     }
 
     fun effective(settings: SlicerSettings): SlicerSettings {
-        val type = activeType ?: return settings
+        val baseSettings = SmartInfillRuntime.current()?.applyTo(settings) ?: settings
+        val type = activeType ?: return baseSettings
         if (type == CalibrationTestType.RETRACTION) {
-            restoreRetractionDistanceMm = settings.retractionDistanceMm
-            restoreRetractionSpeedMmPerSecond = settings.retractionSpeedMmPerSecond
+            restoreRetractionDistanceMm = baseSettings.retractionDistanceMm
+            restoreRetractionSpeedMmPerSecond = baseSettings.retractionSpeedMmPerSecond
         }
 
         val policy = policy(type)
         val forcedKeys = buildSet {
-            addAll(settings.overriddenSettingKeys)
+            addAll(baseSettings.overriddenSettingKeys)
             add(SlicerSettings.Keys.SUPPORTS_ENABLED)
             add(SlicerSettings.Keys.SUPPORT_INTERFACE_ENABLED)
             if (policy.disableAdaptiveLayers) add(SlicerSettings.Keys.ADAPTIVE_LAYER_HEIGHT_ENABLED)
@@ -66,16 +69,16 @@ internal object CalibrationSliceState {
             ?.roundToInt()
             ?.coerceIn(150, 500)
 
-        return settings.copy(
+        return baseSettings.copy(
             supportsEnabled = false,
             supportInterfaceEnabled = false,
-            adaptiveLayerHeightEnabled = if (policy.disableAdaptiveLayers) false else settings.adaptiveLayerHeightEnabled,
-            arcOverhangEnabled = if (policy.disableArcOverhangs) false else settings.arcOverhangEnabled,
-            ironingEnabled = if (policy.disableIroning) false else settings.ironingEnabled,
-            coastingEnabled = if (policy.disableCoasting) false else settings.coastingEnabled,
-            firmwareRetraction = settings.firmwareRetraction || type == CalibrationTestType.RETRACTION,
-            nozzleTemperatureC = firstTemperature ?: settings.nozzleTemperatureC,
-            initialNozzleTemperatureC = firstTemperature ?: settings.initialNozzleTemperatureC,
+            adaptiveLayerHeightEnabled = if (policy.disableAdaptiveLayers) false else baseSettings.adaptiveLayerHeightEnabled,
+            arcOverhangEnabled = if (policy.disableArcOverhangs) false else baseSettings.arcOverhangEnabled,
+            ironingEnabled = if (policy.disableIroning) false else baseSettings.ironingEnabled,
+            coastingEnabled = if (policy.disableCoasting) false else baseSettings.coastingEnabled,
+            firmwareRetraction = baseSettings.firmwareRetraction || type == CalibrationTestType.RETRACTION,
+            nozzleTemperatureC = firstTemperature ?: baseSettings.nozzleTemperatureC,
+            initialNozzleTemperatureC = firstTemperature ?: baseSettings.initialNozzleTemperatureC,
             overriddenSettingKeys = forcedKeys,
         )
     }
