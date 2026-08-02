@@ -9,6 +9,7 @@ import com.tomppi.enderslicer.model.withSettings
 import com.tomppi.enderslicer.profile.CuraEngineProfile
 import com.tomppi.enderslicer.profile.CuraSettingDelta
 import com.tomppi.enderslicer.smartinfill.SmartInfillModifier
+import com.tomppi.enderslicer.smartinfill.SmartInfillRuntime
 import com.tomppi.enderslicer.smartinfill.requireValidBinaryStl
 import java.io.File
 
@@ -63,7 +64,17 @@ object CuraEngineCommand {
             modelPath,
             outputPath,
         ).forEach(::requireSafeArgument)
-        smartInfillModifiers.forEach { modifier ->
+
+        val workspace = File(outputPath).parentFile
+            ?: error("CuraEngine output path has no parent workspace")
+        val activeSmartInfill = SmartInfillRuntime.current()
+        activeSmartInfill?.requireMatchesSource(File(modelPath))
+        val effectiveSmartInfillModifiers = if (smartInfillModifiers.isNotEmpty()) {
+            smartInfillModifiers
+        } else {
+            activeSmartInfill?.stageModifiers(workspace).orEmpty()
+        }
+        effectiveSmartInfillModifiers.forEach { modifier ->
             requireSafeArgument(modifier.file.absolutePath)
             requireValidBinaryStl(modifier.file, Int.MAX_VALUE)
         }
@@ -72,7 +83,7 @@ object CuraEngineCommand {
         val effectivePrinter = printer.withSettings(effectiveSettings)
         val printerEnvelope = PrinterEnvelope.from(effectivePrinter)
         File(modelPath).takeIf(File::isFile)?.let(printerEnvelope::requireBinaryStlFits)
-        smartInfillModifiers.forEach { modifier -> printerEnvelope.requireBinaryStlFits(modifier.file) }
+        effectiveSmartInfillModifiers.forEach { modifier -> printerEnvelope.requireBinaryStlFits(modifier.file) }
         val effectiveStartGcode = effectiveSettings.resolveStartGcode(startGcode)
         val effectiveEndGcode = effectiveSettings.resolveEndGcode(endGcode)
         val engineOffsetX = if (effectivePrinter.originAtCenter) 0.0 else -effectivePrinter.widthMm / 2.0
@@ -112,9 +123,6 @@ object CuraEngineCommand {
         fun applyFinalMeshTransform() {
             setting("center_object", false)
             setting("mesh_rotation_matrix", "[[1,0,0],[0,1,0],[0,0,1]]")
-            setting("enderslicer_mesh_translation_x", 0)
-            setting("enderslicer_mesh_translation_y", 0)
-            setting("enderslicer_mesh_translation_z", 0)
             setting("mesh_position_x", engineOffsetX)
             setting("mesh_position_y", engineOffsetY)
             setting("mesh_position_z", 0)
@@ -177,7 +185,7 @@ object CuraEngineCommand {
         setting("cutting_mesh", false)
         command += listOf("-l", modelPath)
 
-        smartInfillModifiers
+        effectiveSmartInfillModifiers
             .sortedBy(SmartInfillModifier::densityPercent)
             .forEachIndexed { index, modifier ->
                 // The modifier STL came from the already transformed model, so
