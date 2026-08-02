@@ -71,7 +71,7 @@ def patch_android_export(store_file: pathlib.Path) -> None:
         await bridge.captureModifierZip(bytes, {
           sourceName: state.fileName ?? "part.stl",
           baseDensityPercent: state.optSummary.baseDensity * 100,
-          pattern: state.pattern,
+          pattern: state.optMode === "binary" ? state.solidPattern : state.pattern,
           mode: state.optMode,
           perimeters: state.perimeters,
           lineWidthMm: state.lineWidth,
@@ -123,6 +123,11 @@ def patch_android_export(store_file: pathlib.Path) -> None:
             1,
         )
 
+    # Upgrade already-patched cached sources from the earlier Android format.
+    text = text.replace(
+        '          pattern: state.pattern,\n          mode: state.optMode,',
+        '          pattern: state.optMode === "binary" ? state.solidPattern : state.pattern,\n          mode: state.optMode,',
+    )
     store_file.write_text(text, encoding="utf-8")
 
 
