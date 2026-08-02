@@ -35,12 +35,10 @@ internal object CuraEnginePostProcessor {
 
         val basePreview = GcodeLayerPreviewParser.parse(baseGcodeFile)
         val validLayerNumbers = basePreview.layers.mapTo(hashSetOf()) { it.number }
-        val resolvedEvents = (
+        val resolvedEvents = LayerEventOrdering.normalize(
             layerEvents.filter { it.layerNumber in validLayerNumbers } +
-                GcodeLayerEventProcessor.resolve(plannedLayerEvents, basePreview)
-            )
-            .distinctBy(LayerEvent::id)
-            .sortedWith(LayerEventOrdering.comparator)
+                GcodeLayerEventProcessor.resolve(plannedLayerEvents, basePreview),
+        )
 
         if (plannedLayerEvents.isNotEmpty()) {
             CalibrationPlacementPolicy.requireNoRaft(baseGcodeFile)
