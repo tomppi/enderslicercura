@@ -1,8 +1,8 @@
 /*
  * Android host adapter for the pinned filaSim web workspace.
  * The upstream application remains responsible for analysis and optimization;
- * this adapter only injects the displayed EnderSlicerCura STL and returns the
- * generated modifier ZIP plus the print assumptions used by the analysis.
+ * this adapter only injects the displayed EnderSlicerCura STL and returns
+ * graded/binary modifier ZIPs or a solid-topology replacement STL.
  */
 (() => {
   "use strict";
@@ -55,12 +55,32 @@
     }
   }
 
-  async function captureModifierZip(bytes, metadata) {
-    if (exporting) throw new Error("A Smart Infill export is already running");
+  async function streamBytes(bytes, begin, append, finish, cancel, beginArgs) {
+    if (exporting) throw new Error("A filaSim export is already running");
     if (!(bytes instanceof Uint8Array)) bytes = new Uint8Array(bytes);
-    if (!bytes.length) throw new Error("filaSim returned an empty modifier archive");
-
+    if (!bytes.length) throw new Error("filaSim returned an empty export");
     exporting = true;
+    try {
+      if (!begin(...beginArgs, bytes.byteLength)) {
+        throw new Error("Android rejected the filaSim export metadata or size");
+      }
+      for (let offset = 0; offset < bytes.length; offset += CHUNK_BYTES) {
+        const chunk = bytes.subarray(offset, Math.min(bytes.length, offset + CHUNK_BYTES));
+        if (!append(bytesToBase64(chunk))) {
+          throw new Error("Android rejected a filaSim export chunk");
+        }
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+      if (!finish()) throw new Error("Android could not validate the filaSim export");
+    } catch (error) {
+      cancel();
+      throw error;
+    } finally {
+      exporting = false;
+    }
+  }
+
+  async function captureModifierZip(bytes, metadata) {
     const info = {
       ...metadata,
       sourceName: String(android.sourceFileName() || metadata?.sourceName || "model.stl"),
@@ -68,32 +88,33 @@
       upstreamCommit: String(android.upstreamCommit()),
     };
     const filename = `${info.sourceName.replace(/\.(stl|3mf)$/i, "")}_smart_infill_modifiers.zip`;
+    await streamBytes(
+      bytes,
+      (name, json, size) => android.beginModifierExport(name, size, json),
+      (chunk) => android.appendModifierChunk(chunk),
+      () => android.finishModifierExport(),
+      () => android.cancelModifierExport(),
+      [filename, JSON.stringify(info)],
+    );
+  }
 
-    try {
-      const began = android.beginModifierExport(filename, bytes.byteLength, JSON.stringify(info));
-      if (!began) throw new Error("Android rejected the Smart Infill export metadata or size");
-
-      for (let offset = 0; offset < bytes.length; offset += CHUNK_BYTES) {
-        const chunk = bytes.subarray(offset, Math.min(bytes.length, offset + CHUNK_BYTES));
-        if (!android.appendModifierChunk(bytesToBase64(chunk))) {
-          throw new Error("Android rejected a Smart Infill export chunk");
-        }
-        await new Promise((resolve) => setTimeout(resolve, 0));
-      }
-      if (!android.finishModifierExport()) {
-        throw new Error("Android could not validate the Smart Infill modifier archive");
-      }
-    } catch (error) {
-      android.cancelModifierExport();
-      throw error;
-    } finally {
-      exporting = false;
-    }
+  async function captureOptimizedShape(bytes) {
+    const sourceName = String(android.sourceFileName() || "part.stl");
+    const filename = `${sourceName.replace(/\.(stl|3mf)$/i, "")}_optimized.stl`;
+    await streamBytes(
+      bytes,
+      (name, size) => android.beginShapeExport(name, size),
+      (chunk) => android.appendShapeChunk(chunk),
+      () => android.finishShapeExport(),
+      () => android.cancelShapeExport(),
+      [filename],
+    );
   }
 
   window.EnderSlicerBridge = {
     loadModelFromAndroid,
     captureModifierZip,
+    captureOptimizedShape,
   };
 
   if (document.readyState === "loading") {
