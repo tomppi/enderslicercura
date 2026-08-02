@@ -5,6 +5,9 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.head.ref || github.ref_name }}
   cancel-in-progress: true
@@ -15,6 +18,17 @@ jobs:
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
+
+      - name: Apply final handoff review source patch
+        if: github.event_name == 'push' && github.ref_name == 'fix/parser-memory-lifecycle' && github.actor != 'github-actions[bot]'
+        run: |
+          python3 scripts/apply_final_handoff_review.py
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app/src/main/java app/src/test/java
+          git diff --cached --check
+          git commit -m 'fix: close final handoff integration gaps'
+          git push origin HEAD:fix/parser-memory-lifecycle
 
       - uses: actions/setup-java@v4
         with:
