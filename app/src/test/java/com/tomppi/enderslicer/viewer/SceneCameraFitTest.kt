@@ -1,6 +1,7 @@
 package com.tomppi.enderslicer.viewer
 
 import com.tomppi.enderslicer.model.PrinterDefinition
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import kotlin.math.atan
@@ -53,7 +54,28 @@ class SceneCameraFitTest {
     }
 
     @Test
-    fun displacedModelChangesSceneCenterAndStillFits() {
+    fun benchySizedModelIsFramedAroundItsOwnCenter() {
+        val bounds = MeshBounds(
+            minX = 85f,
+            minY = 99.5f,
+            minZ = 0f,
+            maxX = 145f,
+            maxY = 130.5f,
+            maxZ = 48f,
+        )
+        val modelFit = SceneCameraFit.calculate(printer, bounds, 0.75f, 1f, 42f)
+        val bedFit = SceneCameraFit.calculate(printer, null, 0.75f, 1f, 42f)
+
+        assertEquals(115f, modelFit.centerX, 0.001f)
+        assertEquals(115f, modelFit.centerY, 0.001f)
+        assertEquals(24f, modelFit.centerZ, 0.001f)
+        assertTrue("The bed must not dominate a loaded model fit", modelFit.distance < bedFit.distance * 0.55f)
+        assertTrue(modelFit.radius >= 40f)
+        assertTrue(modelFit.farPlane > modelFit.distance)
+    }
+
+    @Test
+    fun displacedModelChangesSceneCenterWithoutBeingPulledBackToTheBed() {
         val bounds = MeshBounds(
             minX = 300f,
             minY = -80f,
@@ -69,9 +91,10 @@ class SceneCameraFitTest {
             val horizontalHalf = atan(tan(verticalHalf) * aspect)
             val limitingHalf = minOf(verticalHalf, horizontalHalf)
 
-            assertTrue(fit.centerX > 115f)
-            assertTrue(fit.centerY < 115f)
+            assertEquals(330f, fit.centerX, 0.001f)
+            assertEquals(-50f, fit.centerY, 0.001f)
             assertTrue(fit.distance >= fit.radius / sin(limitingHalf) * 1.15f)
+            assertTrue(fit.farPlane > fit.nearPlane)
         }
     }
 }
