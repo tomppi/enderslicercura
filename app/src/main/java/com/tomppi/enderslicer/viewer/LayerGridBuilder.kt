@@ -26,18 +26,18 @@ internal object LayerGridBuilder {
 
         var effectiveSpacing = spacing
         var extents = extents(minX, maxX, minY, maxY, effectiveSpacing, padding)
-        repeat(MAX_COARSENING_STEPS) {
-            val total = Math.addExact(extents.xCount, extents.yCount)
-            if (total <= maxLines.toLong()) return@repeat
+        var attempts = 0
+        while (saturatingAdd(extents.xCount, extents.yCount) > maxLines.toLong()) {
+            if (attempts++ >= MAX_COARSENING_STEPS) return FloatArray(0)
+            val total = saturatingAdd(extents.xCount, extents.yCount)
             val factor = ceil(total.toDouble() / maxLines.toDouble()).coerceAtLeast(2.0)
-            effectiveSpacing = Math.multiplyExact(
-                effectiveSpacing.toLong().coerceAtLeast(1L),
-                factor.toLong().coerceAtLeast(2L),
-            ).toDouble()
+            val nextSpacing = effectiveSpacing * factor
+            if (!nextSpacing.isFinite() || nextSpacing <= effectiveSpacing) return FloatArray(0)
+            effectiveSpacing = nextSpacing
             extents = extents(minX, maxX, minY, maxY, effectiveSpacing, padding)
         }
 
-        val totalLines = Math.addExact(extents.xCount, extents.yCount)
+        val totalLines = saturatingAdd(extents.xCount, extents.yCount)
         if (totalLines > maxLines.toLong()) return FloatArray(0)
         val floatCount = Math.multiplyExact(totalLines, FLOATS_PER_LINE.toLong())
         require(floatCount <= Int.MAX_VALUE.toLong()) { "Layer grid allocation is too large" }
@@ -84,14 +84,15 @@ internal object LayerGridBuilder {
     }
 
     private fun checkedCount(minimum: Double, maximum: Double, spacing: Double): Long {
-        require(minimum.isFinite() && maximum.isFinite()) { "Layer grid extents overflowed" }
+        if (!minimum.isFinite() || !maximum.isFinite()) return COUNT_SENTINEL
         val span = max(0.0, maximum - minimum)
-        val count = floor(span / spacing).toLong() + 1L
-        require(count in 1..MAX_GRID_LINES_HARD_LIMIT.toLong() * MAX_GRID_LINES_HARD_LIMIT) {
-            "Layer grid line count is outside the defensive limit"
-        }
-        return count
+        val rawCount = floor(span / spacing) + 1.0
+        if (!rawCount.isFinite() || rawCount >= COUNT_SENTINEL.toDouble()) return COUNT_SENTINEL
+        return rawCount.toLong().coerceAtLeast(1L)
     }
+
+    private fun saturatingAdd(first: Long, second: Long): Long =
+        if (first >= COUNT_SENTINEL - second) COUNT_SENTINEL else first + second
 
     private data class Extents(
         val minX: Double,
@@ -105,4 +106,5 @@ internal object LayerGridBuilder {
     private const val FLOATS_PER_LINE = 6
     private const val MAX_GRID_LINES_HARD_LIMIT = 16_384
     private const val MAX_COARSENING_STEPS = 8
+    private const val COUNT_SENTINEL = Long.MAX_VALUE / 4L
 }
