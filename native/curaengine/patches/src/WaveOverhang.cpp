@@ -6,7 +6,6 @@
 #include "WaveOverhang.h"
 
 #include <algorithm>
-#include <cmath>
 #include <vector>
 
 #include "geometry/ClosedPolyline.h"
@@ -18,7 +17,7 @@ namespace cura
 namespace
 {
 
-constexpr double MIN_AREA_GROWTH = 100.0; // 0.0001 mm² in integer-micron geometry.
+constexpr double MIN_AREA_GROWTH = 100.0;
 
 OpenLinesSet contoursOf(const Shape& shape, const Shape& clip)
 {
@@ -82,9 +81,6 @@ bool appendIsland(
             levels.emplace_back(std::move(front));
         }
         current = next;
-
-        // Never partially claim a region. Once one-spacing expansion covers the
-        // unsupported skin, all emitted fronts are safe to hand to the caller.
         if (unsupported.difference(current.offset(parameters.line_spacing)).empty())
         {
             break;
@@ -100,18 +96,10 @@ bool appendIsland(
     {
         std::reverse(levels.begin(), levels.end());
     }
-    for (OpenLinesSet& level : levels)
+    for (size_t level_index = 0; level_index < levels.size(); ++level_index)
     {
-        auto& lines = level.getLines();
-        if (parameters.pattern == "smart")
-        {
-            std::stable_sort(lines.begin(), lines.end(), [&supported_region](const OpenPolyline& left, const OpenPolyline& right) {
-                const bool left_supported = ! supported_region.intersection(OpenLinesSet(left)).empty();
-                const bool right_supported = ! supported_region.intersection(OpenLinesSet(right)).empty();
-                return left_supported && ! right_supported;
-            });
-        }
-        else if (parameters.pattern == "zigzag" && (&level - levels.data()) % 2 == 1)
+        auto& lines = levels[level_index].getLines();
+        if (parameters.pattern == "zigzag" && level_index % 2 == 1)
         {
             std::reverse(lines.begin(), lines.end());
         }
