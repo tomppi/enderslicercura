@@ -26,8 +26,12 @@ internal object CuraImportedSettingsResolver {
                 endGcode = config.endGcode ?: fallbackEndGcode,
             )
             val uiValues = linkedMapOf<String, String>().apply {
-                putAll(resolved.extruderValues)
+                // The complete extruder stack inherits machine/global settings,
+                // then applies per-extruder formulas and overrides. Merge it
+                // last so a duplicated global definition cannot replace the
+                // canonical extruder-scoped result shown in the UI.
                 putAll(resolved.globalValues)
+                putAll(resolved.extruderValues)
             }
             config.copy(
                 mappedSettings = CuraSettingsMapper.apply(config.mappedSettings, uiValues)
