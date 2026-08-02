@@ -8,6 +8,7 @@ import com.tomppi.enderslicer.model.SlicerSettings
 import com.tomppi.enderslicer.model.resolveEndGcode
 import com.tomppi.enderslicer.model.resolveStartGcode
 import com.tomppi.enderslicer.model.withSettings
+import com.tomppi.enderslicer.smartinfill.SmartInfillRuntime
 
 internal object CuraSliceSettingsResolver {
     data class Result(
@@ -16,6 +17,7 @@ internal object CuraSliceSettingsResolver {
         val modelValues: Map<String, String>,
         val expressionCount: Int,
         val passes: Int,
+        val smartInfillModelValues: Map<Int, Map<String, String>> = emptyMap(),
     )
 
     fun resolve(
@@ -29,6 +31,7 @@ internal object CuraSliceSettingsResolver {
             "A complete Cura definition stack is required for dependency resolution"
         }
 
+        val smartInfillPackage = SmartInfillRuntime.current()
         val effectiveSettings = CalibrationSliceState.effective(settings)
         val effectivePrinter = printer.withSettings(effectiveSettings)
         val effectiveStartGcode = effectiveSettings.resolveStartGcode(startGcode)
@@ -64,15 +67,18 @@ internal object CuraSliceSettingsResolver {
             put("extruder_nr", "0")
             put("machine_nozzle_size", effectivePrinter.nozzleSizeMm.toString())
             put("material_diameter", effectivePrinter.filamentDiameterMm.toString())
+            if (smartInfillPackage != null) {
+                // Imported Cura projects may contain literal child-width edits.
+                // A parent line_width override cannot recalculate locked child
+                // values, so force every width used by filaSim's wall/shell and
+                // infill model to the exact analyzed width.
+                SMART_INFILL_WIDTH_KEYS.forEach { key ->
+                    put(key, smartInfillPackage.lineWidthMm.toString())
+                }
+            }
         }
 
-        val rawResolved = CuraDefinitionResolver.resolve(
-            definitionFiles = profile.definitionFiles,
-            machineDefinitionFileName = requireNotNull(profile.machineDefinitionFileName),
-            extruderDefinitionFileName = requireNotNull(profile.extruderDefinitionFileName),
-            globalOverrides = globalOverrides,
-            extruderOverrides = extruderOverrides,
-        )
+        val rawResolved = resolveDefinitions(profile, globalOverrides, extruderOverrides)
 
         // Cura stores zero as a frontend sentinel for some material profiles.
         // Normalize it in the temporary slice snapshot, never in the persisted
@@ -97,11 +103,44 @@ internal object CuraSliceSettingsResolver {
             extruderValues = parityExtruder,
         )
 
+        if (smartInfillPackage != null) {
+            SMART_INFILL_WIDTH_KEYS.forEach { key ->
+                val resolvedWidth = parityExtruder[key]
+                    ?: rawResolved.globalValues[key]
+                    ?: error("Resolved Cura setting is missing: $key")
+                val value = resolvedWidth.toDoubleOrNull()
+                    ?: error("Resolved Cura setting is not numeric: $key=$resolvedWidth")
+                require(kotlin.math.abs(value - smartInfillPackage.lineWidthMm) <= 1e-7) {
+                    "Resolved Cura width diverges from filaSim analysis: $key=$value, expected ${smartInfillPackage.lineWidthMm}"
+                }
+            }
+        }
+
         val resolvedExtruder = linkedMapOf<String, String>().apply {
             putAll(parityExtruder)
             putAll(CalibrationSliceState.engineOverrides())
         }
         validateResolvedSettings(rawResolved.globalValues, resolvedExtruder)
+
+        val smartInfillModelValues = smartInfillPackage
+            ?.modifiers
+            ?.map { it.densityPercent }
+            ?.distinct()
+            ?.sorted()
+            ?.associateWith { densityPercent ->
+                val modifierOverrides = LinkedHashMap(extruderOverrides).apply {
+                    put("infill_sparse_density", densityPercent.toString())
+                }
+                val modifierResolved = resolveDefinitions(profile, globalOverrides, modifierOverrides)
+                val actualDensity = modifierResolved.extruderValues["infill_sparse_density"]
+                    ?: modifierResolved.modelValues["infill_sparse_density"]
+                    ?: error("Resolved Smart Infill modifier density is missing")
+                require(actualDensity.toDoubleOrNull() == densityPercent.toDouble()) {
+                    "Resolved Smart Infill density diverged: requested $densityPercent, resolved $actualDensity"
+                }
+                modifierResolved.modelValues
+            }
+            .orEmpty()
 
         return Result(
             globalValues = rawResolved.globalValues,
@@ -109,8 +148,21 @@ internal object CuraSliceSettingsResolver {
             modelValues = rawResolved.modelValues,
             expressionCount = rawResolved.expressionCount,
             passes = rawResolved.passes,
+            smartInfillModelValues = smartInfillModelValues,
         )
     }
+
+    private fun resolveDefinitions(
+        profile: CuraEngineProfile,
+        globalOverrides: Map<String, String>,
+        extruderOverrides: Map<String, String>,
+    ): CuraDefinitionResolver.Result = CuraDefinitionResolver.resolve(
+        definitionFiles = profile.definitionFiles,
+        machineDefinitionFileName = requireNotNull(profile.machineDefinitionFileName),
+        extruderDefinitionFileName = requireNotNull(profile.extruderDefinitionFileName),
+        globalOverrides = globalOverrides,
+        extruderOverrides = extruderOverrides,
+    )
 
     private fun validateResolvedSettings(
         global: Map<String, String>,
@@ -256,4 +308,13 @@ internal object CuraSliceSettingsResolver {
         range(extruder, "raft_margin", 0.0, 100.0)
         range(extruder, "ironing_flow", 0.0, 100.0)
     }
+
+    private val SMART_INFILL_WIDTH_KEYS = listOf(
+        "line_width",
+        "wall_line_width",
+        "wall_line_width_0",
+        "wall_line_width_x",
+        "skin_line_width",
+        "infill_line_width",
+    )
 }
