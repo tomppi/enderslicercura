@@ -87,7 +87,7 @@ class WorkspaceStateStoreTest {
         plannedEvents = listOf(
             PlannedLayerEvent(
                 targetZMm = 0.8f,
-                type = LayerEventType.TEMPERATURE,
+                type = LayerEventType.NOZZLE_TEMPERATURE,
                 value = 200.0,
                 label = "Level 1",
             ),
