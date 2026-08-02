@@ -16,6 +16,9 @@ import java.security.MessageDigest
 import java.util.UUID
 import java.util.zip.ZipInputStream
 
+private const val STL_HEADER_BYTES = 84L
+private const val STL_TRIANGLE_BYTES = 50L
+
 /** One filaSim modifier volume and the Cura sparse-infill density it applies. */
 data class SmartInfillModifier(
     val densityPercent: Int,
@@ -402,8 +405,6 @@ class SmartInfillPackageStore(private val context: Context) {
         private const val BUFFER_SIZE = 128 * 1024
         private const val MIN_DENSITY = 1.0
         private const val MAX_DENSITY = 100.0
-        private const val STL_HEADER_BYTES = 84L
-        private const val STL_TRIANGLE_BYTES = 50L
         private val SUPPORTED_MODES = setOf("graded", "binary")
         private val SUPPORTED_PATTERNS = setOf("cubic", "gyroid", "grid", "rectilinear", "zig-zag", "zigzag", "concentric")
         private val MODIFIER_ARCHIVE = Regex("modifier_(\\d{1,3})pct\\.stl", RegexOption.IGNORE_CASE)
@@ -414,7 +415,7 @@ class SmartInfillPackageStore(private val context: Context) {
 }
 
 internal fun requireValidBinaryStl(file: File, maxTriangles: Int) {
-    require(file.isFile && file.length() >= 84L) { "Smart Infill modifier STL is missing or empty" }
+    require(file.isFile && file.length() >= STL_HEADER_BYTES) { "Smart Infill modifier STL is missing or empty" }
     RandomAccessFile(file, "r").use { input ->
         input.seek(80L)
         val countBytes = ByteArray(4)
@@ -426,7 +427,7 @@ internal fun requireValidBinaryStl(file: File, maxTriangles: Int) {
         require(triangleCount in 1..maxTriangles.toLong()) {
             "Smart Infill modifier triangle count is outside the configured limit"
         }
-        require(file.length() == 84L + triangleCount * 50L) {
+        require(file.length() == STL_HEADER_BYTES + triangleCount * STL_TRIANGLE_BYTES) {
             "Smart Infill modifier is not a structurally valid binary STL"
         }
     }
