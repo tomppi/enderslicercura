@@ -4,7 +4,7 @@ plugins {
 }
 
 val filaSimCommit = "e7485ec22d4ebe8baca04190404fbb877c90e031"
-val filaSimFormat = 7
+val filaSimFormat = 8
 val filaSimScript = layout.projectDirectory.file("scripts/prepare-filasim-assets-with-pinch.py")
 val filaSimBaseScript = layout.projectDirectory.file("scripts/prepare-filasim-assets.py")
 val filaSimBridge = layout.projectDirectory.file("app/src/main/filasim/android-bridge.js")
