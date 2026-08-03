@@ -188,6 +188,7 @@ internal object CuraResolvedSettingsWriter {
         }
         if (CurviSlicerRuntime.snapshot() != null) {
             val displayedStamp = fileStamp(stagedDisplayedFile)
+            removePreStagedRequestModel(destination)
             copyFile(stagedDisplayedFile, destination)
             check(destination.isFile && destination.length() == displayedStamp.length) {
                 "Unable to stage displayed STL geometry for CurviSlicer"
@@ -226,6 +227,16 @@ internal object CuraResolvedSettingsWriter {
             "The STL transform changed while it was being staged"
         }
         return stagedSource.transform
+    }
+
+    private fun removePreStagedRequestModel(destination: File) {
+        if (!destination.exists()) return
+        require(destination.isFile) {
+            "Resolved Cura request model destination is not a file: ${destination.absolutePath}"
+        }
+        check(destination.delete()) {
+            "Unable to replace the pre-staged Cura request model: ${destination.absolutePath}"
+        }
     }
 
     private fun applyTransform(
