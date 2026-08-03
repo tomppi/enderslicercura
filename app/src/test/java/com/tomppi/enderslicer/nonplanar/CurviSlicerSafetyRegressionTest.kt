@@ -5,6 +5,7 @@ import com.tomppi.enderslicer.engine.GcodeModalState
 import com.tomppi.enderslicer.engine.PrinterEnvelope
 import java.io.File
 import java.nio.file.Files
+import java.util.Locale
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -70,7 +71,15 @@ class CurviSlicerSafetyRegressionTest {
                     },
                 )
             }
-            writePreparedField(directory, simpleField(), NonPlanarSettings(enabled = true))
+            writePreparedField(
+                directory,
+                simpleField(),
+                NonPlanarSettings(
+                    enabled = true,
+                    maximumSlopeDegrees = 55.0,
+                    nozzleClearanceAngleDegrees = 80.0,
+                ),
+            )
 
             CurviSlicerFieldStorage.curveStagedGcode(gcode, printerEnvelope())
 
@@ -123,7 +132,7 @@ class CurviSlicerSafetyRegressionTest {
                     M82
                     G0 X0 Y5 Z5 F1200
                     ;LAYER:0
-                    G1 X10 Y5 Z5 E1 F1200
+                    G1 X2 Y5 Z5 E1 F1200
                     """.trimIndent(),
                 )
             }
@@ -133,7 +142,7 @@ class CurviSlicerSafetyRegressionTest {
                 nozzleClearanceAngleDegrees = 15.0,
                 maximumSegmentLengthMm = 0.25,
             )
-            writePreparedField(directory, simpleField(), settings)
+            writePreparedField(directory, simpleField().copy(maxX = 2.0), settings)
 
             val failure = runCatching {
                 CurviSlicerFieldStorage.curveStagedGcode(gcode, printerEnvelope())
@@ -152,6 +161,8 @@ class CurviSlicerSafetyRegressionTest {
             val moveCount = 300
             val xPerMove = 0.3333333
             val ePerMove = 0.0003333
+            val xToken = String.format(Locale.US, "%.7f", xPerMove)
+            val eToken = String.format(Locale.US, "%.7f", ePerMove)
             val gcode = File(directory, "output.gcode").apply {
                 writeText(
                     buildString {
@@ -161,7 +172,7 @@ class CurviSlicerSafetyRegressionTest {
                         appendLine("G0 X0 Y0 Z0.2 F1200")
                         appendLine(";LAYER:0")
                         repeat(moveCount) {
-                            appendLine("G1 X$xPerMove Y0 Z0 E$ePerMove F1200")
+                            appendLine("G1 X$xToken Y0 Z0 E$eToken F1200")
                         }
                     },
                 )
