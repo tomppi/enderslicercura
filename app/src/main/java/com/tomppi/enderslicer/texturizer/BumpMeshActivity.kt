@@ -33,12 +33,14 @@ import java.nio.ByteOrder
 class BumpMeshActivity : ComponentActivity() {
     private lateinit var sourceFile: File
     private lateinit var webView: WebView
+    private lateinit var exportBridge: ExportBridge
     private var maxOutputTriangles: Int = MeshTriangleLimits.DEFAULT_TRIANGLES
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         maxOutputTriangles = MeshTriangleLimits.initialize(this)
+        pruneExportCache()
 
         val sourcePath = intent.getStringExtra(EXTRA_MODEL_PATH)
         sourceFile = sourcePath?.let(::File) ?: run {
@@ -87,6 +89,11 @@ class BumpMeshActivity : ComponentActivity() {
             }
             .build()
 
+        exportBridge = ExportBridge(
+            activity = this,
+            sourceName = intent.getStringExtra(EXTRA_MODEL_NAME) ?: sourceFile.name,
+            maxOutputTriangles = maxOutputTriangles,
+        )
         webView = WebView(this).apply {
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
@@ -94,14 +101,7 @@ class BumpMeshActivity : ComponentActivity() {
             settings.allowContentAccess = false
             settings.databaseEnabled = false
             settings.setSupportMultipleWindows(false)
-            addJavascriptInterface(
-                ExportBridge(
-                    activity = this@BumpMeshActivity,
-                    sourceName = intent.getStringExtra(EXTRA_MODEL_NAME) ?: sourceFile.name,
-                    maxOutputTriangles = maxOutputTriangles,
-                ),
-                JS_BRIDGE_NAME,
-            )
+            addJavascriptInterface(exportBridge, JS_BRIDGE_NAME)
             webViewClient = object : WebViewClient() {
                 override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest): WebResourceResponse? {
                     return assetLoader.shouldInterceptRequest(request.url)
@@ -128,6 +128,7 @@ class BumpMeshActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        if (::exportBridge.isInitialized) exportBridge.cancelAll()
         if (::webView.isInitialized) {
             webView.removeJavascriptInterface(JS_BRIDGE_NAME)
             webView.stopLoading()
@@ -146,6 +147,29 @@ class BumpMeshActivity : ComponentActivity() {
         Toast.makeText(this, message, Toast.LENGTH_LONG).show()
         setResult(Activity.RESULT_CANCELED)
         finish()
+    }
+
+    private fun pruneExportCache() {
+        val directory = File(cacheDir, EXPORT_DIRECTORY)
+        if (!directory.isDirectory) return
+        val cutoff = System.currentTimeMillis() - ORPHAN_MAX_AGE_MILLIS
+        var retainedCount = 0
+        var retainedBytes = 0L
+        directory.listFiles().orEmpty()
+            .filter(File::isFile)
+            .sortedByDescending(File::lastModified)
+            .forEach { file ->
+                val keep = !file.name.endsWith(PARTIAL_SUFFIX) &&
+                    file.lastModified() >= cutoff &&
+                    retainedCount < MAX_RETAINED_ORPHANS &&
+                    retainedBytes + file.length() <= MAX_RETAINED_ORPHAN_BYTES
+                if (keep) {
+                    retainedCount++
+                    retainedBytes += file.length()
+                } else {
+                    file.delete()
+                }
+            }
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
@@ -174,18 +198,19 @@ class BumpMeshActivity : ComponentActivity() {
         @Synchronized
         fun beginExport(filename: String, sizeBytes: Double): Boolean {
             cancelLocked()
+            activity.pruneExportCache()
             if (!sizeBytes.isFinite()) return false
             val size = sizeBytes.toLong()
             if (size !in STL_HEADER_BYTES..maxExportBytes) return false
 
-            val directory = File(activity.cacheDir, "bumpmesh-exports").apply { mkdirs() }
+            val directory = File(activity.cacheDir, EXPORT_DIRECTORY).apply { mkdirs() }
             val safeBase = filename
                 .substringAfterLast('/')
                 .substringAfterLast('\\')
                 .replace(Regex("[^A-Za-z0-9._-]"), "_")
                 .ifBlank { "textured.stl" }
                 .let { if (it.lowercase().endsWith(".stl")) it else "$it.stl" }
-            val target = File(directory, "${System.currentTimeMillis()}-$safeBase")
+            val target = File(directory, "${System.currentTimeMillis()}-$safeBase$PARTIAL_SUFFIX")
 
             return runCatching {
                 expectedBytes = size
@@ -236,9 +261,16 @@ class BumpMeshActivity : ComponentActivity() {
                     writtenBytes = 0
                     return false
                 }
+                val published = File(file.parentFile, file.name.removeSuffix(PARTIAL_SUFFIX))
+                if (!file.renameTo(published)) {
+                    file.delete()
+                    expectedBytes = 0
+                    writtenBytes = 0
+                    return false
+                }
                 expectedBytes = 0
                 writtenBytes = 0
-                file
+                published
             }
 
             activity.runOnUiThread {
@@ -259,6 +291,11 @@ class BumpMeshActivity : ComponentActivity() {
         @JavascriptInterface
         @Synchronized
         fun cancelExport() {
+            cancelLocked()
+        }
+
+        @Synchronized
+        fun cancelAll() {
             cancelLocked()
         }
 
@@ -296,7 +333,12 @@ class BumpMeshActivity : ComponentActivity() {
         private const val JS_BRIDGE_NAME = "EnderSlicerAndroid"
         private const val BUMPMESH_URL =
             "https://${WebViewAssetLoader.DEFAULT_DOMAIN}/assets/bumpmesh/index.html?android=1"
+        private const val EXPORT_DIRECTORY = "bumpmesh-exports"
+        private const val PARTIAL_SUFFIX = ".part"
         private const val STL_HEADER_BYTES = 84L
         private const val STL_TRIANGLE_BYTES = 50L
+        private const val MAX_RETAINED_ORPHANS = 2
+        private const val MAX_RETAINED_ORPHAN_BYTES = 800L * 1024L * 1024L
+        private const val ORPHAN_MAX_AGE_MILLIS = 24L * 60L * 60L * 1_000L
     }
 }
