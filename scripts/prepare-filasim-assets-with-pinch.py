@@ -13,10 +13,10 @@ if SPEC is None or SPEC.loader is None:
 BASE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(BASE)
 
-# Format 9 hardens the regional-pattern metadata against stale/restored WebView
-# state. A distinct source workspace prevents a previously patched tree from
-# hiding the export-contract change.
-BASE.ASSET_FORMAT = 9
+# Format 8 carries the complete regional-pattern metadata contract. The patch
+# below also upgrades an already-patched format-8 source tree so stale Gradle or
+# source caches cannot preserve nullable browser-state values in new APKs.
+BASE.ASSET_FORMAT = 8
 _BASE_PATCH_ANDROID_EXPORT = BASE.patch_android_export
 _BASE_PATCH_ANDROID_VIEWER = BASE.patch_android_viewer
 
@@ -25,17 +25,14 @@ def patch_android_export_with_pattern_contract(store_file: pathlib.Path) -> None
     _BASE_PATCH_ANDROID_EXPORT(store_file)
     text = store_file.read_text(encoding="utf-8")
     marker = "EnderSlicer Android regional pattern metadata v2"
-    if marker in text:
-        return
-
-    old = '''          pattern: state.optMode === "binary" ? state.solidPattern : state.pattern,
+    old_v2 = '''          // EnderSlicer Android regional pattern metadata v2.
+          metadataVersion: 2,
+          basePattern: state.pattern,
+          binarySolidPattern: state.optMode === "binary" ? state.solidPattern : null,
+          gradedFullDensityPattern: "rectilinear",
           mode: state.optMode,
 '''
-    if old not in text:
-        raise RuntimeError("Unable to locate Android modifier pattern metadata for versioning")
-    text = text.replace(
-        old,
-        '''          // EnderSlicer Android regional pattern metadata v2.
+    hardened_v2 = '''          // EnderSlicer Android regional pattern metadata v2.
           metadataVersion: 2,
           // This pinned filaSim build has one calibrated sparse pattern. A
           // restored browser state may still contain null/retired values, so
@@ -46,10 +43,22 @@ def patch_android_export_with_pattern_contract(store_file: pathlib.Path) -> None
             : null,
           gradedFullDensityPattern: "rectilinear",
           mode: state.optMode,
-''',
-        1,
-    )
-    store_file.write_text(text, encoding="utf-8")
+'''
+
+    if marker in text:
+        if hardened_v2 in text:
+            return
+        if old_v2 not in text:
+            raise RuntimeError("Unable to upgrade cached Android regional pattern metadata")
+        store_file.write_text(text.replace(old_v2, hardened_v2, 1), encoding="utf-8")
+        return
+
+    old = '''          pattern: state.optMode === "binary" ? state.solidPattern : state.pattern,
+          mode: state.optMode,
+'''
+    if old not in text:
+        raise RuntimeError("Unable to locate Android modifier pattern metadata for versioning")
+    store_file.write_text(text.replace(old, hardened_v2, 1), encoding="utf-8")
 
 
 def patch_android_viewer_with_pinch(scene_file: pathlib.Path) -> None:
