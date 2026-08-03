@@ -3,6 +3,7 @@ package com.tomppi.enderslicer.nonplanar
 import com.tomppi.enderslicer.engine.GcodeCommand
 import com.tomppi.enderslicer.engine.PrinterEnvelope
 import java.io.File
+import kotlin.io.path.createTempDirectory
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -24,7 +25,7 @@ class CurviSlicerPipelineTest {
 
     @Test
     fun requestFieldCurvesAndSubdividesGcodeBeforeValidation() {
-        val directory = createTempDir(prefix = "curvislicer-test-")
+        val directory = createTempDirectory("curvislicer-test-").toFile()
         val gcode = File(directory, "output.gcode")
         gcode.writeText(
             """
@@ -77,7 +78,7 @@ class CurviSlicerPipelineTest {
 
     @Test
     fun absoluteExtrusionRetractionKeepsTheCompensatedAxisOffset() {
-        val directory = createTempDir(prefix = "curvislicer-retraction-test-")
+        val directory = createTempDirectory("curvislicer-retraction-test-").toFile()
         val gcode = File(directory, "output.gcode")
         gcode.writeText(
             """
