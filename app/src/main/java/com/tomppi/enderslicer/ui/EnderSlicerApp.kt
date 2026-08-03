@@ -53,6 +53,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.tomppi.enderslicer.mesh.MeshTriangleLimits
 import com.tomppi.enderslicer.model.withSettings
+import com.tomppi.enderslicer.nonplanar.NonPlanarSettingsStore
 import com.tomppi.enderslicer.texturizer.BumpMeshActivity
 import com.tomppi.enderslicer.viewer.ModelSurfaceView
 import com.tomppi.enderslicer.viewer.StlMeshWriter
@@ -61,7 +62,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-private enum class ViewerMode { MODEL, LAYERS }
+private enum class ViewerMode { MODEL, LAYERS, NOZZLE_PATH }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -80,9 +81,12 @@ fun EnderSlicerApp(
     var calibrationOpen by rememberSaveable { mutableStateOf(false) }
     var layerEventsOpen by rememberSaveable { mutableStateOf(false) }
     var meshLimitOpen by rememberSaveable { mutableStateOf(false) }
+    var nonPlanarOpen by rememberSaveable { mutableStateOf(false) }
     var viewerMode by rememberSaveable { mutableStateOf(ViewerMode.MODEL) }
     var selectedLayerIndex by rememberSaveable { mutableStateOf(0) }
     var lastAutoSelectedResultId by rememberSaveable { mutableStateOf<String?>(null) }
+    val nonPlanarStore = remember(context) { NonPlanarSettingsStore(context.applicationContext) }
+    var nonPlanarSettings by remember(nonPlanarStore) { mutableStateOf(nonPlanarStore.load()) }
 
     LaunchedEffect(state.sliceResultId, state.layerPreview) {
         val preview = state.layerPreview
@@ -96,7 +100,11 @@ fun EnderSlicerApp(
                 it.supportSegmentCount > 0 || it.supportInterfaceSegmentCount > 0
             }
             selectedLayerIndex = if (firstSupport >= 0) firstSupport else 0
-            viewerMode = ViewerMode.LAYERS
+            viewerMode = if (nonPlanarSettings.enabled && state.gcodePath != null) {
+                ViewerMode.NOZZLE_PATH
+            } else {
+                ViewerMode.LAYERS
+            }
             lastAutoSelectedResultId = resultId
         }
     }
@@ -228,6 +236,25 @@ fun EnderSlicerApp(
                             )
 
                             HorizontalDivider()
+                            MenuSectionLabel("Non Planar")
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        if (nonPlanarSettings.enabled) {
+                                            "CurviSlicer options · enabled"
+                                        } else {
+                                            "CurviSlicer options"
+                                        },
+                                    )
+                                },
+                                onClick = {
+                                    menuExpanded = false
+                                    nonPlanarOpen = true
+                                },
+                                enabled = !state.isBusy,
+                            )
+
+                            HorizontalDivider()
                             MenuSectionLabel("Calibration")
                             DropdownMenuItem(
                                 text = { Text("Calibration generator") },
@@ -280,6 +307,7 @@ fun EnderSlicerApp(
         bottomBar = {
             ActionBar(
                 state = state,
+                nonPlanarEnabled = nonPlanarSettings.enabled,
                 onSlice = viewModel::sliceModel,
                 onExportGcode = { gcodeExportPicker.launch(GcodeExportName.suggest()) },
             )
@@ -289,6 +317,7 @@ fun EnderSlicerApp(
             state = state,
             viewerMode = viewerMode,
             selectedLayerIndex = selectedLayerIndex,
+            nonPlanarEnabled = nonPlanarSettings.enabled,
             onViewerMode = { viewerMode = it },
             onLayerSelected = { selectedLayerIndex = it },
             onEditLayerEvents = { layerEventsOpen = true },
@@ -344,6 +373,33 @@ fun EnderSlicerApp(
                         context,
                         "Mesh triangle limit set to ${MeshTriangleLimits.formatCount(saved)}",
                         Toast.LENGTH_LONG,
+                    ).show()
+                },
+                modifier = Modifier
+                    .fillMaxHeight(0.94f)
+                    .navigationBarsPadding(),
+            )
+        }
+    }
+
+    if (nonPlanarOpen) {
+        ModalBottomSheet(
+            onDismissRequest = { nonPlanarOpen = false },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        ) {
+            val effectivePrinter = state.printer.withSettings(state.settings)
+            NonPlanarSettingsSheet(
+                initial = nonPlanarSettings,
+                layerHeightMm = state.settings.layerHeightMm,
+                nozzleDiameterMm = effectivePrinter.nozzleSizeMm,
+                onSave = { value ->
+                    nonPlanarStore.save(value)
+                    nonPlanarSettings = value.validated()
+                    nonPlanarOpen = false
+                    Toast.makeText(
+                        context,
+                        if (value.enabled) "CurviSlicer enabled for the next slice" else "CurviSlicer disabled",
+                        Toast.LENGTH_SHORT,
                     ).show()
                 },
                 modifier = Modifier
@@ -467,6 +523,7 @@ private fun ViewerPanel(
     state: MainUiState,
     viewerMode: ViewerMode,
     selectedLayerIndex: Int,
+    nonPlanarEnabled: Boolean,
     onViewerMode: (ViewerMode) -> Unit,
     onLayerSelected: (Int) -> Unit,
     onEditLayerEvents: () -> Unit,
@@ -475,8 +532,8 @@ private fun ViewerPanel(
     val effectivePrinter = state.printer.withSettings(state.settings)
     Box(modifier = modifier) {
         val preview = state.layerPreview
-        if (viewerMode == ViewerMode.LAYERS && preview != null) {
-            LayerPreviewView(
+        when {
+            viewerMode == ViewerMode.LAYERS && preview != null -> LayerPreviewView(
                 preview = preview,
                 selectedLayerIndex = selectedLayerIndex,
                 events = state.layerEvents,
@@ -484,8 +541,11 @@ private fun ViewerPanel(
                 onEditEvents = onEditLayerEvents,
                 modifier = Modifier.fillMaxSize(),
             )
-        } else {
-            key(effectivePrinter) {
+            viewerMode == ViewerMode.NOZZLE_PATH && state.gcodePath != null -> NozzlePathView(
+                gcodePath = state.gcodePath,
+                modifier = Modifier.fillMaxSize(),
+            )
+            else -> key(effectivePrinter) {
                 AndroidView(
                     modifier = Modifier.fillMaxSize(),
                     factory = { context -> ModelSurfaceView(context, effectivePrinter) },
@@ -511,6 +571,13 @@ private fun ViewerPanel(
                     ),
                     style = MaterialTheme.typography.bodySmall,
                 )
+                if (nonPlanarEnabled) {
+                    Text(
+                        "CurviSlicer enabled",
+                        color = MaterialTheme.colorScheme.primary,
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                }
                 val mesh = state.mesh
                 if (mesh == null) {
                     Text("Import an STL from Menu", style = MaterialTheme.typography.bodySmall)
@@ -548,7 +615,7 @@ private fun ViewerPanel(
             }
         }
 
-        if (preview != null) {
+        if (preview != null || state.gcodePath != null) {
             Card(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
@@ -558,13 +625,9 @@ private fun ViewerPanel(
                     modifier = Modifier.padding(6.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    if (viewerMode == ViewerMode.MODEL) {
-                        Button(onClick = { onViewerMode(ViewerMode.MODEL) }) { Text("Model") }
-                        OutlinedButton(onClick = { onViewerMode(ViewerMode.LAYERS) }) { Text("Layers") }
-                    } else {
-                        OutlinedButton(onClick = { onViewerMode(ViewerMode.MODEL) }) { Text("Model") }
-                        Button(onClick = { onViewerMode(ViewerMode.LAYERS) }) { Text("Layers") }
-                    }
+                    ViewerModeButton("Model", ViewerMode.MODEL, viewerMode, true, onViewerMode)
+                    ViewerModeButton("Layers", ViewerMode.LAYERS, viewerMode, preview != null, onViewerMode)
+                    ViewerModeButton("Path", ViewerMode.NOZZLE_PATH, viewerMode, state.gcodePath != null, onViewerMode)
                 }
             }
         }
@@ -589,8 +652,24 @@ private fun ViewerPanel(
 }
 
 @Composable
+private fun ViewerModeButton(
+    label: String,
+    mode: ViewerMode,
+    selected: ViewerMode,
+    enabled: Boolean,
+    onSelected: (ViewerMode) -> Unit,
+) {
+    if (selected == mode) {
+        Button(onClick = { onSelected(mode) }, enabled = enabled) { Text(label) }
+    } else {
+        OutlinedButton(onClick = { onSelected(mode) }, enabled = enabled) { Text(label) }
+    }
+}
+
+@Composable
 private fun ActionBar(
     state: MainUiState,
+    nonPlanarEnabled: Boolean,
     onSlice: () -> Unit,
     onExportGcode: () -> Unit,
 ) {
@@ -620,7 +699,13 @@ private fun ActionBar(
                     enabled = state.engineAvailable && state.modelPath != null && !state.isBusy,
                     modifier = Modifier.weight(1f),
                 ) {
-                    Text(if (state.isBusy) "Working…" else "Slice")
+                    Text(
+                        when {
+                            state.isBusy -> "Working…"
+                            nonPlanarEnabled -> "Slice non-planar"
+                            else -> "Slice"
+                        },
+                    )
                 }
                 OutlinedButton(
                     onClick = onExportGcode,
