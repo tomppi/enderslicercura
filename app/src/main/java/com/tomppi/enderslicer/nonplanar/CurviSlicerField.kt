@@ -28,8 +28,9 @@ internal data class CurviSlicerField(
         get() = relief.maxOf { abs(it.toDouble() * strength) }
 
     fun displacement(x: Double, y: Double, originalZ: Double): Double {
-        val u = ((originalZ - minZ - flatBaseHeightMm) / (modelHeightMm - flatBaseHeightMm))
-            .coerceIn(0.0, 1.0)
+        val usableHeight = modelHeightMm - flatBaseHeightMm
+        if (usableHeight <= 1e-9) return 0.0
+        val u = ((originalZ - minZ - flatBaseHeightMm) / usableHeight).coerceIn(0.0, 1.0)
         val weight = u * u * (3.0 - 2.0 * u)
         return sampleRelief(x, y) * strength * weight
     }
@@ -43,20 +44,24 @@ internal data class CurviSlicerField(
         val baseZ = minZ + flatBaseHeightMm
         if (usableHeight <= 1e-9 || abs(amplitude) <= 1e-12 || flatZ <= baseZ) return flatZ
 
-        var original = (flatZ + amplitude).coerceIn(
-            minZ - maximumDisplacementMm,
-            maxZ + maximumDisplacementMm,
-        )
-        repeat(5) {
+        // Above the deformed model top smoothstep has saturated to one. Continue
+        // linearly so Z-hop, lift, and park clearance is preserved exactly.
+        val mappedTopZ = maxZ - amplitude
+        if (flatZ >= mappedTopZ) return flatZ + amplitude
+
+        var original = (flatZ + amplitude).coerceIn(baseZ, maxZ)
+        repeat(8) {
             val u = ((original - baseZ) / usableHeight).coerceIn(0.0, 1.0)
             val smooth = u * u * (3.0 - 2.0 * u)
             val derivative = 1.0 - amplitude * (6.0 * u * (1.0 - u) / usableHeight)
             val residual = original - amplitude * smooth - flatZ
-            if (abs(residual) <= 1e-8) return@repeat
-            original = (original - residual / derivative.coerceAtLeast(0.20)).coerceIn(
-                minZ - maximumDisplacementMm,
-                maxZ + maximumDisplacementMm,
-            )
+            if (abs(residual) <= 1e-9) return original
+            require(derivative > 0.0) { "CurviSlicer field is not invertible at X=$x, Y=$y, Z=$flatZ" }
+            original = (original - residual / derivative).coerceIn(baseZ, maxZ)
+        }
+        val residual = flattenZ(x, y, original) - flatZ
+        require(abs(residual) <= 1e-6) {
+            "CurviSlicer inverse did not converge at X=$x, Y=$y, Z=$flatZ"
         }
         return original
     }
