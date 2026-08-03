@@ -92,6 +92,7 @@ private fun NozzlePathPlayer(path: GcodeNozzlePath, artifactKey: String, modifie
     }
 
     BoxWithConstraints(modifier = modifier) {
+        val controlsMaxHeight = maxHeight * 0.58f
         Column(modifier = Modifier.fillMaxSize()) {
             AndroidView(
                 modifier = Modifier
@@ -104,7 +105,7 @@ private fun NozzlePathPlayer(path: GcodeNozzlePath, artifactKey: String, modifie
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(max = maxHeight * 0.58f),
+                    .heightIn(max = controlsMaxHeight),
             ) {
                 Column(
                     modifier = Modifier
