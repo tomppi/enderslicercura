@@ -9,6 +9,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -39,12 +40,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -54,16 +56,19 @@ import com.tomppi.enderslicer.model.withSettings
 import com.tomppi.enderslicer.texturizer.BumpMeshActivity
 import com.tomppi.enderslicer.viewer.ModelSurfaceView
 import com.tomppi.enderslicer.viewer.StlMeshWriter
+import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.File
 
 private enum class ViewerMode { MODEL, LAYERS }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun EnderSlicerApp(viewModel: MainViewModel = viewModel()) {
+fun EnderSlicerApp(
+    viewModel: MainViewModel = viewModel(),
+    topBarActions: @Composable () -> Unit = {},
+) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -124,14 +129,20 @@ fun EnderSlicerApp(viewModel: MainViewModel = viewModel()) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("enderslicercura") },
+                title = { Text("enderslicercura", maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 actions = {
+                    topBarActions()
                     Box {
-                        TextButton(onClick = { menuExpanded = true }) { Text("Menu") }
+                        TopBarTextAction(
+                            label = "Menu",
+                            onClick = { menuExpanded = true },
+                        )
                         DropdownMenu(
                             expanded = menuExpanded,
                             onDismissRequest = { menuExpanded = false },
+                            modifier = Modifier.widthIn(min = 280.dp, max = 340.dp),
                         ) {
+                            MenuSectionLabel("Files")
                             DropdownMenuItem(
                                 text = { Text("Import STL") },
                                 onClick = {
@@ -162,7 +173,9 @@ fun EnderSlicerApp(viewModel: MainViewModel = viewModel()) {
                                 },
                                 enabled = !state.isBusy,
                             )
+
                             HorizontalDivider()
+                            MenuSectionLabel("Model")
                             DropdownMenuItem(
                                 text = { Text("Texture model (BumpMesh)") },
                                 onClick = {
@@ -198,6 +211,14 @@ fun EnderSlicerApp(viewModel: MainViewModel = viewModel()) {
                                 enabled = state.mesh != null && !state.isBusy,
                             )
                             DropdownMenuItem(
+                                text = { Text("Position & rotation") },
+                                onClick = {
+                                    menuExpanded = false
+                                    modelToolsOpen = true
+                                },
+                                enabled = state.mesh != null && !state.isBusy,
+                            )
+                            DropdownMenuItem(
                                 text = { Text("Mesh triangle limit") },
                                 onClick = {
                                     menuExpanded = false
@@ -205,14 +226,9 @@ fun EnderSlicerApp(viewModel: MainViewModel = viewModel()) {
                                 },
                                 enabled = !state.isBusy,
                             )
-                            DropdownMenuItem(
-                                text = { Text("Model position & rotation") },
-                                onClick = {
-                                    menuExpanded = false
-                                    modelToolsOpen = true
-                                },
-                                enabled = state.mesh != null && !state.isBusy,
-                            )
+
+                            HorizontalDivider()
+                            MenuSectionLabel("Calibration")
                             DropdownMenuItem(
                                 text = { Text("Calibration generator") },
                                 onClick = {
@@ -221,6 +237,9 @@ fun EnderSlicerApp(viewModel: MainViewModel = viewModel()) {
                                 },
                                 enabled = !state.isBusy,
                             )
+
+                            HorizontalDivider()
+                            MenuSectionLabel("Configuration")
                             DropdownMenuItem(
                                 text = { Text("Profiles & filament") },
                                 onClick = {
@@ -411,6 +430,36 @@ fun EnderSlicerApp(viewModel: MainViewModel = viewModel()) {
             )
         }
     }
+}
+
+@Composable
+internal fun TopBarTextAction(
+    label: String,
+    onClick: () -> Unit,
+    enabled: Boolean = true,
+) {
+    TextButton(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = Modifier
+            .height(48.dp)
+            .widthIn(min = 80.dp, max = 156.dp),
+        contentPadding = PaddingValues(horizontal = 12.dp),
+    ) {
+        Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+@Composable
+private fun MenuSectionLabel(label: String) {
+    Text(
+        text = label.uppercase(),
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 7.dp),
+    )
 }
 
 @Composable
