@@ -1,6 +1,7 @@
 package com.tomppi.enderslicer.engine
 
 import com.tomppi.enderslicer.calibration.CalibrationPlacementPolicy
+import com.tomppi.enderslicer.nonplanar.CurviSlicerFieldStorage
 import java.io.File
 
 /** Finalizes staged engine output before it is eligible for immutable publication. */
@@ -23,9 +24,15 @@ internal object CuraEnginePostProcessor {
     ): Result {
         val effectiveEnvelope = resolvedEnvelope(outputFile.parentFile) ?: printerEnvelope
         val firmware = CalibrationFirmwareEncoder.fromFlavor(effectiveEnvelope.gcodeFlavor)
+        val curviDiagnostics = CurviSlicerFieldStorage.curveStagedGcode(outputFile, effectiveEnvelope)
+        val effectiveTransport = if (curviDiagnostics == null) {
+            settingsTransport
+        } else {
+            "$settingsTransport+curvislicer-android-v1"
+        }
         val baseSummary = GcodeSanitizer.validateAndRepair(
             file = outputFile,
-            settingsTransport = settingsTransport,
+            settingsTransport = effectiveTransport,
             printerEnvelope = effectiveEnvelope,
         )
         outputFile.copyTo(baseGcodeFile, overwrite = true)
@@ -64,7 +71,7 @@ internal object CuraEnginePostProcessor {
         GcodeLayerEventProcessor.materialize(baseGcodeFile, outputFile, resolvedEvents, firmware)
         val summary = GcodeSanitizer.validateAndRepair(
             file = outputFile,
-            settingsTransport = "$settingsTransport+layer-events",
+            settingsTransport = "$effectiveTransport+layer-events",
             printerEnvelope = effectiveEnvelope,
         )
         val previewResult = runCatching { GcodeLayerPreviewParser.parse(outputFile) }
