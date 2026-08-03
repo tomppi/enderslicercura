@@ -37,6 +37,7 @@ internal object CurviGcodeTransformer {
         var curvedY = 0.0
         var curvedZ = 0.0
         var curvedE = 0.0
+        var idealCurvedE = 0.0
         var logicalFeed = 0.0
         var emittedFeed = Double.NaN
         var inPrintableLayers = false
@@ -96,8 +97,9 @@ internal object CurviGcodeTransformer {
                                 output.appendLine(
                                     "G92 E${format(planarE)} ; restore Cura E coordinate before machine end G-code",
                                 )
-                                curvedE = planarE
                             }
+                            curvedE = planarE
+                            idealCurvedE = planarE
                             planarX = curvedX
                             planarY = curvedY
                             planarZ = curvedZ
@@ -128,7 +130,11 @@ internal object CurviGcodeTransformer {
                                     planarZ = it
                                     curvedZ = if (inPrintableLayers) field.unflattenZ(planarX, planarY, it) else it
                                 }
-                                command.value('E')?.let { planarE = it; curvedE = it }
+                                command.value('E')?.let {
+                                    planarE = it
+                                    curvedE = it
+                                    idealCurvedE = it
+                                }
                                 output.appendLine(rawLine)
                             }
                             "G2", "G3" -> error(
@@ -146,11 +152,11 @@ internal object CurviGcodeTransformer {
                                 if (!spatial || !inPrintableLayers) {
                                     if (inPrintableLayers && command.has('E')) {
                                         val builder = StringBuilder(command.opcode)
-                                        val curvedDeltaE = nextPlanarE - planarE
+                                        idealCurvedE += deltaE
                                         val emittedE = if (modal.absoluteExtrusion) {
-                                            quantize(curvedE + curvedDeltaE)
+                                            quantize(idealCurvedE)
                                         } else {
-                                            quantize(curvedDeltaE)
+                                            quantize(idealCurvedE - curvedE)
                                         }
                                         builder.append(" E").append(format(emittedE))
                                         command.value('F')?.let { builder.append(" F").append(format(it)) }
@@ -162,7 +168,10 @@ internal object CurviGcodeTransformer {
                                         curvedE = if (modal.absoluteExtrusion) emittedE else curvedE + emittedE
                                     } else {
                                         output.appendLine(rawLine)
-                                        if (command.has('E')) curvedE = nextPlanarE
+                                        if (command.has('E')) {
+                                            curvedE = nextPlanarE
+                                            idealCurvedE = nextPlanarE
+                                        }
                                     }
                                     command.value('F')?.let { emittedFeed = it }
                                     planarX = nextPlanarX
@@ -186,7 +195,7 @@ internal object CurviGcodeTransformer {
                                 val startCurvedX = curvedX
                                 val startCurvedY = curvedY
                                 val startCurvedZ = curvedZ
-                                val startCurvedE = curvedE
+                                val startIdealCurvedE = idealCurvedE
                                 val endCurvedZ = field.unflattenZ(nextPlanarX, nextPlanarY, nextPlanarZ)
                                 val planarLength = distance3(
                                     startPlanarX, startPlanarY, startPlanarZ,
@@ -237,7 +246,6 @@ internal object CurviGcodeTransformer {
                                 var previousRelativeX = 0.0
                                 var previousRelativeY = 0.0
                                 var previousRelativeZ = 0.0
-                                var previousRelativeE = 0.0
                                 for (segment in 0 until segmentCount) {
                                     val from = points[segment]
                                     val to = points[segment + 1]
@@ -247,9 +255,13 @@ internal object CurviGcodeTransformer {
                                     } else {
                                         (segment + 1).toDouble() / segmentCount
                                     }
-                                    val targetCumulativeE = compensatedDeltaE * fraction
-                                    val exactSegmentDeltaE = targetCumulativeE - (emittedCurvedE - startCurvedE)
-                                    emittedCurvedE += exactSegmentDeltaE
+                                    val idealTargetE = startIdealCurvedE + compensatedDeltaE * fraction
+                                    val emittedE = if (modal.absoluteExtrusion) {
+                                        quantize(idealTargetE)
+                                    } else {
+                                        quantize(idealTargetE - emittedCurvedE)
+                                    }
+                                    emittedCurvedE = if (modal.absoluteExtrusion) emittedE else emittedCurvedE + emittedE
                                     val horizontal = hypot(to.x - from.x, to.y - from.y)
                                     val slope = if (horizontal > EPSILON) abs(to.z - from.z) / horizontal else 0.0
                                     maximumSlope = max(maximumSlope, Math.toDegrees(kotlin.math.atan(slope)))
@@ -294,15 +306,7 @@ internal object CurviGcodeTransformer {
                                         previousRelativeY = targetRelativeY
                                         previousRelativeZ = targetRelativeZ
                                     }
-                                    if (command.has('E')) {
-                                        if (modal.absoluteExtrusion) {
-                                            builder.append(" E").append(format(emittedCurvedE))
-                                        } else {
-                                            val targetRelativeE = quantize(targetCumulativeE)
-                                            builder.append(" E").append(format(targetRelativeE - previousRelativeE))
-                                            previousRelativeE = targetRelativeE
-                                        }
-                                    }
+                                    if (command.has('E')) builder.append(" E").append(format(emittedE))
                                     if (safeFeed > EPSILON && (!emittedFeed.isFinite() || abs(safeFeed - emittedFeed) > 0.01)) {
                                         builder.append(" F").append(format(safeFeed))
                                         emittedFeed = safeFeed
@@ -330,11 +334,8 @@ internal object CurviGcodeTransformer {
                                     curvedZ = startCurvedZ + previousRelativeZ
                                 }
                                 if (command.has('E')) {
-                                    curvedE = if (modal.absoluteExtrusion) {
-                                        quantize(emittedCurvedE)
-                                    } else {
-                                        startCurvedE + previousRelativeE
-                                    }
+                                    idealCurvedE = startIdealCurvedE + compensatedDeltaE
+                                    curvedE = emittedCurvedE
                                 }
                             }
                             else -> output.appendLine(rawLine)
