@@ -3,6 +3,7 @@ package com.tomppi.enderslicer.engine
 import com.tomppi.enderslicer.model.PrinterDefinition
 import com.tomppi.enderslicer.model.SlicerSettings
 import com.tomppi.enderslicer.profile.CuraEngineProfile
+import com.tomppi.enderslicer.smartinfill.SmartInfillCuraContract
 import com.tomppi.enderslicer.smartinfill.SmartInfillModifier
 import java.io.File
 import java.nio.ByteBuffer
@@ -101,7 +102,7 @@ class CuraEngineCommandTest {
     }
 
     @Test
-    fun fallbackCommandAppliesRolesAfterEachTargetMeshIsLoaded() {
+    fun fallbackCommandAppliesRolesAndNeutralShellsAfterEachTargetMeshIsLoaded() {
         val directory = Files.createTempDirectory("cura-smart-infill-command").toFile()
         try {
             val model = File(directory, "model.stl")
@@ -142,16 +143,19 @@ class CuraEngineCommandTest {
             assertTrue(modelSettings.contains("infill_mesh=false"))
             assertFalse(modelSettings.contains("infill_mesh=true"))
             assertFalse(modelSettings.contains("infill_sparse_density=35"))
+            assertFalse(modelSettings.contains("wall_line_count=0"))
 
             val lowSettings = command.subList(lowIndex + 1, highIndex)
             assertTrue(lowSettings.contains("infill_mesh=true"))
             assertTrue(lowSettings.contains("infill_mesh_order=1"))
             assertTrue(lowSettings.contains("infill_sparse_density=35"))
+            assertModifierShellNeutral(lowSettings)
 
             val highSettings = command.subList(highIndex + 1, outputIndex)
             assertTrue(highSettings.contains("infill_mesh=true"))
             assertTrue(highSettings.contains("infill_mesh_order=2"))
             assertTrue(highSettings.contains("infill_sparse_density=70"))
+            assertModifierShellNeutral(highSettings)
 
             // Rotation/centering are load-time inputs and must precede each -l.
             assertEquals("-l", command[modelIndex - 1])
@@ -162,6 +166,12 @@ class CuraEngineCommandTest {
             assertTrue(command.subList(lowIndex, highIndex).contains("mesh_rotation_matrix=[[1,0,0],[0,1,0],[0,0,1]]"))
         } finally {
             directory.deleteRecursively()
+        }
+    }
+
+    private fun assertModifierShellNeutral(settings: List<String>) {
+        SmartInfillCuraContract.modifierShellNeutralValues.forEach { (key, value) ->
+            assertTrue("Missing modifier shell override $key=$value", settings.contains("$key=$value"))
         }
     }
 
