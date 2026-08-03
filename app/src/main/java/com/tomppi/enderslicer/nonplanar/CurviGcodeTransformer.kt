@@ -147,16 +147,19 @@ internal object CurviGcodeTransformer {
                                     if (inPrintableLayers && command.has('E')) {
                                         val builder = StringBuilder(command.opcode)
                                         val curvedDeltaE = nextPlanarE - planarE
-                                        builder.append(" E").append(
-                                            format(if (modal.absoluteExtrusion) curvedE + curvedDeltaE else curvedDeltaE),
-                                        )
+                                        val emittedE = if (modal.absoluteExtrusion) {
+                                            quantize(curvedE + curvedDeltaE)
+                                        } else {
+                                            quantize(curvedDeltaE)
+                                        }
+                                        builder.append(" E").append(format(emittedE))
                                         command.value('F')?.let { builder.append(" F").append(format(it)) }
                                         val unknown = unknownTokens(rawLine)
                                         if (unknown.isNotBlank()) builder.append(' ').append(unknown)
                                         rawLine.substringAfter(';', "").takeIf { ';' in rawLine }
                                             ?.let { builder.append(" ;").append(it) }
                                         output.appendLine(builder.toString())
-                                        curvedE += curvedDeltaE
+                                        curvedE = if (modal.absoluteExtrusion) emittedE else curvedE + emittedE
                                     } else {
                                         output.appendLine(rawLine)
                                         if (command.has('E')) curvedE = nextPlanarE
@@ -183,6 +186,7 @@ internal object CurviGcodeTransformer {
                                 val startCurvedX = curvedX
                                 val startCurvedY = curvedY
                                 val startCurvedZ = curvedZ
+                                val startCurvedE = curvedE
                                 val endCurvedZ = field.unflattenZ(nextPlanarX, nextPlanarY, nextPlanarZ)
                                 val planarLength = distance3(
                                     startPlanarX, startPlanarY, startPlanarZ,
@@ -244,7 +248,7 @@ internal object CurviGcodeTransformer {
                                         (segment + 1).toDouble() / segmentCount
                                     }
                                     val targetCumulativeE = compensatedDeltaE * fraction
-                                    val exactSegmentDeltaE = targetCumulativeE - (emittedCurvedE - curvedE)
+                                    val exactSegmentDeltaE = targetCumulativeE - (emittedCurvedE - startCurvedE)
                                     emittedCurvedE += exactSegmentDeltaE
                                     val horizontal = hypot(to.x - from.x, to.y - from.y)
                                     val slope = if (horizontal > EPSILON) abs(to.z - from.z) / horizontal else 0.0
@@ -316,10 +320,22 @@ internal object CurviGcodeTransformer {
                                 planarY = nextPlanarY
                                 planarZ = nextPlanarZ
                                 planarE = nextPlanarE
-                                curvedX = nextPlanarX
-                                curvedY = nextPlanarY
-                                curvedZ = endCurvedZ
-                                curvedE = if (command.has('E')) emittedCurvedE else curvedE
+                                if (modal.absolutePosition) {
+                                    curvedX = quantize(nextPlanarX)
+                                    curvedY = quantize(nextPlanarY)
+                                    curvedZ = quantize(endCurvedZ)
+                                } else {
+                                    curvedX = startCurvedX + previousRelativeX
+                                    curvedY = startCurvedY + previousRelativeY
+                                    curvedZ = startCurvedZ + previousRelativeZ
+                                }
+                                if (command.has('E')) {
+                                    curvedE = if (modal.absoluteExtrusion) {
+                                        quantize(emittedCurvedE)
+                                    } else {
+                                        startCurvedE + previousRelativeE
+                                    }
+                                }
                             }
                             else -> output.appendLine(rawLine)
                         }
