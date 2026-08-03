@@ -6,6 +6,7 @@ import kotlin.math.sqrt
 /** Ordered spatial moves used by the start-to-finish nozzle-path preview. */
 data class GcodeNozzlePath(
     val moves: FloatArray,
+    val sourceMoveIndices: IntArray,
     val minX: Float,
     val minY: Float,
     val minZ: Float,
@@ -18,6 +19,10 @@ data class GcodeNozzlePath(
     val truncated: Boolean,
 ) {
     val moveCount: Int get() = moves.size / VALUES_PER_MOVE
+
+    init {
+        require(sourceMoveIndices.size == moveCount)
+    }
 
     enum class Kind(val code: Float) {
         TRAVEL(0f),
@@ -41,17 +46,19 @@ object GcodeNozzlePathParser {
     private const val DEFAULT_MAX_MOVES = 120_000
     private const val MOTION_EPSILON = 1e-7
     private const val EXTRUSION_EPSILON = 1e-7
+    private const val CANCELLATION_INTERVAL = 2_048
 
     fun parse(file: File): GcodeNozzlePath = parse(file, DEFAULT_MAX_MOVES)
 
     internal fun parse(file: File, maxMoves: Int): GcodeNozzlePath {
         require(file.isFile && file.length() > 0L) { "Generated G-code is not available for nozzle-path preview" }
-        require(maxMoves > 0) { "Nozzle-path move limit must be positive" }
+        require(maxMoves > 1) { "Nozzle-path move limit must retain at least the first and final move" }
 
         val sourceMoveCount = countSpatialMoves(file)
         require(sourceMoveCount > 0) { "No spatial nozzle moves were found in the G-code" }
 
         val accumulator = FloatAccumulator()
+        val sourceIndices = IntAccumulator()
         val modalState = GcodeModalState()
         var x = 0.0
         var y = 0.0
@@ -67,9 +74,12 @@ object GcodeNozzlePathParser {
         var maxX = Float.NEGATIVE_INFINITY
         var maxY = Float.NEGATIVE_INFINITY
         var maxZ = Float.NEGATIVE_INFINITY
+        var linesRead = 0
 
         file.bufferedReader().useLines { lines ->
             lines.forEach { rawLine ->
+                linesRead++
+                checkCancellation(linesRead)
                 val command = GcodeCommand.parse(rawLine) ?: return@forEach
                 if (modalState.apply(command)) return@forEach
                 when (command.opcode) {
@@ -79,6 +89,9 @@ object GcodeNozzlePathParser {
                         command.value('Z')?.let { z = it }
                         command.value('E')?.let { e = it }
                     }
+                    "G2", "G3" -> error(
+                        "Nozzle Path cannot safely display G2/G3 arcs; disable arc fitting and re-slice",
+                    )
                     "G0", "G1" -> {
                         val startX = x
                         val startY = y
@@ -95,7 +108,8 @@ object GcodeNozzlePathParser {
                         e = nextE
 
                         if (!isSpatialMove(startX, startY, startZ, nextX, nextY, nextZ)) return@forEach
-                        val keep = shouldRetain(sourceIndex, sourceMoveCount, maxMoves)
+                        val retainedSourceIndex = sourceIndex
+                        val keep = shouldRetain(retainedSourceIndex, sourceMoveCount, maxMoves)
                         sourceIndex++
                         if (!keep) return@forEach
 
@@ -123,6 +137,7 @@ object GcodeNozzlePathParser {
                             (feedRateMmPerMinute / 60.0).coerceAtLeast(0.0).toFloat(),
                             kind.code,
                         )
+                        sourceIndices.add(retainedSourceIndex)
                     }
                 }
             }
@@ -131,6 +146,7 @@ object GcodeNozzlePathParser {
         require(accumulator.size > 0) { "No nozzle moves remained after preview sampling" }
         return GcodeNozzlePath(
             moves = accumulator.toArray(),
+            sourceMoveIndices = sourceIndices.toArray(),
             minX = minX,
             minY = minY,
             minZ = minZ,
@@ -150,8 +166,11 @@ object GcodeNozzlePathParser {
         var y = 0.0
         var z = 0.0
         var count = 0
+        var linesRead = 0
         file.bufferedReader().useLines { lines ->
             lines.forEach { rawLine ->
+                linesRead++
+                checkCancellation(linesRead)
                 val command = GcodeCommand.parse(rawLine) ?: return@forEach
                 if (modalState.apply(command)) return@forEach
                 when (command.opcode) {
@@ -160,6 +179,9 @@ object GcodeNozzlePathParser {
                         command.value('Y')?.let { y = it }
                         command.value('Z')?.let { z = it }
                     }
+                    "G2", "G3" -> error(
+                        "Nozzle Path cannot safely display G2/G3 arcs; disable arc fitting and re-slice",
+                    )
                     "G0", "G1" -> {
                         val nextX = modalState.position(x, command.value('X'))
                         val nextY = modalState.position(y, command.value('Y'))
@@ -184,9 +206,19 @@ object GcodeNozzlePathParser {
 
     private fun shouldRetain(index: Int, sourceCount: Int, limit: Int): Boolean {
         if (sourceCount <= limit) return true
-        val before = index.toLong() * limit / sourceCount
-        val after = (index.toLong() + 1L) * limit / sourceCount
+        if (index == 0 || index == sourceCount - 1) return true
+        val interiorLimit = limit - 2
+        val interiorIndex = index - 1
+        val interiorCount = sourceCount - 2
+        val before = interiorIndex.toLong() * interiorLimit / interiorCount
+        val after = (interiorIndex.toLong() + 1L) * interiorLimit / interiorCount
         return after > before
+    }
+
+    private fun checkCancellation(linesRead: Int) {
+        if (linesRead % CANCELLATION_INTERVAL == 0 && Thread.currentThread().isInterrupted) {
+            throw InterruptedException("Nozzle-path parsing was cancelled")
+        }
     }
 
     private class FloatAccumulator(initialCapacity: Int = GcodeNozzlePath.VALUES_PER_MOVE * 2048) {
@@ -208,5 +240,17 @@ object GcodeNozzlePathParser {
             while (capacity < required) capacity *= 2
             values = values.copyOf(capacity)
         }
+    }
+
+    private class IntAccumulator(initialCapacity: Int = 2048) {
+        private var values = IntArray(initialCapacity)
+        private var size = 0
+
+        fun add(value: Int) {
+            if (size == values.size) values = values.copyOf(values.size * 2)
+            values[size++] = value
+        }
+
+        fun toArray(): IntArray = values.copyOf(size)
     }
 }
