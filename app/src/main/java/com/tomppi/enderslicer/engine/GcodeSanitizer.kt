@@ -106,6 +106,19 @@ object GcodeSanitizer {
                         x = modalState.position(x, command.value('X'))
                         y = modalState.position(y, command.value('Y'))
                         z = modalState.position(z, command.value('Z'))
+                        val spatialMove = startX != x || startY != y || startZ != z
+                        if (spatialMove) {
+                            printerEnvelope?.requireMotionMove(
+                                startX = startX,
+                                startY = startY,
+                                startZ = startZ,
+                                endX = x,
+                                endY = y,
+                                endZ = z,
+                                lineNumber = lineNumber,
+                                layerNumber = currentLayer,
+                            )
+                        }
                         var positiveExtrusion = 0.0
                         command.value('E')?.let { requested ->
                             val nextE = modalState.extrusion(currentE, requested)
@@ -126,16 +139,18 @@ object GcodeSanitizer {
                                             "The G-code was not made available for export.",
                                     )
                                 }
-                                printerEnvelope?.requireExtrusionMove(
-                                    startX = startX,
-                                    startY = startY,
-                                    startZ = startZ,
-                                    endX = x,
-                                    endY = y,
-                                    endZ = z,
-                                    lineNumber = lineNumber,
-                                    layerNumber = currentLayer,
-                                )
+                                if (spatialMove) {
+                                    printerEnvelope?.requireExtrusionMove(
+                                        startX = startX,
+                                        startY = startY,
+                                        startZ = startZ,
+                                        endX = x,
+                                        endY = y,
+                                        endZ = z,
+                                        lineNumber = lineNumber,
+                                        layerNumber = currentLayer,
+                                    )
+                                }
                             }
                             currentE = nextE
                         }
