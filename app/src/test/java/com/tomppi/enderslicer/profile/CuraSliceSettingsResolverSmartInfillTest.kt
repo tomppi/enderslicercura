@@ -3,6 +3,7 @@ package com.tomppi.enderslicer.profile
 import com.tomppi.enderslicer.model.PrinterDefinition
 import com.tomppi.enderslicer.model.SlicerSettings
 import com.tomppi.enderslicer.smartinfill.SmartInfillActivity
+import com.tomppi.enderslicer.smartinfill.SmartInfillCuraContract
 import com.tomppi.enderslicer.smartinfill.SmartInfillModifier
 import com.tomppi.enderslicer.smartinfill.SmartInfillPackage
 import com.tomppi.enderslicer.smartinfill.SmartInfillRuntime
@@ -20,7 +21,7 @@ class CuraSliceSettingsResolverSmartInfillTest {
     }
 
     @Test
-    fun pinnedDefinitionsRecomputeDensityDependentValuesAndOverrideChildWidths() {
+    fun pinnedDefinitionsRecomputeDensityDependentValuesOverrideChildWidthsAndNeutralizeModifierShells() {
         val profile = pinnedProfile(
             rawExtruderValues = mapOf(
                 "wall_line_width" to "0.60",
@@ -28,6 +29,14 @@ class CuraSliceSettingsResolverSmartInfillTest {
                 "wall_line_width_x" to "0.60",
                 "skin_line_width" to "0.60",
                 "infill_line_width" to "0.60",
+                "wall_line_count" to "4",
+                "wall_thickness" to "1.6",
+                "top_layers" to "8",
+                "bottom_layers" to "8",
+                "initial_bottom_layers" to "8",
+                "top_bottom_thickness" to "1.6",
+                "roofing_layer_count" to "2",
+                "flooring_layer_count" to "2",
             ),
         )
         val packageValue = SmartInfillPackage(
@@ -70,14 +79,26 @@ class CuraSliceSettingsResolverSmartInfillTest {
         }
 
         val baseDistance = resolved.modelValues.getValue("infill_line_distance").toDouble()
-        val lowDistance = resolved.smartInfillModelValues.getValue(35).getValue("infill_line_distance").toDouble()
-        val highDistance = resolved.smartInfillModelValues.getValue(70).getValue("infill_line_distance").toDouble()
+        val lowValues = resolved.smartInfillModelValues.getValue(35)
+        val highValues = resolved.smartInfillModelValues.getValue(70)
+        val lowDistance = lowValues.getValue("infill_line_distance").toDouble()
+        val highDistance = highValues.getValue("infill_line_distance").toDouble()
         assertNotEquals(baseDistance, lowDistance, 1e-7)
         assertNotEquals(lowDistance, highDistance, 1e-7)
         assertTrue(baseDistance > lowDistance)
         assertTrue(lowDistance > highDistance)
-        assertEquals(35.0, resolved.smartInfillModelValues.getValue(35).getValue("infill_sparse_density").toDouble(), 0.0)
-        assertEquals(70.0, resolved.smartInfillModelValues.getValue(70).getValue("infill_sparse_density").toDouble(), 0.0)
+        assertEquals(35.0, lowValues.getValue("infill_sparse_density").toDouble(), 0.0)
+        assertEquals(70.0, highValues.getValue("infill_sparse_density").toDouble(), 0.0)
+        listOf(lowValues, highValues).forEach { values ->
+            SmartInfillCuraContract.modifierShellNeutralValues.forEach { (key, value) ->
+                assertEquals("Resolved modifier must neutralize $key", value, values[key])
+            }
+        }
+
+        // The printable model keeps filaSim's nonzero shell contract.
+        assertEquals(3.0, resolved.extruderValues.getValue("wall_line_count").toDouble(), 0.0)
+        assertEquals(5.0, resolved.extruderValues.getValue("top_layers").toDouble(), 0.0)
+        assertEquals(5.0, resolved.extruderValues.getValue("bottom_layers").toDouble(), 0.0)
     }
 
     private fun pinnedProfile(rawExtruderValues: Map<String, String>): CuraEngineProfile {
