@@ -69,10 +69,6 @@ internal object CuraSliceSettingsResolver {
             put("machine_nozzle_size", effectivePrinter.nozzleSizeMm.toString())
             put("material_diameter", effectivePrinter.filamentDiameterMm.toString())
             if (smartInfillPackage != null) {
-                // Imported Cura projects may contain literal child-width edits.
-                // A parent line_width override cannot recalculate locked child
-                // values, so force every width used by filaSim's wall/shell and
-                // infill model to the exact analyzed width.
                 SMART_INFILL_WIDTH_KEYS.forEach { key ->
                     put(key, smartInfillPackage.lineWidthMm.toString())
                 }
@@ -81,10 +77,6 @@ internal object CuraSliceSettingsResolver {
 
         val rawResolved = resolveDefinitions(profile, globalOverrides, extruderOverrides)
 
-        // Cura stores zero as a frontend sentinel for some material profiles.
-        // Normalize it in the temporary slice snapshot, never in the persisted
-        // baseline, so future dependency recalculation still starts from the
-        // original imported project.
         val parityExtruder = linkedMapOf<String, String>().apply {
             putAll(rawResolved.extruderValues)
             val coolMinimum = get("cool_min_temperature")?.toDoubleOrNull()
@@ -95,9 +87,6 @@ internal object CuraSliceSettingsResolver {
             putAll(WaveOverhangEngineSettings.values(effectiveSettings))
         }
 
-        // First verify that the resolved Cura dependency graph still matches all
-        // explicit user/app inputs. Calibration engine overrides intentionally
-        // differ from some profile values and therefore belong after this check.
         CuraSettingDelta.requireResolvedMatch(
             settings = effectiveSettings,
             globalValues = rawResolved.globalValues,
@@ -129,8 +118,13 @@ internal object CuraSliceSettingsResolver {
             ?.distinct()
             ?.sorted()
             ?.associateWith { densityPercent ->
+                val expectedPattern = SmartInfillCuraContract.modifierPattern(
+                    smartInfillPackage,
+                    densityPercent,
+                )
                 val modifierOverrides = LinkedHashMap(extruderOverrides).apply {
                     put("infill_sparse_density", densityPercent.toString())
+                    put("infill_pattern", expectedPattern)
                 }
                 val modifierResolved = resolveDefinitions(profile, globalOverrides, modifierOverrides)
                 val actualDensity = modifierResolved.extruderValues["infill_sparse_density"]
@@ -138,6 +132,12 @@ internal object CuraSliceSettingsResolver {
                     ?: error("Resolved Smart Infill modifier density is missing")
                 require(actualDensity.toDoubleOrNull() == densityPercent.toDouble()) {
                     "Resolved Smart Infill density diverged: requested $densityPercent, resolved $actualDensity"
+                }
+                val actualPattern = modifierResolved.extruderValues["infill_pattern"]
+                    ?: modifierResolved.modelValues["infill_pattern"]
+                    ?: error("Resolved Smart Infill modifier pattern is missing")
+                require(actualPattern == expectedPattern) {
+                    "Resolved Smart Infill pattern diverged: requested $expectedPattern, resolved $actualPattern"
                 }
                 SmartInfillCuraContract.neutralizeModifierShell(modifierResolved.modelValues)
             }
@@ -200,10 +200,7 @@ internal object CuraSliceSettingsResolver {
         range(global, "machine_width", 1.0, 2000.0)
         range(global, "machine_depth", 1.0, 2000.0)
         range(global, "machine_height", 1.0, 2000.0)
-        fun anyNumber(key: String): Double = number(
-            if (key in global) global else extruder,
-            key,
-        )
+        fun anyNumber(key: String): Double = number(if (key in global) global else extruder, key)
         fun anyRange(key: String, minimum: Double, maximum: Double) {
             val value = anyNumber(key)
             require(value in minimum..maximum) {
