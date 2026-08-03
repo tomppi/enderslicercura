@@ -42,7 +42,7 @@ class CurviSlicerSafetyRegressionTest {
     }
 
     @Test
-    fun machineEndLiftWipeAndParkRemainVerbatim() {
+    fun machineEndLiftWipeAndParkRemainVerbatimWithPlanarExtrusionCoordinate() {
         val directory = Files.createTempDirectory("curvi-machine-end").toFile()
         try {
             val endLines = listOf(
@@ -77,7 +77,10 @@ class CurviSlicerSafetyRegressionTest {
             val output = gcode.readLines()
             val sentinel = output.indexOf(CurviSlicerRuntime.MACHINE_END_SENTINEL)
             assertTrue(sentinel >= 0)
-            assertEquals(endLines, output.subList(sentinel + 1, sentinel + 1 + endLines.size))
+            val extrusionReset = requireNotNull(GcodeCommand.parse(output[sentinel + 1]))
+            assertEquals("G92", extrusionReset.opcode)
+            assertEquals(1.0, requireNotNull(extrusionReset.value('E')), 1e-6)
+            assertEquals(endLines, output.subList(sentinel + 2, sentinel + 2 + endLines.size))
         } finally {
             directory.deleteRecursively()
         }
