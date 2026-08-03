@@ -2,7 +2,10 @@ package com.tomppi.enderslicer.profile
 
 import com.tomppi.enderslicer.nonplanar.CurviSlicerRuntime
 import com.tomppi.enderslicer.nonplanar.NonPlanarSettings
+import com.tomppi.enderslicer.viewer.StlSliceTransform
 import java.io.File
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.nio.file.Files
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertNotNull
@@ -52,5 +55,63 @@ class CuraResolvedSettingsWriterCurviSlicerTest {
             CurviSlicerRuntime.activate(NonPlanarSettings(enabled = false))
             root.deleteRecursively()
         }
+    }
+
+    @Test
+    fun ordinaryPlanarIdentityTransformIsNotTheCurviStagingMarker() {
+        val root = Files.createTempDirectory("enderslicer-planar-identity").toFile()
+        try {
+            CurviSlicerRuntime.activate(NonPlanarSettings(enabled = false))
+            val model = File(root, "model.stl")
+            writeTriangle(model)
+            val destination = File(root, "resolved-settings.json")
+            val identity = StlSliceTransform(
+                linear = listOf(
+                    1.0, 0.0, 0.0,
+                    0.0, 1.0, 0.0,
+                    0.0, 0.0, 1.0,
+                ),
+                translationXmm = 0.0,
+                translationYmm = 0.0,
+                translationZmm = 0.0,
+            )
+
+            CuraResolvedSettingsWriter.write(
+                destination = destination,
+                modelFileName = model.name,
+                resolved = CuraSliceSettingsResolver.Result(
+                    globalValues = mapOf(
+                        "machine_width" to "220",
+                        "machine_depth" to "220",
+                        "machine_height" to "250",
+                        "machine_shape" to "rectangular",
+                        "machine_center_is_zero" to "false",
+                        "machine_gcode_flavor" to "marlin",
+                    ),
+                    extruderValues = emptyMap(),
+                    modelValues = emptyMap(),
+                    expressionCount = 0,
+                    passes = 0,
+                ),
+                modelTransform = identity,
+            )
+
+            assertTrue(destination.isFile && destination.length() > 0L)
+        } finally {
+            CurviSlicerRuntime.activate(NonPlanarSettings(enabled = false))
+            root.deleteRecursively()
+        }
+    }
+
+    private fun writeTriangle(file: File) {
+        val buffer = ByteBuffer.allocate(84 + 50).order(ByteOrder.LITTLE_ENDIAN)
+        buffer.position(80)
+        buffer.putInt(1)
+        buffer.putFloat(0f).putFloat(0f).putFloat(1f)
+        buffer.putFloat(10f).putFloat(10f).putFloat(1f)
+        buffer.putFloat(11f).putFloat(10f).putFloat(1f)
+        buffer.putFloat(10f).putFloat(11f).putFloat(2f)
+        buffer.putShort(0)
+        file.writeBytes(buffer.array())
     }
 }
