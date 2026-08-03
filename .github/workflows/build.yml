@@ -91,10 +91,13 @@ jobs:
 
       - name: Prepare and validate pinned BumpMesh workspace
         run: |
-          gradle :app:prepareBumpMeshAssets --stacktrace
+          set -o pipefail
+          gradle :app:verifyBumpMeshAssets --stacktrace 2>&1 | tee bumpmesh-build.log
           test -s app/src/main/assets/bumpmesh/index.html
           test -s app/src/main/assets/bumpmesh/LICENSE
           test -s app/src/main/assets/bumpmesh/android-bridge.js
+          test -s app/src/main/assets/bumpmesh/js/main.js
+          test -s app/src/main/assets/bumpmesh/js/stepWorker.js
           test -s app/src/main/assets/bumpmesh/vendor/three/build/three.module.js
           test -s app/src/main/assets/bumpmesh/vendor/three/LICENSE
           test -s app/src/main/assets/bumpmesh/vendor/fflate/esm/browser.js
@@ -102,6 +105,7 @@ jobs:
           test -s app/src/main/assets/bumpmesh/vendor/meshstep/dist/index.js
           test -s app/src/main/assets/bumpmesh/vendor/meshstep/src/index.ts
           test -s app/src/main/assets/bumpmesh/vendor/meshstep/LICENSE
+          test -s app/src/main/assets/bumpmesh/SHA256SUMS
           grep -q 'format=2' app/src/main/assets/bumpmesh/.source-version
           grep -q 'BumpMesh=a6ac179149b8a17c71a9469dd4cb6f866c0c01d1' app/src/main/assets/bumpmesh/.source-version
           grep -q './vendor/three/build/three.module.js' app/src/main/assets/bumpmesh/index.html
@@ -111,6 +115,23 @@ jobs:
           ! grep -R 'https://cdn.jsdelivr.net/npm' \
             app/src/main/assets/bumpmesh/index.html \
             app/src/main/assets/bumpmesh/js
+          (cd app/src/main/assets/bumpmesh && sha256sum --check SHA256SUMS)
+
+          gradle :app:verifyBumpMeshAssets --info | tee bumpmesh-warm-build.log
+          grep -q 'verifyBumpMeshAssets UP-TO-DATE' bumpmesh-warm-build.log
+
+          rm app/src/main/assets/bumpmesh/js/main.js
+          if gradle :app:verifyBumpMeshAssets --stacktrace > bumpmesh-corrupt-build.log 2>&1; then
+            echo 'Corrupted BumpMesh warm tree was incorrectly accepted' >&2
+            exit 1
+          fi
+          test ! -e app/src/main/assets/bumpmesh/.source-version
+          grep -q 'BumpMesh asset verification failed' bumpmesh-corrupt-build.log
+
+          gradle :app:verifyBumpMeshAssets --stacktrace 2>&1 | tee bumpmesh-recovery-build.log
+          test -s app/src/main/assets/bumpmesh/js/main.js
+          test -s app/src/main/assets/bumpmesh/SHA256SUMS
+          (cd app/src/main/assets/bumpmesh && sha256sum --check SHA256SUMS)
 
       - name: Prepare and validate pinned filaSim workspace
         run: |
@@ -186,6 +207,8 @@ jobs:
           test -n "$CURAENGINE_HOST_BINARY"
           grep -R -q 'SmartInfillCuraEngineIntegrationTest' app/build/test-results/testDebugUnitTest
           grep -R -q 'SmartInfillModifierShellIntegrationTest' app/build/test-results/testDebugUnitTest
+          grep -R -q 'SmartInfillCuraContractTest' app/build/test-results/testDebugUnitTest
+          grep -R -q 'SmartInfillPatternCommandTest' app/build/test-results/testDebugUnitTest
 
       - name: Build debug APK
         run: |
@@ -198,6 +221,7 @@ jobs:
           grep -q 'assets/bumpmesh/index.html' apk-contents.log
           grep -q 'assets/bumpmesh/LICENSE' apk-contents.log
           grep -q 'assets/bumpmesh/android-bridge.js' apk-contents.log
+          grep -q 'assets/bumpmesh/SHA256SUMS' apk-contents.log
           grep -q 'assets/bumpmesh/vendor/three/build/three.module.js' apk-contents.log
           grep -q 'assets/bumpmesh/vendor/meshstep/src/index.ts' apk-contents.log
           grep -q 'assets/bumpmesh/vendor/meshstep/LICENSE' apk-contents.log
@@ -230,6 +254,10 @@ jobs:
         with:
           name: enderslicercura-smart-infill-fix-build-logs
           path: |
+            bumpmesh-build.log
+            bumpmesh-warm-build.log
+            bumpmesh-corrupt-build.log
+            bumpmesh-recovery-build.log
             filasim-build.log
             filasim-warm-build.log
             curaengine-android-build.log
