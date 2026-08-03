@@ -6,6 +6,7 @@ import java.util.ArrayDeque
 import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.exp
+import kotlin.math.floor
 import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
@@ -24,7 +25,9 @@ internal object CurviSlicerFieldBuilder {
         nozzleDiameterMm: Double,
     ): Result {
         val bounds = mesh.bounds
-        require(bounds.width > 0f && bounds.depth > 0f && bounds.height > 0f) { "CurviSlicer requires a three-dimensional model" }
+        require(bounds.width > 0f && bounds.depth > 0f && bounds.height > 0f) {
+            "CurviSlicer requires a three-dimensional model"
+        }
         val aspect = bounds.width.toDouble() / bounds.depth.toDouble()
         val columns: Int
         val rows: Int
@@ -39,22 +42,21 @@ internal object CurviSlicerFieldBuilder {
         val vertices = mesh.interleavedVertices
         var offset = 0
         repeat(mesh.triangleCount) {
-            val x0 = vertices[offset]
-            val y0 = vertices[offset + 1]
-            val z0 = vertices[offset + 2]
-            val x1 = vertices[offset + 6]
-            val y1 = vertices[offset + 7]
-            val z1 = vertices[offset + 8]
-            val x2 = vertices[offset + 12]
-            val y2 = vertices[offset + 13]
-            val z2 = vertices[offset + 14]
-            deposit(top, columns, rows, bounds, x0, y0, z0)
-            deposit(top, columns, rows, bounds, x1, y1, z1)
-            deposit(top, columns, rows, bounds, x2, y2, z2)
-            deposit(top, columns, rows, bounds, (x0 + x1 + x2) / 3f, (y0 + y1 + y2) / 3f, (z0 + z1 + z2) / 3f)
-            deposit(top, columns, rows, bounds, (x0 + x1) / 2f, (y0 + y1) / 2f, (z0 + z1) / 2f)
-            deposit(top, columns, rows, bounds, (x1 + x2) / 2f, (y1 + y2) / 2f, (z1 + z2) / 2f)
-            deposit(top, columns, rows, bounds, (x2 + x0) / 2f, (y2 + y0) / 2f, (z2 + z0) / 2f)
+            rasterizeTriangle(
+                grid = top,
+                columns = columns,
+                rows = rows,
+                bounds = bounds,
+                x0 = vertices[offset].toDouble(),
+                y0 = vertices[offset + 1].toDouble(),
+                z0 = vertices[offset + 2].toDouble(),
+                x1 = vertices[offset + 6].toDouble(),
+                y1 = vertices[offset + 7].toDouble(),
+                z1 = vertices[offset + 8].toDouble(),
+                x2 = vertices[offset + 12].toDouble(),
+                y2 = vertices[offset + 13].toDouble(),
+                z2 = vertices[offset + 14].toDouble(),
+            )
             offset += 18
         }
         fillNearest(top, columns, rows)
@@ -73,13 +75,11 @@ internal object CurviSlicerFieldBuilder {
         val relief = FloatArray(top.size)
         val mean = smoothed.sumOf(Float::toDouble) / smoothed.size
         for (index in relief.indices) {
-            // Flatten the broad, smoothed upper surface rather than only its
-            // high-frequency residual. A planar top therefore produces zero
-            // deformation, while domes and other broad contours produce the
-            // curved layers the user requested.
             relief[index] = smoothed[index] - mean.toFloat()
         }
-        val clearanceAmplitudeLimit = (settings.nozzleClearanceHeightMm * tan(Math.toRadians(settings.effectiveSlopeLimitDegrees))).toFloat()
+        val clearanceAmplitudeLimit = (
+            settings.nozzleClearanceHeightMm * tan(Math.toRadians(settings.effectiveSlopeLimitDegrees))
+        ).toFloat()
         val amplitudeLimit = min(bounds.height * 0.28f, clearanceAmplitudeLimit)
         var maximumRawRelief = 0.0
         for (index in relief.indices) {
@@ -90,15 +90,32 @@ internal object CurviSlicerFieldBuilder {
         val requestedStrength = settings.strengthPercent / 100.0
         val flatBaseHeight = settings.flatBaseLayers * layerHeightMm
         val usableHeight = max(bounds.height.toDouble() - flatBaseHeight, layerHeightMm)
-        val monotonicStrength = if (maximumRawRelief <= 1e-9) 1.0 else {
-            // smoothstep has a maximum derivative of 1.5. Keep dz_flat/dz >= 0.25.
-            (0.75 * usableHeight / (1.5 * maximumRawRelief)).coerceAtMost(1.0)
-        }
-        val maximumGradient = maximumGradient(relief, columns, rows, cellX, cellY)
+        val maximumGradient = maximumCellGradient(relief, columns, rows, cellX, cellY)
         val slopeLimit = tan(Math.toRadians(settings.effectiveSlopeLimitDegrees))
-        val slopeStrength = if (maximumGradient <= 1e-9) 1.0 else (slopeLimit / maximumGradient).coerceAtMost(1.0)
-        val appliedStrength = min(requestedStrength, min(monotonicStrength, slopeStrength)).coerceIn(0.0, 1.0)
-        val appliedSlope = Math.toDegrees(kotlin.math.atan(maximumGradient * appliedStrength))
+        val maximumSmoothDerivative = 1.5 / usableHeight
+        val monotonicStrength = if (maximumRawRelief <= 1e-9) {
+            1.0
+        } else {
+            // Keep the inverse denominator comfortably positive for Newton
+            // convergence and to avoid severe slope amplification.
+            (0.65 / (maximumRawRelief * maximumSmoothDerivative)).coerceAtMost(1.0)
+        }
+
+        fun inverseGradientBound(strength: Double): Double {
+            if (strength <= 0.0 || maximumGradient <= 1e-12) return 0.0
+            val minimumVerticalDerivative = 1.0 - maximumRawRelief * strength * maximumSmoothDerivative
+            if (minimumVerticalDerivative <= 0.0) return Double.POSITIVE_INFINITY
+            return maximumGradient * strength / minimumVerticalDerivative
+        }
+
+        var low = 0.0
+        var high = min(requestedStrength, monotonicStrength).coerceIn(0.0, 1.0)
+        repeat(56) {
+            val middle = (low + high) * 0.5
+            if (inverseGradientBound(middle) <= slopeLimit) low = middle else high = middle
+        }
+        val appliedStrength = low.coerceIn(0.0, 1.0)
+        val appliedSlope = Math.toDegrees(kotlin.math.atan(inverseGradientBound(appliedStrength)))
 
         val field = CurviSlicerField(
             minX = bounds.minX.toDouble(),
@@ -128,19 +145,69 @@ internal object CurviSlicerFieldBuilder {
         )
     }
 
+    private fun rasterizeTriangle(
+        grid: FloatArray,
+        columns: Int,
+        rows: Int,
+        bounds: MeshBounds,
+        x0: Double,
+        y0: Double,
+        z0: Double,
+        x1: Double,
+        y1: Double,
+        z1: Double,
+        x2: Double,
+        y2: Double,
+        z2: Double,
+    ) {
+        val denominator = (y1 - y2) * (x0 - x2) + (x2 - x1) * (y0 - y2)
+        if (abs(denominator) <= 1e-12) {
+            deposit(grid, columns, rows, bounds, x0, y0, z0)
+            deposit(grid, columns, rows, bounds, x1, y1, z1)
+            deposit(grid, columns, rows, bounds, x2, y2, z2)
+            deposit(grid, columns, rows, bounds, (x0 + x1) * 0.5, (y0 + y1) * 0.5, (z0 + z1) * 0.5)
+            deposit(grid, columns, rows, bounds, (x1 + x2) * 0.5, (y1 + y2) * 0.5, (z1 + z2) * 0.5)
+            deposit(grid, columns, rows, bounds, (x2 + x0) * 0.5, (y2 + y0) * 0.5, (z2 + z0) * 0.5)
+            return
+        }
+
+        fun gridX(x: Double): Double = (x - bounds.minX) / bounds.width * (columns - 1)
+        fun gridY(y: Double): Double = (y - bounds.minY) / bounds.depth * (rows - 1)
+        val minGridX = floor(minOf(gridX(x0), gridX(x1), gridX(x2))).toInt().coerceIn(0, columns - 1)
+        val maxGridX = ceil(maxOf(gridX(x0), gridX(x1), gridX(x2))).toInt().coerceIn(0, columns - 1)
+        val minGridY = floor(minOf(gridY(y0), gridY(y1), gridY(y2))).toInt().coerceIn(0, rows - 1)
+        val maxGridY = ceil(maxOf(gridY(y0), gridY(y1), gridY(y2))).toInt().coerceIn(0, rows - 1)
+
+        for (gy in minGridY..maxGridY) {
+            val py = bounds.minY + bounds.depth * gy.toDouble() / (rows - 1)
+            for (gx in minGridX..maxGridX) {
+                val px = bounds.minX + bounds.width * gx.toDouble() / (columns - 1)
+                val w0 = ((y1 - y2) * (px - x2) + (x2 - x1) * (py - y2)) / denominator
+                val w1 = ((y2 - y0) * (px - x2) + (x0 - x2) * (py - y2)) / denominator
+                val w2 = 1.0 - w0 - w1
+                if (w0 < -BARYCENTRIC_TOLERANCE || w1 < -BARYCENTRIC_TOLERANCE || w2 < -BARYCENTRIC_TOLERANCE) {
+                    continue
+                }
+                val z = w0 * z0 + w1 * z1 + w2 * z2
+                val index = gy * columns + gx
+                if (!grid[index].isFinite() || z > grid[index]) grid[index] = z.toFloat()
+            }
+        }
+    }
+
     private fun deposit(
         grid: FloatArray,
         columns: Int,
         rows: Int,
         bounds: MeshBounds,
-        x: Float,
-        y: Float,
-        z: Float,
+        x: Double,
+        y: Double,
+        z: Double,
     ) {
         val gx = (((x - bounds.minX) / bounds.width) * (columns - 1)).toInt().coerceIn(0, columns - 1)
         val gy = (((y - bounds.minY) / bounds.depth) * (rows - 1)).toInt().coerceIn(0, rows - 1)
         val index = gy * columns + gx
-        if (!grid[index].isFinite() || z > grid[index]) grid[index] = z
+        if (!grid[index].isFinite() || z > grid[index]) grid[index] = z.toFloat()
     }
 
     private fun fillNearest(values: FloatArray, columns: Int, rows: Int) {
@@ -209,7 +276,7 @@ internal object CurviSlicerFieldBuilder {
         return output
     }
 
-    private fun maximumGradient(
+    private fun maximumCellGradient(
         field: FloatArray,
         columns: Int,
         rows: Int,
@@ -217,17 +284,23 @@ internal object CurviSlicerFieldBuilder {
         cellY: Double,
     ): Double {
         var maximum = 0.0
-        for (y in 0 until rows) {
-            for (x in 0 until columns) {
-                val left = field[y * columns + max(0, x - 1)].toDouble()
-                val right = field[y * columns + min(columns - 1, x + 1)].toDouble()
-                val down = field[max(0, y - 1) * columns + x].toDouble()
-                val up = field[min(rows - 1, y + 1) * columns + x].toDouble()
-                val dx = (right - left) / (if (x in 1 until columns - 1) 2.0 * cellX else cellX)
-                val dy = (up - down) / (if (y in 1 until rows - 1) 2.0 * cellY else cellY)
-                maximum = max(maximum, hypot(dx, dy))
+        for (y in 0 until rows - 1) {
+            for (x in 0 until columns - 1) {
+                val a = field[y * columns + x].toDouble()
+                val b = field[y * columns + x + 1].toDouble()
+                val c = field[(y + 1) * columns + x].toDouble()
+                val d = field[(y + 1) * columns + x + 1].toDouble()
+                for (tx in doubleArrayOf(0.0, 1.0)) {
+                    for (ty in doubleArrayOf(0.0, 1.0)) {
+                        val dx = ((b - a) * (1.0 - ty) + (d - c) * ty) / cellX
+                        val dy = ((c - a) * (1.0 - tx) + (d - b) * tx) / cellY
+                        maximum = max(maximum, hypot(dx, dy))
+                    }
+                }
             }
         }
         return maximum
     }
+
+    private const val BARYCENTRIC_TOLERANCE = 1e-6
 }
