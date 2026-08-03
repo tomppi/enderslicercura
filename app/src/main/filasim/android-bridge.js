@@ -11,8 +11,71 @@
   if (!android) return;
 
   const CHUNK_BYTES = 256 * 1024;
+  const APPLY_SMART_INFILL_LABEL = "Apply Smart Infill";
+  const APPLY_SMART_INFILL_NOTE =
+    "Transfers the optimized infill regions to EnderSlicer and returns to the model.";
   let modelLoadStarted = false;
   let exporting = false;
+  let exportUiObserver = null;
+
+  function normalizedText(element) {
+    return String(element?.textContent || "").replace(/\s+/g, " ").trim();
+  }
+
+  /**
+   * filaSim's browser build offers Orca/Bambu/Prusa 3MF projects plus a raw
+   * modifier ZIP. EnderSlicer only consumes the validated modifier package, so
+   * the Android host exposes that one working action with app-native wording.
+   * Solid-topology export is a separate workflow and is intentionally untouched.
+   */
+  function simplifyModifierExportUi() {
+    const buttons = Array.from(document.querySelectorAll("button"));
+    const modifierButton = buttons.find((button) => {
+      const label = normalizedText(button);
+      return label === "Download modifier STLs (.zip)" || label === APPLY_SMART_INFILL_LABEL;
+    });
+    if (!modifierButton) return false;
+
+    const group = modifierButton.closest(".group");
+    if (!group) return false;
+
+    for (const child of Array.from(group.children)) {
+      if (child === modifierButton) continue;
+      const label = normalizedText(child);
+      const isSlicerChoice = child.classList.contains("seg");
+      const isHandoffHeading = child.classList.contains("g-label");
+      const isThreeMfProject =
+        child.tagName === "BUTTON" && /^Download .+ project \(\.3mf\)$/i.test(label);
+      if (isSlicerChoice || isHandoffHeading || isThreeMfProject) {
+        child.hidden = true;
+        child.setAttribute("aria-hidden", "true");
+      }
+    }
+
+    if (normalizedText(modifierButton) !== APPLY_SMART_INFILL_LABEL) {
+      modifierButton.textContent = APPLY_SMART_INFILL_LABEL;
+    }
+    modifierButton.classList.add("primary");
+    modifierButton.title = "Use the generated infill regions in EnderSlicer";
+    modifierButton.setAttribute("aria-label", APPLY_SMART_INFILL_LABEL);
+
+    const note = modifierButton.nextElementSibling;
+    if (note?.classList.contains("dim") && normalizedText(note) !== APPLY_SMART_INFILL_NOTE) {
+      note.textContent = APPLY_SMART_INFILL_NOTE;
+    }
+    return true;
+  }
+
+  function installAndroidExportUi() {
+    simplifyModifierExportUi();
+    if (exportUiObserver) return;
+    exportUiObserver = new MutationObserver(() => simplifyModifierExportUi());
+    exportUiObserver.observe(document.documentElement, {
+      childList: true,
+      characterData: true,
+      subtree: true,
+    });
+  }
 
   function bytesToBase64(bytes) {
     let binary = "";
@@ -117,9 +180,13 @@
     captureOptimizedShape,
   };
 
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", () => setTimeout(loadModelFromAndroid, 250), { once: true });
-  } else {
+  const startAndroidHost = () => {
+    installAndroidExportUi();
     setTimeout(loadModelFromAndroid, 250);
+  };
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", startAndroidHost, { once: true });
+  } else {
+    startAndroidHost();
   }
 })();
