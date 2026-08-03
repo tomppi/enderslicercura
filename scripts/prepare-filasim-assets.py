@@ -15,7 +15,7 @@ import urllib.request
 import zipfile
 
 FILASIM_COMMIT = "e7485ec22d4ebe8baca04190404fbb877c90e031"
-ASSET_FORMAT = 5
+ASSET_FORMAT = 6
 HASH_MANIFEST = "SHA256SUMS"
 MINIMUM_NODE_VERSION = (22, 18, 0)
 
@@ -199,6 +199,207 @@ def patch_android_startup(app_file: pathlib.Path) -> None:
     app_file.write_text(text, encoding="utf-8")
 
 
+def patch_android_topbar(topbar_file: pathlib.Path) -> None:
+    text = topbar_file.read_text(encoding="utf-8")
+    marker = "EnderSlicer Android owns project persistence"
+    if marker not in text:
+        function_start = "export function TopBar() {\n"
+        if function_start not in text:
+            raise RuntimeError("Unable to locate filaSim top bar function for Android patching")
+        text = text.replace(
+            function_start,
+            function_start
+            + '  // EnderSlicer Android owns project persistence and model loading.\n'
+            + '  const androidHosted = new URLSearchParams(window.location.search).has("android");\n',
+            1,
+        )
+
+        project_controls_start = '''      <input
+        ref={openRef}
+        type="file"
+'''
+        if project_controls_start not in text:
+            raise RuntimeError("Unable to locate filaSim project controls for Android patching")
+        text = text.replace(
+            project_controls_start,
+            '''      {!androidHosted && (
+        <>
+          <input
+        ref={openRef}
+        type="file"
+''',
+            1,
+        )
+
+        project_controls_end = '''        Load<span className="btxt"> Project</span>
+      </button>
+      <button
+        className="ghost"
+        onClick={() => s.openSettings(true)}
+'''
+        if project_controls_end not in text:
+            raise RuntimeError("Unable to locate the end of filaSim project controls for Android patching")
+        text = text.replace(
+            project_controls_end,
+            '''        Load<span className="btxt"> Project</span>
+      </button>
+        </>
+      )}
+      <button
+        className="ghost"
+        onClick={() => s.openSettings(true)}
+''',
+            1,
+        )
+    topbar_file.write_text(text, encoding="utf-8")
+
+
+def patch_android_viewer(scene_file: pathlib.Path) -> None:
+    text = scene_file.read_text(encoding="utf-8")
+    marker = "EnderSlicer Android touch navigation"
+    if marker in text:
+        return
+
+    orbit_fields = '''  private orbiting = false;
+  private _oq1 = new THREE.Quaternion();
+'''
+    if orbit_fields not in text:
+        raise RuntimeError("Unable to locate filaSim orbit state for Android touch patching")
+    text = text.replace(
+        orbit_fields,
+        '''  private orbiting = false;
+  // EnderSlicer Android touch navigation: one finger keeps the custom
+  // pivot orbit, while two fingers are owned exclusively by OrbitControls pan.
+  private orbitPointerId: number | null = null;
+  private touchPointers = new Set<number>();
+  private _oq1 = new THREE.Quaternion();
+''',
+        1,
+    )
+
+    pointer_down = '''  private onPointerDown = (ev: PointerEvent) => {
+    if (!this.mesh) return;
+    // RMB removes from the active selection: paint-erase in "brush", and in
+'''
+    if pointer_down not in text:
+        raise RuntimeError("Unable to locate filaSim pointer-down handler for Android touch patching")
+    text = text.replace(
+        pointer_down,
+        '''  private onPointerDown = (ev: PointerEvent) => {
+    if (!this.mesh) return;
+    if (ev.pointerType === "touch") {
+      this.touchPointers.add(ev.pointerId);
+      if (this.touchPointers.size > 1) {
+        // OrbitControls has already seen this second pointer and switched to
+        // TOUCH_DOLLY_PAN. End the first finger's custom orbit so the two
+        // camera implementations cannot fight over the same gesture.
+        this.brushing = false;
+        this.controls.enabled = true;
+        this.finishOrbitGesture();
+        return;
+      }
+    }
+    // RMB removes from the active selection: paint-erase in "brush", and in
+''',
+        1,
+    )
+
+    pointer_up = '''  private onPointerUp = (ev: PointerEvent) => {
+    this.brushing = false;
+    if (ev.button === 2 && this.rmbDown && this.tool === "select") {
+'''
+    if pointer_up not in text:
+        raise RuntimeError("Unable to locate filaSim pointer-up handler for Android touch patching")
+    text = text.replace(
+        pointer_up,
+        '''  private onPointerUp = (ev: PointerEvent) => {
+    this.brushing = false;
+    if (ev.pointerType === "touch") {
+      this.touchPointers.delete(ev.pointerId);
+      if (this.orbitPointerId === ev.pointerId) this.finishOrbitGesture();
+      return;
+    }
+    if (ev.button === 2 && this.rmbDown && this.tool === "select") {
+''',
+        1,
+    )
+
+    begin_orbit_end = '''    this.orbitStart = { x: ev.clientX, y: ev.clientY };
+    this.orbitLast = { x: ev.clientX, y: ev.clientY };
+    this.orbiting = false; // promoted once the drag passes the threshold
+  }
+'''
+    if begin_orbit_end not in text:
+        raise RuntimeError("Unable to locate filaSim orbit start for Android touch patching")
+    text = text.replace(
+        begin_orbit_end,
+        '''    this.orbitStart = { x: ev.clientX, y: ev.clientY };
+    this.orbitLast = { x: ev.clientX, y: ev.clientY };
+    this.orbitPointerId = ev.pointerId;
+    this.orbiting = false; // promoted once the drag passes the threshold
+  }
+''',
+        1,
+    )
+
+    orbit_move = '''  private onOrbitMove = (ev: PointerEvent) => {
+    if (!this.orbitPivot || !this.orbitLast || !this.controls.enabled) return;
+'''
+    if orbit_move not in text:
+        raise RuntimeError("Unable to locate filaSim orbit move for Android touch patching")
+    text = text.replace(
+        orbit_move,
+        '''  private onOrbitMove = (ev: PointerEvent) => {
+    if (this.orbitPointerId !== ev.pointerId) return;
+    if (!this.orbitPivot || !this.orbitLast || !this.controls.enabled) return;
+''',
+        1,
+    )
+
+    orbit_up = '''  private onOrbitUp = () => {
+    if (!this.orbitPivot) return;
+    this.orbitPivot = null;
+    this.orbitStart = null;
+    this.orbitLast = null;
+    if (this.orbiting) {
+      this.orbiting = false;
+      // Re-level: hand the up vector back to OrbitControls upright.
+      this.camera.up.set(0, 0, 1);
+      this.camera.lookAt(this.controls.target);
+    }
+    if (this.pivotMarker) this.pivotMarker.visible = false;
+  };
+'''
+    if orbit_up not in text:
+        raise RuntimeError("Unable to locate filaSim orbit release for Android touch patching")
+    text = text.replace(
+        orbit_up,
+        '''  private finishOrbitGesture() {
+    if (!this.orbitPivot && this.orbitPointerId === null) return;
+    this.orbitPivot = null;
+    this.orbitStart = null;
+    this.orbitLast = null;
+    this.orbitPointerId = null;
+    if (this.orbiting) {
+      this.orbiting = false;
+      // Re-level: hand the up vector back to OrbitControls upright.
+      this.camera.up.set(0, 0, 1);
+      this.camera.lookAt(this.controls.target);
+    }
+    if (this.pivotMarker) this.pivotMarker.visible = false;
+  }
+
+  private onOrbitUp = (ev: PointerEvent) => {
+    if (this.orbitPointerId !== null && ev.pointerId !== this.orbitPointerId) return;
+    this.finishOrbitGesture();
+  };
+''',
+        1,
+    )
+
+    scene_file.write_text(text, encoding="utf-8")
+
+
 def inject_bridge(index_file: pathlib.Path) -> None:
     text = index_file.read_text(encoding="utf-8")
     script = '<script src="./android-bridge.js"></script>'
@@ -269,10 +470,14 @@ def main() -> int:
     web_root = source_root / "web"
     store_file = web_root / "src/store.ts"
     app_file = web_root / "src/App.tsx"
-    if not store_file.is_file() or not app_file.is_file():
+    topbar_file = web_root / "src/ui/TopBar.tsx"
+    scene_file = web_root / "src/viewer/SceneManager.ts"
+    if not all(path.is_file() for path in (store_file, app_file, topbar_file, scene_file)):
         raise RuntimeError("Pinned filaSim source did not contain its Android patch targets")
     patch_android_export(store_file)
     patch_android_startup(app_file)
+    patch_android_topbar(topbar_file)
+    patch_android_viewer(scene_file)
 
     npm_environment = {"NPM_CONFIG_ENGINE_STRICT": "true"}
     run(["npm", "ci", "--no-audit", "--no-fund"], cwd=web_root, env=npm_environment)
