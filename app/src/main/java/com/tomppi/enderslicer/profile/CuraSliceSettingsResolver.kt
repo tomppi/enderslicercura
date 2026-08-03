@@ -8,6 +8,7 @@ import com.tomppi.enderslicer.model.SlicerSettings
 import com.tomppi.enderslicer.model.resolveEndGcode
 import com.tomppi.enderslicer.model.resolveStartGcode
 import com.tomppi.enderslicer.model.withSettings
+import com.tomppi.enderslicer.smartinfill.SmartInfillCuraContract
 import com.tomppi.enderslicer.smartinfill.SmartInfillRuntime
 
 internal object CuraSliceSettingsResolver {
@@ -138,7 +139,7 @@ internal object CuraSliceSettingsResolver {
                 require(actualDensity.toDoubleOrNull() == densityPercent.toDouble()) {
                     "Resolved Smart Infill density diverged: requested $densityPercent, resolved $actualDensity"
                 }
-                modifierResolved.modelValues
+                SmartInfillCuraContract.neutralizeModifierShell(modifierResolved.modelValues)
             }
             .orEmpty()
 
