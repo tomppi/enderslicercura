@@ -3,6 +3,7 @@
 Date: 2026-08-03  
 Audit target: pull request #40, `fix/smart-infill-audit-round`  
 Initial audited head: `0b8644fc2fabff74c800a9416c40f08b2a7fa69b`  
+Follow-up code head: `4d4de8cd1b372c76b31c287e5d486e5422fa362f`  
 Base: `main` at `e18275f3a89af65ede691aa171ae2d00518cf1cb`
 
 ## Severity summary
@@ -10,9 +11,9 @@ Base: `main` at `e18275f3a89af65ede691aa171ae2d00518cf1cb`
 | Severity | Confirmed | Fixed in this round |
 |---|---:|---:|
 | Critical | 0 | 0 |
-| High | 2 | 2 |
-| Medium | 2 | 2 |
-| Low | 0 | 0 |
+| High | 3 | 3 |
+| Medium | 3 | 3 |
+| Low | 1 | 1 |
 
 ## High severity
 
@@ -70,6 +71,25 @@ At the configurable 8,000,000-triangle limit, one binary STL can be approximatel
 
 **Status:** Fixed.
 
+### BLD-01 — One-shot export provider did not satisfy Kotlin's non-null descriptor contract
+
+**Affected path**
+
+- `OneShotExportFileProvider.kt`
+- Android unit-test compilation and APK builds
+
+**Confirmed failure mode**
+
+The provider override returned `ParcelFileDescriptor`, but its two ordinary FileProvider fallback branches returned the nullable platform type from `super.openFile()`. GitHub Actions therefore failed Kotlin compilation before unit tests or APK packaging could run.
+
+**Fix**
+
+- Added one `openNormally()` fallback that converts an unexpected null descriptor into `FileNotFoundException`.
+- Applied the same explicit non-null check to the one-shot `ParcelFileDescriptor.open()` result.
+- Preserved the close-listener deletion behavior for valid temporary exports.
+
+**Status:** Fixed.
+
 ## Medium severity
 
 ### SI-02 — Clear plate removed Smart Infill before model cleanup succeeded
@@ -118,9 +138,56 @@ The Remove action deleted only `active-package.txt` and the process-local refere
 
 **Status:** Fixed.
 
+### SI-04 — Two-finger camera pan competed with the custom one-finger orbit
+
+**Affected path**
+
+- pinned filaSim `web/src/viewer/SceneManager.ts`
+- `scripts/prepare-filasim-assets.py`
+- Android WebView touch input
+
+**Confirmed failure mode**
+
+filaSim uses a custom pointer-driven surface-pivot orbit while retaining Three.js `OrbitControls` for panning. On Android, the first touch armed the custom orbit. Adding a second touch also switched OrbitControls into its two-touch pan state. Pointer movement could then be processed by both camera paths, producing camera jumps, rotation during pan, unstable direction or ineffective movement.
+
+**Fix**
+
+- Track touch pointers and the active custom-orbit pointer explicitly.
+- Keep one-finger pivot orbit unchanged.
+- When a second finger lands, terminate the custom orbit before any movement delta is applied.
+- Give the complete multi-touch gesture to one deterministic centroid-based screen-space pan implementation.
+- Hold the gesture in pan mode through the two-finger-to-one-finger transition and restore ordinary controls only after every touch is released.
+- Handle `pointercancel` and move the stored orbit pivot with the camera so the next orbit starts from the correct translated location.
+- Preserve the existing no-pinch-zoom behavior because filaSim intentionally disables OrbitControls zoom in this viewer.
+
+Three.js r180's pointer-release handler was checked directly: it removes tracked pointers before evaluating control state, so temporarily disabling controls during the manual pan does not leave stale internal touch IDs.
+
+**Status:** Fixed in generated Android filaSim source; on-device gesture feel still requires validation.
+
+## Low severity
+
+### SI-05 — Embedded Save Project and Load Project controls conflicted with the Android-hosted workflow
+
+**Affected path**
+
+- pinned filaSim `web/src/ui/TopBar.tsx`
+- Android-hosted filaSim top bar
+
+**Confirmed failure mode**
+
+The embedded web application exposed its browser project-file persistence controls even though EnderSlicerCura owns model loading, package handoff and durable app state. The controls added clutter to the narrow Android top bar and could lead users into a second project-loading workflow that does not match the app's active build plate.
+
+**Fix**
+
+- Detect the existing `?android=1` host flag.
+- Hide the project file input plus Save Project and Load Project buttons only in the Android build.
+- Leave upstream/browser filaSim behavior and the Settings button unchanged.
+
+**Status:** Fixed.
+
 ## Connected paths double-checked
 
-The following PR #40 changes were reviewed with their callers, storage paths and tests. No additional confirmed defect was found in this pass:
+The following PR #40 changes were reviewed with their callers, storage paths and tests:
 
 - immutable `SmartInfillSliceSnapshot` use across a complete synchronous Cura request;
 - fallback Cura CLI per-mesh setting order after `-l`;
@@ -131,14 +198,20 @@ The following PR #40 changes were reviewed with their callers, storage paths and
 - Part Topo import completion before removing the previous model/package;
 - Android-host sample-model suppression;
 - filaSim WebView retention across fold and rotation changes;
-- generated filaSim asset hashing and warm-build invalidation;
+- generated filaSim asset hashing and format-specific clean-source invalidation;
+- Android-only project-control suppression without changing browser filaSim;
+- Three.js r180 touch start, move and pointer-release behavior;
 - cloud-backup exclusion of persisted Smart Infill geometry.
 
 ## Validation evidence
 
 The pre-audit PR head passed GitHub Actions run `30790289877`, including ARM64 CuraEngine packaging, unit tests, definition tests, real host-CuraEngine graded/binary regional toolpath tests and APK content verification.
 
-The fixes in this report modify Android lifecycle, Compose operation coordination and FileProvider behavior. They require a new successful workflow run on the final report commit before PR #40 is considered build-validated.
+Follow-up run `30811127094` successfully downloaded, patched and compiled the pinned filaSim Rust/WASM and TypeScript/Vite application with the new camera and top-bar source edits. It then stopped at stale workflow assertions that still expected asset format 5 and the previous source-cache path. Those assertions were updated for format 7 and now verify the camera and Android-only top-bar patch markers.
+
+Run `30809813682` exposed BLD-01 during Kotlin test compilation. The provider contract was corrected on code head `4d4de8cd1b372c76b31c287e5d486e5422fa362f`.
+
+A complete successful workflow on the final PR head is still required before PR #40 is considered build-validated.
 
 ## Required on-device regression checks
 
@@ -149,3 +222,7 @@ The fixes in this report modify Android lifecycle, Compose operation coordinatio
 5. Export a large BumpMesh STL, confirm it imports, then verify the handoff file disappears after the importer closes it.
 6. Cancel BumpMesh during export and verify no `.part` file remains.
 7. Repeat BumpMesh export/import several times and verify cache usage does not grow with each successful handoff.
+8. In Smart Infill, verify one-finger drag still orbits around the picked surface point.
+9. Verify two-finger drag pans smoothly in all directions without rotation, jumping or reversal; lift one finger, move it, release it, then begin a fresh orbit and pan gesture.
+10. Repeat the camera test while a brush/select tool is active, after fold/unfold and after rotating the device.
+11. Verify Save Project and Load Project are absent in the Android Smart Infill top bar while Settings and result-export actions remain available.
