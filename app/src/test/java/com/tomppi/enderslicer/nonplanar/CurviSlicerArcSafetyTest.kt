@@ -2,13 +2,14 @@ package com.tomppi.enderslicer.nonplanar
 
 import com.tomppi.enderslicer.engine.PrinterEnvelope
 import java.io.File
+import kotlin.io.path.createTempDirectory
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CurviSlicerArcSafetyTest {
     @Test
     fun rejectsFittedArcsInsidePrintableLayers() {
-        val directory = createTempDir(prefix = "curvislicer-arc-test-")
+        val directory = createTempDirectory("curvislicer-arc-test-").toFile()
         val gcode = File(directory, "output.gcode").apply {
             writeText(
                 """
