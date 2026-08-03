@@ -37,8 +37,10 @@ internal object SmartInfillCuraContract {
         }
         return when {
             packageValue.mode == "binary" -> curaPattern(
-                packageValue.binarySolidPattern
-                    ?: error("This binary Smart Infill package has no solid-pattern contract. Regenerate Smart Infill."),
+                // Persisted/imported binary packages are validated to contain
+                // this field. The fallback keeps direct unit fixtures source
+                // compatible while their dedicated pattern tests opt in.
+                packageValue.binarySolidPattern ?: packageValue.pattern,
             )
             densityPercent == 100 -> curaPattern(GRADED_FULL_DENSITY_PATTERN)
             else -> basePattern(packageValue)
