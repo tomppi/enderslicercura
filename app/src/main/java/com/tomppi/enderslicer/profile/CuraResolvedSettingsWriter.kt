@@ -30,6 +30,16 @@ internal object CuraResolvedSettingsWriter {
         require(modelFile.isFile && modelFile.length() > 0L) {
             "Resolved Cura STL is missing or empty: ${modelFile.absolutePath}"
         }
+        val curviSnapshot = CurviSlicerRuntime.snapshot()
+        val stagedForCurvi = modelTransform == CURVI_STAGED_IDENTITY
+        require(!stagedForCurvi || curviSnapshot != null) {
+            "The resolved model was staged for CurviSlicer but CurviSlicer is no longer active"
+        }
+        require(curviSnapshot == null || stagedForCurvi) {
+            "CurviSlicer resolved requests must explicitly stage displayed geometry"
+        }
+        val effectiveModelTransform = if (stagedForCurvi) null else modelTransform
+
         val effectiveSmartInfillModifiers = smartInfillModifiers
             .sortedBy(SmartInfillModifier::densityPercent)
         if (effectiveSmartInfillModifiers.isNotEmpty()) {
@@ -58,7 +68,7 @@ internal object CuraResolvedSettingsWriter {
                 ?.takeIf(String::isNotBlank)
                 ?: PrinterEnvelope.DEFAULT_GCODE_FLAVOR,
         )
-        printerEnvelope.requireBinaryStlFits(modelFile, modelTransform)
+        printerEnvelope.requireBinaryStlFits(modelFile, effectiveModelTransform)
         effectiveSmartInfillModifiers.forEach { modifier ->
             require(modifier.file.parentFile?.canonicalFile == modelDirectory.canonicalFile) {
                 "Smart Infill modifier was not staged inside the CuraEngine request"
@@ -67,10 +77,7 @@ internal object CuraResolvedSettingsWriter {
             printerEnvelope.requireBinaryStlFits(modifier.file)
         }
 
-        val curviPrepared = CurviSlicerRuntime.snapshot()?.let { snapshot ->
-            require(modelTransform == null) {
-                "CurviSlicer resolved requests must stage the displayed model before flattening"
-            }
+        val curviPrepared = curviSnapshot?.let { snapshot ->
             CurviSlicerPipeline.prepareAndWarp(
                 modelFile = modelFile,
                 settings = snapshot.settings,
@@ -97,11 +104,10 @@ internal object CuraResolvedSettingsWriter {
         val enginePositionY = -machineCenterY
         val enginePositionZ = 0.0
 
-        val effectiveTransform = modelTransform
-        val linear = effectiveTransform?.linear ?: IDENTITY
-        val affineTranslationX = effectiveTransform?.translationXmm ?: 0.0
-        val affineTranslationY = effectiveTransform?.translationYmm ?: 0.0
-        val affineTranslationZ = effectiveTransform?.translationZmm ?: 0.0
+        val linear = effectiveModelTransform?.linear ?: IDENTITY
+        val affineTranslationX = effectiveModelTransform?.translationXmm ?: 0.0
+        val affineTranslationY = effectiveModelTransform?.translationYmm ?: 0.0
+        val affineTranslationZ = effectiveModelTransform?.translationZmm ?: 0.0
 
         val calibrationOverrides = CalibrationSliceState.engineOverrides()
         val extruderValues = JSONObject(resolved.extruderValues)
@@ -134,8 +140,14 @@ internal object CuraResolvedSettingsWriter {
             enginePositionZ = enginePositionZ,
         )
 
+        val globalValues = LinkedHashMap(resolved.globalValues)
+        if (curviSnapshot != null) {
+            globalValues["machine_end_gcode"] = CurviSlicerRuntime.markMachineEndGcode(
+                globalValues["machine_end_gcode"].orEmpty(),
+            )
+        }
         val root = JSONObject()
-            .put("global", JSONObject(resolved.globalValues))
+            .put("global", JSONObject(globalValues))
             .put("extruder.0", extruderValues)
             .put(modelFileName, modelValues)
 
@@ -150,15 +162,9 @@ internal object CuraResolvedSettingsWriter {
                 .put("support_mesh", false)
                 .put("anti_overhang_mesh", false)
                 .put("cutting_mesh", false)
-            // Enforce the modifier contract at the final serialization boundary
-            // as well as during dependency resolution. This prevents callers
-            // constructing Result directly from reintroducing inherited shells.
             SmartInfillCuraContract.modifierShellNeutralValues.forEach { (key, value) ->
                 values.put(key, value.toInt())
             }
-            // filaSim receives the already transformed/displayed STL, so
-            // modifier geometry is in final printer coordinates. Do not apply
-            // the source model's 3MF affine a second time.
             applyTransform(
                 values = values,
                 linear = IDENTITY,
@@ -196,7 +202,7 @@ internal object CuraResolvedSettingsWriter {
             check(fileStamp(stagedDisplayedFile) == displayedStamp) {
                 "The displayed STL changed while it was being staged for CurviSlicer"
             }
-            return null
+            return CURVI_STAGED_IDENTITY
         }
 
         val sourceFile = File(
@@ -303,5 +309,11 @@ internal object CuraResolvedSettingsWriter {
         1.0, 0.0, 0.0,
         0.0, 1.0, 0.0,
         0.0, 0.0, 1.0,
+    )
+    private val CURVI_STAGED_IDENTITY = StlSliceTransform(
+        linear = IDENTITY,
+        translationXmm = 0.0,
+        translationYmm = 0.0,
+        translationZmm = 0.0,
     )
 }
