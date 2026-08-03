@@ -143,10 +143,31 @@
     }
   }
 
-  async function captureModifierZip(bytes, metadata) {
-    const info = {
+  function normalizeModifierMetadata(metadata) {
+    const mode = metadata?.mode === "binary" ? "binary" : "graded";
+    return {
       ...metadata,
-      sourceName: String(android.sourceFileName() || metadata?.sourceName || "model.stl"),
+      metadataVersion: 2,
+      // This pinned filaSim solver has one calibrated sparse pattern. Old or
+      // restored WebView state can still expose null/retired values, so the
+      // Android boundary writes the actual solver contract deterministically.
+      basePattern: "cubic",
+      binarySolidPattern:
+        mode === "binary"
+          ? metadata?.binarySolidPattern === "concentric" || metadata?.solidPattern === "concentric"
+            ? "concentric"
+            : "rectilinear"
+          : null,
+      gradedFullDensityPattern: "rectilinear",
+      mode,
+    };
+  }
+
+  async function captureModifierZip(bytes, metadata) {
+    const normalized = normalizeModifierMetadata(metadata);
+    const info = {
+      ...normalized,
+      sourceName: String(android.sourceFileName() || normalized?.sourceName || "model.stl"),
       sourceSha256: String(android.sourceSha256()),
       upstreamCommit: String(android.upstreamCommit()),
     };
