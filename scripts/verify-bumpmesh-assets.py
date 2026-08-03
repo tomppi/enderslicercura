@@ -106,7 +106,11 @@ def verify(root: pathlib.Path) -> None:
 
 
 def invalidate(root: pathlib.Path) -> None:
+    # Removing both files forces the Gradle producer to restore the pinned tree
+    # and then lets this verifier create a fresh manifest. This also recovers
+    # from a damaged manifest instead of repeatedly failing on the same bytes.
     (root / SOURCE_MARKER).unlink(missing_ok=True)
+    (root / MANIFEST).unlink(missing_ok=True)
 
 
 def main() -> int:
