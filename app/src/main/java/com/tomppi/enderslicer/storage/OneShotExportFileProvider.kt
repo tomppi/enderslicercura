@@ -18,16 +18,20 @@ import java.io.FileNotFoundException
  */
 class OneShotExportFileProvider : FileProvider() {
     override fun openFile(uri: Uri, mode: String): ParcelFileDescriptor {
-        if (mode != "r") return super.openFile(uri, mode)
-        val file = resolveOneShotExport(uri) ?: return super.openFile(uri, mode)
+        if (mode != "r") return openNormally(uri, mode)
+        val file = resolveOneShotExport(uri) ?: return openNormally(uri, mode)
         return ParcelFileDescriptor.open(
             file,
             ParcelFileDescriptor.MODE_READ_ONLY,
             Handler(Looper.getMainLooper()),
         ) {
             file.delete()
-        }
+        } ?: throw FileNotFoundException("Temporary export could not be opened")
     }
+
+    private fun openNormally(uri: Uri, mode: String): ParcelFileDescriptor =
+        super.openFile(uri, mode)
+            ?: throw FileNotFoundException("FileProvider could not open the requested URI")
 
     private fun resolveOneShotExport(uri: Uri): File? {
         val segments = uri.pathSegments
