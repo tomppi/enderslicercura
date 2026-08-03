@@ -123,18 +123,23 @@ jobs:
           test -s app/src/main/assets/filasim/SHA256SUMS
           test -s app/src/main/assets/filasim/source-manifest/Cargo.lock
           test -s app/src/main/assets/filasim/source-manifest/web-package-lock.json
-          grep -q 'format=7' app/src/main/assets/filasim/.source-version
+          grep -q 'format=8' app/src/main/assets/filasim/.source-version
           grep -q 'commit=e7485ec22d4ebe8baca04190404fbb877c90e031' app/src/main/assets/filasim/.source-version
           grep -q 'android-bridge.js' app/src/main/assets/filasim/index.html
-          FILASIM_SOURCE=.build/filasim-android/e7485ec22d4ebe8baca04190404fbb877c90e031-format7/web/src
+          FILASIM_SOURCE=.build/filasim-android/e7485ec22d4ebe8baca04190404fbb877c90e031-format8/web/src
           grep -R -q 'EnderSlicerBridge.*captureModifierZip' "$FILASIM_SOURCE/store.ts"
           grep -R -q 'EnderSlicerBridge.*captureOptimizedShape' "$FILASIM_SOURCE/store.ts"
-          grep -R -q 'state.optMode === "binary" ? state.solidPattern : state.pattern' "$FILASIM_SOURCE/store.ts"
+          grep -R -q 'EnderSlicer Android regional pattern metadata v2' "$FILASIM_SOURCE/store.ts"
+          grep -R -q 'metadataVersion: 2' "$FILASIM_SOURCE/store.ts"
+          grep -R -q 'basePattern: state.pattern' "$FILASIM_SOURCE/store.ts"
+          grep -R -q 'binarySolidPattern: state.optMode === "binary" ? state.solidPattern : null' "$FILASIM_SOURCE/store.ts"
+          grep -R -q 'gradedFullDensityPattern: "rectilinear"' "$FILASIM_SOURCE/store.ts"
           grep -R -q 'EnderSlicer Android host supplies the exact displayed model' "$FILASIM_SOURCE/App.tsx"
           grep -R -q 'EnderSlicer Android owns project persistence' "$FILASIM_SOURCE/ui/TopBar.tsx"
           grep -R -q '!androidHosted' "$FILASIM_SOURCE/ui/TopBar.tsx"
           grep -R -q 'EnderSlicer Android deterministic touch pan' "$FILASIM_SOURCE/viewer/SceneManager.ts"
-          grep -R -q 'private panTouchCamera' "$FILASIM_SOURCE/viewer/SceneManager.ts"
+          grep -R -q 'EnderSlicer Android deterministic touch pinch zoom' "$FILASIM_SOURCE/viewer/SceneManager.ts"
+          grep -R -q 'private zoomTouchCamera' "$FILASIM_SOURCE/viewer/SceneManager.ts"
           grep -R -q 'pointercancel' "$FILASIM_SOURCE/viewer/SceneManager.ts"
           test -n "$(find app/src/main/assets/filasim -type f -name '*.wasm' -size +0c -print -quit)"
           (cd app/src/main/assets/filasim && sha256sum --check SHA256SUMS)
@@ -180,12 +185,14 @@ jobs:
           gradle :app:testDebugUnitTest --stacktrace 2>&1 | tee unit-tests.log
           test -n "$CURAENGINE_HOST_BINARY"
           grep -R -q 'SmartInfillCuraEngineIntegrationTest' app/build/test-results/testDebugUnitTest
+          grep -R -q 'SmartInfillModifierShellIntegrationTest' app/build/test-results/testDebugUnitTest
 
       - name: Build debug APK
         run: |
           set -o pipefail
           gradle :app:verifyDebugApkContents --stacktrace 2>&1 | tee apk-build.log
           unzip -l app/build/outputs/apk/debug/app-debug.apk | tee apk-contents.log
+          sha256sum app/build/outputs/apk/debug/app-debug.apk | tee apk-sha256.log
           grep -q 'lib/arm64-v8a/libcuraengine_exec.so' apk-contents.log
           grep -q 'assets/cura/definitions/version.txt' apk-contents.log
           grep -q 'assets/bumpmesh/index.html' apk-contents.log
@@ -231,4 +238,5 @@ jobs:
             unit-tests.log
             apk-build.log
             apk-contents.log
+            apk-sha256.log
           if-no-files-found: ignore
