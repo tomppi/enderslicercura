@@ -2,6 +2,7 @@ package com.tomppi.enderslicer
 
 import android.app.Activity
 import android.app.Application
+import android.content.res.Configuration
 import android.os.Bundle
 import com.tomppi.enderslicer.smartinfill.SmartInfillActivity
 import com.tomppi.enderslicer.texturizer.BumpMeshActivity
@@ -10,16 +11,17 @@ import java.lang.ref.WeakReference
 
 /** Applies adaptive orientation policy without coupling either WebView host to it. */
 class EnderSlicerApplication : Application(), Application.ActivityLifecycleCallbacks {
-    private var resumedToolActivity = WeakReference<Activity>(null)
+    private var resumedToolActivity: WeakReference<Activity>? = null
 
     override fun onCreate() {
         super.onCreate()
         registerActivityLifecycleCallbacks(this)
     }
 
-    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+    override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
-        resumedToolActivity.get()
+        resumedToolActivity
+            ?.get()
             ?.takeIf(::isAdaptiveToolActivity)
             ?.let(ToolWindowOrientationPolicy::apply)
     }
@@ -36,7 +38,7 @@ class EnderSlicerApplication : Application(), Application.ActivityLifecycleCallb
     }
 
     override fun onActivityPaused(activity: Activity) {
-        if (resumedToolActivity.get() === activity) resumedToolActivity.clear()
+        if (resumedToolActivity?.get() === activity) resumedToolActivity = null
     }
 
     override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = Unit
@@ -44,7 +46,7 @@ class EnderSlicerApplication : Application(), Application.ActivityLifecycleCallb
     override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
     override fun onActivityStopped(activity: Activity) = Unit
     override fun onActivityDestroyed(activity: Activity) {
-        if (resumedToolActivity.get() === activity) resumedToolActivity.clear()
+        if (resumedToolActivity?.get() === activity) resumedToolActivity = null
     }
 
     private fun isAdaptiveToolActivity(activity: Activity): Boolean =
