@@ -1,6 +1,7 @@
 package com.tomppi.enderslicer.nonplanar
 
 import android.content.Context
+import java.io.File
 
 /** User-facing controls for the Android CurviSlicer pipeline. */
 data class NonPlanarSettings(
@@ -102,7 +103,8 @@ object CurviSlicerRuntime {
 }
 
 class NonPlanarSettingsStore(context: Context) {
-    private val preferences = context.applicationContext.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
+    private val appContext = context.applicationContext
+    private val preferences = appContext.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
 
     fun load(): NonPlanarSettings = NonPlanarSettings(
         enabled = preferences.getBoolean(KEY_ENABLED, false),
@@ -121,6 +123,7 @@ class NonPlanarSettingsStore(context: Context) {
 
     fun save(settings: NonPlanarSettings) {
         val safe = settings.validated()
+        val changed = CurviSlicerRuntime.current() != safe
         preferences.edit()
             .putBoolean(KEY_ENABLED, safe.enabled)
             .putString(KEY_STRENGTH, safe.strengthPercent.toString())
@@ -136,6 +139,14 @@ class NonPlanarSettingsStore(context: Context) {
             .putBoolean(KEY_WARP_SMART_INFILL, safe.warpSmartInfillModifiers)
             .apply()
         CurviSlicerRuntime.activate(safe)
+        if (changed) invalidatePublishedSlices()
+    }
+
+    private fun invalidatePublishedSlices() {
+        val root = File(appContext.filesDir, "slice-results")
+        if (!root.exists()) return
+        check(root.deleteRecursively()) { "Unable to invalidate G-code created with previous CurviSlicer settings" }
+        check(root.mkdirs() || root.isDirectory) { "Unable to recreate the slice artifact directory" }
     }
 
     private fun number(key: String, fallback: Double): Double =
