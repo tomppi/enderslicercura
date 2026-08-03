@@ -13,8 +13,13 @@ class UiWorkflowStatePersistenceTest {
         assertTrue(source.contains("var viewerMode by rememberSaveable"))
         assertTrue(source.contains("var selectedLayerIndex by rememberSaveable"))
         assertTrue(source.contains("var lastAutoSelectedResultId by rememberSaveable"))
-        assertTrue(source.contains("LaunchedEffect(state.sliceResultId, state.layerPreview)"))
+        assertTrue(
+            source.contains(
+                "LaunchedEffect(state.sliceResultId, state.layerPreview, nonPlanarSettings)",
+            ),
+        )
         assertTrue(source.contains("lastAutoSelectedResultId != resultId"))
+        assertTrue(source.contains("state.hasCurrentGcode()"))
     }
 
     @Test
