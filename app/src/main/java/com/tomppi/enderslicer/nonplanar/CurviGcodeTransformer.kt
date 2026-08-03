@@ -15,6 +15,7 @@ import kotlin.math.sqrt
 internal object CurviGcodeTransformer {
     private const val EPSILON = 1e-8
     private const val MAX_EMITTED_MOVES = 3_000_000
+    private const val SLOPE_TOLERANCE_DEGREES = 0.05
     private val TOKEN = Regex("([A-Za-z])\\s*([+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+))")
 
     fun transform(
@@ -39,6 +40,8 @@ internal object CurviGcodeTransformer {
         var logicalFeed = 0.0
         var emittedFeed = Double.NaN
         var inPrintableLayers = false
+        var currentLayer: Int? = null
+        var lineNumber = 0
         var sourceMoves = 0
         var emittedMoves = 0
         var subdividedMoves = 0
@@ -64,6 +67,7 @@ internal object CurviGcodeTransformer {
             file.bufferedReader().use { input ->
                 temporary.bufferedWriter().use { output ->
                     input.forEachLine { rawLine ->
+                        lineNumber++
                         val trimmed = rawLine.trimStart()
                         if (trimmed.startsWith(";TIME_ELAPSED:")) {
                             val originalElapsed = trimmed.substringAfter(':').trim().toDoubleOrNull()
@@ -77,9 +81,25 @@ internal object CurviGcodeTransformer {
                             writeMetadata(output)
                             return@forEachLine
                         }
-                        if (trimmed.startsWith(";LAYER:")) inPrintableLayers = true
+                        if (trimmed.startsWith(";LAYER:")) {
+                            currentLayer = trimmed.substringAfter(':').trim().toIntOrNull()
+                            inPrintableLayers = true
+                        }
+                        if (trimmed == CurviSlicerRuntime.MACHINE_END_SENTINEL) {
+                            // Machine end G-code executes from the already curved physical
+                            // position. Synchronize the interpreter before copying it verbatim.
+                            inPrintableLayers = false
+                            currentLayer = null
+                            planarX = curvedX
+                            planarY = curvedY
+                            planarZ = curvedZ
+                            planarE = curvedE
+                            output.appendLine(rawLine)
+                            return@forEachLine
+                        }
                         if (trimmed.startsWith(";End of Gcode", ignoreCase = true) || trimmed.startsWith(";END_OF_PRINT")) {
                             inPrintableLayers = false
+                            currentLayer = null
                         }
 
                         val command = GcodeCommand.parse(rawLine)
@@ -105,12 +125,9 @@ internal object CurviGcodeTransformer {
                                 command.value('E')?.let { planarE = it; curvedE = it }
                                 output.appendLine(rawLine)
                             }
-                            "G2", "G3" -> {
-                                if (inPrintableLayers) {
-                                    error("CurviSlicer requires linear G0/G1 paths; disable arc fitting before slicing")
-                                }
-                                output.appendLine(rawLine)
-                            }
+                            "G2", "G3" -> error(
+                                "CurviSlicer cannot safely interpret G2/G3 arcs; disable arc fitting and custom arc purge paths",
+                            )
                             "G0", "G1" -> {
                                 val nextPlanarX = modal.position(planarX, command.value('X'))
                                 val nextPlanarY = modal.position(planarY, command.value('Y'))
@@ -122,8 +139,6 @@ internal object CurviGcodeTransformer {
                                     abs(nextPlanarY - planarY) > EPSILON || abs(nextPlanarZ - planarZ) > EPSILON
                                 if (!spatial || !inPrintableLayers) {
                                     if (inPrintableLayers && command.has('E')) {
-                                        // Preserve the requested retraction/prime delta after
-                                        // compensated extrusion has shifted the absolute E axis.
                                         val builder = StringBuilder(command.opcode)
                                         val curvedDeltaE = nextPlanarE - planarE
                                         builder.append(" E").append(
@@ -147,7 +162,11 @@ internal object CurviGcodeTransformer {
                                     planarE = nextPlanarE
                                     curvedX = nextPlanarX
                                     curvedY = nextPlanarY
-                                    curvedZ = if (inPrintableLayers) field.unflattenZ(nextPlanarX, nextPlanarY, nextPlanarZ) else nextPlanarZ
+                                    curvedZ = if (inPrintableLayers) {
+                                        field.unflattenZ(nextPlanarX, nextPlanarY, nextPlanarZ)
+                                    } else {
+                                        nextPlanarZ
+                                    }
                                     return@forEachLine
                                 }
 
@@ -194,7 +213,9 @@ internal object CurviGcodeTransformer {
                                     lengths[segment] = points[segment].distanceTo(points[segment + 1])
                                     totalCurvedLength += lengths[segment]
                                 }
-                                val compensatedDeltaE = if (deltaE > EPSILON && settings.compensateExtrusion && planarLength > EPSILON) {
+                                val compensatedDeltaE = if (
+                                    deltaE > EPSILON && settings.compensateExtrusion && planarLength > EPSILON
+                                ) {
                                     deltaE * (totalCurvedLength / planarLength).coerceIn(0.5, 2.0)
                                 } else {
                                     deltaE
@@ -202,23 +223,50 @@ internal object CurviGcodeTransformer {
                                 val unknownTokens = unknownTokens(rawLine)
                                 val comment = rawLine.substringAfter(';', "").takeIf { ';' in rawLine }
                                 var emittedCurvedE = curvedE
+                                var cumulativeLength = 0.0
+                                var previousRelativeX = 0.0
+                                var previousRelativeY = 0.0
+                                var previousRelativeZ = 0.0
+                                var previousRelativeE = 0.0
                                 for (segment in 0 until segmentCount) {
                                     val from = points[segment]
                                     val to = points[segment + 1]
-                                    val share = if (totalCurvedLength > EPSILON) lengths[segment] / totalCurvedLength else 1.0 / segmentCount
-                                    val segmentDeltaE = compensatedDeltaE * share
-                                    emittedCurvedE += segmentDeltaE
-                                    val slope = if (hypot(to.x - from.x, to.y - from.y) > EPSILON) {
-                                        abs(to.z - from.z) / hypot(to.x - from.x, to.y - from.y)
-                                    } else 0.0
+                                    cumulativeLength += lengths[segment]
+                                    val fraction = if (totalCurvedLength > EPSILON) {
+                                        cumulativeLength / totalCurvedLength
+                                    } else {
+                                        (segment + 1).toDouble() / segmentCount
+                                    }
+                                    val targetCumulativeE = compensatedDeltaE * fraction
+                                    val exactSegmentDeltaE = targetCumulativeE - (emittedCurvedE - curvedE)
+                                    emittedCurvedE += exactSegmentDeltaE
+                                    val horizontal = hypot(to.x - from.x, to.y - from.y)
+                                    val slope = if (horizontal > EPSILON) abs(to.z - from.z) / horizontal else 0.0
                                     maximumSlope = max(maximumSlope, Math.toDegrees(kotlin.math.atan(slope)))
-                                    val zSpeed = if (lengths[segment] > EPSILON) requestedSpeed * abs(to.z - from.z) / lengths[segment] else 0.0
+                                    val zSpeed = if (lengths[segment] > EPSILON) {
+                                        requestedSpeed * abs(to.z - from.z) / lengths[segment]
+                                    } else {
+                                        0.0
+                                    }
                                     val safeSpeed = if (zSpeed > settings.maximumZSpeedMmPerSecond && zSpeed > EPSILON) {
                                         requestedSpeed * settings.maximumZSpeedMmPerSecond / zSpeed
-                                    } else requestedSpeed
+                                    } else {
+                                        requestedSpeed
+                                    }
                                     maximumZSpeed = max(maximumZSpeed, min(zSpeed, settings.maximumZSpeedMmPerSecond))
                                     val safeFeed = safeSpeed * 60.0
                                     if (safeSpeed > EPSILON) actualMoveSeconds += lengths[segment] / safeSpeed
+
+                                    printerEnvelope.requireMotionMove(
+                                        startX = from.x,
+                                        startY = from.y,
+                                        startZ = from.z,
+                                        endX = to.x,
+                                        endY = to.y,
+                                        endZ = to.z,
+                                        lineNumber = lineNumber,
+                                        layerNumber = currentLayer,
+                                    )
 
                                     val builder = StringBuilder(command.opcode)
                                     if (modal.absolutePosition) {
@@ -226,14 +274,24 @@ internal object CurviGcodeTransformer {
                                         builder.append(" Y").append(format(to.y))
                                         builder.append(" Z").append(format(to.z))
                                     } else {
-                                        builder.append(" X").append(format(to.x - from.x))
-                                        builder.append(" Y").append(format(to.y - from.y))
-                                        builder.append(" Z").append(format(to.z - from.z))
+                                        val targetRelativeX = quantize(to.x - startCurvedX)
+                                        val targetRelativeY = quantize(to.y - startCurvedY)
+                                        val targetRelativeZ = quantize(to.z - startCurvedZ)
+                                        builder.append(" X").append(format(targetRelativeX - previousRelativeX))
+                                        builder.append(" Y").append(format(targetRelativeY - previousRelativeY))
+                                        builder.append(" Z").append(format(targetRelativeZ - previousRelativeZ))
+                                        previousRelativeX = targetRelativeX
+                                        previousRelativeY = targetRelativeY
+                                        previousRelativeZ = targetRelativeZ
                                     }
                                     if (command.has('E')) {
-                                        builder.append(" E").append(
-                                            format(if (modal.absoluteExtrusion) emittedCurvedE else segmentDeltaE),
-                                        )
+                                        if (modal.absoluteExtrusion) {
+                                            builder.append(" E").append(format(emittedCurvedE))
+                                        } else {
+                                            val targetRelativeE = quantize(targetCumulativeE)
+                                            builder.append(" E").append(format(targetRelativeE - previousRelativeE))
+                                            previousRelativeE = targetRelativeE
+                                        }
                                     }
                                     if (safeFeed > EPSILON && (!emittedFeed.isFinite() || abs(safeFeed - emittedFeed) > 0.01)) {
                                         builder.append(" F").append(format(safeFeed))
@@ -269,6 +327,10 @@ internal object CurviGcodeTransformer {
             require(maximumZ <= printerEnvelope.heightMm + 0.02) {
                 "CurviSlicer generated Z ${format(maximumZ)} mm outside the ${format(printerEnvelope.heightMm)} mm build height"
             }
+            require(maximumSlope <= settings.effectiveSlopeLimitDegrees + SLOPE_TOLERANCE_DEGREES) {
+                "CurviSlicer generated path slope ${format(maximumSlope)}° above the configured " +
+                    "${format(settings.effectiveSlopeLimitDegrees)}° clearance limit"
+            }
             check(file.delete()) { "Unable to replace planar G-code with CurviSlicer output" }
             check(temporary.renameTo(file) || temporary.copyTo(file, overwrite = false).let { temporary.delete(); true }) {
                 "Unable to publish CurviSlicer G-code"
@@ -297,6 +359,8 @@ internal object CurviGcodeTransformer {
             .filter { it.groupValues[1].single().uppercaseChar() !in setOf('X', 'Y', 'Z', 'E', 'F') }
             .joinToString(" ") { it.value.trim() }
     }
+
+    private fun quantize(value: Double): Double = format(value).toDouble()
 
     private fun format(value: Double): String = String.format(Locale.US, "%.6f", value)
         .trimEnd('0')
