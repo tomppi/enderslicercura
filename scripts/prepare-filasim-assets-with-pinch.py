@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prepare filaSim Android assets and add deterministic two-finger pinch zoom."""
+"""Prepare pinned filaSim Android assets with app-specific source transforms."""
 
 from __future__ import annotations
 
@@ -13,10 +13,37 @@ if SPEC is None or SPEC.loader is None:
 BASE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(BASE)
 
-# Keep the existing Android source/assets format. This wrapper upgrades both a
-# clean upstream workspace and a warm format-7 workspace in place.
-BASE.ASSET_FORMAT = 7
+# Format 8 adds complete regional-pattern metadata. A distinct source workspace
+# prevents a previously patched format-7 tree from hiding the schema change.
+BASE.ASSET_FORMAT = 8
+_BASE_PATCH_ANDROID_EXPORT = BASE.patch_android_export
 _BASE_PATCH_ANDROID_VIEWER = BASE.patch_android_viewer
+
+
+def patch_android_export_with_pattern_contract(store_file: pathlib.Path) -> None:
+    _BASE_PATCH_ANDROID_EXPORT(store_file)
+    text = store_file.read_text(encoding="utf-8")
+    marker = "EnderSlicer Android regional pattern metadata v2"
+    if marker in text:
+        return
+
+    old = '''          pattern: state.optMode === "binary" ? state.solidPattern : state.pattern,
+          mode: state.optMode,
+'''
+    if old not in text:
+        raise RuntimeError("Unable to locate Android modifier pattern metadata for versioning")
+    text = text.replace(
+        old,
+        '''          // EnderSlicer Android regional pattern metadata v2.
+          metadataVersion: 2,
+          basePattern: state.pattern,
+          binarySolidPattern: state.optMode === "binary" ? state.solidPattern : null,
+          gradedFullDensityPattern: "rectilinear",
+          mode: state.optMode,
+''',
+        1,
+    )
+    store_file.write_text(text, encoding="utf-8")
 
 
 def patch_android_viewer_with_pinch(scene_file: pathlib.Path) -> None:
@@ -151,6 +178,7 @@ def patch_android_viewer_with_pinch(scene_file: pathlib.Path) -> None:
     scene_file.write_text(text, encoding="utf-8")
 
 
+BASE.patch_android_export = patch_android_export_with_pattern_contract
 BASE.patch_android_viewer = patch_android_viewer_with_pinch
 
 
