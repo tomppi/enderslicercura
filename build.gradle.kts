@@ -4,8 +4,9 @@ plugins {
 }
 
 val filaSimCommit = "e7485ec22d4ebe8baca04190404fbb877c90e031"
-val filaSimFormat = 5
-val filaSimScript = layout.projectDirectory.file("scripts/prepare-filasim-assets.py")
+val filaSimFormat = 7
+val filaSimScript = layout.projectDirectory.file("scripts/prepare-filasim-assets-with-pinch.py")
+val filaSimBaseScript = layout.projectDirectory.file("scripts/prepare-filasim-assets.py")
 val filaSimBridge = layout.projectDirectory.file("app/src/main/filasim/android-bridge.js")
 val filaSimAssetsDirectory = layout.projectDirectory.dir("app/src/main/assets/filasim")
 
@@ -16,6 +17,7 @@ project(":app") {
         inputs.property("filaSimCommit", filaSimCommit)
         inputs.property("filaSimFormat", filaSimFormat)
         inputs.file(filaSimScript)
+        inputs.file(filaSimBaseScript)
         inputs.file(filaSimBridge)
         outputs.dir(filaSimAssetsDirectory)
         workingDir(rootProject.projectDir)
