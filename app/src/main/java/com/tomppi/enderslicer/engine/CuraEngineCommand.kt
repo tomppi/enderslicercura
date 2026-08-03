@@ -111,7 +111,9 @@ object CuraEngineCommand {
         }
 
         val effectiveStartGcode = effectiveSettings.resolveStartGcode(startGcode)
-        val effectiveEndGcode = effectiveSettings.resolveEndGcode(endGcode)
+        val effectiveEndGcode = CurviSlicerRuntime.markMachineEndGcode(
+            effectiveSettings.resolveEndGcode(endGcode),
+        )
         val engineOffsetX = if (effectivePrinter.originAtCenter) 0.0 else -effectivePrinter.widthMm / 2.0
         val engineOffsetY = if (effectivePrinter.originAtCenter) 0.0 else -effectivePrinter.depthMm / 2.0
         requireSafeArgument(effectiveStartGcode)
@@ -153,9 +155,6 @@ object CuraEngineCommand {
             applySmartInfillWidths()
         }
 
-        // CuraEngine does not evaluate Cura frontend formulas for command-line
-        // values. Resolve every regional density-and-pattern pair explicitly so
-        // binary and graded 100% regions keep filaSim's print contract.
         fun applySmartInfillRegion(densityPercent: Double, curaPattern: String) {
             require(densityPercent in 0.0..100.0) { "Invalid Smart Infill density: $densityPercent" }
             val densityArgument: Number = if (densityPercent % 1.0 == 0.0) densityPercent.toInt() else densityPercent
