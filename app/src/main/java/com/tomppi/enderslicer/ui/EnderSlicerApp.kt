@@ -88,9 +88,10 @@ fun EnderSlicerApp(
     val nonPlanarStore = remember(context) { NonPlanarSettingsStore(context.applicationContext) }
     var nonPlanarSettings by remember(nonPlanarStore) { mutableStateOf(nonPlanarStore.load()) }
 
-    LaunchedEffect(state.sliceResultId, state.layerPreview) {
-        val preview = state.layerPreview
-        val resultId = state.sliceResultId
+    LaunchedEffect(state.sliceResultId, state.layerPreview, nonPlanarSettings) {
+        val gcodeAvailable = state.hasCurrentGcode()
+        val preview = state.layerPreview.takeIf { gcodeAvailable }
+        val resultId = state.sliceResultId.takeIf { gcodeAvailable }
         if (preview == null) {
             viewerMode = ViewerMode.MODEL
             selectedLayerIndex = 0
@@ -100,7 +101,7 @@ fun EnderSlicerApp(
                 it.supportSegmentCount > 0 || it.supportInterfaceSegmentCount > 0
             }
             selectedLayerIndex = if (firstSupport >= 0) firstSupport else 0
-            viewerMode = if (nonPlanarSettings.enabled && state.gcodePath != null) {
+            viewerMode = if (nonPlanarSettings.enabled && gcodeAvailable) {
                 ViewerMode.NOZZLE_PATH
             } else {
                 ViewerMode.LAYERS
@@ -393,12 +394,29 @@ fun EnderSlicerApp(
                 layerHeightMm = state.settings.layerHeightMm,
                 nozzleDiameterMm = effectivePrinter.nozzleSizeMm,
                 onSave = { value ->
-                    nonPlanarStore.save(value)
-                    nonPlanarSettings = value.validated()
+                    val safe = value.validated()
+                    val changed = safe != nonPlanarSettings
+                    nonPlanarStore.save(safe)
+                    nonPlanarSettings = safe
                     nonPlanarOpen = false
+                    if (changed) {
+                        viewerMode = ViewerMode.MODEL
+                        selectedLayerIndex = 0
+                        lastAutoSelectedResultId = null
+                    }
                     Toast.makeText(
                         context,
-                        if (value.enabled) "CurviSlicer enabled for the next slice" else "CurviSlicer disabled",
+                        if (changed) {
+                            if (safe.enabled) {
+                                "CurviSlicer settings saved; slice again before export"
+                            } else {
+                                "CurviSlicer disabled; slice again before export"
+                            }
+                        } else if (safe.enabled) {
+                            "CurviSlicer settings unchanged"
+                        } else {
+                            "CurviSlicer remains disabled"
+                        },
                         Toast.LENGTH_SHORT,
                     ).show()
                 },
@@ -443,7 +461,7 @@ fun EnderSlicerApp(
         }
     }
 
-    if (layerEventsOpen && state.layerPreview != null) {
+    if (layerEventsOpen && state.layerPreview != null && state.hasCurrentGcode()) {
         val preview = requireNotNull(state.layerPreview)
         val layer = preview.layers[selectedLayerIndex.coerceIn(preview.layers.indices)]
         ModalBottomSheet(
@@ -530,8 +548,9 @@ private fun ViewerPanel(
     modifier: Modifier = Modifier,
 ) {
     val effectivePrinter = state.printer.withSettings(state.settings)
+    val gcodeAvailable = state.hasCurrentGcode()
     Box(modifier = modifier) {
-        val preview = state.layerPreview
+        val preview = state.layerPreview.takeIf { gcodeAvailable }
         when {
             viewerMode == ViewerMode.LAYERS && preview != null -> LayerPreviewView(
                 preview = preview,
@@ -541,8 +560,8 @@ private fun ViewerPanel(
                 onEditEvents = onEditLayerEvents,
                 modifier = Modifier.fillMaxSize(),
             )
-            viewerMode == ViewerMode.NOZZLE_PATH && state.gcodePath != null -> NozzlePathView(
-                gcodePath = state.gcodePath,
+            viewerMode == ViewerMode.NOZZLE_PATH && gcodeAvailable -> NozzlePathView(
+                gcodePath = requireNotNull(state.gcodePath),
                 modifier = Modifier.fillMaxSize(),
             )
             else -> key(effectivePrinter) {
@@ -606,7 +625,7 @@ private fun ViewerPanel(
                 state.calibrationDescription?.let { description ->
                     Text(description, style = MaterialTheme.typography.bodySmall)
                 }
-                state.estimatedPrintSeconds?.let { seconds ->
+                state.estimatedPrintSeconds?.takeIf { gcodeAvailable }?.let { seconds ->
                     Text("Estimated print: ${formatEstimatedPrintTime(seconds)}", style = MaterialTheme.typography.bodySmall)
                 }
                 if (state.warnings.isNotEmpty()) {
@@ -615,7 +634,7 @@ private fun ViewerPanel(
             }
         }
 
-        if (preview != null || state.gcodePath != null) {
+        if (preview != null || gcodeAvailable) {
             Card(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
@@ -627,7 +646,7 @@ private fun ViewerPanel(
                 ) {
                     ViewerModeButton("Model", ViewerMode.MODEL, viewerMode, true, onViewerMode)
                     ViewerModeButton("Layers", ViewerMode.LAYERS, viewerMode, preview != null, onViewerMode)
-                    ViewerModeButton("Path", ViewerMode.NOZZLE_PATH, viewerMode, state.gcodePath != null, onViewerMode)
+                    ViewerModeButton("Path", ViewerMode.NOZZLE_PATH, viewerMode, gcodeAvailable, onViewerMode)
                 }
             }
         }
@@ -673,6 +692,7 @@ private fun ActionBar(
     onSlice: () -> Unit,
     onExportGcode: () -> Unit,
 ) {
+    val gcodeAvailable = state.hasCurrentGcode()
     Surface(tonalElevation = 4.dp) {
         Column(
             modifier = Modifier
@@ -681,7 +701,7 @@ private fun ActionBar(
                 .padding(horizontal = 12.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(5.dp),
         ) {
-            state.estimatedPrintSeconds?.let { seconds ->
+            state.estimatedPrintSeconds?.takeIf { gcodeAvailable }?.let { seconds ->
                 Text(
                     "Estimated print time: ${formatEstimatedPrintTime(seconds)}",
                     style = MaterialTheme.typography.titleSmall,
@@ -709,7 +729,7 @@ private fun ActionBar(
                 }
                 OutlinedButton(
                     onClick = onExportGcode,
-                    enabled = state.gcodePath != null && !state.isBusy,
+                    enabled = gcodeAvailable && !state.isBusy,
                     modifier = Modifier.weight(1f),
                 ) {
                     Text("Export G-code")
@@ -718,6 +738,11 @@ private fun ActionBar(
         }
     }
 }
+
+private fun MainUiState.hasCurrentGcode(): Boolean = gcodePath
+    ?.let(::File)
+    ?.let { it.isFile && it.length() > 0L }
+    ?: false
 
 private fun formatEstimatedPrintTime(totalSeconds: Int): String {
     val seconds = totalSeconds.coerceAtLeast(0)
