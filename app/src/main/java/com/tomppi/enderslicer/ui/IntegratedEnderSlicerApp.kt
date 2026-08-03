@@ -157,7 +157,7 @@ fun IntegratedEnderSlicerApp(
         if (resultKind == SmartInfillActivity.RESULT_SHAPE) {
             scope.launch {
                 val previousPath = slicerViewModel.uiState.value.modelPath
-                slicerViewModel.importStl(exportUri)
+                slicerViewModel.importPartTopoResult(exportUri)
                 val started = slicerViewModel.uiState.value.isBusy
                 val completed = if (started) {
                     slicerViewModel.uiState.first { state -> !state.isBusy }
