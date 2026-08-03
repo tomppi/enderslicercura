@@ -8,6 +8,7 @@ import com.tomppi.enderslicer.model.resolveStartGcode
 import com.tomppi.enderslicer.model.withSettings
 import com.tomppi.enderslicer.profile.CuraEngineProfile
 import com.tomppi.enderslicer.profile.CuraSettingDelta
+import com.tomppi.enderslicer.smartinfill.SmartInfillCuraContract
 import com.tomppi.enderslicer.smartinfill.SmartInfillModifier
 import com.tomppi.enderslicer.smartinfill.SmartInfillRuntime
 import com.tomppi.enderslicer.smartinfill.requireValidBinaryStl
@@ -176,6 +177,12 @@ object CuraEngineCommand {
             )
         }
 
+        fun neutralizeSmartInfillModifierShell() {
+            SmartInfillCuraContract.modifierShellNeutralValues.forEach { (key, value) ->
+                setting(key, value)
+            }
+        }
+
         // CuraEngine consumes centering/rotation state while -l loads geometry.
         // Ordinary per-mesh position and role settings must instead follow -l,
         // because its stateful CLI parser applies -s to the mesh just loaded.
@@ -261,6 +268,7 @@ object CuraEngineCommand {
                 setting("infill_mesh", true)
                 setting("infill_mesh_order", index + 1)
                 applySmartInfillDensity(modifier.densityPercent.toDouble())
+                neutralizeSmartInfillModifierShell()
                 setting("support_mesh", false)
                 setting("anti_overhang_mesh", false)
                 setting("cutting_mesh", false)
