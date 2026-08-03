@@ -9,6 +9,8 @@ val filaSimScript = layout.projectDirectory.file("scripts/prepare-filasim-assets
 val filaSimBaseScript = layout.projectDirectory.file("scripts/prepare-filasim-assets.py")
 val filaSimBridge = layout.projectDirectory.file("app/src/main/filasim/android-bridge.js")
 val filaSimAssetsDirectory = layout.projectDirectory.dir("app/src/main/assets/filasim")
+val bumpMeshVerifier = layout.projectDirectory.file("scripts/verify-bumpmesh-assets.py")
+val bumpMeshAssetsDirectory = layout.projectDirectory.dir("app/src/main/assets/bumpmesh")
 
 project(":app") {
     val prepareFilaSimAssets = tasks.register<org.gradle.api.tasks.Exec>("prepareFilaSimAssets") {
@@ -30,9 +32,30 @@ project(":app") {
         )
     }
 
+    val verifyBumpMeshAssets = tasks.register<org.gradle.api.tasks.Exec>("verifyBumpMeshAssets") {
+        group = "verification"
+        description = "Verifies every generated BumpMesh runtime asset before APK packaging"
+        dependsOn("prepareBumpMeshAssets")
+        inputs.file(bumpMeshVerifier)
+        inputs.files(
+            fileTree(bumpMeshAssetsDirectory) {
+                exclude("SHA256SUMS")
+            },
+        )
+        outputs.file(bumpMeshAssetsDirectory.file("SHA256SUMS"))
+        workingDir(rootProject.projectDir)
+        commandLine(
+            "python3",
+            bumpMeshVerifier.asFile.absolutePath,
+            "--root",
+            bumpMeshAssetsDirectory.asFile.absolutePath,
+        )
+    }
+
     plugins.withId("com.android.application") {
         tasks.named("preBuild").configure {
             dependsOn(prepareFilaSimAssets)
+            dependsOn(verifyBumpMeshAssets)
         }
     }
 }
