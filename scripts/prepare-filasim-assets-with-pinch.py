@@ -13,9 +13,10 @@ if SPEC is None or SPEC.loader is None:
 BASE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(BASE)
 
-# Format 8 adds complete regional-pattern metadata. A distinct source workspace
-# prevents a previously patched format-7 tree from hiding the schema change.
-BASE.ASSET_FORMAT = 8
+# Format 9 hardens the regional-pattern metadata against stale/restored WebView
+# state. A distinct source workspace prevents a previously patched tree from
+# hiding the export-contract change.
+BASE.ASSET_FORMAT = 9
 _BASE_PATCH_ANDROID_EXPORT = BASE.patch_android_export
 _BASE_PATCH_ANDROID_VIEWER = BASE.patch_android_viewer
 
@@ -36,8 +37,13 @@ def patch_android_export_with_pattern_contract(store_file: pathlib.Path) -> None
         old,
         '''          // EnderSlicer Android regional pattern metadata v2.
           metadataVersion: 2,
-          basePattern: state.pattern,
-          binarySolidPattern: state.optMode === "binary" ? state.solidPattern : null,
+          // This pinned filaSim build has one calibrated sparse pattern. A
+          // restored browser state may still contain null/retired values, so
+          // export the actual supported solver contract instead of trusting it.
+          basePattern: state.pattern === "cubic" ? state.pattern : "cubic",
+          binarySolidPattern: state.optMode === "binary"
+            ? state.solidPattern === "concentric" ? "concentric" : "rectilinear"
+            : null,
           gradedFullDensityPattern: "rectilinear",
           mode: state.optMode,
 ''',
