@@ -1,7 +1,5 @@
 package com.tomppi.enderslicer.ui
 
-import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,12 +24,11 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import com.tomppi.enderslicer.engine.GcodeNozzlePath
 import com.tomppi.enderslicer.engine.GcodeNozzlePathParser
+import com.tomppi.enderslicer.viewer.NozzlePathSurfaceView
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -87,52 +84,13 @@ private fun NozzlePathPlayer(path: GcodeNozzlePath, modifier: Modifier) {
     }
 
     Column(modifier = modifier) {
-        val travelColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.48f)
-        val extrusionColor = MaterialTheme.colorScheme.primary
-        Box(modifier = Modifier.weight(1f).fillMaxWidth().background(MaterialTheme.colorScheme.surface)) {
-            Canvas(modifier = Modifier.fillMaxSize().padding(12.dp)) {
-                val width = (path.maxX - path.minX).coerceAtLeast(1f)
-                val depth = (path.maxY - path.minY).coerceAtLeast(1f)
-                val scale = minOf(size.width / width, size.height / depth) * 0.94f
-                val offsetX = (size.width - width * scale) * 0.5f
-                val offsetY = (size.height - depth * scale) * 0.5f
-                fun point(x: Float, y: Float): Offset = Offset(
-                    offsetX + (x - path.minX) * scale,
-                    size.height - offsetY - (y - path.minY) * scale,
-                )
-                val values = path.moves
-                val end = (safeIndex + 1) * GcodeNozzlePath.VALUES_PER_MOVE
-                var index = 0
-                while (index < end) {
-                    val kind = values[index + GcodeNozzlePath.KIND]
-                    val z = values[index + GcodeNozzlePath.Z2]
-                    val zRatio = if (path.maxZ > path.minZ) {
-                        ((z - path.minZ) / (path.maxZ - path.minZ)).coerceIn(0f, 1f)
-                    } else {
-                        0f
-                    }
-                    val color = if (kind == GcodeNozzlePath.Kind.EXTRUSION.code) {
-                        Color.hsv(240f - 240f * zRatio, 0.82f, 0.98f)
-                    } else {
-                        travelColor
-                    }
-                    drawLine(
-                        color = color,
-                        start = point(values[index], values[index + 1]),
-                        end = point(values[index + 3], values[index + 4]),
-                        strokeWidth = if (kind == GcodeNozzlePath.Kind.EXTRUSION.code) 2.2f else 1f,
-                        cap = StrokeCap.Round,
-                    )
-                    index += GcodeNozzlePath.VALUES_PER_MOVE
-                }
-                val headOffset = safeIndex * GcodeNozzlePath.VALUES_PER_MOVE
-                drawCircle(
-                    color = extrusionColor,
-                    radius = 6f,
-                    center = point(values[headOffset + 3], values[headOffset + 4]),
-                )
-            }
-        }
+        AndroidView(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth(),
+            factory = { context -> NozzlePathSurfaceView(context) },
+            update = { view -> view.setPath(path, safeIndex) },
+        )
 
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(
@@ -176,7 +134,7 @@ private fun NozzlePathPlayer(path: GcodeNozzlePath, modifier: Modifier) {
                     ) { Text("Restart") }
                 }
                 Text(
-                    "Gray shows travel. Extrusion changes from blue at low Z to red at high Z, making continuously curved Z motion visible.",
+                    "Gray is travel. Extrusion changes from blue at low Z to red at high Z. Drag to orbit, pinch to zoom, use two fingers to pan, and double-tap to reset.",
                     style = MaterialTheme.typography.labelSmall,
                 )
             }
