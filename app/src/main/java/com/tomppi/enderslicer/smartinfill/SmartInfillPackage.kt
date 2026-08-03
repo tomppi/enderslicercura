@@ -42,12 +42,14 @@ data class SmartInfillSummary(
     val sourceName: String,
     val baseDensityPercent: Double,
     val modifierDensitiesPercent: List<Int>,
+    /** filaSim's ordinary sparse pattern used by the printable/base mesh. */
     val pattern: String,
     val mode: String,
     val perimeters: Int,
     val lineWidthMm: Double,
     val topBottomLayers: Int,
     val layerHeightMm: Double,
+    val binarySolidPattern: String? = null,
 )
 
 data class SmartInfillPackage(
@@ -56,6 +58,7 @@ data class SmartInfillPackage(
     val sourceName: String,
     val sourceSha256: String,
     val baseDensityPercent: Double,
+    /** filaSim's ordinary sparse pattern used by the printable/base mesh. */
     val pattern: String,
     val mode: String,
     val perimeters: Int,
@@ -64,6 +67,8 @@ data class SmartInfillPackage(
     val layerHeightMm: Double,
     val upstreamCommit: String,
     val modifiers: List<SmartInfillModifier>,
+    /** Required for binary packages; ignored for graded packages. */
+    val binarySolidPattern: String? = null,
 ) {
     val summary: SmartInfillSummary
         get() = SmartInfillSummary(
@@ -77,6 +82,7 @@ data class SmartInfillPackage(
             lineWidthMm = lineWidthMm,
             topBottomLayers = topBottomLayers,
             layerHeightMm = layerHeightMm,
+            binarySolidPattern = binarySolidPattern,
         )
 
     fun requireMatchesSource(source: File) {
@@ -170,6 +176,7 @@ class SmartInfillPackageStore(private val context: Context) {
     private val root = File(context.filesDir, "smart-infill").apply { mkdirs() }
     private val packagesDirectory = File(root, "packages").apply { mkdirs() }
     private val activeFile = File(root, "active-package.txt")
+    private val loadWarningFile = File(root, "load-warning.txt")
 
     fun importPackage(zipUri: Uri, metadataJson: String, sourceSha256: String): SmartInfillPackage {
         require(sourceSha256.matches(SHA_PATTERN)) { "Smart Infill source fingerprint is invalid" }
@@ -195,7 +202,7 @@ class SmartInfillPackageStore(private val context: Context) {
                 .put("sourceName", metadata.sourceName)
                 .put("sourceSha256", sourceSha256)
                 .put("baseDensityPercent", metadata.baseDensityPercent)
-                .put("pattern", metadata.pattern)
+                .put("basePattern", metadata.basePattern)
                 .put("mode", metadata.mode)
                 .put("perimeters", metadata.perimeters)
                 .put("lineWidthMm", metadata.lineWidthMm)
@@ -214,11 +221,13 @@ class SmartInfillPackageStore(private val context: Context) {
                         }
                     },
                 )
+            metadata.binarySolidPattern?.let { manifest.put("binarySolidPattern", it) }
             writeSynced(File(staging, MANIFEST_FILE), manifest.toString())
             check(staging.renameTo(destination)) { "Unable to publish the Smart Infill package" }
 
             val loaded = loadPackage(destination)
             activate(loaded)
+            loadWarningFile.delete()
             cleanupOldPackages(loaded.id)
             return loaded
         } catch (error: Throwable) {
@@ -236,8 +245,25 @@ class SmartInfillPackageStore(private val context: Context) {
             return null
         }
         return runCatching { loadPackage(File(packagesDirectory, id)) }
-            .onFailure { activeFile.delete() }
+            .onFailure { error ->
+                activeFile.delete()
+                val warning = error.message
+                    ?.take(MAX_LOAD_WARNING_CHARS)
+                    ?.takeIf(String::isNotBlank)
+                if (warning != null) runCatching { writeSynced(loadWarningFile, warning) }
+            }
             .getOrNull()
+    }
+
+    fun consumeLoadWarning(): String? {
+        if (!loadWarningFile.isFile || loadWarningFile.length() !in 1..MAX_LOAD_WARNING_BYTES) {
+            loadWarningFile.delete()
+            return null
+        }
+        return runCatching { loadWarningFile.readText().take(MAX_LOAD_WARNING_CHARS) }
+            .also { loadWarningFile.delete() }
+            .getOrNull()
+            ?.takeIf(String::isNotBlank)
     }
 
     fun clearActive() {
@@ -246,6 +272,7 @@ class SmartInfillPackageStore(private val context: Context) {
 
     fun clearAll() {
         clearActive()
+        loadWarningFile.delete()
         packagesDirectory.listFiles().orEmpty().forEach { it.deleteRecursively() }
     }
 
@@ -253,6 +280,7 @@ class SmartInfillPackageStore(private val context: Context) {
         require(packageValue.directory.parentFile?.canonicalFile == packagesDirectory.canonicalFile) {
             "Smart Infill package is outside private storage"
         }
+        validatePatternContract(packageValue.mode, packageValue.pattern, packageValue.binarySolidPattern)
         val next = File(root, "active-package.next")
         writeSynced(next, packageValue.id)
         activeFile.delete()
@@ -268,13 +296,30 @@ class SmartInfillPackageStore(private val context: Context) {
             "Smart Infill package manifest is missing or too large"
         }
         val root = JSONObject(manifestFile.readText())
-        require(root.getInt("version") == MANIFEST_VERSION) { "Unsupported Smart Infill package version" }
+        val version = root.getInt("version")
+        require(version == LEGACY_MANIFEST_VERSION || version == MANIFEST_VERSION) {
+            "Unsupported Smart Infill package version"
+        }
         val id = root.getString("id")
         require(id == directory.name && SAFE_ID.matches(id)) { "Smart Infill package identity is invalid" }
         val sourceSha256 = root.getString("sourceSha256")
         require(sourceSha256.matches(SHA_PATTERN)) { "Smart Infill source fingerprint is invalid" }
         val mode = requireSupportedMode(root.getString("mode"))
-        val pattern = requireSupportedPattern(root.getString("pattern"))
+        val basePattern: String
+        val binarySolidPattern: String?
+        if (version == LEGACY_MANIFEST_VERSION) {
+            require(mode != "binary") {
+                "This binary Smart Infill package predates regional pattern metadata. Regenerate Smart Infill."
+            }
+            basePattern = requireSupportedPattern(root.getString("pattern"))
+            binarySolidPattern = null
+        } else {
+            basePattern = requireSupportedPattern(root.getString("basePattern"))
+            binarySolidPattern = root.optString("binarySolidPattern")
+                .takeIf(String::isNotBlank)
+                ?.let(::requireSupportedPattern)
+        }
+        validatePatternContract(mode, basePattern, binarySolidPattern)
         val upstreamCommit = root.getString("upstreamCommit")
         require(upstreamCommit == SmartInfillActivity.FILASIM_COMMIT) {
             "Smart Infill package was generated by an unsupported filaSim build"
@@ -315,7 +360,7 @@ class SmartInfillPackageStore(private val context: Context) {
             sourceName = root.getString("sourceName").take(MAX_SOURCE_NAME),
             sourceSha256 = sourceSha256,
             baseDensityPercent = baseDensity,
-            pattern = pattern,
+            pattern = basePattern,
             mode = mode,
             perimeters = perimeters,
             lineWidthMm = lineWidth,
@@ -323,6 +368,7 @@ class SmartInfillPackageStore(private val context: Context) {
             layerHeightMm = layerHeight,
             upstreamCommit = upstreamCommit,
             modifiers = modifiers,
+            binarySolidPattern = binarySolidPattern,
         )
     }
 
@@ -376,6 +422,9 @@ class SmartInfillPackageStore(private val context: Context) {
     private fun parseMetadata(raw: String): Metadata {
         require(raw.length in 2..MAX_METADATA_CHARS) { "Smart Infill metadata is missing or too large" }
         val root = JSONObject(raw)
+        require(root.getInt("metadataVersion") == METADATA_VERSION) {
+            "This filaSim export does not preserve regional pattern metadata. Regenerate Smart Infill."
+        }
         val baseDensity = root.getDouble("baseDensityPercent")
         val lineWidth = root.getDouble("lineWidthMm")
         val layerHeight = root.getDouble("layerHeightMm")
@@ -397,12 +446,27 @@ class SmartInfillPackageStore(private val context: Context) {
         require(sourceFingerprint == null || sourceFingerprint.matches(SHA_PATTERN)) {
             "filaSim returned an invalid source fingerprint"
         }
+        val mode = requireSupportedMode(root.getString("mode"))
+        val basePattern = requireSupportedPattern(root.getString("basePattern"))
+        val binarySolidPattern = root.optString("binarySolidPattern")
+            .takeIf(String::isNotBlank)
+            ?.let(::requireSupportedPattern)
+        require(
+            root.optString(
+                "gradedFullDensityPattern",
+                SmartInfillCuraContract.GRADED_FULL_DENSITY_PATTERN,
+            ).trim().lowercase() == SmartInfillCuraContract.GRADED_FULL_DENSITY_PATTERN,
+        ) {
+            "filaSim returned an unsupported graded full-density pattern contract"
+        }
+        validatePatternContract(mode, basePattern, binarySolidPattern)
         return Metadata(
             sourceName = root.optString("sourceName", "model.stl").take(MAX_SOURCE_NAME),
             sourceSha256 = sourceFingerprint,
             baseDensityPercent = baseDensity,
-            pattern = requireSupportedPattern(root.getString("pattern")),
-            mode = requireSupportedMode(root.getString("mode")),
+            basePattern = basePattern,
+            binarySolidPattern = binarySolidPattern,
+            mode = mode,
             perimeters = perimeters,
             lineWidthMm = lineWidth,
             topBottomLayers = topBottom,
@@ -425,6 +489,20 @@ class SmartInfillPackageStore(private val context: Context) {
             "filaSim returned an infill pattern that EnderSlicerCura cannot reproduce: '$raw'"
         }
         return normalized
+    }
+
+    private fun validatePatternContract(mode: String, basePattern: String, binarySolidPattern: String?) {
+        requireSupportedPattern(basePattern)
+        when (mode) {
+            "binary" -> require(binarySolidPattern != null) {
+                "Binary Smart Infill is missing its solid-region pattern. Regenerate Smart Infill."
+            }
+            "graded" -> require(binarySolidPattern == null) {
+                "Graded Smart Infill must not contain a binary solid pattern"
+            }
+            else -> error("Unsupported Smart Infill mode: $mode")
+        }
+        binarySolidPattern?.let(::requireSupportedPattern)
     }
 
     private fun cleanupOldPackages(activeId: String) {
@@ -450,7 +528,8 @@ class SmartInfillPackageStore(private val context: Context) {
         val sourceName: String,
         val sourceSha256: String?,
         val baseDensityPercent: Double,
-        val pattern: String,
+        val basePattern: String,
+        val binarySolidPattern: String?,
         val mode: String,
         val perimeters: Int,
         val lineWidthMm: Double,
@@ -460,7 +539,9 @@ class SmartInfillPackageStore(private val context: Context) {
     )
 
     companion object {
-        private const val MANIFEST_VERSION = 1
+        private const val MANIFEST_VERSION = 2
+        private const val LEGACY_MANIFEST_VERSION = 1
+        private const val METADATA_VERSION = 2
         private const val MANIFEST_FILE = "manifest.json"
         private const val MAX_MANIFEST_BYTES = 256L * 1024L
         private const val MAX_METADATA_CHARS = 64 * 1024
@@ -468,6 +549,8 @@ class SmartInfillPackageStore(private val context: Context) {
         private const val MAX_MODIFIERS = 16
         private const val MAX_RETAINED_PACKAGES = 4
         private const val MAX_TOTAL_UNCOMPRESSED_BYTES = 768L * 1024L * 1024L
+        private const val MAX_LOAD_WARNING_BYTES = 16L * 1024L
+        private const val MAX_LOAD_WARNING_CHARS = 4 * 1024
         private const val BUFFER_SIZE = 128 * 1024
         private const val MIN_DENSITY = 1.0
         private const val MAX_DENSITY = 100.0
