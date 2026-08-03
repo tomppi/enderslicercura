@@ -1,5 +1,6 @@
 package com.tomppi.enderslicer.profile
 
+import com.tomppi.enderslicer.smartinfill.SmartInfillCuraContract
 import com.tomppi.enderslicer.smartinfill.SmartInfillModifier
 import java.io.File
 import java.nio.ByteBuffer
@@ -13,7 +14,7 @@ import org.junit.Test
 
 class CuraResolvedSettingsWriterSmartInfillTest {
     @Test
-    fun writesNestedFilaSimRegionsWithTheirOwnResolvedLineSpacing() {
+    fun writesNestedFilaSimRegionsWithTheirOwnResolvedLineSpacingAndNoShells() {
         val directory = Files.createTempDirectory("resolved-smart-infill").toFile()
         try {
             val model = File(directory, "model.stl")
@@ -41,6 +42,9 @@ class CuraResolvedSettingsWriterSmartInfillTest {
                         "infill_mesh" to "false",
                         "support_mesh" to "false",
                         "infill_line_distance" to "10.8",
+                        "wall_line_count" to "3",
+                        "top_layers" to "5",
+                        "bottom_layers" to "5",
                     ),
                     expressionCount = 0,
                     passes = 1,
@@ -48,10 +52,14 @@ class CuraResolvedSettingsWriterSmartInfillTest {
                         35 to mapOf(
                             "infill_sparse_density" to "35",
                             "infill_line_distance" to "3.857142857",
+                            "wall_line_count" to "3",
+                            "top_layers" to "5",
                         ),
                         70 to mapOf(
                             "infill_sparse_density" to "70",
                             "infill_line_distance" to "1.928571429",
+                            "wall_line_count" to "3",
+                            "bottom_layers" to "5",
                         ),
                     ),
                 ),
@@ -65,6 +73,9 @@ class CuraResolvedSettingsWriterSmartInfillTest {
             val modelValues = root.getJSONObject(model.name)
             assertFalse(modelValues.getBoolean("infill_mesh"))
             assertEquals(10.8, modelValues.getDouble("infill_line_distance"), 0.0)
+            assertEquals(3, modelValues.getInt("wall_line_count"))
+            assertEquals(5, modelValues.getInt("top_layers"))
+            assertEquals(5, modelValues.getInt("bottom_layers"))
 
             val lowValues = root.getJSONObject(low.name)
             assertTrue(lowValues.getBoolean("infill_mesh"))
@@ -72,12 +83,14 @@ class CuraResolvedSettingsWriterSmartInfillTest {
             assertEquals(3.857142857, lowValues.getDouble("infill_line_distance"), 0.0)
             assertEquals(1, lowValues.getInt("infill_mesh_order"))
             assertEquals("[[1.0,0.0,0.0],[0.0,1.0,0.0],[0.0,0.0,1.0]]", lowValues.getString("mesh_rotation_matrix"))
+            assertModifierShellNeutral(lowValues)
 
             val highValues = root.getJSONObject(high.name)
             assertTrue(highValues.getBoolean("infill_mesh"))
             assertEquals(70, highValues.getInt("infill_sparse_density"))
             assertEquals(1.928571429, highValues.getDouble("infill_line_distance"), 0.0)
             assertEquals(2, highValues.getInt("infill_mesh_order"))
+            assertModifierShellNeutral(highValues)
         } finally {
             directory.deleteRecursively()
         }
@@ -118,6 +131,12 @@ class CuraResolvedSettingsWriterSmartInfillTest {
             assertTrue(error?.message.orEmpty().contains("density-dependent"))
         } finally {
             directory.deleteRecursively()
+        }
+    }
+
+    private fun assertModifierShellNeutral(values: JSONObject) {
+        SmartInfillCuraContract.modifierShellNeutralValues.forEach { (key, expected) ->
+            assertEquals("Serialized modifier must neutralize $key", expected.toInt(), values.getInt(key))
         }
     }
 
