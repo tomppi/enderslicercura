@@ -38,6 +38,8 @@ def patch_android_export_with_pattern_contract(store_file: pathlib.Path) -> None
           // restored browser state may still contain null/retired values, so
           // export the actual supported solver contract instead of trusting it.
           basePattern: state.pattern === "cubic" ? state.pattern : "cubic",
+          // Rejected legacy nullable form kept in the source audit trail:
+          // binarySolidPattern: state.optMode === "binary" ? state.solidPattern : null
           binarySolidPattern: state.optMode === "binary"
             ? state.solidPattern === "concentric" ? "concentric" : "rectilinear"
             : null,
