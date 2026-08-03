@@ -3,7 +3,7 @@
 Date: 2026-08-03  
 Audit target: pull request #40, `fix/smart-infill-audit-round`  
 Initial audited head: `0b8644fc2fabff74c800a9416c40f08b2a7fa69b`  
-Follow-up code head: `4d4de8cd1b372c76b31c287e5d486e5422fa362f`  
+Follow-up code head: `de1568473bba69136218266b3852b3d311578a19`  
 Base: `main` at `e18275f3a89af65ede691aa171ae2d00518cf1cb`
 
 ## Severity summary
@@ -138,31 +138,37 @@ The Remove action deleted only `active-package.txt` and the process-local refere
 
 **Status:** Fixed.
 
-### SI-04 — Two-finger camera pan competed with the custom one-finger orbit
+### SI-04 — Smart Infill multi-touch navigation lacked a single coherent pan and zoom path
 
 **Affected path**
 
 - pinned filaSim `web/src/viewer/SceneManager.ts`
 - `scripts/prepare-filasim-assets.py`
+- `scripts/prepare-filasim-assets-with-pinch.py`
 - Android WebView touch input
 
 **Confirmed failure mode**
 
 filaSim uses a custom pointer-driven surface-pivot orbit while retaining Three.js `OrbitControls` for panning. On Android, the first touch armed the custom orbit. Adding a second touch also switched OrbitControls into its two-touch pan state. Pointer movement could then be processed by both camera paths, producing camera jumps, rotation during pan, unstable direction or ineffective movement.
 
+Pinch zoom was also absent. filaSim intentionally disables OrbitControls zoom because wheel zoom is implemented manually, but the earlier Android multi-touch repair only added centroid panning and did not provide an equivalent manual pinch path.
+
 **Fix**
 
 - Track touch pointers and the active custom-orbit pointer explicitly.
 - Keep one-finger pivot orbit unchanged.
 - When a second finger lands, terminate the custom orbit before any movement delta is applied.
-- Give the complete multi-touch gesture to one deterministic centroid-based screen-space pan implementation.
-- Hold the gesture in pan mode through the two-finger-to-one-finger transition and restore ordinary controls only after every touch is released.
-- Handle `pointercancel` and move the stored orbit pivot with the camera so the next orbit starts from the correct translated location.
-- Preserve the existing no-pinch-zoom behavior because filaSim intentionally disables OrbitControls zoom in this viewer.
+- Give the complete multi-touch gesture to one deterministic implementation.
+- Use movement of the finger centroid for screen-space panning.
+- Use the ratio between the current and previous two-finger distance for orthographic pinch zoom.
+- Keep the world point below the gesture centroid stationary while zoom changes, matching filaSim's cursor-centric wheel behavior.
+- Clamp pinch zoom to the same `0.05`–`200` camera zoom range as wheel zoom.
+- Hold the gesture in multi-touch mode through the two-finger-to-one-finger transition and restore ordinary controls only after every touch is released.
+- Handle `pointercancel` and move the stored orbit pivot with camera pan and zoom so the next orbit starts from the correct translated location.
 
-Three.js r180's pointer-release handler was checked directly: it removes tracked pointers before evaluating control state, so temporarily disabling controls during the manual pan does not leave stale internal touch IDs.
+Three.js r180's pointer-release handler was checked directly: it removes tracked pointers before evaluating control state, so temporarily disabling controls during the manual gesture does not leave stale internal touch IDs.
 
-**Status:** Fixed in generated Android filaSim source; on-device gesture feel still requires validation.
+**Status:** Fixed in generated Android filaSim source; on-device pan and pinch feel still requires validation.
 
 ## Low severity
 
@@ -201,17 +207,19 @@ The following PR #40 changes were reviewed with their callers, storage paths and
 - generated filaSim asset hashing and format-specific clean-source invalidation;
 - Android-only project-control suppression without changing browser filaSim;
 - Three.js r180 touch start, move and pointer-release behavior;
+- orthographic cursor-centric zoom math and camera/target/pivot synchronization;
+- warm and clean filaSim source patching through the format-7 wrapper;
 - cloud-backup exclusion of persisted Smart Infill geometry.
 
 ## Validation evidence
 
 The pre-audit PR head passed GitHub Actions run `30790289877`, including ARM64 CuraEngine packaging, unit tests, definition tests, real host-CuraEngine graded/binary regional toolpath tests and APK content verification.
 
-Follow-up run `30811127094` successfully downloaded, patched and compiled the pinned filaSim Rust/WASM and TypeScript/Vite application with the new camera and top-bar source edits. It then stopped at stale workflow assertions that still expected asset format 5 and the previous source-cache path. Those assertions were updated for format 7 and now verify the camera and Android-only top-bar patch markers.
+Follow-up run `30811127094` successfully downloaded, patched and compiled the pinned filaSim Rust/WASM and TypeScript/Vite application with the camera and top-bar source edits. It then stopped at stale workflow assertions that still expected asset format 5 and the previous source-cache path. Those assertions were updated for format 7.
 
 Run `30809813682` exposed BLD-01 during Kotlin test compilation. The provider contract was corrected on code head `4d4de8cd1b372c76b31c287e5d486e5422fa362f`.
 
-A complete successful workflow on the final PR head is still required before PR #40 is considered build-validated.
+Current-head workflow run `30815375411` is validating the pinch-zoom wrapper, generated filaSim TypeScript/Vite build, native CuraEngine builds, tests and APK packaging. A complete successful workflow is still required before PR #40 is considered build-validated.
 
 ## Required on-device regression checks
 
@@ -223,6 +231,8 @@ A complete successful workflow on the final PR head is still required before PR 
 6. Cancel BumpMesh during export and verify no `.part` file remains.
 7. Repeat BumpMesh export/import several times and verify cache usage does not grow with each successful handoff.
 8. In Smart Infill, verify one-finger drag still orbits around the picked surface point.
-9. Verify two-finger drag pans smoothly in all directions without rotation, jumping or reversal; lift one finger, move it, release it, then begin a fresh orbit and pan gesture.
-10. Repeat the camera test while a brush/select tool is active, after fold/unfold and after rotating the device.
-11. Verify Save Project and Load Project are absent in the Android Smart Infill top bar while Settings and result-export actions remain available.
+9. Verify two-finger drag pans smoothly in all directions without rotation, jumping or reversal.
+10. Pinch inward and outward while stationary and while panning; verify zoom follows finger spacing and the model point beneath the midpoint stays fixed.
+11. Lift one finger, move the remaining finger, release it, then begin fresh orbit, pan and pinch gestures without a jump or stuck camera state.
+12. Repeat the camera tests while a brush/select tool is active, after fold/unfold and after rotating the device.
+13. Verify Save Project and Load Project are absent in the Android Smart Infill top bar while Settings and result-export actions remain available.
