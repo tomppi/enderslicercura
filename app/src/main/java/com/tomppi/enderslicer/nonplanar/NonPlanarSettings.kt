@@ -18,22 +18,52 @@ data class NonPlanarSettings(
     val warpSmartInfillModifiers: Boolean = true,
 ) {
     fun validated(): NonPlanarSettings = copy(
-        strengthPercent = strengthPercent.coerceIn(0.0, 100.0),
-        smoothingRadiusMm = smoothingRadiusMm.coerceIn(0.4, 20.0),
-        maximumSlopeDegrees = maximumSlopeDegrees.coerceIn(5.0, 55.0),
-        nozzleClearanceAngleDegrees = nozzleClearanceAngleDegrees.coerceIn(15.0, 80.0),
-        nozzleClearanceHeightMm = nozzleClearanceHeightMm.coerceIn(5.0, 150.0),
-        flatBaseLayers = flatBaseLayers.coerceIn(1, 20),
-        fieldResolution = fieldResolution.coerceIn(32, 192),
-        maximumSegmentLengthMm = maximumSegmentLengthMm.coerceIn(0.2, 3.0),
-        maximumZSpeedMmPerSecond = maximumZSpeedMmPerSecond.coerceIn(0.5, 20.0),
+        strengthPercent = strengthPercent.coerceIn(MIN_STRENGTH_PERCENT, MAX_STRENGTH_PERCENT),
+        smoothingRadiusMm = smoothingRadiusMm.coerceIn(MIN_SMOOTHING_RADIUS_MM, MAX_SMOOTHING_RADIUS_MM),
+        maximumSlopeDegrees = maximumSlopeDegrees.coerceIn(MIN_SLOPE_DEGREES, MAX_SLOPE_DEGREES),
+        nozzleClearanceAngleDegrees = nozzleClearanceAngleDegrees.coerceIn(
+            MIN_CLEARANCE_ANGLE_DEGREES,
+            MAX_CLEARANCE_ANGLE_DEGREES,
+        ),
+        nozzleClearanceHeightMm = nozzleClearanceHeightMm.coerceIn(
+            MIN_CLEARANCE_HEIGHT_MM,
+            MAX_CLEARANCE_HEIGHT_MM,
+        ),
+        flatBaseLayers = flatBaseLayers.coerceIn(MIN_FLAT_BASE_LAYERS, MAX_FLAT_BASE_LAYERS),
+        fieldResolution = fieldResolution.coerceIn(MIN_FIELD_RESOLUTION, MAX_FIELD_RESOLUTION),
+        maximumSegmentLengthMm = maximumSegmentLengthMm.coerceIn(
+            MIN_SEGMENT_LENGTH_MM,
+            MAX_SEGMENT_LENGTH_MM,
+        ),
+        maximumZSpeedMmPerSecond = maximumZSpeedMmPerSecond.coerceIn(
+            MIN_Z_SPEED_MM_PER_SECOND,
+            MAX_Z_SPEED_MM_PER_SECOND,
+        ),
     )
 
     val effectiveSlopeLimitDegrees: Double
         get() = minOf(maximumSlopeDegrees, nozzleClearanceAngleDegrees - CLEARANCE_MARGIN_DEGREES)
-            .coerceAtLeast(5.0)
+            .coerceAtLeast(MIN_SLOPE_DEGREES)
 
     companion object {
+        const val MIN_STRENGTH_PERCENT = 0.0
+        const val MAX_STRENGTH_PERCENT = 100.0
+        const val MIN_SMOOTHING_RADIUS_MM = 0.4
+        const val MAX_SMOOTHING_RADIUS_MM = 20.0
+        const val MIN_SLOPE_DEGREES = 5.0
+        const val MAX_SLOPE_DEGREES = 55.0
+        const val MIN_CLEARANCE_ANGLE_DEGREES = 15.0
+        const val MAX_CLEARANCE_ANGLE_DEGREES = 80.0
+        const val MIN_CLEARANCE_HEIGHT_MM = 5.0
+        const val MAX_CLEARANCE_HEIGHT_MM = 150.0
+        const val MIN_FLAT_BASE_LAYERS = 1
+        const val MAX_FLAT_BASE_LAYERS = 20
+        const val MIN_FIELD_RESOLUTION = 32
+        const val MAX_FIELD_RESOLUTION = 192
+        const val MIN_SEGMENT_LENGTH_MM = 0.2
+        const val MAX_SEGMENT_LENGTH_MM = 3.0
+        const val MIN_Z_SPEED_MM_PER_SECOND = 0.5
+        const val MAX_Z_SPEED_MM_PER_SECOND = 20.0
         private const val CLEARANCE_MARGIN_DEGREES = 5.0
     }
 }
@@ -45,6 +75,8 @@ data class CurviSlicerSnapshot(
 
 /** Process-wide immutable snapshot used to keep one slice internally consistent. */
 object CurviSlicerRuntime {
+    const val MACHINE_END_SENTINEL = ";ENDERSLICER_MACHINE_END_BEGIN"
+
     private val lock = Any()
 
     @Volatile
@@ -60,6 +92,13 @@ object CurviSlicerRuntime {
     fun snapshot(): CurviSlicerSnapshot? = snapshot.takeIf { it.settings.enabled }
 
     fun current(): NonPlanarSettings = snapshot.settings
+
+    /** Marks the exact boundary where Cura begins executing the machine end script. */
+    fun markMachineEndGcode(gcode: String): String {
+        if (snapshot() == null) return gcode
+        if (gcode.lineSequence().any { it.trim() == MACHINE_END_SENTINEL }) return gcode
+        return if (gcode.isBlank()) MACHINE_END_SENTINEL else "$MACHINE_END_SENTINEL\n$gcode"
+    }
 }
 
 class NonPlanarSettingsStore(context: Context) {
