@@ -19,11 +19,11 @@
         android:theme="@style/Theme.EnderSlicer">
         <activity
             android:name=".smartinfill.SmartInfillActivity"
-            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|uiMode"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|fontScale|touchscreen|keyboard|keyboardHidden|uiMode"
             android:exported="false" />
         <activity
             android:name=".texturizer.BumpMeshActivity"
-            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|uiMode"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|fontScale|touchscreen|keyboard|keyboardHidden|uiMode"
             android:exported="false" />
         <activity
             android:name=".MainActivity"
