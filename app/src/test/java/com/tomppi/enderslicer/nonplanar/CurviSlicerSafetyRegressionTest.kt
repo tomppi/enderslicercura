@@ -146,22 +146,27 @@ class CurviSlicerSafetyRegressionTest {
     }
 
     @Test
-    fun relativeSubdivisionClosesOnTheOriginalXAndExtrusionTotals() {
+    fun longRelativeSequenceClosesOnTheIntendedXAndExtrusionTotals() {
         val directory = Files.createTempDirectory("curvi-relative-closure").toFile()
         try {
+            val moveCount = 300
+            val xPerMove = 0.3333333
+            val ePerMove = 0.0003333
             val gcode = File(directory, "output.gcode").apply {
                 writeText(
-                    """
-                    ;FLAVOR:Marlin
-                    G91
-                    M83
-                    G0 X0 Y0 Z0.2 F1200
-                    ;LAYER:0
-                    G1 X10 Y0 Z0 E1 F1200
-                    """.trimIndent(),
+                    buildString {
+                        appendLine(";FLAVOR:Marlin")
+                        appendLine("G91")
+                        appendLine("M83")
+                        appendLine("G0 X0 Y0 Z0.2 F1200")
+                        appendLine(";LAYER:0")
+                        repeat(moveCount) {
+                            appendLine("G1 X$xPerMove Y0 Z0 E$ePerMove F1200")
+                        }
+                    },
                 )
             }
-            val flatField = simpleField().copy(relief = FloatArray(4))
+            val flatField = simpleField().copy(maxX = 110.0, relief = FloatArray(4))
             writePreparedField(
                 directory,
                 flatField,
@@ -181,8 +186,8 @@ class CurviSlicerSafetyRegressionTest {
                     e = modal.extrusion(e, command.value('E'))
                 }
             }
-            assertEquals(10.0, x, 1e-6)
-            assertEquals(1.0, e, 1e-6)
+            assertEquals(xPerMove * moveCount, x, 1e-6)
+            assertEquals(ePerMove * moveCount, e, 1e-6)
         } finally {
             directory.deleteRecursively()
         }
