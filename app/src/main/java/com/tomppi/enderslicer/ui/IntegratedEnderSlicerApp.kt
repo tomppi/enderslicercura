@@ -11,20 +11,17 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -34,7 +31,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -274,69 +270,59 @@ fun IntegratedEnderSlicerApp(
     } else {
         "Smart Infill ${smartSummary.baseDensityPercent.toInt()}→${smartSummary.modifierDensitiesPercent.maxOrNull() ?: smartSummary.baseDensityPercent.toInt()}%"
     }
-
-    Box(modifier = Modifier.fillMaxSize()) {
-        EnderSlicerApp(slicerViewModel)
-
-        // Keep model-specific actions in a normal top-app-bar menu. OctoPrint is
-        // intentionally the only floating action button over the model viewer.
-        Box(
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .statusBarsPadding()
-                .padding(end = 72.dp),
-        ) {
-            TextButton(onClick = { plateMenuExpanded = true }) {
-                Text("Plate")
-            }
-            DropdownMenu(
-                expanded = plateMenuExpanded,
-                onDismissRequest = { plateMenuExpanded = false },
-            ) {
-                DropdownMenuItem(
-                    text = { Text(smartInfillMenuLabel) },
-                    onClick = {
-                        plateMenuExpanded = false
-                        if (smartInfillPackage == null) {
-                            launchSmartInfill()
-                        } else {
-                            smartInfillOpen = true
-                        }
-                    },
-                    enabled = slicerState.mesh != null && !slicerState.isBusy,
-                )
-                DropdownMenuItem(
-                    text = { Text("Clear plate") },
-                    onClick = {
-                        plateMenuExpanded = false
-                        clearBuildPlate()
-                    },
-                    enabled = !slicerState.isBusy && (
-                        slicerState.mesh != null ||
-                            slicerState.gcodePath != null ||
-                            smartInfillPackage != null
-                        ),
-                )
-            }
-        }
-
-        ExtendedFloatingActionButton(
-            onClick = { octoPrintOpen = true },
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .padding(top = 72.dp),
-        ) {
-            Text(
-                when {
-                    octoPrintState.isPrinting -> "OctoPrint ${octoPrintState.job.completionPercent?.toInt() ?: 0}%"
-                    octoPrintState.isPaused -> "OctoPrint paused"
-                    octoPrintState.isTransitioning -> "OctoPrint busy"
-                    octoPrintState.isReady -> "OctoPrint"
-                    else -> "Set up OctoPrint"
-                },
-            )
-        }
+    val octoPrintMenuLabel = when {
+        octoPrintState.isPrinting -> "OctoPrint ${octoPrintState.job.completionPercent?.toInt() ?: 0}%"
+        octoPrintState.isPaused -> "OctoPrint paused"
+        octoPrintState.isTransitioning -> "OctoPrint busy"
+        octoPrintState.isReady -> "OctoPrint"
+        else -> "Set up OctoPrint"
     }
+
+    EnderSlicerApp(
+        viewModel = slicerViewModel,
+        topBarActions = {
+            Box {
+                TopBarTextAction(
+                    label = "Plate",
+                    onClick = { plateMenuExpanded = true },
+                )
+                DropdownMenu(
+                    expanded = plateMenuExpanded,
+                    onDismissRequest = { plateMenuExpanded = false },
+                    modifier = Modifier.widthIn(min = 240.dp, max = 320.dp),
+                ) {
+                    DropdownMenuItem(
+                        text = { Text(smartInfillMenuLabel) },
+                        onClick = {
+                            plateMenuExpanded = false
+                            if (smartInfillPackage == null) {
+                                launchSmartInfill()
+                            } else {
+                                smartInfillOpen = true
+                            }
+                        },
+                        enabled = slicerState.mesh != null && !slicerState.isBusy,
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Clear plate") },
+                        onClick = {
+                            plateMenuExpanded = false
+                            clearBuildPlate()
+                        },
+                        enabled = !slicerState.isBusy && (
+                            slicerState.mesh != null ||
+                                slicerState.gcodePath != null ||
+                                smartInfillPackage != null
+                            ),
+                    )
+                }
+            }
+            TopBarTextAction(
+                label = octoPrintMenuLabel,
+                onClick = { octoPrintOpen = true },
+            )
+        },
+    )
 
     if (octoPrintOpen) {
         ModalBottomSheet(
