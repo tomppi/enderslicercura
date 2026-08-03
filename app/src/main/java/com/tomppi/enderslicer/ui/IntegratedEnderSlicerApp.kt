@@ -66,6 +66,7 @@ fun IntegratedEnderSlicerApp(
     val scope = rememberCoroutineScope()
     val smartInfillStore = remember(context) { SmartInfillPackageStore(context.applicationContext) }
     var smartInfillPackage by remember { mutableStateOf(smartInfillStore.loadActive()) }
+    val smartInfillLoadWarning = remember(smartInfillStore) { smartInfillStore.consumeLoadWarning() }
     var smartInfillImporting by remember { mutableStateOf(false) }
     var octoPrintOpen by rememberSaveable { mutableStateOf(false) }
     var smartInfillOpen by rememberSaveable { mutableStateOf(false) }
@@ -73,6 +74,12 @@ fun IntegratedEnderSlicerApp(
 
     fun deleteHandoff(uri: Uri) {
         runCatching { context.contentResolver.delete(uri, null, null) }
+    }
+
+    LaunchedEffect(smartInfillLoadWarning) {
+        smartInfillLoadWarning?.let { warning ->
+            Toast.makeText(context, warning, Toast.LENGTH_LONG).show()
+        }
     }
 
     LaunchedEffect(smartInfillPackage) {
