@@ -97,6 +97,21 @@ data class PrinterEnvelope(
         }
     }
 
+    fun requireMotionMove(
+        startX: Double,
+        startY: Double,
+        startZ: Double,
+        endX: Double,
+        endY: Double,
+        endZ: Double,
+        lineNumber: Int,
+        layerNumber: Int?,
+    ) {
+        val location = layerNumber?.let { "line $lineNumber, layer $it" } ?: "line $lineNumber, startup/end G-code"
+        requirePoint(startX, startY, startZ, "Motion start at $location")
+        requirePoint(endX, endY, endZ, "Motion end at $location")
+    }
+
     fun requireExtrusionMove(
         startX: Double,
         startY: Double,
