@@ -2,6 +2,7 @@ package com.tomppi.enderslicer.profile
 
 import com.tomppi.enderslicer.calibration.CalibrationSliceState
 import com.tomppi.enderslicer.engine.PrinterEnvelope
+import com.tomppi.enderslicer.smartinfill.SmartInfillCuraContract
 import com.tomppi.enderslicer.smartinfill.SmartInfillModifier
 import com.tomppi.enderslicer.smartinfill.requireValidBinaryStl
 import com.tomppi.enderslicer.viewer.StlMeshWriter
@@ -123,6 +124,12 @@ internal object CuraResolvedSettingsWriter {
                 .put("support_mesh", false)
                 .put("anti_overhang_mesh", false)
                 .put("cutting_mesh", false)
+            // Enforce the modifier contract at the final serialization boundary
+            // as well as during dependency resolution. This prevents callers
+            // constructing Result directly from reintroducing inherited shells.
+            SmartInfillCuraContract.modifierShellNeutralValues.forEach { (key, value) ->
+                values.put(key, value.toInt())
+            }
             // filaSim receives the already transformed/displayed STL, so
             // modifier geometry is in final printer coordinates. Do not apply
             // the source model's 3MF affine a second time.
