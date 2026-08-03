@@ -2,6 +2,7 @@
 <data-extraction-rules>
     <cloud-backup>
         <exclude domain="sharedpref" path="octoprint_client.xml" />
+        <exclude domain="file" path="smart-infill/" />
     </cloud-backup>
     <device-transfer>
         <exclude domain="sharedpref" path="octoprint_client.xml" />

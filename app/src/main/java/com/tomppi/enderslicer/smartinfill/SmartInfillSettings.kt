@@ -8,14 +8,7 @@ import com.tomppi.enderslicer.model.SlicerSettings
  * longer represents the printed part that was analyzed.
  */
 fun SmartInfillPackage.applyTo(settings: SlicerSettings): SlicerSettings {
-    val curaPattern = when (pattern.lowercase()) {
-        "cubic" -> "cubic"
-        "gyroid" -> "gyroid"
-        "grid" -> "grid"
-        "rectilinear", "zig-zag", "zigzag" -> "zigzag"
-        "concentric" -> "concentric"
-        else -> error("filaSim returned an unsupported Cura infill pattern: $pattern")
-    }
+    val curaPattern = SmartInfillCuraContract.basePattern(this)
     val wallThickness = perimeters * lineWidthMm
     val shellThickness = topBottomLayers * layerHeightMm
     return settings.copy(

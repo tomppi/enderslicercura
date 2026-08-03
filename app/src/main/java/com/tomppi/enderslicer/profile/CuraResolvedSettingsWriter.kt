@@ -2,8 +2,8 @@ package com.tomppi.enderslicer.profile
 
 import com.tomppi.enderslicer.calibration.CalibrationSliceState
 import com.tomppi.enderslicer.engine.PrinterEnvelope
+import com.tomppi.enderslicer.smartinfill.SmartInfillCuraContract
 import com.tomppi.enderslicer.smartinfill.SmartInfillModifier
-import com.tomppi.enderslicer.smartinfill.SmartInfillRuntime
 import com.tomppi.enderslicer.smartinfill.requireValidBinaryStl
 import com.tomppi.enderslicer.viewer.StlMeshWriter
 import com.tomppi.enderslicer.viewer.StlSliceTransform
@@ -27,10 +27,15 @@ internal object CuraResolvedSettingsWriter {
         require(modelFile.isFile && modelFile.length() > 0L) {
             "Resolved Cura STL is missing or empty: ${modelFile.absolutePath}"
         }
-        val effectiveSmartInfillModifiers = if (smartInfillModifiers.isNotEmpty()) {
-            smartInfillModifiers
-        } else {
-            SmartInfillRuntime.current()?.stageModifiers(modelDirectory).orEmpty()
+        val effectiveSmartInfillModifiers = smartInfillModifiers
+            .sortedBy(SmartInfillModifier::densityPercent)
+        if (effectiveSmartInfillModifiers.isNotEmpty()) {
+            val requestedDensities = effectiveSmartInfillModifiers
+                .map(SmartInfillModifier::densityPercent)
+                .toSet()
+            require(resolved.smartInfillModelValues.keys.containsAll(requestedDensities)) {
+                "Resolved Cura request is missing density-dependent Smart Infill settings"
+            }
         }
 
         val machineWidth = requiredNumber(resolved.globalValues, "machine_width")
@@ -108,32 +113,38 @@ internal object CuraResolvedSettingsWriter {
             .put("extruder.0", extruderValues)
             .put(modelFileName, modelValues)
 
-        effectiveSmartInfillModifiers
-            .sortedBy(SmartInfillModifier::densityPercent)
-            .forEachIndexed { index, modifier ->
-                val values = JSONObject(resolved.modelValues)
-                    .put("extruder_nr", 0)
-                    .put("infill_mesh", true)
-                    .put("infill_mesh_order", index + 1)
-                    .put("infill_sparse_density", modifier.densityPercent)
-                    .put("support_mesh", false)
-                    .put("anti_overhang_mesh", false)
-                    .put("cutting_mesh", false)
-                // filaSim receives the already transformed/displayed STL, so
-                // modifier geometry is in final printer coordinates. Do not
-                // apply the source model's 3MF affine a second time.
-                applyTransform(
-                    values = values,
-                    linear = IDENTITY,
-                    translationX = 0.0,
-                    translationY = 0.0,
-                    translationZ = 0.0,
-                    enginePositionX = enginePositionX,
-                    enginePositionY = enginePositionY,
-                    enginePositionZ = enginePositionZ,
-                )
-                root.put(modifier.file.name, values)
+        effectiveSmartInfillModifiers.forEachIndexed { index, modifier ->
+            val densityResolved = resolved.smartInfillModelValues[modifier.densityPercent]
+                ?: error("Resolved Cura settings are missing for ${modifier.densityPercent}% Smart Infill")
+            val values = JSONObject(densityResolved)
+                .put("extruder_nr", 0)
+                .put("infill_mesh", true)
+                .put("infill_mesh_order", index + 1)
+                .put("infill_sparse_density", modifier.densityPercent)
+                .put("support_mesh", false)
+                .put("anti_overhang_mesh", false)
+                .put("cutting_mesh", false)
+            // Enforce the modifier contract at the final serialization boundary
+            // as well as during dependency resolution. This prevents callers
+            // constructing Result directly from reintroducing inherited shells.
+            SmartInfillCuraContract.modifierShellNeutralValues.forEach { (key, value) ->
+                values.put(key, value.toInt())
             }
+            // filaSim receives the already transformed/displayed STL, so
+            // modifier geometry is in final printer coordinates. Do not apply
+            // the source model's 3MF affine a second time.
+            applyTransform(
+                values = values,
+                linear = IDENTITY,
+                translationX = 0.0,
+                translationY = 0.0,
+                translationZ = 0.0,
+                enginePositionX = enginePositionX,
+                enginePositionY = enginePositionY,
+                enginePositionZ = enginePositionZ,
+            )
+            root.put(modifier.file.name, values)
+        }
 
         destination.writeText(root.toString())
         check(destination.isFile && destination.length() > 0L) {
@@ -149,7 +160,6 @@ internal object CuraResolvedSettingsWriter {
         require(stagedDisplayedFile.isFile && stagedDisplayedFile.length() > 0L) {
             "The transformed STL is unavailable for resolved source staging"
         }
-        SmartInfillRuntime.current()?.requireMatchesSource(stagedDisplayedFile)
         val sourceFile = File(
             stagedDisplayedFile.parentFile,
             "${stagedDisplayedFile.nameWithoutExtension}.slice-source.stl",

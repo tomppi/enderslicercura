@@ -39,6 +39,7 @@ class SmartInfillActivity : ComponentActivity() {
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        pruneExportCache()
 
         val sourcePath = intent.getStringExtra(EXTRA_MODEL_PATH)
         sourceFile = sourcePath?.let(::File) ?: run {
@@ -128,6 +129,18 @@ class SmartInfillActivity : ComponentActivity() {
         setContentView(root)
 
         webView.loadUrl(FILASIM_URL)
+        if (savedInstanceState?.getBoolean(STATE_SESSION_WAS_ACTIVE) == true) {
+            Toast.makeText(
+                this,
+                "Android restarted the filaSim activity. The model was restored, but unsaved supports, loads, and solver progress must be entered again.",
+                Toast.LENGTH_LONG,
+            ).show()
+        }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putBoolean(STATE_SESSION_WAS_ACTIVE, true)
+        super.onSaveInstanceState(outState)
     }
 
     override fun onDestroy() {
@@ -150,6 +163,28 @@ class SmartInfillActivity : ComponentActivity() {
         Toast.makeText(this, message, Toast.LENGTH_LONG).show()
         setResult(Activity.RESULT_CANCELED)
         finish()
+    }
+
+    private fun pruneExportCache() {
+        val directory = File(cacheDir, EXPORT_DIRECTORY)
+        if (!directory.isDirectory) return
+        val cutoff = System.currentTimeMillis() - ORPHAN_MAX_AGE_MILLIS
+        var retainedCount = 0
+        var retainedBytes = 0L
+        directory.listFiles().orEmpty()
+            .filter(File::isFile)
+            .sortedByDescending(File::lastModified)
+            .forEach { file ->
+                val keep = file.lastModified() >= cutoff &&
+                    retainedCount < MAX_RETAINED_ORPHANS &&
+                    retainedBytes + file.length() <= MAX_RETAINED_ORPHAN_BYTES
+                if (keep) {
+                    retainedCount++
+                    retainedBytes += file.length()
+                } else {
+                    file.delete()
+                }
+            }
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
@@ -254,11 +289,12 @@ class SmartInfillActivity : ComponentActivity() {
             metadata: String?,
         ): Boolean {
             cancelLocked()
+            activity.pruneExportCache()
             if (!sizeBytes.isFinite()) return false
             val size = sizeBytes.toLong()
             if (size !in minimumBytes..MAX_EXPORT_BYTES) return false
 
-            val directory = File(activity.cacheDir, "smart-infill-exports").apply { mkdirs() }
+            val directory = File(activity.cacheDir, EXPORT_DIRECTORY).apply { mkdirs() }
             val safeBase = filename
                 .substringAfterLast('/')
                 .substringAfterLast('\\')
@@ -401,12 +437,17 @@ class SmartInfillActivity : ComponentActivity() {
         private const val JS_BRIDGE_NAME = "EnderSlicerAndroid"
         private const val FILASIM_URL =
             "https://${WebViewAssetLoader.DEFAULT_DOMAIN}/assets/filasim/index.html?android=1"
+        private const val STATE_SESSION_WAS_ACTIVE = "smart-infill-session-was-active"
+        private const val EXPORT_DIRECTORY = "smart-infill-exports"
         private const val STL_HEADER_BYTES = 84L
         private const val MINIMUM_ZIP_BYTES = 22L
         private const val MAX_EXPORT_BYTES = 512L * 1024L * 1024L
         private const val MAX_METADATA_CHARS = 64 * 1024
         private const val MAX_MODIFIERS = 16
         private const val CHUNK_BUFFER_BYTES = 128 * 1024
+        private const val MAX_RETAINED_ORPHANS = 4
+        private const val MAX_RETAINED_ORPHAN_BYTES = 1024L * 1024L * 1024L
+        private const val ORPHAN_MAX_AGE_MILLIS = 24L * 60L * 60L * 1_000L
         private val MODIFIER_ENTRY = Regex("modifier_\\d{1,3}pct\\.stl", RegexOption.IGNORE_CASE)
     }
 }

@@ -13,6 +13,8 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     timeout-minutes: 180
+    env:
+      NPM_CONFIG_ENGINE_STRICT: "true"
     steps:
       - uses: actions/checkout@v4
 
@@ -27,7 +29,13 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22.18.0'
+
+      - name: Verify JavaScript toolchain
+        run: |
+          test "$(node --version)" = "v22.18.0"
+          node --version
+          npm --version
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -62,10 +70,10 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.conan2/p
-          key: conan-curaengine-5.11-beta1-android-arm64-v5-${{ hashFiles('scripts/build-curaengine-android.sh', 'native/curaengine/profiles/android-arm64') }}
+          key: conan-curaengine-5.11-beta1-android-host-v6-${{ hashFiles('scripts/build-curaengine-android.sh', 'scripts/build-curaengine-host-tests.sh', 'native/curaengine/profiles/android-arm64') }}
           restore-keys: |
+            conan-curaengine-5.11-beta1-android-host-v6-
             conan-curaengine-5.11-beta1-android-arm64-v5-
-            conan-curaengine-5.11-android-arm64-v4-
 
       - name: Fetch and validate pinned Cura definitions
         run: |
@@ -83,10 +91,13 @@ jobs:
 
       - name: Prepare and validate pinned BumpMesh workspace
         run: |
-          gradle :app:prepareBumpMeshAssets --stacktrace
+          set -o pipefail
+          gradle :app:verifyBumpMeshAssets --stacktrace 2>&1 | tee bumpmesh-build.log
           test -s app/src/main/assets/bumpmesh/index.html
           test -s app/src/main/assets/bumpmesh/LICENSE
           test -s app/src/main/assets/bumpmesh/android-bridge.js
+          test -s app/src/main/assets/bumpmesh/js/main.js
+          test -s app/src/main/assets/bumpmesh/js/stepWorker.js
           test -s app/src/main/assets/bumpmesh/vendor/three/build/three.module.js
           test -s app/src/main/assets/bumpmesh/vendor/three/LICENSE
           test -s app/src/main/assets/bumpmesh/vendor/fflate/esm/browser.js
@@ -94,6 +105,7 @@ jobs:
           test -s app/src/main/assets/bumpmesh/vendor/meshstep/dist/index.js
           test -s app/src/main/assets/bumpmesh/vendor/meshstep/src/index.ts
           test -s app/src/main/assets/bumpmesh/vendor/meshstep/LICENSE
+          test -s app/src/main/assets/bumpmesh/SHA256SUMS
           grep -q 'format=2' app/src/main/assets/bumpmesh/.source-version
           grep -q 'BumpMesh=a6ac179149b8a17c71a9469dd4cb6f866c0c01d1' app/src/main/assets/bumpmesh/.source-version
           grep -q './vendor/three/build/three.module.js' app/src/main/assets/bumpmesh/index.html
@@ -103,6 +115,25 @@ jobs:
           ! grep -R 'https://cdn.jsdelivr.net/npm' \
             app/src/main/assets/bumpmesh/index.html \
             app/src/main/assets/bumpmesh/js
+          (cd app/src/main/assets/bumpmesh && sha256sum --check SHA256SUMS)
+
+          gradle :app:verifyBumpMeshAssets --info | tee bumpmesh-warm-build.log
+          grep -q 'verifyBumpMeshAssets UP-TO-DATE' bumpmesh-warm-build.log
+
+          rm app/src/main/assets/bumpmesh/js/main.js
+          if python3 scripts/verify-bumpmesh-assets.py \
+            --root app/src/main/assets/bumpmesh \
+            --check-only > bumpmesh-corrupt-build.log 2>&1; then
+            echo 'Corrupted BumpMesh warm tree was incorrectly accepted' >&2
+            exit 1
+          fi
+          test ! -e app/src/main/assets/bumpmesh/.source-version
+          grep -q 'BumpMesh asset verification failed' bumpmesh-corrupt-build.log
+
+          gradle :app:verifyBumpMeshAssets --stacktrace 2>&1 | tee bumpmesh-recovery-build.log
+          test -s app/src/main/assets/bumpmesh/js/main.js
+          test -s app/src/main/assets/bumpmesh/SHA256SUMS
+          (cd app/src/main/assets/bumpmesh && sha256sum --check SHA256SUMS)
 
       - name: Prepare and validate pinned filaSim workspace
         run: |
@@ -112,15 +143,31 @@ jobs:
           test -s app/src/main/assets/filasim/android-bridge.js
           test -s app/src/main/assets/filasim/LICENSE
           test -s app/src/main/assets/filasim/SOURCE.md
+          test -s app/src/main/assets/filasim/SHA256SUMS
           test -s app/src/main/assets/filasim/source-manifest/Cargo.lock
           test -s app/src/main/assets/filasim/source-manifest/web-package-lock.json
-          grep -q 'format=3' app/src/main/assets/filasim/.source-version
+          grep -q 'format=8' app/src/main/assets/filasim/.source-version
           grep -q 'commit=e7485ec22d4ebe8baca04190404fbb877c90e031' app/src/main/assets/filasim/.source-version
           grep -q 'android-bridge.js' app/src/main/assets/filasim/index.html
-          grep -R -q 'EnderSlicerBridge.*captureModifierZip' .build/filasim-android/e7485ec22d4ebe8baca04190404fbb877c90e031/web/src/store.ts
-          grep -R -q 'EnderSlicerBridge.*captureOptimizedShape' .build/filasim-android/e7485ec22d4ebe8baca04190404fbb877c90e031/web/src/store.ts
-          grep -R -q 'state.optMode === "binary" ? state.solidPattern : state.pattern' .build/filasim-android/e7485ec22d4ebe8baca04190404fbb877c90e031/web/src/store.ts
+          FILASIM_SOURCE=.build/filasim-android/e7485ec22d4ebe8baca04190404fbb877c90e031-format8/web/src
+          grep -R -q 'EnderSlicerBridge.*captureModifierZip' "$FILASIM_SOURCE/store.ts"
+          grep -R -q 'EnderSlicerBridge.*captureOptimizedShape' "$FILASIM_SOURCE/store.ts"
+          grep -R -q 'EnderSlicer Android regional pattern metadata v2' "$FILASIM_SOURCE/store.ts"
+          grep -R -q 'metadataVersion: 2' "$FILASIM_SOURCE/store.ts"
+          grep -R -q 'basePattern: state.pattern' "$FILASIM_SOURCE/store.ts"
+          grep -R -q 'binarySolidPattern: state.optMode === "binary" ? state.solidPattern : null' "$FILASIM_SOURCE/store.ts"
+          grep -R -q 'gradedFullDensityPattern: "rectilinear"' "$FILASIM_SOURCE/store.ts"
+          grep -R -q 'EnderSlicer Android host supplies the exact displayed model' "$FILASIM_SOURCE/App.tsx"
+          grep -R -q 'EnderSlicer Android owns project persistence' "$FILASIM_SOURCE/ui/TopBar.tsx"
+          grep -R -q '!androidHosted' "$FILASIM_SOURCE/ui/TopBar.tsx"
+          grep -R -q 'EnderSlicer Android deterministic touch pan' "$FILASIM_SOURCE/viewer/SceneManager.ts"
+          grep -R -q 'EnderSlicer Android deterministic touch pinch zoom' "$FILASIM_SOURCE/viewer/SceneManager.ts"
+          grep -R -q 'private zoomTouchCamera' "$FILASIM_SOURCE/viewer/SceneManager.ts"
+          grep -R -q 'pointercancel' "$FILASIM_SOURCE/viewer/SceneManager.ts"
           test -n "$(find app/src/main/assets/filasim -type f -name '*.wasm' -size +0c -print -quit)"
+          (cd app/src/main/assets/filasim && sha256sum --check SHA256SUMS)
+          gradle :app:prepareFilaSimAssets --info | tee filasim-warm-build.log
+          grep -q 'prepareFilaSimAssets UP-TO-DATE' filasim-warm-build.log
 
       - name: Build and package CuraEngine ARM64
         env:
@@ -147,21 +194,36 @@ jobs:
           readelf -d app/src/main/jniLibs/arm64-v8a/libcuraengine_exec.so | tee curaengine-needed.log
           ! grep -q 'libc++_shared.so' curaengine-needed.log
 
-      - name: Unit tests and complete definition audit
+      - name: Build pinned host CuraEngine fixture binary
+        run: |
+          chmod +x scripts/build-curaengine-host-tests.sh
+          set -o pipefail
+          scripts/build-curaengine-host-tests.sh 2>&1 | tee curaengine-host-build.log
+          test -x .build/curaengine-host-tests/artifacts/CuraEngine
+          echo "CURAENGINE_HOST_BINARY=${GITHUB_WORKSPACE}/.build/curaengine-host-tests/artifacts/CuraEngine" >> "$GITHUB_ENV"
+
+      - name: Unit, definition, and real CuraEngine regional-toolpath tests
         run: |
           set -o pipefail
           gradle :app:testDebugUnitTest --stacktrace 2>&1 | tee unit-tests.log
+          test -n "$CURAENGINE_HOST_BINARY"
+          grep -R -q 'SmartInfillCuraEngineIntegrationTest' app/build/test-results/testDebugUnitTest
+          grep -R -q 'SmartInfillModifierShellIntegrationTest' app/build/test-results/testDebugUnitTest
+          grep -R -q 'SmartInfillCuraContractTest' app/build/test-results/testDebugUnitTest
+          grep -R -q 'SmartInfillPatternCommandTest' app/build/test-results/testDebugUnitTest
 
       - name: Build debug APK
         run: |
           set -o pipefail
           gradle :app:verifyDebugApkContents --stacktrace 2>&1 | tee apk-build.log
           unzip -l app/build/outputs/apk/debug/app-debug.apk | tee apk-contents.log
+          sha256sum app/build/outputs/apk/debug/app-debug.apk | tee apk-sha256.log
           grep -q 'lib/arm64-v8a/libcuraengine_exec.so' apk-contents.log
           grep -q 'assets/cura/definitions/version.txt' apk-contents.log
           grep -q 'assets/bumpmesh/index.html' apk-contents.log
           grep -q 'assets/bumpmesh/LICENSE' apk-contents.log
           grep -q 'assets/bumpmesh/android-bridge.js' apk-contents.log
+          grep -q 'assets/bumpmesh/SHA256SUMS' apk-contents.log
           grep -q 'assets/bumpmesh/vendor/three/build/three.module.js' apk-contents.log
           grep -q 'assets/bumpmesh/vendor/meshstep/src/index.ts' apk-contents.log
           grep -q 'assets/bumpmesh/vendor/meshstep/LICENSE' apk-contents.log
@@ -169,6 +231,7 @@ jobs:
           grep -q 'assets/filasim/android-bridge.js' apk-contents.log
           grep -q 'assets/filasim/LICENSE' apk-contents.log
           grep -q 'assets/filasim/SOURCE.md' apk-contents.log
+          grep -q 'assets/filasim/SHA256SUMS' apk-contents.log
           grep -q 'assets/filasim/source-manifest/Cargo.lock' apk-contents.log
           grep -q 'assets/filasim/source-manifest/web-package-lock.json' apk-contents.log
           grep -Eq 'assets/filasim/.*\.wasm' apk-contents.log
@@ -184,19 +247,26 @@ jobs:
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: enderslicercura-0.9.0-dev-smart-infill-debug-apk
+          name: enderslicercura-0.9.0-dev-smart-infill-fixes-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
 
       - name: Upload build logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: enderslicercura-build-logs
+          name: enderslicercura-smart-infill-fix-build-logs
           path: |
+            bumpmesh-build.log
+            bumpmesh-warm-build.log
+            bumpmesh-corrupt-build.log
+            bumpmesh-recovery-build.log
             filasim-build.log
+            filasim-warm-build.log
             curaengine-android-build.log
+            curaengine-host-build.log
             curaengine-needed.log
             unit-tests.log
             apk-build.log
             apk-contents.log
+            apk-sha256.log
           if-no-files-found: ignore

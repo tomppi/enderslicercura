@@ -11,15 +11,19 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -34,6 +38,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.tomppi.enderslicer.octoprint.OctoPrintViewModel
 import com.tomppi.enderslicer.smartinfill.SmartInfillActivity
@@ -42,7 +47,10 @@ import com.tomppi.enderslicer.smartinfill.SmartInfillPackageStore
 import com.tomppi.enderslicer.smartinfill.SmartInfillRuntime
 import com.tomppi.enderslicer.viewer.StlMeshWriter
 import java.io.File
+import java.util.UUID
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -58,8 +66,21 @@ fun IntegratedEnderSlicerApp(
     val scope = rememberCoroutineScope()
     val smartInfillStore = remember(context) { SmartInfillPackageStore(context.applicationContext) }
     var smartInfillPackage by remember { mutableStateOf(smartInfillStore.loadActive()) }
+    val smartInfillLoadWarning = remember(smartInfillStore) { smartInfillStore.consumeLoadWarning() }
+    var smartInfillImporting by remember { mutableStateOf(false) }
     var octoPrintOpen by rememberSaveable { mutableStateOf(false) }
     var smartInfillOpen by rememberSaveable { mutableStateOf(false) }
+    var plateMenuExpanded by rememberSaveable { mutableStateOf(false) }
+
+    fun deleteHandoff(uri: Uri) {
+        runCatching { context.contentResolver.delete(uri, null, null) }
+    }
+
+    LaunchedEffect(smartInfillLoadWarning) {
+        smartInfillLoadWarning?.let { warning ->
+            Toast.makeText(context, warning, Toast.LENGTH_LONG).show()
+        }
+    }
 
     LaunchedEffect(smartInfillPackage) {
         SmartInfillRuntime.activate(smartInfillPackage)
@@ -71,22 +92,34 @@ fun IntegratedEnderSlicerApp(
     LaunchedEffect(slicerState.mesh, smartInfillPackage?.id) {
         val packageValue = smartInfillPackage ?: return@LaunchedEffect
         val mesh = slicerState.mesh ?: return@LaunchedEffect
-        runCatching {
+        try {
             withContext(Dispatchers.IO) {
-                val validationFile = File(context.cacheDir, "filasim-source/current-validation.stl")
+                val validationFile = File(
+                    context.cacheDir,
+                    "filasim-source/validation-${packageValue.id}-${UUID.randomUUID()}.stl",
+                )
                 validationFile.parentFile?.mkdirs()
-                StlMeshWriter.writeBinary(mesh, validationFile)
-                packageValue.requireMatchesSource(validationFile)
+                try {
+                    StlMeshWriter.writeBinary(mesh, validationFile)
+                    packageValue.requireMatchesSource(validationFile)
+                } finally {
+                    validationFile.delete()
+                }
             }
-        }.onFailure {
-            smartInfillStore.clearActive()
-            SmartInfillRuntime.activate(null)
-            smartInfillPackage = null
-            Toast.makeText(
-                context,
-                "Smart Infill was cleared because the model geometry or placement changed",
-                Toast.LENGTH_LONG,
-            ).show()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Throwable) {
+            // A canceled A validation must never clear a newer B package.
+            if (SmartInfillRuntime.current()?.id == packageValue.id) {
+                smartInfillStore.clearActive()
+                SmartInfillRuntime.activate(null)
+                smartInfillPackage = null
+                Toast.makeText(
+                    context,
+                    "Smart Infill was cleared because the model geometry or placement changed",
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
         }
     }
 
@@ -114,52 +147,136 @@ fun IntegratedEnderSlicerApp(
         val exportUri = data?.data
         val resultKind = data?.getStringExtra(SmartInfillActivity.EXTRA_RESULT_KIND)
         if (exportUri == null || resultKind.isNullOrBlank()) {
+            exportUri?.let(::deleteHandoff)
             Toast.makeText(context, "filaSim returned an incomplete export", Toast.LENGTH_LONG).show()
             return@rememberLauncherForActivityResult
         }
-
-        if (resultKind == SmartInfillActivity.RESULT_SHAPE) {
-            smartInfillStore.clearActive()
-            SmartInfillRuntime.activate(null)
-            smartInfillPackage = null
-            smartInfillOpen = false
-            slicerViewModel.importStl(exportUri)
+        if (slicerViewModel.uiState.value.isBusy || smartInfillImporting) {
+            deleteHandoff(exportUri)
             Toast.makeText(
                 context,
-                "Imported the filaSim Part Topo shape; inspect and slice it as a new model",
+                "Smart Infill export was not applied because another operation is active",
                 Toast.LENGTH_LONG,
             ).show()
             return@rememberLauncherForActivityResult
         }
 
+        if (resultKind == SmartInfillActivity.RESULT_SHAPE) {
+            scope.launch {
+                val previousPath = slicerViewModel.uiState.value.modelPath
+                slicerViewModel.importPartTopoResult(exportUri)
+                val started = slicerViewModel.uiState.value.isBusy
+                val completed = if (started) {
+                    slicerViewModel.uiState.first { state -> !state.isBusy }
+                } else {
+                    slicerViewModel.uiState.value
+                }
+                val imported = completed.mesh != null && completed.modelPath != previousPath
+                if (imported) {
+                    val previousPackage = smartInfillPackage
+                    smartInfillStore.clearActive()
+                    SmartInfillRuntime.activate(null)
+                    smartInfillPackage = null
+                    smartInfillOpen = false
+                    withContext(Dispatchers.IO) {
+                        previousPackage?.directory?.deleteRecursively()
+                    }
+                    Toast.makeText(
+                        context,
+                        "Imported the filaSim Part Topo shape; inspect and slice it as a new model",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                } else {
+                    Toast.makeText(
+                        context,
+                        "The filaSim Part Topo shape could not be imported; the previous model and Smart Infill package were kept",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                }
+                deleteHandoff(exportUri)
+            }
+            return@rememberLauncherForActivityResult
+        }
+
         if (resultKind != SmartInfillActivity.RESULT_MODIFIERS) {
+            deleteHandoff(exportUri)
             Toast.makeText(context, "filaSim returned an unknown export type", Toast.LENGTH_LONG).show()
             return@rememberLauncherForActivityResult
         }
         val metadata = data?.getStringExtra(SmartInfillActivity.EXTRA_METADATA_JSON)
         val sourceSha = data?.getStringExtra(SmartInfillActivity.EXTRA_SOURCE_SHA256)
         if (metadata.isNullOrBlank() || sourceSha.isNullOrBlank()) {
+            deleteHandoff(exportUri)
             Toast.makeText(context, "filaSim returned incomplete Smart Infill metadata", Toast.LENGTH_LONG).show()
             return@rememberLauncherForActivityResult
         }
+        val previousPackage = smartInfillPackage
+        smartInfillImporting = true
+        // Keep validation of the previous package from clearing the newly
+        // published active-package pointer during the import handoff.
+        SmartInfillRuntime.activate(null)
         scope.launch {
-            runCatching {
-                withContext(Dispatchers.IO) {
+            try {
+                val packageValue = withContext(Dispatchers.IO) {
                     smartInfillStore.importPackage(exportUri, metadata, sourceSha)
                 }
-            }.onSuccess { packageValue ->
                 SmartInfillRuntime.activate(packageValue)
                 smartInfillPackage = packageValue
                 smartInfillOpen = true
+                withContext(Dispatchers.IO) {
+                    previousPackage
+                        ?.takeIf { it.id != packageValue.id }
+                        ?.directory
+                        ?.deleteRecursively()
+                }
                 Toast.makeText(
                     context,
                     "Smart Infill enabled with ${packageValue.modifiers.size} density regions",
                     Toast.LENGTH_LONG,
                 ).show()
-            }.onFailure { error ->
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Throwable) {
+                SmartInfillRuntime.activate(previousPackage)
                 Toast.makeText(
                     context,
                     error.message ?: "Unable to import the filaSim modifier package",
+                    Toast.LENGTH_LONG,
+                ).show()
+            } finally {
+                smartInfillImporting = false
+                deleteHandoff(exportUri)
+            }
+        }
+    }
+
+    fun clearBuildPlate() {
+        if (slicerState.isBusy || smartInfillImporting) {
+            Toast.makeText(context, "Finish the current operation first", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val packageToDelete = smartInfillPackage
+        scope.launch {
+            slicerViewModel.clearBuildPlate()
+            val started = slicerViewModel.uiState.value.isBusy
+            val completed = if (started) {
+                slicerViewModel.uiState.first { state -> !state.isBusy }
+            } else {
+                slicerViewModel.uiState.value
+            }
+            val cleared = completed.mesh == null && completed.modelPath == null
+            if (cleared) {
+                smartInfillStore.clearActive()
+                SmartInfillRuntime.activate(null)
+                smartInfillPackage = null
+                smartInfillOpen = false
+                withContext(Dispatchers.IO) {
+                    packageToDelete?.directory?.deleteRecursively()
+                }
+            } else {
+                Toast.makeText(
+                    context,
+                    "The build plate could not be cleared; the model and Smart Infill package were kept",
                     Toast.LENGTH_LONG,
                 ).show()
             }
@@ -168,8 +285,8 @@ fun IntegratedEnderSlicerApp(
 
     fun launchSmartInfill() {
         val mesh = slicerState.mesh
-        if (mesh == null || slicerState.isBusy) {
-            Toast.makeText(context, "Import a model before opening Smart Infill", Toast.LENGTH_SHORT).show()
+        if (mesh == null || slicerState.isBusy || smartInfillImporting) {
+            Toast.makeText(context, "Import a model and finish the current operation first", Toast.LENGTH_SHORT).show()
             return
         }
         scope.launch {
@@ -196,42 +313,67 @@ fun IntegratedEnderSlicerApp(
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        EnderSlicerApp(slicerViewModel)
-        ExtendedFloatingActionButton(
-            onClick = { octoPrintOpen = true },
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .padding(top = 72.dp),
-        ) {
-            Text(
-                when {
-                    octoPrintState.isPrinting -> "OctoPrint ${octoPrintState.job.completionPercent?.toInt() ?: 0}%"
-                    octoPrintState.isPaused -> "OctoPrint paused"
-                    octoPrintState.isTransitioning -> "OctoPrint busy"
-                    octoPrintState.isReady -> "OctoPrint"
-                    else -> "Set up OctoPrint"
-                },
-            )
-        }
-        ExtendedFloatingActionButton(
-            onClick = {
-                if (smartInfillPackage == null) launchSmartInfill() else smartInfillOpen = true
-            },
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(top = 72.dp, end = 12.dp),
-        ) {
-            val summary = smartInfillPackage?.summary
-            Text(
-                if (summary == null) {
-                    "Smart Infill"
-                } else {
-                    "Smart ${summary.baseDensityPercent.toInt()}→${summary.modifierDensitiesPercent.maxOrNull() ?: summary.baseDensityPercent.toInt()}%"
-                },
-            )
-        }
+    val smartSummary = smartInfillPackage?.summary
+    val smartInfillMenuLabel = if (smartSummary == null) {
+        "Smart Infill"
+    } else {
+        "Smart Infill ${smartSummary.baseDensityPercent.toInt()}→${smartSummary.modifierDensitiesPercent.maxOrNull() ?: smartSummary.baseDensityPercent.toInt()}%"
     }
+    val octoPrintMenuLabel = when {
+        octoPrintState.isPrinting -> "OctoPrint ${octoPrintState.job.completionPercent?.toInt() ?: 0}%"
+        octoPrintState.isPaused -> "OctoPrint paused"
+        octoPrintState.isTransitioning -> "OctoPrint busy"
+        octoPrintState.isReady -> "OctoPrint"
+        else -> "Set up OctoPrint"
+    }
+
+    EnderSlicerApp(
+        viewModel = slicerViewModel,
+        topBarActions = {
+            Box {
+                TopBarTextAction(
+                    label = "Plate",
+                    onClick = { plateMenuExpanded = true },
+                    enabled = !smartInfillImporting,
+                )
+                DropdownMenu(
+                    expanded = plateMenuExpanded,
+                    onDismissRequest = { plateMenuExpanded = false },
+                    modifier = Modifier.widthIn(min = 240.dp, max = 320.dp),
+                ) {
+                    DropdownMenuItem(
+                        text = { Text(smartInfillMenuLabel) },
+                        onClick = {
+                            plateMenuExpanded = false
+                            if (smartInfillPackage == null) {
+                                launchSmartInfill()
+                            } else {
+                                smartInfillOpen = true
+                            }
+                        },
+                        enabled = slicerState.mesh != null && !slicerState.isBusy && !smartInfillImporting,
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Clear plate") },
+                        onClick = {
+                            plateMenuExpanded = false
+                            clearBuildPlate()
+                        },
+                        enabled = !slicerState.isBusy && !smartInfillImporting && (
+                            slicerState.mesh != null ||
+                                slicerState.gcodePath != null ||
+                                smartInfillPackage != null
+                            ),
+                    )
+                }
+            }
+            TopBarTextAction(
+                label = octoPrintMenuLabel,
+                onClick = { octoPrintOpen = true },
+                enabled = !smartInfillImporting,
+            )
+        },
+    )
 
     if (octoPrintOpen) {
         ModalBottomSheet(
@@ -257,19 +399,42 @@ fun IntegratedEnderSlicerApp(
         ) {
             SmartInfillSheet(
                 packageValue = smartInfillPackage,
+                enabled = !slicerState.isBusy && !smartInfillImporting,
                 onGenerate = {
                     smartInfillOpen = false
                     launchSmartInfill()
                 },
                 onRemove = {
+                    val packageToDelete = smartInfillPackage
                     smartInfillStore.clearActive()
                     SmartInfillRuntime.activate(null)
                     smartInfillPackage = null
                     smartInfillOpen = false
+                    scope.launch(Dispatchers.IO) {
+                        packageToDelete?.directory?.deleteRecursively()
+                    }
                     Toast.makeText(context, "Smart Infill removed", Toast.LENGTH_SHORT).show()
                 },
                 modifier = Modifier.navigationBarsPadding(),
             )
+        }
+    }
+
+    if (smartInfillImporting) {
+        Dialog(onDismissRequest = {}) {
+            Surface(
+                shape = MaterialTheme.shapes.medium,
+                tonalElevation = 6.dp,
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 20.dp),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    CircularProgressIndicator()
+                    Text("Importing and validating Smart Infill…")
+                }
+            }
         }
     }
 }
@@ -277,6 +442,7 @@ fun IntegratedEnderSlicerApp(
 @Composable
 private fun SmartInfillSheet(
     packageValue: SmartInfillPackage?,
+    enabled: Boolean,
     onGenerate: () -> Unit,
     onRemove: () -> Unit,
     modifier: Modifier = Modifier,
@@ -293,7 +459,7 @@ private fun SmartInfillSheet(
             Text(
                 "filaSim can create Cura density modifiers for graded/binary infill or return a Part Topo replacement shape.",
             )
-            Button(onClick = onGenerate, modifier = Modifier.fillMaxWidth()) {
+            Button(onClick = onGenerate, enabled = enabled, modifier = Modifier.fillMaxWidth()) {
                 Text("Open filaSim")
             }
         } else {
@@ -312,10 +478,10 @@ private fun SmartInfillSheet(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                Button(onClick = onGenerate, modifier = Modifier.weight(1f)) {
+                Button(onClick = onGenerate, enabled = enabled, modifier = Modifier.weight(1f)) {
                     Text("Regenerate")
                 }
-                OutlinedButton(onClick = onRemove, modifier = Modifier.weight(1f)) {
+                OutlinedButton(onClick = onRemove, enabled = enabled, modifier = Modifier.weight(1f)) {
                     Text("Remove")
                 }
             }

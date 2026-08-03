@@ -8,6 +8,7 @@ import com.tomppi.enderslicer.model.resolveStartGcode
 import com.tomppi.enderslicer.model.withSettings
 import com.tomppi.enderslicer.profile.CuraEngineProfile
 import com.tomppi.enderslicer.profile.CuraSettingDelta
+import com.tomppi.enderslicer.smartinfill.SmartInfillCuraContract
 import com.tomppi.enderslicer.smartinfill.SmartInfillModifier
 import com.tomppi.enderslicer.smartinfill.SmartInfillRuntime
 import com.tomppi.enderslicer.smartinfill.requireValidBinaryStl
@@ -67,12 +68,13 @@ object CuraEngineCommand {
 
         val workspace = File(outputPath).parentFile
             ?: error("CuraEngine output path has no parent workspace")
+        val analyzedSource = File(modelPath)
         val activeSmartInfill = SmartInfillRuntime.current()
-        activeSmartInfill?.requireMatchesSource(File(modelPath))
+        activeSmartInfill?.requireMatchesSource(analyzedSource)
         val effectiveSmartInfillModifiers = if (smartInfillModifiers.isNotEmpty()) {
             smartInfillModifiers
         } else {
-            activeSmartInfill?.stageModifiers(workspace).orEmpty()
+            activeSmartInfill?.stageModifiers(workspace, analyzedSource).orEmpty()
         }
         effectiveSmartInfillModifiers.forEach { modifier ->
             requireSafeArgument(modifier.file.absolutePath)
@@ -82,7 +84,7 @@ object CuraEngineCommand {
         val effectiveSettings = CalibrationSliceState.effective(settings)
         val effectivePrinter = printer.withSettings(effectiveSettings)
         val printerEnvelope = PrinterEnvelope.from(effectivePrinter)
-        File(modelPath).takeIf(File::isFile)?.let(printerEnvelope::requireBinaryStlFits)
+        analyzedSource.takeIf(File::isFile)?.let(printerEnvelope::requireBinaryStlFits)
         effectiveSmartInfillModifiers.forEach { modifier -> printerEnvelope.requireBinaryStlFits(modifier.file) }
         val effectiveStartGcode = effectiveSettings.resolveStartGcode(startGcode)
         val effectiveEndGcode = effectiveSettings.resolveEndGcode(endGcode)
@@ -114,15 +116,69 @@ object CuraEngineCommand {
             command += "$key=$normalized"
         }
 
+        fun applySmartInfillWidths() {
+            val width = activeSmartInfill?.lineWidthMm ?: return
+            SMART_INFILL_WIDTH_KEYS.forEach { key -> setting(key, width) }
+        }
+
         fun applyStandaloneSettings() {
             CuraSettingDelta.standaloneValues(effectiveSettings).forEach { (key, value) -> setting(key, value) }
             ArcOverhangEngineSettings.values(effectiveSettings).forEach { (key, value) -> setting(key, value) }
+            WaveOverhangEngineSettings.values(effectiveSettings).forEach { (key, value) -> setting(key, value) }
             CalibrationSliceState.engineOverrides().forEach { (key, value) -> setting(key, value) }
+            applySmartInfillWidths()
         }
 
-        fun applyFinalMeshTransform() {
+        // CuraEngine does not evaluate Cura frontend formulas for command-line
+        // values. Resolve every regional density-and-pattern pair explicitly so
+        // binary and graded 100% regions keep filaSim's print contract.
+        fun applySmartInfillRegion(densityPercent: Double, curaPattern: String) {
+            require(densityPercent in 0.0..100.0) { "Invalid Smart Infill density: $densityPercent" }
+            val densityArgument: Number = if (densityPercent % 1.0 == 0.0) densityPercent.toInt() else densityPercent
+            setting("infill_sparse_density", densityArgument)
+
+            val lineWidth = activeSmartInfill?.lineWidthMm ?: effectiveSettings.lineWidthMm
+            val pattern = curaPattern.lowercase()
+            val patternFactor = when (pattern) {
+                "grid" -> 2.0
+                "triangles", "trihexagon", "cubic", "cubicsubdiv" -> 3.0
+                "tetrahedral", "quarter_cubic" -> 2.0
+                "cross", "cross_3d" -> 1.0
+                "lightning" -> 1.6
+                else -> 1.0
+            }
+            val regionalLineDistance = if (densityPercent <= 0.0) {
+                0.0
+            } else {
+                lineWidth * 100.0 / densityPercent * patternFactor
+            }
+            val overlapPercent = if (densityPercent < 95.0 && pattern != "concentric") 10.0 else 0.0
+            val overlapMm = if (overlapPercent > 0.0) {
+                0.5 * (lineWidth + lineWidth) * overlapPercent / 100.0
+            } else {
+                0.0
+            }
+            setting("infill_pattern", pattern)
+            applySmartInfillWidths()
+            setting("infill_line_distance", regionalLineDistance)
+            setting("infill_overlap", overlapPercent)
+            setting("infill_overlap_mm", overlapMm)
+            setting(
+                "extra_infill_lines_to_support_skins",
+                if (densityPercent > 50.0) "none" else "walls_and_lines",
+            )
+        }
+
+        fun neutralizeSmartInfillModifierShell() {
+            SmartInfillCuraContract.modifierShellNeutralValues.forEach { (key, value) -> setting(key, value) }
+        }
+
+        fun prepareMeshLoad() {
             setting("center_object", false)
             setting("mesh_rotation_matrix", "[[1,0,0],[0,1,0],[0,0,1]]")
+        }
+
+        fun positionLoadedMesh() {
             setting("mesh_position_x", engineOffsetX)
             setting("mesh_position_y", engineOffsetY)
             setting("mesh_position_z", 0)
@@ -147,7 +203,6 @@ object CuraEngineCommand {
             "machine_head_with_fans_polygon",
             "[[${effectivePrinter.printheadXMinMm},${effectivePrinter.printheadYMaxMm}],[${effectivePrinter.printheadXMinMm},${effectivePrinter.printheadYMinMm}],[${effectivePrinter.printheadXMaxMm},${effectivePrinter.printheadYMinMm}],[${effectivePrinter.printheadXMaxMm},${effectivePrinter.printheadYMaxMm}]]",
         )
-        applyFinalMeshTransform()
         applyStandaloneSettings()
 
         command += listOf(
@@ -178,27 +233,39 @@ object CuraEngineCommand {
         setting("support_roof_line_distance", lineDistance)
         setting("support_bottom_line_distance", lineDistance)
 
-        applyFinalMeshTransform()
+        prepareMeshLoad()
+        command += listOf("-l", modelPath)
+        positionLoadedMesh()
+        setting("extruder_nr", 0)
+        val basePattern = activeSmartInfill
+            ?.let(SmartInfillCuraContract::basePattern)
+            ?: effectiveSettings.infillPattern.lowercase()
+        applySmartInfillRegion(
+            activeSmartInfill?.baseDensityPercent ?: effectiveSettings.infillDensityPercent,
+            basePattern,
+        )
         setting("infill_mesh", false)
         setting("support_mesh", false)
         setting("anti_overhang_mesh", false)
         setting("cutting_mesh", false)
-        command += listOf("-l", modelPath)
 
         effectiveSmartInfillModifiers
             .sortedBy(SmartInfillModifier::densityPercent)
             .forEachIndexed { index, modifier ->
-                // The modifier STL came from the already transformed model, so
-                // it uses identity geometry with only Cura's bed-origin offset.
-                applyFinalMeshTransform()
+                prepareMeshLoad()
+                command += listOf("-l", modifier.file.absolutePath)
+                positionLoadedMesh()
                 setting("extruder_nr", 0)
                 setting("infill_mesh", true)
                 setting("infill_mesh_order", index + 1)
-                setting("infill_sparse_density", modifier.densityPercent)
+                val modifierPattern = activeSmartInfill
+                    ?.let { SmartInfillCuraContract.modifierPattern(it, modifier.densityPercent) }
+                    ?: effectiveSettings.infillPattern.lowercase()
+                applySmartInfillRegion(modifier.densityPercent.toDouble(), modifierPattern)
+                neutralizeSmartInfillModifierShell()
                 setting("support_mesh", false)
                 setting("anti_overhang_mesh", false)
                 setting("cutting_mesh", false)
-                command += listOf("-l", modifier.file.absolutePath)
             }
 
         command += listOf("-o", outputPath)
@@ -215,4 +282,13 @@ object CuraEngineCommand {
     private fun requireSafeArgument(value: String) {
         require('\u0000' !in value) { "CuraEngine argument contains a NUL character" }
     }
+
+    private val SMART_INFILL_WIDTH_KEYS = listOf(
+        "line_width",
+        "wall_line_width",
+        "wall_line_width_0",
+        "wall_line_width_x",
+        "skin_line_width",
+        "infill_line_width",
+    )
 }

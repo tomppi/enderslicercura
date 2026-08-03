@@ -19,6 +19,18 @@ import java.util.zip.ZipInputStream
 private const val STL_HEADER_BYTES = 84L
 private const val STL_TRIANGLE_BYTES = 50L
 
+internal data class BinaryStlBounds(
+    val minX: Double,
+    val minY: Double,
+    val minZ: Double,
+    val maxX: Double,
+    val maxY: Double,
+    val maxZ: Double,
+) {
+    val centerX: Double get() = (minX + maxX) * 0.5
+    val centerY: Double get() = (minY + maxY) * 0.5
+}
+
 /** One filaSim modifier volume and the Cura sparse-infill density it applies. */
 data class SmartInfillModifier(
     val densityPercent: Int,
@@ -30,12 +42,14 @@ data class SmartInfillSummary(
     val sourceName: String,
     val baseDensityPercent: Double,
     val modifierDensitiesPercent: List<Int>,
+    /** filaSim's ordinary sparse pattern used by the printable/base mesh. */
     val pattern: String,
     val mode: String,
     val perimeters: Int,
     val lineWidthMm: Double,
     val topBottomLayers: Int,
     val layerHeightMm: Double,
+    val binarySolidPattern: String? = null,
 )
 
 data class SmartInfillPackage(
@@ -44,6 +58,7 @@ data class SmartInfillPackage(
     val sourceName: String,
     val sourceSha256: String,
     val baseDensityPercent: Double,
+    /** filaSim's ordinary sparse pattern used by the printable/base mesh. */
     val pattern: String,
     val mode: String,
     val perimeters: Int,
@@ -52,6 +67,8 @@ data class SmartInfillPackage(
     val layerHeightMm: Double,
     val upstreamCommit: String,
     val modifiers: List<SmartInfillModifier>,
+    /** Required for binary packages; ignored for graded packages. */
+    val binarySolidPattern: String? = null,
 ) {
     val summary: SmartInfillSummary
         get() = SmartInfillSummary(
@@ -65,6 +82,7 @@ data class SmartInfillPackage(
             lineWidthMm = lineWidthMm,
             topBottomLayers = topBottomLayers,
             layerHeightMm = layerHeightMm,
+            binarySolidPattern = binarySolidPattern,
         )
 
     fun requireMatchesSource(source: File) {
@@ -77,25 +95,74 @@ data class SmartInfillPackage(
         }
     }
 
-    /** Copies immutable, validated modifier snapshots into a CuraEngine request workspace. */
-    fun stageModifiers(destination: File): List<SmartInfillModifier> {
+    /**
+     * Stages filaSim modifier volumes in the displayed model's printer coordinates.
+     * filaSim centers imported geometry around local X/Y zero and grounds it at
+     * local Z zero. The analyzed STL is already placed on the build plate, so its
+     * center/base translation must be restored before CuraEngine sees the volume.
+     */
+    fun stageModifiers(destination: File, analyzedSource: File): List<SmartInfillModifier> {
         require(destination.mkdirs() || destination.isDirectory) {
             "Unable to create the Smart Infill staging directory"
         }
+        requireMatchesSource(analyzedSource)
+        val triangleLimit = MeshTriangleLimits.current()
+        val sourceBounds = binaryStlBounds(analyzedSource, triangleLimit)
         return modifiers.mapIndexed { index, modifier ->
-            requireValidBinaryStl(modifier.file, MeshTriangleLimits.current())
+            requireValidBinaryStl(modifier.file, triangleLimit)
             val target = File(destination, "smart-infill-${index + 1}-${modifier.densityPercent}pct.stl")
-            copyStable(modifier.file, target)
-            requireValidBinaryStl(target, MeshTriangleLimits.current())
+            translateStable(
+                source = modifier.file,
+                target = target,
+                translationX = sourceBounds.centerX,
+                translationY = sourceBounds.centerY,
+                translationZ = sourceBounds.minZ,
+            )
+            requireValidBinaryStl(target, triangleLimit)
             SmartInfillModifier(modifier.densityPercent, target)
         }
     }
 
-    private fun copyStable(source: File, target: File) {
+    private fun translateStable(
+        source: File,
+        target: File,
+        translationX: Double,
+        translationY: Double,
+        translationZ: Double,
+    ) {
+        require(listOf(translationX, translationY, translationZ).all(Double::isFinite)) {
+            "Smart Infill source placement is not finite"
+        }
         val size = source.length()
         val modified = source.lastModified()
-        source.inputStream().buffered().use { input ->
-            target.outputStream().buffered().use(input::copyTo)
+        RandomAccessFile(source, "r").use { input ->
+            FileOutputStream(target).use { output ->
+                val header = ByteArray(STL_HEADER_BYTES.toInt())
+                input.readFully(header)
+                output.write(header)
+                val triangleCount = ByteBuffer.wrap(header, 80, 4)
+                    .order(ByteOrder.LITTLE_ENDIAN)
+                    .int
+                val triangle = ByteArray(STL_TRIANGLE_BYTES.toInt())
+                repeat(triangleCount) {
+                    input.readFully(triangle)
+                    val buffer = ByteBuffer.wrap(triangle).order(ByteOrder.LITTLE_ENDIAN)
+                    repeat(3) { vertex ->
+                        val offset = 12 + vertex * 12
+                        val x = buffer.getFloat(offset).toDouble() + translationX
+                        val y = buffer.getFloat(offset + 4).toDouble() + translationY
+                        val z = buffer.getFloat(offset + 8).toDouble() + translationZ
+                        require(listOf(x, y, z).all(Double::isFinite)) {
+                            "Smart Infill modifier translation produced a non-finite vertex"
+                        }
+                        buffer.putFloat(offset, x.toFloat())
+                        buffer.putFloat(offset + 4, y.toFloat())
+                        buffer.putFloat(offset + 8, z.toFloat())
+                    }
+                    output.write(triangle)
+                }
+                output.fd.sync()
+            }
         }
         check(target.length() == size && source.length() == size && source.lastModified() == modified) {
             target.delete()
@@ -109,6 +176,7 @@ class SmartInfillPackageStore(private val context: Context) {
     private val root = File(context.filesDir, "smart-infill").apply { mkdirs() }
     private val packagesDirectory = File(root, "packages").apply { mkdirs() }
     private val activeFile = File(root, "active-package.txt")
+    private val loadWarningFile = File(root, "load-warning.txt")
 
     fun importPackage(zipUri: Uri, metadataJson: String, sourceSha256: String): SmartInfillPackage {
         require(sourceSha256.matches(SHA_PATTERN)) { "Smart Infill source fingerprint is invalid" }
@@ -134,7 +202,7 @@ class SmartInfillPackageStore(private val context: Context) {
                 .put("sourceName", metadata.sourceName)
                 .put("sourceSha256", sourceSha256)
                 .put("baseDensityPercent", metadata.baseDensityPercent)
-                .put("pattern", metadata.pattern)
+                .put("basePattern", metadata.basePattern)
                 .put("mode", metadata.mode)
                 .put("perimeters", metadata.perimeters)
                 .put("lineWidthMm", metadata.lineWidthMm)
@@ -153,11 +221,13 @@ class SmartInfillPackageStore(private val context: Context) {
                         }
                     },
                 )
+            metadata.binarySolidPattern?.let { manifest.put("binarySolidPattern", it) }
             writeSynced(File(staging, MANIFEST_FILE), manifest.toString())
             check(staging.renameTo(destination)) { "Unable to publish the Smart Infill package" }
 
             val loaded = loadPackage(destination)
             activate(loaded)
+            loadWarningFile.delete()
             cleanupOldPackages(loaded.id)
             return loaded
         } catch (error: Throwable) {
@@ -175,18 +245,42 @@ class SmartInfillPackageStore(private val context: Context) {
             return null
         }
         return runCatching { loadPackage(File(packagesDirectory, id)) }
-            .onFailure { activeFile.delete() }
+            .onFailure { error ->
+                activeFile.delete()
+                val warning = error.message
+                    ?.take(MAX_LOAD_WARNING_CHARS)
+                    ?.takeIf(String::isNotBlank)
+                if (warning != null) runCatching { writeSynced(loadWarningFile, warning) }
+            }
             .getOrNull()
+    }
+
+    fun consumeLoadWarning(): String? {
+        if (!loadWarningFile.isFile || loadWarningFile.length() !in 1..MAX_LOAD_WARNING_BYTES) {
+            loadWarningFile.delete()
+            return null
+        }
+        return runCatching { loadWarningFile.readText().take(MAX_LOAD_WARNING_CHARS) }
+            .also { loadWarningFile.delete() }
+            .getOrNull()
+            ?.takeIf(String::isNotBlank)
     }
 
     fun clearActive() {
         activeFile.delete()
     }
 
+    fun clearAll() {
+        clearActive()
+        loadWarningFile.delete()
+        packagesDirectory.listFiles().orEmpty().forEach { it.deleteRecursively() }
+    }
+
     fun activate(packageValue: SmartInfillPackage) {
         require(packageValue.directory.parentFile?.canonicalFile == packagesDirectory.canonicalFile) {
             "Smart Infill package is outside private storage"
         }
+        validatePatternContract(packageValue.mode, packageValue.pattern, packageValue.binarySolidPattern)
         val next = File(root, "active-package.next")
         writeSynced(next, packageValue.id)
         activeFile.delete()
@@ -202,13 +296,30 @@ class SmartInfillPackageStore(private val context: Context) {
             "Smart Infill package manifest is missing or too large"
         }
         val root = JSONObject(manifestFile.readText())
-        require(root.getInt("version") == MANIFEST_VERSION) { "Unsupported Smart Infill package version" }
+        val version = root.getInt("version")
+        require(version == LEGACY_MANIFEST_VERSION || version == MANIFEST_VERSION) {
+            "Unsupported Smart Infill package version"
+        }
         val id = root.getString("id")
         require(id == directory.name && SAFE_ID.matches(id)) { "Smart Infill package identity is invalid" }
         val sourceSha256 = root.getString("sourceSha256")
         require(sourceSha256.matches(SHA_PATTERN)) { "Smart Infill source fingerprint is invalid" }
         val mode = requireSupportedMode(root.getString("mode"))
-        val pattern = requireSupportedPattern(root.getString("pattern"))
+        val basePattern: String
+        val binarySolidPattern: String?
+        if (version == LEGACY_MANIFEST_VERSION) {
+            require(mode != "binary") {
+                "This binary Smart Infill package predates regional pattern metadata. Regenerate Smart Infill."
+            }
+            basePattern = requireSupportedPattern(root.getString("pattern"))
+            binarySolidPattern = null
+        } else {
+            basePattern = requireSupportedPattern(root.getString("basePattern"))
+            binarySolidPattern = root.optString("binarySolidPattern")
+                .takeIf(String::isNotBlank)
+                ?.let(::requireSupportedPattern)
+        }
+        validatePatternContract(mode, basePattern, binarySolidPattern)
         val upstreamCommit = root.getString("upstreamCommit")
         require(upstreamCommit == SmartInfillActivity.FILASIM_COMMIT) {
             "Smart Infill package was generated by an unsupported filaSim build"
@@ -249,7 +360,7 @@ class SmartInfillPackageStore(private val context: Context) {
             sourceName = root.getString("sourceName").take(MAX_SOURCE_NAME),
             sourceSha256 = sourceSha256,
             baseDensityPercent = baseDensity,
-            pattern = pattern,
+            pattern = basePattern,
             mode = mode,
             perimeters = perimeters,
             lineWidthMm = lineWidth,
@@ -257,6 +368,7 @@ class SmartInfillPackageStore(private val context: Context) {
             layerHeightMm = layerHeight,
             upstreamCommit = upstreamCommit,
             modifiers = modifiers,
+            binarySolidPattern = binarySolidPattern,
         )
     }
 
@@ -310,6 +422,9 @@ class SmartInfillPackageStore(private val context: Context) {
     private fun parseMetadata(raw: String): Metadata {
         require(raw.length in 2..MAX_METADATA_CHARS) { "Smart Infill metadata is missing or too large" }
         val root = JSONObject(raw)
+        require(root.getInt("metadataVersion") == METADATA_VERSION) {
+            "This filaSim export does not preserve regional pattern metadata. Regenerate Smart Infill."
+        }
         val baseDensity = root.getDouble("baseDensityPercent")
         val lineWidth = root.getDouble("lineWidthMm")
         val layerHeight = root.getDouble("layerHeightMm")
@@ -331,12 +446,27 @@ class SmartInfillPackageStore(private val context: Context) {
         require(sourceFingerprint == null || sourceFingerprint.matches(SHA_PATTERN)) {
             "filaSim returned an invalid source fingerprint"
         }
+        val mode = requireSupportedMode(root.getString("mode"))
+        val basePattern = requireSupportedPattern(root.getString("basePattern"))
+        val binarySolidPattern = root.optString("binarySolidPattern")
+            .takeIf(String::isNotBlank)
+            ?.let(::requireSupportedPattern)
+        require(
+            root.optString(
+                "gradedFullDensityPattern",
+                SmartInfillCuraContract.GRADED_FULL_DENSITY_PATTERN,
+            ).trim().lowercase() == SmartInfillCuraContract.GRADED_FULL_DENSITY_PATTERN,
+        ) {
+            "filaSim returned an unsupported graded full-density pattern contract"
+        }
+        validatePatternContract(mode, basePattern, binarySolidPattern)
         return Metadata(
             sourceName = root.optString("sourceName", "model.stl").take(MAX_SOURCE_NAME),
             sourceSha256 = sourceFingerprint,
             baseDensityPercent = baseDensity,
-            pattern = requireSupportedPattern(root.getString("pattern")),
-            mode = requireSupportedMode(root.getString("mode")),
+            basePattern = basePattern,
+            binarySolidPattern = binarySolidPattern,
+            mode = mode,
             perimeters = perimeters,
             lineWidthMm = lineWidth,
             topBottomLayers = topBottom,
@@ -359,6 +489,20 @@ class SmartInfillPackageStore(private val context: Context) {
             "filaSim returned an infill pattern that EnderSlicerCura cannot reproduce: '$raw'"
         }
         return normalized
+    }
+
+    private fun validatePatternContract(mode: String, basePattern: String, binarySolidPattern: String?) {
+        requireSupportedPattern(basePattern)
+        when (mode) {
+            "binary" -> require(binarySolidPattern != null) {
+                "Binary Smart Infill is missing its solid-region pattern. Regenerate Smart Infill."
+            }
+            "graded" -> require(binarySolidPattern == null) {
+                "Graded Smart Infill must not contain a binary solid pattern"
+            }
+            else -> error("Unsupported Smart Infill mode: $mode")
+        }
+        binarySolidPattern?.let(::requireSupportedPattern)
     }
 
     private fun cleanupOldPackages(activeId: String) {
@@ -384,7 +528,8 @@ class SmartInfillPackageStore(private val context: Context) {
         val sourceName: String,
         val sourceSha256: String?,
         val baseDensityPercent: Double,
-        val pattern: String,
+        val basePattern: String,
+        val binarySolidPattern: String?,
         val mode: String,
         val perimeters: Int,
         val lineWidthMm: Double,
@@ -394,7 +539,9 @@ class SmartInfillPackageStore(private val context: Context) {
     )
 
     companion object {
-        private const val MANIFEST_VERSION = 1
+        private const val MANIFEST_VERSION = 2
+        private const val LEGACY_MANIFEST_VERSION = 1
+        private const val METADATA_VERSION = 2
         private const val MANIFEST_FILE = "manifest.json"
         private const val MAX_MANIFEST_BYTES = 256L * 1024L
         private const val MAX_METADATA_CHARS = 64 * 1024
@@ -402,6 +549,8 @@ class SmartInfillPackageStore(private val context: Context) {
         private const val MAX_MODIFIERS = 16
         private const val MAX_RETAINED_PACKAGES = 4
         private const val MAX_TOTAL_UNCOMPRESSED_BYTES = 768L * 1024L * 1024L
+        private const val MAX_LOAD_WARNING_BYTES = 16L * 1024L
+        private const val MAX_LOAD_WARNING_CHARS = 4 * 1024
         private const val BUFFER_SIZE = 128 * 1024
         private const val MIN_DENSITY = 1.0
         private const val MAX_DENSITY = 100.0
@@ -412,6 +561,41 @@ class SmartInfillPackageStore(private val context: Context) {
         private val SAFE_ID = Regex("filasim-[A-Za-z0-9-]+")
         private val SHA_PATTERN = Regex("[0-9a-f]{64}")
     }
+}
+
+internal fun binaryStlBounds(file: File, maxTriangles: Int): BinaryStlBounds {
+    requireValidBinaryStl(file, maxTriangles)
+    var minX = Double.POSITIVE_INFINITY
+    var minY = Double.POSITIVE_INFINITY
+    var minZ = Double.POSITIVE_INFINITY
+    var maxX = Double.NEGATIVE_INFINITY
+    var maxY = Double.NEGATIVE_INFINITY
+    var maxZ = Double.NEGATIVE_INFINITY
+    RandomAccessFile(file, "r").use { input ->
+        input.seek(STL_HEADER_BYTES)
+        val triangle = ByteArray(STL_TRIANGLE_BYTES.toInt())
+        val triangleCount = ((file.length() - STL_HEADER_BYTES) / STL_TRIANGLE_BYTES).toInt()
+        repeat(triangleCount) {
+            input.readFully(triangle)
+            val buffer = ByteBuffer.wrap(triangle).order(ByteOrder.LITTLE_ENDIAN)
+            repeat(3) { vertex ->
+                val offset = 12 + vertex * 12
+                val x = buffer.getFloat(offset).toDouble()
+                val y = buffer.getFloat(offset + 4).toDouble()
+                val z = buffer.getFloat(offset + 8).toDouble()
+                require(listOf(x, y, z).all(Double::isFinite)) {
+                    "Smart Infill STL contains a non-finite vertex"
+                }
+                minX = minOf(minX, x)
+                minY = minOf(minY, y)
+                minZ = minOf(minZ, z)
+                maxX = maxOf(maxX, x)
+                maxY = maxOf(maxY, y)
+                maxZ = maxOf(maxZ, z)
+            }
+        }
+    }
+    return BinaryStlBounds(minX, minY, minZ, maxX, maxY, maxZ)
 }
 
 internal fun requireValidBinaryStl(file: File, maxTriangles: Int) {

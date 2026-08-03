@@ -212,6 +212,86 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * Transactionally replaces the active model with a filaSim Part Topo solid.
+     * The generic STL importer is intentionally bypassed: a previous 3MF affine
+     * must never be inferred for geometry already derived from the displayed STL.
+     */
+    fun importPartTopoResult(uri: Uri) {
+        val stateSnapshot = _uiState.value
+        val analyzedDisplayedMesh = stateSnapshot.mesh
+        if (analyzedDisplayedMesh == null || stateSnapshot.modelPath == null) {
+            showOperationFailure(IllegalStateException("The analyzed model is no longer available"))
+            return
+        }
+        if (!beginOperation("Importing filaSim Part Topo result…")) return
+        val previousModelPath = stateSnapshot.modelPath
+        viewModelScope.launch {
+            runCatching {
+                val prepared = withContext(Dispatchers.IO) {
+                    PartTopoResultPreparer.prepare(
+                        context = app,
+                        uri = uri,
+                        analyzedDisplayedMesh = analyzedDisplayedMesh,
+                        printer = stateSnapshot.printer,
+                        settings = stateSnapshot.settings,
+                    )
+                }
+                try {
+                    withContext(Dispatchers.IO) {
+                        workspaceStore.save(
+                            workspaceSnapshot(
+                                modelFile = prepared.modelFile,
+                                displayName = prepared.source.displayName,
+                                placement = prepared.placement,
+                                plannedEvents = emptyList(),
+                                calibrationDescription = null,
+                                state = stateSnapshot,
+                            ),
+                        )
+                    }
+                } catch (error: Throwable) {
+                    prepared.modelFile.delete()
+                    throw error
+                }
+                prepared
+            }.onSuccess { prepared ->
+                CalibrationSliceState.clear()
+                sourceMesh = prepared.source
+                importedScene = null
+                plannedCalibrationEvents = emptyList()
+                _uiState.update { current ->
+                    current.copy(
+                        mesh = prepared.transformed,
+                        modelPath = prepared.modelFile.absolutePath,
+                        modelPlacement = prepared.placement,
+                        importedSceneTransformAvailable = false,
+                        importedSceneModelName = null,
+                        sliceResultId = null,
+                        gcodePath = null,
+                        baseGcodePath = null,
+                        layerPreview = null,
+                        layerEvents = emptyList(),
+                        calibrationDescription = null,
+                        estimatedPrintSeconds = null,
+                        sliceLogPath = null,
+                        sliceDurationMilliseconds = null,
+                        warnings = current.warnings.filterNot {
+                            it.startsWith("Imported Cura transform is for")
+                        },
+                        isBusy = false,
+                        statusMessage = "Imported ${prepared.source.displayName} as a standalone Part Topo model; inspect and slice it",
+                    )
+                }
+                previousModelPath
+                    ?.takeIf { it != prepared.modelFile.absolutePath }
+                    ?.let(::File)
+                    ?.takeIf { it.parentFile == prepared.modelFile.parentFile }
+                    ?.delete()
+            }.onFailure(::showOperationFailure)
+        }
+    }
+
     fun importCuraProfile(uri: Uri) {
         if (!beginOperation("Importing Cura profile…")) return
         viewModelScope.launch {
@@ -301,6 +381,51 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     "App overrides cleared; built-in defaults are active"
                 },
             )
+        }
+    }
+
+    fun clearBuildPlate() {
+        val snapshot = _uiState.value
+        if (!beginOperation("Clearing build plate…")) return
+        val pendingSettingsWrite = settingsPersistenceJob
+        val artifactId = snapshot.gcodePath?.let(::File)?.parentFile?.name
+        viewModelScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    pendingSettingsWrite?.join()
+                    workspaceStore.clear()
+                    File(app.filesDir, "models").listFiles().orEmpty().forEach { it.delete() }
+                    artifactId?.let(engine::releaseArtifact)
+                }
+            }.onSuccess {
+                CalibrationSliceState.clear()
+                sourceMesh = null
+                importedScene = null
+                plannedCalibrationEvents = emptyList()
+                _uiState.update { current ->
+                    current.copy(
+                        mesh = null,
+                        modelPath = null,
+                        modelPlacement = null,
+                        importedSceneTransformAvailable = false,
+                        importedSceneModelName = null,
+                        sliceResultId = null,
+                        gcodePath = null,
+                        baseGcodePath = null,
+                        layerPreview = null,
+                        layerEvents = emptyList(),
+                        calibrationDescription = null,
+                        estimatedPrintSeconds = null,
+                        sliceLogPath = null,
+                        sliceDurationMilliseconds = null,
+                        warnings = current.warnings.filterNot {
+                            it.startsWith("Imported Cura transform is for")
+                        },
+                        isBusy = false,
+                        statusMessage = "Build plate cleared; import an STL to begin",
+                    )
+                }
+            }.onFailure(::showOperationFailure)
         }
     }
 
@@ -542,8 +667,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val previousArtifactId = _uiState.value.gcodePath?.let(::File)?.parentFile?.name
                 _uiState.update { current ->
                     current.copy(
-                        // Event rematerialization is a new immutable artifact,
-                        // not a new logical Cura slice. Preserve editor context.
                         sliceResultId = current.sliceResultId ?: result.artifactId,
                         gcodePath = result.gcodeFile.absolutePath,
                         baseGcodePath = result.baseGcodeFile.absolutePath,
@@ -763,7 +886,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
     }
-
 
     private fun restoreWorkspace(workspace: RestoredWorkspace?) {
         if (workspace == null) return
@@ -1028,7 +1150,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun modelNamesMatch(projectName: String?, stlName: String): Boolean {
-        if (projectName.isNullOrBlank()) return true
+        if (projectName.isNullOrBlank()) return false
         fun normalize(value: String): String = value
             .substringAfterLast('/')
             .substringAfterLast('\\')
