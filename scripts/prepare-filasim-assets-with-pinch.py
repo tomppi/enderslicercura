@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import importlib.util
 import pathlib
+import re
 
 BASE_SCRIPT = pathlib.Path(__file__).with_name("prepare-filasim-assets.py")
 SPEC = importlib.util.spec_from_file_location("enderslicer_filasim_base", BASE_SCRIPT)
@@ -18,7 +19,9 @@ SPEC.loader.exec_module(BASE)
 # source caches cannot preserve nullable browser-state values in new APKs.
 BASE.ASSET_FORMAT = 8
 _BASE_PATCH_ANDROID_EXPORT = BASE.patch_android_export
+_BASE_PATCH_ANDROID_TOPBAR = BASE.patch_android_topbar
 _BASE_PATCH_ANDROID_VIEWER = BASE.patch_android_viewer
+_BASE_INJECT_BRIDGE = BASE.inject_bridge
 
 
 def patch_android_export_with_pattern_contract(store_file: pathlib.Path) -> None:
@@ -61,6 +64,62 @@ def patch_android_export_with_pattern_contract(store_file: pathlib.Path) -> None
     if old not in text:
         raise RuntimeError("Unable to locate Android modifier pattern metadata for versioning")
     store_file.write_text(text.replace(old, hardened_v2, 1), encoding="utf-8")
+
+
+def patch_android_topbar_and_export_ui(topbar_file: pathlib.Path) -> None:
+    _BASE_PATCH_ANDROID_TOPBAR(topbar_file)
+    step_panel_file = topbar_file.with_name("StepPanel.tsx")
+    if not step_panel_file.is_file():
+        raise RuntimeError("Pinned filaSim source did not contain ui/StepPanel.tsx")
+
+    text = step_panel_file.read_text(encoding="utf-8")
+    marker = "EnderSlicer Android single Smart Infill apply action"
+    if marker in text:
+        return
+
+    function_start = "function StepExport() {\n"
+    if function_start not in text:
+        raise RuntimeError("Unable to locate filaSim export panel function")
+    text = text.replace(
+        function_start,
+        function_start
+        + '  const androidHosted = new URLSearchParams(window.location.search).has("android");\n',
+        1,
+    )
+
+    handoff_block = re.compile(
+        r'''            <div className="g-label">\s*
+              <span>Hand off</span>.*?
+            <button onClick=\{\(\) => void s\.downloadStls\(\)\}>Download modifier STLs \(\.zip\)</button>\s*
+            <div className="dim small">\s*
+              Base infill \{Math\.round\(s\.optSummary\.baseDensity \* 100\)\}% on the object, modifier\s*
+              volumes on top\.\s*
+            </div>''',
+        re.DOTALL,
+    )
+    match = handoff_block.search(text)
+    if match is None:
+        raise RuntimeError("Unable to locate filaSim multi-slicer handoff controls")
+    browser_controls = match.group(0)
+    android_controls = '''            {androidHosted ? (
+              <>
+                {/* EnderSlicer Android single Smart Infill apply action. */}
+                <button className="primary" onClick={() => void s.downloadStls()}>
+                  Apply Smart Infill
+                </button>
+                <div className="dim small">
+                  Transfers the optimized infill regions to EnderSlicer and returns to the model.
+                </div>
+              </>
+            ) : (
+              <>
+'''
+    android_controls += browser_controls
+    android_controls += '''
+              </>
+            )}'''
+    text = text[: match.start()] + android_controls + text[match.end() :]
+    step_panel_file.write_text(text, encoding="utf-8")
 
 
 def patch_android_viewer_with_pinch(scene_file: pathlib.Path) -> None:
@@ -195,8 +254,22 @@ def patch_android_viewer_with_pinch(scene_file: pathlib.Path) -> None:
     scene_file.write_text(text, encoding="utf-8")
 
 
+def inject_versioned_android_bridge(index_file: pathlib.Path) -> None:
+    _BASE_INJECT_BRIDGE(index_file)
+    text = index_file.read_text(encoding="utf-8")
+    old = '<script src="./android-bridge.js"></script>'
+    new = '<script src="./android-bridge.js?v=enderslicer-android-3"></script>'
+    if new in text:
+        return
+    if old not in text:
+        raise RuntimeError("Unable to version the Android filaSim bridge asset")
+    index_file.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+
 BASE.patch_android_export = patch_android_export_with_pattern_contract
+BASE.patch_android_topbar = patch_android_topbar_and_export_ui
 BASE.patch_android_viewer = patch_android_viewer_with_pinch
+BASE.inject_bridge = inject_versioned_android_bridge
 
 
 if __name__ == "__main__":
