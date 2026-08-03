@@ -257,13 +257,18 @@ def patch_android_viewer_with_pinch(scene_file: pathlib.Path) -> None:
 def inject_versioned_android_bridge(index_file: pathlib.Path) -> None:
     _BASE_INJECT_BRIDGE(index_file)
     text = index_file.read_text(encoding="utf-8")
-    old = '<script src="./android-bridge.js"></script>'
-    new = '<script src="./android-bridge.js?v=enderslicer-android-3"></script>'
+    new = '<script src="./android-bridge.js?v=enderslicer-android-4"></script>'
     if new in text:
         return
-    if old not in text:
-        raise RuntimeError("Unable to version the Android filaSim bridge asset")
-    index_file.write_text(text.replace(old, new, 1), encoding="utf-8")
+    candidates = (
+        '<script src="./android-bridge.js"></script>',
+        '<script src="./android-bridge.js?v=enderslicer-android-3"></script>',
+    )
+    for old in candidates:
+        if old in text:
+            index_file.write_text(text.replace(old, new, 1), encoding="utf-8")
+            return
+    raise RuntimeError("Unable to version the Android filaSim bridge asset")
 
 
 BASE.patch_android_export = patch_android_export_with_pattern_contract
