@@ -15,7 +15,7 @@ import urllib.request
 import zipfile
 
 FILASIM_COMMIT = "e7485ec22d4ebe8baca04190404fbb877c90e031"
-ASSET_FORMAT = 6
+ASSET_FORMAT = 7
 HASH_MANIFEST = "SHA256SUMS"
 MINIMUM_NODE_VERSION = (22, 18, 0)
 
@@ -256,7 +256,7 @@ def patch_android_topbar(topbar_file: pathlib.Path) -> None:
 
 def patch_android_viewer(scene_file: pathlib.Path) -> None:
     text = scene_file.read_text(encoding="utf-8")
-    marker = "EnderSlicer Android touch navigation"
+    marker = "EnderSlicer Android deterministic touch pan"
     if marker in text:
         return
 
@@ -268,11 +268,34 @@ def patch_android_viewer(scene_file: pathlib.Path) -> None:
     text = text.replace(
         orbit_fields,
         '''  private orbiting = false;
-  // EnderSlicer Android touch navigation: one finger keeps the custom
-  // pivot orbit, while two fingers are owned exclusively by OrbitControls pan.
+  // EnderSlicer Android deterministic touch pan: one finger keeps the custom
+  // pivot orbit; two or more fingers use one manual screen-space pan path.
   private orbitPointerId: number | null = null;
-  private touchPointers = new Set<number>();
+  private touchPointers = new Map<number, { x: number; y: number }>();
+  private touchPanLast: { x: number; y: number } | null = null;
   private _oq1 = new THREE.Quaternion();
+''',
+        1,
+    )
+
+    pointer_move = '''  private onPointerMove = (ev: PointerEvent) => {
+    if (this.orbiting) return; // camera drag in progress — skip hover/brush
+'''
+    if pointer_move not in text:
+        raise RuntimeError("Unable to locate filaSim pointer-move handler for Android touch patching")
+    text = text.replace(
+        pointer_move,
+        '''  private onPointerMove = (ev: PointerEvent) => {
+    if (ev.pointerType === "touch" && this.touchPointers.has(ev.pointerId)) {
+      this.touchPointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+      if (this.touchPanLast && this.touchPointers.size > 1) {
+        const next = this.touchCentroid();
+        this.panTouchCamera(next.x - this.touchPanLast.x, next.y - this.touchPanLast.y);
+        this.touchPanLast = next;
+        return;
+      }
+    }
+    if (this.orbiting) return; // camera drag in progress — skip hover/brush
 ''',
         1,
     )
@@ -288,14 +311,15 @@ def patch_android_viewer(scene_file: pathlib.Path) -> None:
         '''  private onPointerDown = (ev: PointerEvent) => {
     if (!this.mesh) return;
     if (ev.pointerType === "touch") {
-      this.touchPointers.add(ev.pointerId);
+      this.touchPointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
       if (this.touchPointers.size > 1) {
-        // OrbitControls has already seen this second pointer and switched to
-        // TOUCH_DOLLY_PAN. End the first finger's custom orbit so the two
-        // camera implementations cannot fight over the same gesture.
+        // OrbitControls has already observed this pointer. Disable its move
+        // path before either implementation can apply a delta, then pan from
+        // the touch centroid ourselves until every finger is released.
         this.brushing = false;
-        this.controls.enabled = true;
         this.finishOrbitGesture();
+        this.controls.enabled = false;
+        this.touchPanLast = this.touchCentroid();
         return;
       }
     }
@@ -315,11 +339,34 @@ def patch_android_viewer(scene_file: pathlib.Path) -> None:
         '''  private onPointerUp = (ev: PointerEvent) => {
     this.brushing = false;
     if (ev.pointerType === "touch") {
+      const wasTouchPan = this.touchPanLast !== null;
       this.touchPointers.delete(ev.pointerId);
+      if (wasTouchPan) {
+        // Keep OrbitControls disabled while one finger remains after a pan.
+        // Its two-to-one transition otherwise resumes a stale dolly-pan state.
+        this.touchPanLast = this.touchPointers.size > 1 ? this.touchCentroid() : null;
+        if (this.touchPointers.size === 0) this.controls.enabled = true;
+        return;
+      }
       if (this.orbitPointerId === ev.pointerId) this.finishOrbitGesture();
+      if (this.touchPointers.size === 0) this.controls.enabled = true;
       return;
     }
     if (ev.button === 2 && this.rmbDown && this.tool === "select") {
+''',
+        1,
+    )
+
+    pointer_cancel_registration = '''    canvas.addEventListener("pointerup", this.onPointerUp);
+    // RMB is a selection tool (erase) — never the browser context menu.
+'''
+    if pointer_cancel_registration not in text:
+        raise RuntimeError("Unable to locate filaSim pointer registration for Android touch patching")
+    text = text.replace(
+        pointer_cancel_registration,
+        '''    canvas.addEventListener("pointerup", this.onPointerUp);
+    canvas.addEventListener("pointercancel", this.onPointerUp);
+    // RMB is a selection tool (erase) — never the browser context menu.
 ''',
         1,
     )
@@ -374,7 +421,36 @@ def patch_android_viewer(scene_file: pathlib.Path) -> None:
         raise RuntimeError("Unable to locate filaSim orbit release for Android touch patching")
     text = text.replace(
         orbit_up,
-        '''  private finishOrbitGesture() {
+        '''  private touchCentroid(): { x: number; y: number } {
+    let x = 0;
+    let y = 0;
+    for (const point of this.touchPointers.values()) {
+      x += point.x;
+      y += point.y;
+    }
+    const count = Math.max(1, this.touchPointers.size);
+    return { x: x / count, y: y / count };
+  }
+
+  private panTouchCamera(dx: number, dy: number) {
+    if (dx === 0 && dy === 0) return;
+    const width = this.canvas.clientWidth || this.viewW || 1;
+    const height = this.canvas.clientHeight || this.viewH || 1;
+    this.camera.updateMatrixWorld();
+    this._oTmp
+      .setFromMatrixColumn(this.camera.matrixWorld, 0)
+      .multiplyScalar((-dx * (this.camera.right - this.camera.left)) / this.camera.zoom / width);
+    this._oTmp2
+      .setFromMatrixColumn(this.camera.matrixWorld, 1)
+      .multiplyScalar((dy * (this.camera.top - this.camera.bottom)) / this.camera.zoom / height);
+    this._oTmp.add(this._oTmp2);
+    this.camera.position.add(this._oTmp);
+    this.controls.target.add(this._oTmp);
+    this.lastOrbitPivot?.add(this._oTmp);
+    this.camera.updateMatrixWorld();
+  }
+
+  private finishOrbitGesture() {
     if (!this.orbitPivot && this.orbitPointerId === null) return;
     this.orbitPivot = null;
     this.orbitStart = null;
@@ -452,7 +528,7 @@ def main() -> int:
 
     build_root = project_root / ".build/filasim-android"
     build_root.mkdir(parents=True, exist_ok=True)
-    source_root = build_root / FILASIM_COMMIT
+    source_root = build_root / f"{FILASIM_COMMIT}-format{ASSET_FORMAT}"
     if not source_root.is_dir():
         with tempfile.TemporaryDirectory(dir=build_root) as temporary:
             temporary_path = pathlib.Path(temporary)
