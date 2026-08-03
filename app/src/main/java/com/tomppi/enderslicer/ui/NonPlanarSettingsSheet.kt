@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
@@ -16,10 +17,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.tomppi.enderslicer.nonplanar.NonPlanarSettings
 import com.tomppi.enderslicer.nonplanar.NonPlanarSettingsStore
@@ -32,7 +34,90 @@ internal fun NonPlanarSettingsSheet(
     onSave: (NonPlanarSettings) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var settings by remember(initial) { mutableStateOf(initial.validated()) }
+    var enabled by rememberSaveable(initial.enabled) { mutableStateOf(initial.enabled) }
+    var strength by rememberSaveable(initial.strengthPercent) { mutableStateOf(initial.strengthPercent.toString()) }
+    var smoothing by rememberSaveable(initial.smoothingRadiusMm) { mutableStateOf(initial.smoothingRadiusMm.toString()) }
+    var slope by rememberSaveable(initial.maximumSlopeDegrees) { mutableStateOf(initial.maximumSlopeDegrees.toString()) }
+    var clearanceAngle by rememberSaveable(initial.nozzleClearanceAngleDegrees) {
+        mutableStateOf(initial.nozzleClearanceAngleDegrees.toString())
+    }
+    var clearanceHeight by rememberSaveable(initial.nozzleClearanceHeightMm) {
+        mutableStateOf(initial.nozzleClearanceHeightMm.toString())
+    }
+    var flatBaseLayers by rememberSaveable(initial.flatBaseLayers) { mutableStateOf(initial.flatBaseLayers.toString()) }
+    var fieldResolution by rememberSaveable(initial.fieldResolution) { mutableStateOf(initial.fieldResolution.toString()) }
+    var segmentLength by rememberSaveable(initial.maximumSegmentLengthMm) {
+        mutableStateOf(initial.maximumSegmentLengthMm.toString())
+    }
+    var maximumZSpeed by rememberSaveable(initial.maximumZSpeedMmPerSecond) {
+        mutableStateOf(initial.maximumZSpeedMmPerSecond.toString())
+    }
+    var compensateExtrusion by rememberSaveable(initial.compensateExtrusion) {
+        mutableStateOf(initial.compensateExtrusion)
+    }
+    var warpSmartInfill by rememberSaveable(initial.warpSmartInfillModifiers) {
+        mutableStateOf(initial.warpSmartInfillModifiers)
+    }
+
+    val parsedStrength = parseDecimal(strength, NonPlanarSettings.MIN_STRENGTH_PERCENT, NonPlanarSettings.MAX_STRENGTH_PERCENT)
+    val parsedSmoothing = parseDecimal(
+        smoothing,
+        NonPlanarSettings.MIN_SMOOTHING_RADIUS_MM,
+        NonPlanarSettings.MAX_SMOOTHING_RADIUS_MM,
+    )
+    val parsedSlope = parseDecimal(slope, NonPlanarSettings.MIN_SLOPE_DEGREES, NonPlanarSettings.MAX_SLOPE_DEGREES)
+    val parsedClearanceAngle = parseDecimal(
+        clearanceAngle,
+        NonPlanarSettings.MIN_CLEARANCE_ANGLE_DEGREES,
+        NonPlanarSettings.MAX_CLEARANCE_ANGLE_DEGREES,
+    )
+    val parsedClearanceHeight = parseDecimal(
+        clearanceHeight,
+        NonPlanarSettings.MIN_CLEARANCE_HEIGHT_MM,
+        NonPlanarSettings.MAX_CLEARANCE_HEIGHT_MM,
+    )
+    val parsedFlatBaseLayers = parseInteger(
+        flatBaseLayers,
+        NonPlanarSettings.MIN_FLAT_BASE_LAYERS,
+        NonPlanarSettings.MAX_FLAT_BASE_LAYERS,
+    )
+    val parsedFieldResolution = parseInteger(
+        fieldResolution,
+        NonPlanarSettings.MIN_FIELD_RESOLUTION,
+        NonPlanarSettings.MAX_FIELD_RESOLUTION,
+    )
+    val parsedSegmentLength = parseDecimal(
+        segmentLength,
+        NonPlanarSettings.MIN_SEGMENT_LENGTH_MM,
+        NonPlanarSettings.MAX_SEGMENT_LENGTH_MM,
+    )
+    val parsedMaximumZSpeed = parseDecimal(
+        maximumZSpeed,
+        NonPlanarSettings.MIN_Z_SPEED_MM_PER_SECOND,
+        NonPlanarSettings.MAX_Z_SPEED_MM_PER_SECOND,
+    )
+    val draft = if (
+        parsedStrength != null && parsedSmoothing != null && parsedSlope != null &&
+        parsedClearanceAngle != null && parsedClearanceHeight != null && parsedFlatBaseLayers != null &&
+        parsedFieldResolution != null && parsedSegmentLength != null && parsedMaximumZSpeed != null
+    ) {
+        NonPlanarSettings(
+            enabled = enabled,
+            strengthPercent = parsedStrength,
+            smoothingRadiusMm = parsedSmoothing,
+            maximumSlopeDegrees = parsedSlope,
+            nozzleClearanceAngleDegrees = parsedClearanceAngle,
+            nozzleClearanceHeightMm = parsedClearanceHeight,
+            flatBaseLayers = parsedFlatBaseLayers,
+            fieldResolution = parsedFieldResolution,
+            maximumSegmentLengthMm = parsedSegmentLength,
+            maximumZSpeedMmPerSecond = parsedMaximumZSpeed,
+            compensateExtrusion = compensateExtrusion,
+            warpSmartInfillModifiers = warpSmartInfill,
+        )
+    } else {
+        null
+    }
 
     Column(
         modifier = modifier
@@ -59,54 +144,90 @@ internal fun NonPlanarSettingsSheet(
         SettingSwitch(
             title = "Enable CurviSlicer",
             description = "Generate curved layers for the next slice",
-            checked = settings.enabled,
-            onChecked = { settings = settings.copy(enabled = it) },
+            checked = enabled,
+            onChecked = { enabled = it },
         )
-        DecimalSettingField("Curvature strength (%)", settings.strengthPercent) {
-            settings = settings.copy(strengthPercent = it)
-        }
-        DecimalSettingField("Surface smoothing radius (mm)", settings.smoothingRadiusMm) {
-            settings = settings.copy(smoothingRadiusMm = it)
-        }
-        DecimalSettingField("Maximum path slope (degrees)", settings.maximumSlopeDegrees) {
-            settings = settings.copy(maximumSlopeDegrees = it)
-        }
-        DecimalSettingField("Nozzle clearance angle (degrees)", settings.nozzleClearanceAngleDegrees) {
-            settings = settings.copy(nozzleClearanceAngleDegrees = it)
-        }
-        DecimalSettingField("Nozzle clearance height (mm)", settings.nozzleClearanceHeightMm) {
-            settings = settings.copy(nozzleClearanceHeightMm = it)
-        }
-        IntegerSettingField("Flat base layers", settings.flatBaseLayers) {
-            settings = settings.copy(flatBaseLayers = it)
-        }
-        IntegerSettingField("Curvature field resolution", settings.fieldResolution) {
-            settings = settings.copy(fieldResolution = it)
-        }
-        DecimalSettingField("Maximum generated move length (mm)", settings.maximumSegmentLengthMm) {
-            settings = settings.copy(maximumSegmentLengthMm = it)
-        }
-        DecimalSettingField("Maximum Z speed (mm/s)", settings.maximumZSpeedMmPerSecond) {
-            settings = settings.copy(maximumZSpeedMmPerSecond = it)
-        }
+        DecimalSettingField(
+            "Curvature strength (%)",
+            strength,
+            NonPlanarSettings.MIN_STRENGTH_PERCENT,
+            NonPlanarSettings.MAX_STRENGTH_PERCENT,
+            onText = { strength = it },
+        )
+        DecimalSettingField(
+            "Surface smoothing radius (mm)",
+            smoothing,
+            NonPlanarSettings.MIN_SMOOTHING_RADIUS_MM,
+            NonPlanarSettings.MAX_SMOOTHING_RADIUS_MM,
+            onText = { smoothing = it },
+        )
+        DecimalSettingField(
+            "Maximum path slope (degrees)",
+            slope,
+            NonPlanarSettings.MIN_SLOPE_DEGREES,
+            NonPlanarSettings.MAX_SLOPE_DEGREES,
+            onText = { slope = it },
+        )
+        DecimalSettingField(
+            "Nozzle clearance angle (degrees)",
+            clearanceAngle,
+            NonPlanarSettings.MIN_CLEARANCE_ANGLE_DEGREES,
+            NonPlanarSettings.MAX_CLEARANCE_ANGLE_DEGREES,
+            onText = { clearanceAngle = it },
+        )
+        DecimalSettingField(
+            "Nozzle clearance height (mm)",
+            clearanceHeight,
+            NonPlanarSettings.MIN_CLEARANCE_HEIGHT_MM,
+            NonPlanarSettings.MAX_CLEARANCE_HEIGHT_MM,
+            onText = { clearanceHeight = it },
+        )
+        IntegerSettingField(
+            "Flat base layers",
+            flatBaseLayers,
+            NonPlanarSettings.MIN_FLAT_BASE_LAYERS,
+            NonPlanarSettings.MAX_FLAT_BASE_LAYERS,
+            onText = { flatBaseLayers = it },
+        )
+        IntegerSettingField(
+            "Curvature field resolution",
+            fieldResolution,
+            NonPlanarSettings.MIN_FIELD_RESOLUTION,
+            NonPlanarSettings.MAX_FIELD_RESOLUTION,
+            onText = { fieldResolution = it },
+        )
+        DecimalSettingField(
+            "Maximum generated move length (mm)",
+            segmentLength,
+            NonPlanarSettings.MIN_SEGMENT_LENGTH_MM,
+            NonPlanarSettings.MAX_SEGMENT_LENGTH_MM,
+            onText = { segmentLength = it },
+        )
+        DecimalSettingField(
+            "Maximum Z speed (mm/s)",
+            maximumZSpeed,
+            NonPlanarSettings.MIN_Z_SPEED_MM_PER_SECOND,
+            NonPlanarSettings.MAX_Z_SPEED_MM_PER_SECOND,
+            onText = { maximumZSpeed = it },
+        )
         SettingSwitch(
             title = "Extrusion length compensation",
             description = "Scale positive extrusion for the true curved 3D path length",
-            checked = settings.compensateExtrusion,
-            onChecked = { settings = settings.copy(compensateExtrusion = it) },
+            checked = compensateExtrusion,
+            onChecked = { compensateExtrusion = it },
         )
         SettingSwitch(
             title = "Warp Smart Infill modifiers",
             description = "Keep filaSim density regions aligned with the flattened model",
-            checked = settings.warpSmartInfillModifiers,
-            onChecked = { settings = settings.copy(warpSmartInfillModifiers = it) },
+            checked = warpSmartInfill,
+            onChecked = { warpSmartInfill = it },
         )
 
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                 Text("Printer safety", style = MaterialTheme.typography.titleSmall)
                 Text(
-                    "The applied strength is automatically reduced if the requested field could cross layers or exceed the effective nozzle-clearance slope. Final G-code is rejected if it goes below the bed, above build height, uses unsupported fitted arcs, or exceeds the configured path budget.",
+                    "The applied strength is automatically reduced against the inverse path slope. Final G-code is rejected if any move leaves the configured machine envelope, exceeds the clearance slope, or uses unsupported arcs.",
                     style = MaterialTheme.typography.bodySmall,
                 )
                 Text(
@@ -116,7 +237,11 @@ internal fun NonPlanarSettingsSheet(
             }
         }
 
-        Button(onClick = { onSave(settings.validated()) }, modifier = Modifier.fillMaxWidth()) {
+        Button(
+            onClick = { onSave(requireNotNull(draft)) },
+            enabled = draft != null,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
             Text("Save non-planar options")
         }
     }
@@ -141,18 +266,20 @@ private fun SettingSwitch(
 @Composable
 private fun DecimalSettingField(
     label: String,
-    value: Double,
-    onValue: (Double) -> Unit,
+    text: String,
+    minimum: Double,
+    maximum: Double,
+    onText: (String) -> Unit,
 ) {
-    var text by remember(value) { mutableStateOf(value.toString()) }
+    val valid = parseDecimal(text, minimum, maximum) != null
     OutlinedTextField(
         value = text,
-        onValueChange = { next ->
-            text = next
-            next.toDoubleOrNull()?.takeIf(Double::isFinite)?.let(onValue)
-        },
+        onValueChange = onText,
         label = { Text(label) },
+        supportingText = if (valid) null else ({ Text("Enter a value from $minimum to $maximum") }),
+        isError = !valid,
         singleLine = true,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
         modifier = Modifier.fillMaxWidth(),
     )
 }
@@ -160,18 +287,29 @@ private fun DecimalSettingField(
 @Composable
 private fun IntegerSettingField(
     label: String,
-    value: Int,
-    onValue: (Int) -> Unit,
+    text: String,
+    minimum: Int,
+    maximum: Int,
+    onText: (String) -> Unit,
 ) {
-    var text by remember(value) { mutableStateOf(value.toString()) }
+    val valid = parseInteger(text, minimum, maximum) != null
     OutlinedTextField(
         value = text,
-        onValueChange = { next ->
-            text = next
-            next.toIntOrNull()?.let(onValue)
-        },
+        onValueChange = onText,
         label = { Text(label) },
+        supportingText = if (valid) null else ({ Text("Enter a whole number from $minimum to $maximum") }),
+        isError = !valid,
         singleLine = true,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
         modifier = Modifier.fillMaxWidth(),
     )
 }
+
+private fun parseDecimal(text: String, minimum: Double, maximum: Double): Double? {
+    val normalized = text.trim().replace(',', '.')
+    val value = normalized.toDoubleOrNull()?.takeIf(Double::isFinite) ?: return null
+    return value.takeIf { it in minimum..maximum }
+}
+
+private fun parseInteger(text: String, minimum: Int, maximum: Int): Int? =
+    text.trim().toIntOrNull()?.takeIf { it in minimum..maximum }
