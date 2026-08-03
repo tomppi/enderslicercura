@@ -31,7 +31,7 @@ class SmartInfillPatternCommandTest {
             densities = listOf(100),
             binarySolidPattern = "concentric",
         )
-        fixture.use { (packageValue, command, model, modifiers) ->
+        fixture.use { (_, packageValue, command, model, modifiers) ->
             val modelSettings = settingsAfter(command, model, modifiers.first())
             val modifierSettings = settingsAfter(command, modifiers.first(), null)
             assertEquals("cubic", setting(modelSettings, "infill_pattern"))
@@ -39,7 +39,7 @@ class SmartInfillPatternCommandTest {
             assertEquals("concentric", setting(modifierSettings, "infill_pattern"))
             assertEquals("0.4", setting(modifierSettings, "infill_line_distance"))
             assertEquals("0", setting(modifierSettings, "wall_line_count"))
-            assertEquals(packageValue.binarySolidPattern, "concentric")
+            assertEquals("concentric", packageValue.binarySolidPattern)
         }
     }
 
@@ -50,7 +50,7 @@ class SmartInfillPatternCommandTest {
             basePattern = "gyroid",
             densities = listOf(35, 100),
         )
-        fixture.use { (_, command, model, modifiers) ->
+        fixture.use { (_, _, command, model, modifiers) ->
             val baseSettings = settingsAfter(command, model, modifiers[0])
             val mediumSettings = settingsAfter(command, modifiers[0], modifiers[1])
             val fullSettings = settingsAfter(command, modifiers[1], null)
