@@ -123,13 +123,19 @@ jobs:
           test -s app/src/main/assets/filasim/SHA256SUMS
           test -s app/src/main/assets/filasim/source-manifest/Cargo.lock
           test -s app/src/main/assets/filasim/source-manifest/web-package-lock.json
-          grep -q 'format=5' app/src/main/assets/filasim/.source-version
+          grep -q 'format=7' app/src/main/assets/filasim/.source-version
           grep -q 'commit=e7485ec22d4ebe8baca04190404fbb877c90e031' app/src/main/assets/filasim/.source-version
           grep -q 'android-bridge.js' app/src/main/assets/filasim/index.html
-          grep -R -q 'EnderSlicerBridge.*captureModifierZip' .build/filasim-android/e7485ec22d4ebe8baca04190404fbb877c90e031/web/src/store.ts
-          grep -R -q 'EnderSlicerBridge.*captureOptimizedShape' .build/filasim-android/e7485ec22d4ebe8baca04190404fbb877c90e031/web/src/store.ts
-          grep -R -q 'state.optMode === "binary" ? state.solidPattern : state.pattern' .build/filasim-android/e7485ec22d4ebe8baca04190404fbb877c90e031/web/src/store.ts
-          grep -R -q 'EnderSlicer Android host supplies the exact displayed model' .build/filasim-android/e7485ec22d4ebe8baca04190404fbb877c90e031/web/src/App.tsx
+          FILASIM_SOURCE=.build/filasim-android/e7485ec22d4ebe8baca04190404fbb877c90e031-format7/web/src
+          grep -R -q 'EnderSlicerBridge.*captureModifierZip' "$FILASIM_SOURCE/store.ts"
+          grep -R -q 'EnderSlicerBridge.*captureOptimizedShape' "$FILASIM_SOURCE/store.ts"
+          grep -R -q 'state.optMode === "binary" ? state.solidPattern : state.pattern' "$FILASIM_SOURCE/store.ts"
+          grep -R -q 'EnderSlicer Android host supplies the exact displayed model' "$FILASIM_SOURCE/App.tsx"
+          grep -R -q 'EnderSlicer Android owns project persistence' "$FILASIM_SOURCE/ui/TopBar.tsx"
+          grep -R -q '!androidHosted' "$FILASIM_SOURCE/ui/TopBar.tsx"
+          grep -R -q 'EnderSlicer Android deterministic touch pan' "$FILASIM_SOURCE/viewer/SceneManager.ts"
+          grep -R -q 'private panTouchCamera' "$FILASIM_SOURCE/viewer/SceneManager.ts"
+          grep -R -q 'pointercancel' "$FILASIM_SOURCE/viewer/SceneManager.ts"
           test -n "$(find app/src/main/assets/filasim -type f -name '*.wasm' -size +0c -print -quit)"
           (cd app/src/main/assets/filasim && sha256sum --check SHA256SUMS)
           gradle :app:prepareFilaSimAssets --info | tee filasim-warm-build.log
