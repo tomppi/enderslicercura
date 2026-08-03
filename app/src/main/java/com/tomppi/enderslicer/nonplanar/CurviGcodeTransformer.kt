@@ -86,15 +86,21 @@ internal object CurviGcodeTransformer {
                             inPrintableLayers = true
                         }
                         if (trimmed == CurviSlicerRuntime.MACHINE_END_SENTINEL) {
-                            // Machine end G-code executes from the already curved physical
-                            // position. Synchronize the interpreter before copying it verbatim.
+                            // Machine end G-code starts from the already curved XYZ position,
+                            // but its absolute-E commands were authored against Cura's planar E
+                            // coordinate. Restore only E so retract/prime deltas remain identical.
                             inPrintableLayers = false
                             currentLayer = null
+                            output.appendLine(rawLine)
+                            if (abs(curvedE - planarE) > EPSILON) {
+                                output.appendLine(
+                                    "G92 E${format(planarE)} ; restore Cura E coordinate before machine end G-code",
+                                )
+                                curvedE = planarE
+                            }
                             planarX = curvedX
                             planarY = curvedY
                             planarZ = curvedZ
-                            planarE = curvedE
-                            output.appendLine(rawLine)
                             return@forEachLine
                         }
                         if (trimmed.startsWith(";End of Gcode", ignoreCase = true) || trimmed.startsWith(";END_OF_PRINT")) {
