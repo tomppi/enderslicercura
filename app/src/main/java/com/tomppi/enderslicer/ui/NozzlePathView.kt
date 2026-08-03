@@ -112,11 +112,22 @@ private fun NozzlePathPlayer(path: GcodeNozzlePath, modifier: Modifier) {
                 )
                 Slider(
                     value = safeIndex.toFloat(),
-                    onValueChange = { moveIndex = it.roundToInt().coerceIn(0, path.moveCount - 1) },
+                    onValueChange = {
+                        playing = false
+                        moveIndex = it.roundToInt().coerceIn(0, path.moveCount - 1)
+                    },
                     valueRange = 0f..max(path.moveCount - 1, 1).toFloat(),
                     enabled = path.moveCount > 1,
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    OutlinedButton(
+                        onClick = {
+                            playing = false
+                            moveIndex = (safeIndex - 1).coerceAtLeast(0)
+                        },
+                        enabled = safeIndex > 0,
+                        modifier = Modifier.weight(1f),
+                    ) { Text("Previous") }
                     if (playing) {
                         Button(onClick = { playing = false }, modifier = Modifier.weight(1f)) { Text("Pause") }
                     } else {
@@ -129,10 +140,22 @@ private fun NozzlePathPlayer(path: GcodeNozzlePath, modifier: Modifier) {
                         ) { Text("Play") }
                     }
                     OutlinedButton(
-                        onClick = { playing = false; moveIndex = 0 },
+                        onClick = {
+                            playing = false
+                            moveIndex = (safeIndex + 1).coerceAtMost(path.moveCount - 1)
+                        },
+                        enabled = safeIndex < path.moveCount - 1,
                         modifier = Modifier.weight(1f),
-                    ) { Text("Restart") }
+                    ) { Text("Next") }
                 }
+                OutlinedButton(
+                    onClick = {
+                        playing = false
+                        moveIndex = 0
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = safeIndex > 0 || playing,
+                ) { Text("Restart") }
                 Text(
                     "Gray is travel. Extrusion changes from blue at low Z to red at high Z. Drag to orbit, pinch to zoom, use two fingers to pan, and double-tap to reset.",
                     style = MaterialTheme.typography.labelSmall,
