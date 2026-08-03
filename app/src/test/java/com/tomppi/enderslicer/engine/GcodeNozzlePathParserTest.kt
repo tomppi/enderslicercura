@@ -1,10 +1,10 @@
 package com.tomppi.enderslicer.engine
 
+import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.io.File
 
 class GcodeNozzlePathParserTest {
     @Test
@@ -28,6 +28,7 @@ class GcodeNozzlePathParserTest {
         assertEquals(4, path.moveCount)
         assertEquals(2, path.travelMoveCount)
         assertEquals(2, path.extrusionMoveCount)
+        assertEquals(listOf(0, 1, 2, 3), path.sourceMoveIndices.toList())
         assertEquals(0f, path.minX)
         assertEquals(10f, path.maxX)
         assertEquals(0f, path.minZ)
@@ -42,7 +43,7 @@ class GcodeNozzlePathParserTest {
     }
 
     @Test
-    fun samplesAcrossTheWholePrintWithoutReorderingMoves() {
+    fun samplesAcrossTheWholePrintAndRetainsFirstAndLastSourceIndices() {
         val commands = buildString {
             appendLine("G90")
             appendLine("M83")
@@ -55,14 +56,37 @@ class GcodeNozzlePathParserTest {
         assertEquals(100, path.sourceMoveCount)
         assertEquals(10, path.moveCount)
         assertTrue(path.truncated)
+        assertEquals(0, path.sourceMoveIndices.first())
+        assertEquals(99, path.sourceMoveIndices.last())
+        var previousSource = -1
         var previousX = Float.NEGATIVE_INFINITY
         for (index in 0 until path.moveCount) {
             val offset = index * GcodeNozzlePath.VALUES_PER_MOVE
             val x = path.moves[offset + GcodeNozzlePath.X2]
+            val sourceIndex = path.sourceMoveIndices[index]
             assertTrue("Sampled moves must remain in print order", x > previousX)
+            assertTrue("Source indices must remain in print order", sourceIndex > previousSource)
             previousX = x
+            previousSource = sourceIndex
         }
         assertEquals(100f, previousX)
+    }
+
+    @Test
+    fun rejectsArcsInsteadOfDrawingAFalseRoute() {
+        val failure = runCatching {
+            GcodeNozzlePathParser.parse(
+                temporaryGcode(
+                    """
+                    G90
+                    G2 X10 Y10 I5 J0 F1200
+                    G1 X20 Y20
+                    """.trimIndent(),
+                ),
+            )
+        }.exceptionOrNull()
+
+        assertTrue(requireNotNull(failure).message.orEmpty().contains("G2/G3"))
     }
 
     private fun temporaryGcode(contents: String): File =
