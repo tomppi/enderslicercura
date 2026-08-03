@@ -37,8 +37,8 @@ class CurviSlicerPipelineTest {
             G0 X0 Y5 Z0.2 F6000
             ;LAYER:0
             ;MESH:model.stl
-            G1 X0 Y5 Z1 E0 F1200
-            G1 X10 Y5 Z1 E1 F1200
+            G1 X0 Y5 Z6 E0 F1200
+            G1 X10 Y5 Z6 E1 F1200
             ;TIME_ELAPSED:1
             ;End of Gcode
             G0 Z20
@@ -58,7 +58,7 @@ class CurviSlicerPipelineTest {
         val curved = gcode.readLines()
         assertTrue(curved.any { it.startsWith(";ENDERSLICER_NON_PLANAR:CurviSlicer-Android-v1") })
         assertTrue(requireNotNull(result).emittedMoves > result.sourceMoves)
-        assertTrue(result.maximumZmm > 1.0)
+        assertTrue(result.maximumZmm > 6.0)
         assertTrue(result.minimumZmm >= 0.0)
         assertTrue(result.maximumObservedZSpeedMmPerSecond <= settings.maximumZSpeedMmPerSecond + 0.0001)
 
@@ -88,8 +88,8 @@ class CurviSlicerPipelineTest {
             G92 E0
             G0 X0 Y5 Z0.2 F6000
             ;LAYER:0
-            G1 X0 Y5 Z1 E0 F1200
-            G1 X10 Y5 Z1 E1 F1200
+            G1 X0 Y5 Z6 E0 F1200
+            G1 X10 Y5 Z6 E1 F1200
             G1 E0.5 F1800 ; retract
             G1 E1 F1800 ; prime
             ;End of Gcode
