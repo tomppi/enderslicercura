@@ -145,22 +145,29 @@
 
   function normalizeModifierMetadata(metadata) {
     const mode = metadata?.mode === "binary" ? "binary" : "graded";
-    return {
+    const normalized = {
       ...metadata,
       metadataVersion: 2,
       // This pinned filaSim solver has one calibrated sparse pattern. Old or
       // restored WebView state can still expose null/retired values, so the
       // Android boundary writes the actual solver contract deterministically.
       basePattern: "cubic",
-      binarySolidPattern:
-        mode === "binary"
-          ? metadata?.binarySolidPattern === "concentric" || metadata?.solidPattern === "concentric"
-            ? "concentric"
-            : "rectilinear"
-          : null,
       gradedFullDensityPattern: "rectilinear",
       mode,
     };
+
+    if (mode === "binary") {
+      normalized.binarySolidPattern =
+        metadata?.binarySolidPattern === "concentric" || metadata?.solidPattern === "concentric"
+          ? "concentric"
+          : "rectilinear";
+    } else {
+      // JSONObject.optString() turns an explicit JSON null into the literal
+      // string "null". Omit this optional field for graded mode instead.
+      delete normalized.binarySolidPattern;
+      delete normalized.solidPattern;
+    }
+    return normalized;
   }
 
   async function captureModifierZip(bytes, metadata) {
