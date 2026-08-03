@@ -31,7 +31,7 @@ internal object CuraResolvedSettingsWriter {
             "Resolved Cura STL is missing or empty: ${modelFile.absolutePath}"
         }
         val curviSnapshot = CurviSlicerRuntime.snapshot()
-        val stagedForCurvi = modelTransform == CURVI_STAGED_IDENTITY
+        val stagedForCurvi = modelTransform === CURVI_STAGED_IDENTITY
         require(!stagedForCurvi || curviSnapshot != null) {
             "The resolved model was staged for CurviSlicer but CurviSlicer is no longer active"
         }
