@@ -130,22 +130,15 @@ object CuraEngineCommand {
         }
 
         // CuraEngine does not evaluate Cura frontend formulas for command-line
-        // values. A density label without these derived values does not change
-        // the actual regional toolpath spacing. Reproduce the pinned Cura 5.11
-        // formulas whenever an active filaSim package supplies the print model.
-        // Explicit modifier callers still retain their requested density label.
-        fun applySmartInfillDensity(densityPercent: Double) {
+        // values. Resolve every regional density-and-pattern pair explicitly so
+        // binary and graded 100% regions keep filaSim's print contract.
+        fun applySmartInfillRegion(densityPercent: Double, curaPattern: String) {
             require(densityPercent in 0.0..100.0) { "Invalid Smart Infill density: $densityPercent" }
-            val densityArgument: Number = if (densityPercent % 1.0 == 0.0) {
-                densityPercent.toInt()
-            } else {
-                densityPercent
-            }
+            val densityArgument: Number = if (densityPercent % 1.0 == 0.0) densityPercent.toInt() else densityPercent
             setting("infill_sparse_density", densityArgument)
 
-            val packageValue = activeSmartInfill ?: return
-            val lineWidth = packageValue.lineWidthMm
-            val pattern = effectiveSettings.infillPattern.lowercase()
+            val lineWidth = activeSmartInfill?.lineWidthMm ?: effectiveSettings.lineWidthMm
+            val pattern = curaPattern.lowercase()
             val patternFactor = when (pattern) {
                 "grid" -> 2.0
                 "triangles", "trihexagon", "cubic", "cubicsubdiv" -> 3.0
@@ -154,21 +147,20 @@ object CuraEngineCommand {
                 "lightning" -> 1.6
                 else -> 1.0
             }
-            val lineDistance = if (densityPercent <= 0.0) {
+            val regionalLineDistance = if (densityPercent <= 0.0) {
                 0.0
             } else {
                 lineWidth * 100.0 / densityPercent * patternFactor
             }
             val overlapPercent = if (densityPercent < 95.0 && pattern != "concentric") 10.0 else 0.0
-            val wallLineWidth = lineWidth
             val overlapMm = if (overlapPercent > 0.0) {
-                0.5 * (lineWidth + wallLineWidth) * overlapPercent / 100.0
+                0.5 * (lineWidth + lineWidth) * overlapPercent / 100.0
             } else {
                 0.0
             }
             setting("infill_pattern", pattern)
             applySmartInfillWidths()
-            setting("infill_line_distance", lineDistance)
+            setting("infill_line_distance", regionalLineDistance)
             setting("infill_overlap", overlapPercent)
             setting("infill_overlap_mm", overlapMm)
             setting(
@@ -178,14 +170,9 @@ object CuraEngineCommand {
         }
 
         fun neutralizeSmartInfillModifierShell() {
-            SmartInfillCuraContract.modifierShellNeutralValues.forEach { (key, value) ->
-                setting(key, value)
-            }
+            SmartInfillCuraContract.modifierShellNeutralValues.forEach { (key, value) -> setting(key, value) }
         }
 
-        // CuraEngine consumes centering/rotation state while -l loads geometry.
-        // Ordinary per-mesh position and role settings must instead follow -l,
-        // because its stateful CLI parser applies -s to the mesh just loaded.
         fun prepareMeshLoad() {
             setting("center_object", false)
             setting("mesh_rotation_matrix", "[[1,0,0],[0,1,0],[0,0,1]]")
@@ -250,7 +237,13 @@ object CuraEngineCommand {
         command += listOf("-l", modelPath)
         positionLoadedMesh()
         setting("extruder_nr", 0)
-        applySmartInfillDensity(activeSmartInfill?.baseDensityPercent ?: effectiveSettings.infillDensityPercent)
+        val basePattern = activeSmartInfill
+            ?.let(SmartInfillCuraContract::basePattern)
+            ?: effectiveSettings.infillPattern.lowercase()
+        applySmartInfillRegion(
+            activeSmartInfill?.baseDensityPercent ?: effectiveSettings.infillDensityPercent,
+            basePattern,
+        )
         setting("infill_mesh", false)
         setting("support_mesh", false)
         setting("anti_overhang_mesh", false)
@@ -259,15 +252,16 @@ object CuraEngineCommand {
         effectiveSmartInfillModifiers
             .sortedBy(SmartInfillModifier::densityPercent)
             .forEachIndexed { index, modifier ->
-                // Modifier STL geometry already uses the displayed model's final
-                // coordinates; only the common Cura bed-origin offset is needed.
                 prepareMeshLoad()
                 command += listOf("-l", modifier.file.absolutePath)
                 positionLoadedMesh()
                 setting("extruder_nr", 0)
                 setting("infill_mesh", true)
                 setting("infill_mesh_order", index + 1)
-                applySmartInfillDensity(modifier.densityPercent.toDouble())
+                val modifierPattern = activeSmartInfill
+                    ?.let { SmartInfillCuraContract.modifierPattern(it, modifier.densityPercent) }
+                    ?: effectiveSettings.infillPattern.lowercase()
+                applySmartInfillRegion(modifier.densityPercent.toDouble(), modifierPattern)
                 neutralizeSmartInfillModifierShell()
                 setting("support_mesh", false)
                 setting("anti_overhang_mesh", false)
