@@ -34,6 +34,7 @@ import com.tomppi.enderslicer.engine.GcodeNozzlePath
 import com.tomppi.enderslicer.engine.GcodeNozzlePathParser
 import com.tomppi.enderslicer.viewer.NozzlePathSurfaceView
 import java.io.File
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -51,12 +52,15 @@ private sealed interface NozzlePathLoadState {
 internal fun NozzlePathView(gcodePath: String, modifier: Modifier = Modifier) {
     val loadState by produceState<NozzlePathLoadState>(NozzlePathLoadState.Loading, gcodePath) {
         value = NozzlePathLoadState.Loading
-        value = runCatching {
-            runInterruptible(Dispatchers.IO) { GcodeNozzlePathParser.parse(File(gcodePath)) }
-        }.fold(
-            onSuccess = NozzlePathLoadState::Ready,
-            onFailure = { NozzlePathLoadState.Failed(it.message ?: "Unable to parse nozzle path") },
-        )
+        value = try {
+            NozzlePathLoadState.Ready(
+                runInterruptible(Dispatchers.IO) { GcodeNozzlePathParser.parse(File(gcodePath)) },
+            )
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Throwable) {
+            NozzlePathLoadState.Failed(error.message ?: "Unable to parse nozzle path")
+        }
     }
 
     when (val current = loadState) {
