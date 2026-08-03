@@ -36,17 +36,7 @@ internal object PartTopoResultPreparer {
                 displayName = displayName(context, uri),
                 maxTriangles = triangleLimit,
             )
-            // filaSim imported the exact displayed mesh after translating its
-            // XY centre and minimum Z to zero. Its solid export stays in that
-            // local frame, so restore only that known translation. Rotation,
-            // scale and 3MF affine are already baked into the displayed input.
-            val placement = ModelPlacement(
-                linear = ModelPlacement.IDENTITY,
-                centerXmm = analyzedDisplayedMesh.bounds.centerX.toDouble(),
-                centerYmm = analyzedDisplayedMesh.bounds.centerY.toDouble(),
-                baseZmm = analyzedDisplayedMesh.bounds.minZ.toDouble(),
-                source = "filaSim Part Topo result",
-            )
+            val placement = placementFor(analyzedDisplayedMesh)
             val transformed = placement.transformed(source)
             PrinterEnvelope.from(printer.withSettings(settings)).requireBinaryStlFits(
                 file,
@@ -60,6 +50,21 @@ internal object PartTopoResultPreparer {
             throw error
         }
     }
+
+    /**
+     * filaSim imports the exact displayed mesh after translating its XY centre
+     * and minimum Z to local zero. Its Part Topo export remains in that local
+     * frame, so restore only that known translation. Rotation, scale and any
+     * 3MF affine are already baked into the displayed input and must not be
+     * applied again.
+     */
+    internal fun placementFor(analyzedDisplayedMesh: StlMesh): ModelPlacement = ModelPlacement(
+        linear = ModelPlacement.IDENTITY,
+        centerXmm = analyzedDisplayedMesh.bounds.centerX.toDouble(),
+        centerYmm = analyzedDisplayedMesh.bounds.centerY.toDouble(),
+        baseZmm = analyzedDisplayedMesh.bounds.minZ.toDouble(),
+        source = "filaSim Part Topo result",
+    )
 
     private fun materialize(context: Context, uri: Uri, maxTriangles: Int): File {
         val directory = File(context.filesDir, "models").apply {
