@@ -44,12 +44,14 @@ def patch_ui_v12(target: pathlib.Path) -> None:
 
 
 thermal.patch_thermal_ui_runtime = patch_ui_v12
+# The contract-fix suffix updates an obsolete unit-test expectation only; it
+# does not alter packaged runtime behavior, so the package marker remains the
+# physical-model-v1 runtime identity.
 thermal.THERMAL_PACKAGE_MARKER_TEXT = (
     "format=1\n"
     f"filasim={thermal.BASE.FILASIM_COMMIT}\n"
     "transforms=solver,hardening,audit-fixes,progress-v2,react-tab-v1,"
-    "bugfix-round1,bugfix-round2,linear-fast-path-v1,physical-model-v1,"
-    "physical-contract-fix-v1\n"
+    "bugfix-round1,bugfix-round2,linear-fast-path-v1,physical-model-v1\n"
 )
 
 if __name__ == "__main__":
