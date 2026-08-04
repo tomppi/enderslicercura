@@ -4,6 +4,8 @@ import android.content.Context
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import java.time.Instant
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -20,6 +22,7 @@ import java.util.UUID
  */
 internal data class ThermalFeaReport(
     val schemaVersion: Int,
+    val precisionSource: String,
     val sourceName: String,
     val sourceSha256: String,
     val upstreamCommit: String,
@@ -30,18 +33,27 @@ internal data class ThermalFeaReport(
     val lockingTemperatureC: Double?,
     val bedTemperatureC: Double?,
     val chamberTemperatureC: Double?,
+    val finalTemperatureC: Double?,
     val densityAware: Boolean,
-    val voxelSizeMm: Double?,
+    val voxelSizeMm: Double,
+    val gridNx: Int,
+    val gridNy: Int,
+    val gridNz: Int,
+    val activeCells: Int,
+    val buildLayers: Int,
     val bondedWarpMm: Double,
     val releasedWarpMm: Double,
     val peakLiftMpa: Double,
     val peakShearMpa: Double,
-    val solverSeconds: Double?,
+    val solverSeconds: Double,
+    val meanIterationsPerLayer: Double,
+    val maxIterationsPerLayer: Int,
 ) {
     fun toCanonicalJson(): String = JSONObject()
         .put("schemaVersion", schemaVersion)
         .put("analysisKind", ANALYSIS_KIND)
         .put("solverModel", SOLVER_MODEL)
+        .put("precisionSource", precisionSource)
         .put("sourceName", sourceName)
         .put("sourceSha256", sourceSha256)
         .put("upstreamCommit", upstreamCommit)
@@ -59,9 +71,19 @@ internal data class ThermalFeaReport(
             JSONObject()
                 .putNullable("bedTemperatureC", bedTemperatureC)
                 .putNullable("chamberTemperatureC", chamberTemperatureC)
+                .putNullable("finalTemperatureC", finalTemperatureC)
                 .put("densityAware", densityAware),
         )
-        .put("mesh", JSONObject().putNullable("voxelSizeMm", voxelSizeMm))
+        .put(
+            "mesh",
+            JSONObject()
+                .put("voxelSizeMm", voxelSizeMm)
+                .put("nx", gridNx)
+                .put("ny", gridNy)
+                .put("nz", gridNz)
+                .put("activeCells", activeCells)
+                .put("buildLayers", buildLayers),
+        )
         .put(
             "results",
             JSONObject()
@@ -69,7 +91,9 @@ internal data class ThermalFeaReport(
                 .put("releasedWarpMm", releasedWarpMm)
                 .put("peakLiftMpa", peakLiftMpa)
                 .put("peakShearMpa", peakShearMpa)
-                .putNullable("solverSeconds", solverSeconds),
+                .put("solverSeconds", solverSeconds)
+                .put("meanIterationsPerLayer", meanIterationsPerLayer)
+                .put("maxIterationsPerLayer", maxIterationsPerLayer),
         )
         .put(
             "confidence",
@@ -103,6 +127,7 @@ internal data class ThermalFeaReport(
         appendLine("| Model | ${markdown(sourceName)} |")
         appendLine("| Model SHA-256 | `$sourceSha256` |")
         appendLine("| filaSim commit | `$upstreamCommit` |")
+        appendLine("| Numeric source | Exact final `buildSim` worker response |")
         appendLine("| Generated | ${DateTimeFormatter.ISO_INSTANT.format(Instant.ofEpochMilli(generatedAtEpochMillis))} |")
         appendLine()
         appendLine("## Inputs")
@@ -115,7 +140,11 @@ internal data class ThermalFeaReport(
         lockingTemperatureC?.let { appendLine("| Locking temperature | ${formatTemperature(it)} |") }
         bedTemperatureC?.let { appendLine("| Bed temperature | ${formatTemperature(it)} |") }
         chamberTemperatureC?.let { appendLine("| Chamber temperature | ${formatTemperature(it)} |") }
-        voxelSizeMm?.let { appendLine("| Voxel size | ${formatLength(it)} |") }
+        finalTemperatureC?.let { appendLine("| Final temperature | ${formatTemperature(it)} |") }
+        appendLine("| Voxel size | ${formatLength(voxelSizeMm)} |")
+        appendLine("| Coarse build grid | $gridNx × $gridNy × $gridNz |")
+        appendLine("| Active cells | $activeCells |")
+        appendLine("| Activated computational layers | $buildLayers |")
         appendLine("| Stiffness field | ${if (densityAware) "As-printed density aware" else "Solid hull"} |")
         appendLine()
         appendLine("## Calculated results")
@@ -126,13 +155,15 @@ internal data class ThermalFeaReport(
         appendLine("| Maximum deformation after release | ${formatLength(releasedWarpMm)} |")
         appendLine("| Peak bed lift traction | ${formatStress(peakLiftMpa)} |")
         appendLine("| Peak bed shear traction | ${formatStress(peakShearMpa)} |")
-        solverSeconds?.let { appendLine("| Solver time | ${formatNumber(it)} s |") }
+        appendLine("| Solver time | ${formatNumber(solverSeconds)} s |")
+        appendLine("| MGCG iterations/layer, mean | ${formatNumber(meanIterationsPerLayer)} |")
+        appendLine("| MGCG iterations/layer, max | $maxIterationsPerLayer |")
         appendLine()
         appendLine("## Method and interpretation")
         appendLine()
         appendLine("- Sequential voxel-layer activation with an inherent-strain/eigenstrain load.")
         appendLine("- Bonded state constrains the bed plane; released state removes the bed and suppresses rigid-body motion with a minimal 3-2-1 pin.")
-        appendLine("- Bed traction and shear are failure drivers, not a bed-adhesion probability. A calibrated adhesion/process-zone threshold is not available.")
+        appendLine("- Bed traction and shear are failure drivers, not a bed-adhesion probability. **No absolute pass/fail threshold is applied.**")
         appendLine("- The result is tied to the exact STL fingerprint above. Geometry or placement changes require a new run.")
         appendLine()
         appendLine("## Applicability limits")
@@ -150,6 +181,7 @@ internal data class ThermalFeaReport(
         const val SCHEMA_VERSION = 1
         const val ANALYSIS_KIND = "fdm-build-thermomechanical"
         const val SOLVER_MODEL = "sequential-voxel-inherent-strain"
+        const val PRECISION_SOURCE = "raw-worker-response"
         const val CONFIDENCE_LEVEL = "experimental-literature-seeded"
 
         private val SHA_PATTERN = Regex("[0-9a-f]{64}")
@@ -172,6 +204,10 @@ internal data class ThermalFeaReport(
             }
             require(root.requireText("solverModel", 96) == SOLVER_MODEL) {
                 "Unsupported thermal FEA solver model"
+            }
+            val precision = root.requireText("precisionSource", 64)
+            require(precision == PRECISION_SOURCE) {
+                "Thermal FEA report did not originate from the exact worker response"
             }
             val sourceName = root.requireText("sourceName", 240).safeFileName()
             val sourceSha = root.requireText("sourceSha256", 64)
@@ -201,6 +237,7 @@ internal data class ThermalFeaReport(
 
             return ThermalFeaReport(
                 schemaVersion = schema,
+                precisionSource = precision,
                 sourceName = sourceName,
                 sourceSha256 = sourceSha,
                 upstreamCommit = commit,
@@ -211,13 +248,21 @@ internal data class ThermalFeaReport(
                 lockingTemperatureC = material.optionalFinite("lockingTemperatureC", -50.0..350.0),
                 bedTemperatureC = process.optionalFinite("bedTemperatureC", -50.0..250.0),
                 chamberTemperatureC = process.optionalFinite("chamberTemperatureC", -50.0..200.0),
+                finalTemperatureC = process.optionalFinite("finalTemperatureC", -50.0..200.0),
                 densityAware = process.getBoolean("densityAware"),
-                voxelSizeMm = mesh.optionalFinite("voxelSizeMm", 0.01..100.0),
+                voxelSizeMm = mesh.requireFinite("voxelSizeMm", 0.01..100.0),
+                gridNx = mesh.requireWhole("nx", 1..100_000),
+                gridNy = mesh.requireWhole("ny", 1..100_000),
+                gridNz = mesh.requireWhole("nz", 1..100_000),
+                activeCells = mesh.requireWhole("activeCells", 1..100_000_000),
+                buildLayers = mesh.requireWhole("buildLayers", 1..100_000),
                 bondedWarpMm = results.requireFinite("bondedWarpMm", 0.0..2_000.0),
                 releasedWarpMm = results.requireFinite("releasedWarpMm", 0.0..2_000.0),
                 peakLiftMpa = results.requireFinite("peakLiftMpa", 0.0..20_000.0),
                 peakShearMpa = results.requireFinite("peakShearMpa", 0.0..20_000.0),
-                solverSeconds = results.optionalFinite("solverSeconds", 0.0..604_800.0),
+                solverSeconds = results.requireFinite("solverSeconds", 0.0..604_800.0),
+                meanIterationsPerLayer = results.requireFinite("meanIterationsPerLayer", 0.0..100_000.0),
+                maxIterationsPerLayer = results.requireWhole("maxIterationsPerLayer", 0..100_000),
             )
         }
     }
@@ -277,7 +322,7 @@ internal class ThermalFeaReportStore(context: Context) {
             .groupBy(File::nameWithoutExtension)
             .entries
             .sortedByDescending { (_, files) -> files.maxOfOrNull(File::lastModified) ?: 0L }
-            .map(Map.Entry<String, List<File>>::key)
+            .map { it.key }
             .filter { it != activeSha }
             .take(MAX_STORED_REPORTS - 1)
             .toSet() + activeSha
@@ -294,8 +339,16 @@ internal class ThermalFeaReportStore(context: Context) {
                 output.write(text.toByteArray(Charsets.UTF_8))
                 output.fd.sync()
             }
-            if (target.exists()) check(target.delete()) { "Unable to replace ${target.name}" }
-            check(staging.renameTo(target)) { "Unable to publish ${target.name}" }
+            runCatching {
+                Files.move(
+                    staging.toPath(),
+                    target.toPath(),
+                    StandardCopyOption.ATOMIC_MOVE,
+                    StandardCopyOption.REPLACE_EXISTING,
+                )
+            }.getOrElse {
+                Files.move(staging.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
+            }
         } finally {
             staging.delete()
         }
@@ -323,6 +376,16 @@ private fun JSONObject.requireInt(name: String, range: IntRange): Int =
 private fun JSONObject.requireLong(name: String): Long =
     getLong(name).also { require(it >= 0L) { "Thermal FEA field '$name' is invalid" } }
 
+private fun JSONObject.requireWhole(name: String, range: IntRange): Int {
+    val value = getDouble(name)
+    require(value.isFinite() && value % 1.0 == 0.0 && value >= Int.MIN_VALUE && value <= Int.MAX_VALUE) {
+        "Thermal FEA field '$name' must be an integer"
+    }
+    return value.toInt().also {
+        require(it in range) { "Thermal FEA field '$name' is out of range" }
+    }
+}
+
 private fun JSONObject.requireFinite(name: String, range: ClosedFloatingPointRange<Double>): Double =
     getDouble(name).also {
         require(it.isFinite() && it in range) { "Thermal FEA field '$name' is out of range" }
@@ -345,7 +408,7 @@ private fun markdown(value: String): String = value
     .replace("|", "\\|")
     .trim()
 
-private fun formatNumber(value: Double): String = String.format(Locale.US, "%.4g", value)
+private fun formatNumber(value: Double): String = String.format(Locale.US, "%.6g", value)
 private fun formatLength(valueMm: Double): String = "${formatNumber(valueMm)} mm"
 private fun formatStress(valueMpa: Double): String = "${formatNumber(valueMpa)} MPa"
 private fun formatPercent(value: Double): String = "${formatNumber(value)} %"
