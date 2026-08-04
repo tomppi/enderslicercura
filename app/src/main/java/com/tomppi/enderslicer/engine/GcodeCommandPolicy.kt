@@ -25,6 +25,7 @@ internal object GcodeCommandPolicy {
     }
 
     fun requireCurviSupported(command: GcodeCommand.Parsed, inPrintableLayers: Boolean) {
+        requireUnframed(command, "CurviSlicer")
         when (command.family) {
             'G' -> when (command.code) {
                 0, 1 -> requireLinearParameters(command)
@@ -48,6 +49,7 @@ internal object GcodeCommandPolicy {
         currentLayer: Int?,
         lineNumber: Int,
     ) {
+        requireUnframed(command, "Published G-code at line $lineNumber")
         when (command.family) {
             'G' -> when (command.code) {
                 0, 1 -> requireLinearParameters(command)
@@ -67,6 +69,7 @@ internal object GcodeCommandPolicy {
     }
 
     fun requirePreviewSafe(command: GcodeCommand.Parsed, spatialMovesSeen: Int) {
+        requireUnframed(command, "Nozzle Path")
         when (command.family) {
             'G' -> when (command.code) {
                 0, 1 -> requireLinearParameters(command)
@@ -85,9 +88,7 @@ internal object GcodeCommandPolicy {
     }
 
     fun requireSafeCustomEvent(command: GcodeCommand.Parsed) {
-        require(!command.hasLineNumber && !command.hasChecksum) {
-            "Custom G-code cannot contain line-number or checksum framing"
-        }
+        requireUnframed(command, "Custom G-code")
         require(command.opcode in SAFE_CUSTOM_EVENT_COMMANDS) {
             "Custom G-code command ${command.opcode} is not in the state-neutral safety allowlist"
         }
@@ -96,7 +97,14 @@ internal object GcodeCommandPolicy {
     fun speedFactor(command: GcodeCommand.Parsed): Double? {
         if (command.opcode != "M220") return null
         val percent = requireNotNull(command.value('S')) { "M220 requires an S percentage" }
+        require(command.hasOnlyParameters(setOf('S'))) { "M220 contains unsupported parameters" }
         require(percent.isFinite() && percent in 1.0..999.0) { "M220 speed factor is outside 1..999%" }
         return percent / 100.0
+    }
+
+    private fun requireUnframed(command: GcodeCommand.Parsed, consumer: String) {
+        require(!command.hasLineNumber && !command.hasChecksum) {
+            "$consumer does not accept line-number or checksum framing; re-slice unframed G-code"
+        }
     }
 }
