@@ -40,6 +40,7 @@ jobs:
 
           unzip -Z1 "$apk" > apk-entries.txt
           grep -qx 'assets/filasim/thermal-integrity.js' apk-entries.txt
+          grep -qx 'assets/filasim/thermal-integrity-workspace.js' apk-entries.txt
           grep -qx 'assets/filasim/thermal-integrity-version.txt' apk-entries.txt
           grep -qx 'assets/filasim/SHA256SUMS' apk-entries.txt
           grep -qx 'assets/filasim/index.html' apk-entries.txt
@@ -48,16 +49,22 @@ jobs:
 
           unzip -p "$apk" assets/filasim/index.html > index.html
           unzip -p "$apk" assets/filasim/thermal-integrity.js > thermal-integrity.js
+          unzip -p "$apk" assets/filasim/thermal-integrity-workspace.js > thermal-integrity-workspace.js
           unzip -p "$apk" assets/filasim/thermal-integrity-version.txt > thermal-integrity-version.txt
           unzip -p "$apk" assets/filasim/SHA256SUMS > SHA256SUMS
 
+          grep -q '<script src="./thermal-integrity-workspace.js"></script>' index.html
           grep -q '<script src="./thermal-integrity.js"></script>' index.html
+          test "$(grep -n 'thermal-integrity-workspace.js' index.html | cut -d: -f1)" -le "$(grep -n 'thermal-integrity.js' index.html | cut -d: -f1)"
           grep -q 'enderslicer-thermal-integrity' thermal-integrity.js
           grep -q 'fdm-service-thermal-integrity' thermal-integrity.js
+          grep -q 'enderslicer-thermal-integrity-tab' thermal-integrity-workspace.js
+          grep -q 'ti-progress-bar' thermal-integrity-workspace.js
           grep -qx 'format=1' thermal-integrity-version.txt
           grep -qx "filasim=${FILASIM_COMMIT}" thermal-integrity-version.txt
-          grep -qx 'transforms=solver,hardening,audit-fixes' thermal-integrity-version.txt
+          grep -qx 'transforms=solver,hardening,audit-fixes,progress' thermal-integrity-version.txt
           grep -q 'thermal-integrity.js' SHA256SUMS
+          grep -q 'thermal-integrity-workspace.js' SHA256SUMS
           grep -q 'thermal-integrity-version.txt' SHA256SUMS
 
           sha256sum "$apk" | tee thermal-integrity-apk.sha256
