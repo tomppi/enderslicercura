@@ -46,7 +46,8 @@ class ThermalFeaReportTest {
         val changed = JSONObject(payload())
         changed.getJSONObject("pose").put(
             "transform3x4",
-            transform(0.0, -1.0, 0.0, 12.0, 1.0, 0.0, 0.0, -4.0, 0.0, 0.0, 1.0, 0.0),
+            // filaSim layout = R00..R22 followed by tx, ty, tz.
+            transform(0.0, -1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 12.0, -4.0, 0.0),
         )
         val second = parse(changed.toString())
 
@@ -163,7 +164,8 @@ class ThermalFeaReportTest {
             "pose",
             JSONObject().put(
                 "transform3x4",
-                transform(1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0),
+                // Identity in filaSim's serialized R9 + T3 layout.
+                transform(1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0),
             ),
         )
         .put(
