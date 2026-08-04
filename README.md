@@ -50,6 +50,23 @@ The packaged **filaSim** workspace performs load-dependent FEA and density optim
 
 The first complete integration uses filaSim modifier volumes with CuraEngine's infill-mesh system. Smart Infill remains experimental until regional-density G-code and physical prints have been validated across more models and load cases.
 
+### Build-process thermal FEA
+
+The same pinned filaSim workspace exposes **Build Simulation** as a separate mode. It reuses the voxel FEA grid and multigrid structural solver with sequential layer activation and inherent thermal strain.
+
+- Layer-by-layer bonded build simulation
+- Released-part warp after removing the bed constraint
+- Bed lift-traction and in-plane shear reaction fields
+- Bed and chamber temperature inputs through filaSim's locking-temperature ladder
+- XY-versus-Z shrink and optional as-printed density-aware stiffness
+- Native, persistent Markdown reports tied to the exact analyzed STL SHA-256
+- Strict Android validation of solver identity, filaSim commit, units, numerical ranges and calibration claims
+- Literature provenance for printed PLA/ABS thermal-expansion seeds
+
+After a successful build simulation, **Save Thermal FEA Report** stores an auditable report. The toolbar's **Report** button reopens or shares the report for that exact model fingerprint.
+
+This is a build-process thermo-mechanical approximation. It does not yet solve transient heat conduction, G-code path reheating, interlayer welding, creep, service-temperature softening or an absolute probability of bed release. Bed reactions are failure drivers, not a calibrated pass/fail verdict.
+
 ### Print editing and calibration
 
 - Non-destructive layer events without re-running CuraEngine
@@ -104,9 +121,10 @@ Printed geometry and extrusion destinations were extremely close. This is a usef
 
 - Single printable model and single extruder
 - No duplicate/auto-arrange workflow or Cura plugin compatibility
-- Smart Infill, Arc Overhangs and Wave Overhangs still need broader physical print validation
+- Smart Infill, thermal FEA, Arc Overhangs and Wave Overhangs still need broader physical print validation
 - filaSim currently uses its single-threaded WASM fallback inside Android WebView
 - High-density models and fine FEA grids may exceed the Android heap
+- Thermal FEA does not yet include transient conduction, G-code thermal history, delamination, creep or service-temperature failure
 - OctoPrint still needs broader real-server and real-printer validation
 - Printer-specific calibration commands must be verified against the installed firmware
 
@@ -142,7 +160,7 @@ Gradle prepares pinned offline BumpMesh and filaSim assets before `preBuild`. Th
 
 Generated G-code is checked for valid extrusion temperatures, machine bounds, metadata and filename formatting before export. Remote printing requires explicit confirmation.
 
-Smart Infill is an engineering aid, not a certified structural analysis. Loads, constraints, material data, layer adhesion, print orientation and safety factors must match the real use case. Inspect the layer preview and test a non-critical part before relying on an optimized design.
+Smart Infill and thermal FEA are engineering aids, not certified analyses. Loads, constraints, material data, layer adhesion, print orientation, thermal shrink and safety factors must match the real use case. A thermal report deliberately contains no absolute bed-adhesion pass/fail threshold. Inspect the layer preview and test a non-critical part before relying on an optimized or simulated design.
 
 Always verify the printer condition, model placement, build volume, temperatures, filament, first layer and custom G-code. Terminal commands can move axes, heat the printer, modify firmware state or stop a print.
 
