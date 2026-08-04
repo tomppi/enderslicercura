@@ -15,7 +15,7 @@ import shutil
 import subprocess
 import sys
 
-PINCH_SCRIPT = pathlib.Path(__file__).with_name("prepare-filasim-assets-with-pinch.py")
+PINCH_SCRIPT = pathlib.Path(__file__).with_name("prepare-filasim-assets-with-pinch-v8-base.py")
 SPEC = importlib.util.spec_from_file_location("enderslicer_filasim_pinch", PINCH_SCRIPT)
 if SPEC is None or SPEC.loader is None:
     raise RuntimeError(f"Unable to load filaSim Android preparer: {PINCH_SCRIPT}")
