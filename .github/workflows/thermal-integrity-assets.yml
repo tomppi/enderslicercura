@@ -52,6 +52,7 @@ jobs:
             scripts/prepare-filasim-assets-with-thermal-integrity-v8.py \
             scripts/prepare-filasim-assets-with-thermal-integrity-v9.py \
             scripts/prepare-filasim-assets-with-thermal-integrity-v10.py \
+            scripts/prepare-filasim-assets-with-thermal-integrity-v11.py \
             scripts/finalize-filasim-apk-manifest.py \
             scripts/filasim-thermal-integrity-patch.py \
             scripts/filasim-thermal-integrity-hardening.py \
@@ -60,7 +61,8 @@ jobs:
             scripts/filasim-thermal-integrity-react-tab.py \
             scripts/filasim-thermal-integrity-bugfix-round1.py \
             scripts/filasim-thermal-integrity-bugfix-round2.py \
-            scripts/filasim-thermal-integrity-linear-fast-path.py
+            scripts/filasim-thermal-integrity-linear-fast-path.py \
+            scripts/filasim-thermal-integrity-physical-model-v1.py
           node --check app/src/main/filasim/thermal-integrity.js
           node --check app/src/main/filasim/thermal-integrity-guard.js
           node --check app/src/main/filasim/thermal-integrity-workspace.js
@@ -94,6 +96,12 @@ jobs:
           grep -q 'stale result was discarded' "$root/thermal-integrity.js"
           grep -q '2_000_000' "$root/thermal-integrity.js"
           grep -q 'enderslicer-thermal-integrity-invalidated' "$root/thermal-integrity.js"
+          grep -q 'thermalIntegrityPreflight' "$root/thermal-integrity.js"
+          grep -q 'All exterior Z+ faces' "$root/thermal-integrity.js"
+          grep -q 'Total contact-heater power' "$root/thermal-integrity.js"
+          grep -q 'effectiveHeatFluxWm2' "$root/thermal-integrity.js"
+          grep -q 'THERMAL FAILURE / OUTSIDE MATERIAL MODEL' "$root/thermal-integrity.js"
+          grep -q 'vertexTemperatures' "$root/thermal-integrity.js"
           ! grep -q 'document.querySelector(".panel")' "$root/thermal-integrity.js"
           grep -q 'MUTATING_OPS' "$root/thermal-integrity-guard.js"
           grep -q 'rejectOverlappingRequest' "$root/thermal-integrity-guard.js"
@@ -102,6 +110,8 @@ jobs:
           grep -q 'recordsAddThermalGroup' "$root/thermal-integrity-guard.js"
           grep -q 'ti-progress-bar' "$root/thermal-integrity-workspace.js"
           grep -q 'ti-cancel' "$root/thermal-integrity-workspace.js"
+          grep -q 'engineWorker.terminate()' "$root/thermal-integrity-workspace.js"
+          grep -q 'hard restart available' "$root/thermal-integrity-workspace.js"
           ! grep -q 'enderslicer-thermal-integrity-tab' "$root/thermal-integrity-workspace.js"
           ! grep -q 'document.querySelector(".panel")' "$root/thermal-integrity-workspace.js"
           ! grep -q 'style.display' "$root/thermal-integrity-workspace.js"
@@ -109,6 +119,8 @@ jobs:
           grep -q 'setProgressBuffer' "$root/thermal-integrity-live-progress.js"
           grep -R -q 'enderslicer-thermal-workspace' "$root/assets"
           grep -R -q 'enderslicer-thermal-integrity-mount' "$root/assets"
+          grep -R -q 'enderslicer-thermal-result-3d' "$root/assets"
+          grep -R -q 'Temperature · 3D result' "$root/assets"
           grep -q '<script src="./thermal-integrity-guard.js"></script>' "$root/index.html"
           grep -q '<script src="./thermal-integrity-live-progress.js"></script>' "$root/index.html"
           grep -q '<script src="./thermal-integrity-workspace.js"></script>' "$root/index.html"
@@ -124,7 +136,7 @@ jobs:
           test -s "$marker"
           grep -qx 'format=1' "$marker"
           grep -qx "filasim=${FILASIM_COMMIT}" "$marker"
-          grep -qx 'transforms=solver,hardening,audit-fixes,progress-v2,react-tab-v1,bugfix-round1,bugfix-round2,linear-fast-path-v1' "$marker"
+          grep -qx 'transforms=solver,hardening,audit-fixes,progress-v2,react-tab-v1,bugfix-round1,bugfix-round2,linear-fast-path-v1,physical-model-v1' "$marker"
           grep -q 'source-version.txt' "$root/SHA256SUMS"
           ! grep -q '  \.source-version$' "$root/SHA256SUMS"
           grep -q 'thermal-integrity.js' "$root/SHA256SUMS"
@@ -140,11 +152,12 @@ jobs:
           grep -a -q 'thermal grid is too large for the Android safety budget' "$wasm"
           grep -a -q 'transient thermal workload is too large for Android' "$wasm"
           grep -a -q 'steady thermal radiation iteration' "$wasm"
-          grep -a -q 'did not converge within' "$wasm"
           grep -a -q 'line search could not reduce nonlinear residual' "$wasm"
           grep -a -q 'steady thermal solve violated global energy balance' "$wasm"
           grep -a -q 'thermal result exceeds the Android reportable maximum of 2000' "$wasm"
           grep -a -q 'thermal structural FEA did not converge' "$wasm"
+          grep -a -q 'Temperature field is outside the material model' "$wasm"
+          grep -a -q 'contact-all-exterior-faces-with-selected-normal' "$wasm"
           test -n "$(find "$root/assets" -type f -name '*.js' -print -quit)"
 
       - name: Run thermal report unit tests
