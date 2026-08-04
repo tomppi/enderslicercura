@@ -44,8 +44,9 @@ data class MainUiState(
     val statusMessage: String = "Import an STL to begin",
     val isBusy: Boolean = false,
 ) {
-    fun hasCurrentGcode(): Boolean = gcodePath
-        ?.let(::File)
-        ?.let { SliceArtifactPublisher.isCompleteGcode(it, sliceResultId) }
-        ?: false
+    fun hasCurrentGcode(): Boolean {
+        val expectedId = sliceResultId ?: return false
+        val file = gcodePath?.let(::File) ?: return false
+        return SliceArtifactPublisher.isCompleteGcode(file, expectedId)
+    }
 }
