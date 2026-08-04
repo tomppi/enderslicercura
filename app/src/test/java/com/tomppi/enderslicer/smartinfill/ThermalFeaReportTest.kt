@@ -18,13 +18,20 @@ class ThermalFeaReportTest {
         )
 
         assertEquals("PLA", report.materialName)
+        assertEquals(ThermalFeaReport.PRECISION_SOURCE, report.precisionSource)
         assertEquals(0.42, report.releasedWarpMm, 1e-9)
+        assertEquals(48, report.gridNx)
+        assertEquals(73.25, report.meanIterationsPerLayer, 1e-9)
         assertTrue(report.densityAware)
         assertTrue(report.toMarkdown().contains("No absolute pass/fail threshold", ignoreCase = true))
         assertTrue(report.toMarkdown().contains("10.3390/ma17184668"))
 
         val canonical = JSONObject(report.toCanonicalJson())
         assertEquals(ThermalFeaReport.ANALYSIS_KIND, canonical.getString("analysisKind"))
+        assertEquals(
+            ThermalFeaReport.PRECISION_SOURCE,
+            canonical.getString("precisionSource"),
+        )
         assertFalse(canonical.getJSONObject("confidence").getBoolean("calibratedToPrinter"))
     }
 
@@ -39,6 +46,21 @@ class ThermalFeaReportTest {
             )
         }
         assertTrue(error.message.orEmpty().contains("does not match"))
+    }
+
+    @Test
+    fun rejectsDisplayRoundedPrecisionSource() {
+        val json = JSONObject(payload()).put("precisionSource", "formatted-dom")
+
+        val error = assertThrows(IllegalArgumentException::class.java) {
+            ThermalFeaReport.parse(
+                payload = json.toString(),
+                expectedSourceSha256 = SOURCE_SHA,
+                expectedUpstreamCommit = COMMIT,
+                nowEpochMillis = NOW,
+            )
+        }
+        assertTrue(error.message.orEmpty().contains("exact worker response"))
     }
 
     @Test
@@ -72,10 +94,26 @@ class ThermalFeaReportTest {
         }
     }
 
+    @Test
+    fun rejectsFractionalGridDimension() {
+        val json = JSONObject(payload())
+        json.getJSONObject("mesh").put("nx", 48.5)
+
+        assertThrows(IllegalArgumentException::class.java) {
+            ThermalFeaReport.parse(
+                payload = json.toString(),
+                expectedSourceSha256 = SOURCE_SHA,
+                expectedUpstreamCommit = COMMIT,
+                nowEpochMillis = NOW,
+            )
+        }
+    }
+
     private fun payload(): String = JSONObject()
         .put("schemaVersion", ThermalFeaReport.SCHEMA_VERSION)
         .put("analysisKind", ThermalFeaReport.ANALYSIS_KIND)
         .put("solverModel", ThermalFeaReport.SOLVER_MODEL)
+        .put("precisionSource", ThermalFeaReport.PRECISION_SOURCE)
         .put("sourceName", "bracket.stl")
         .put("sourceSha256", SOURCE_SHA)
         .put("upstreamCommit", COMMIT)
@@ -93,9 +131,19 @@ class ThermalFeaReportTest {
             JSONObject()
                 .put("bedTemperatureC", 60.0)
                 .put("chamberTemperatureC", 25.0)
+                .put("finalTemperatureC", 20.0)
                 .put("densityAware", true),
         )
-        .put("mesh", JSONObject().put("voxelSizeMm", 1.0))
+        .put(
+            "mesh",
+            JSONObject()
+                .put("voxelSizeMm", 1.0)
+                .put("nx", 48)
+                .put("ny", 24)
+                .put("nz", 32)
+                .put("activeCells", 18_432)
+                .put("buildLayers", 32),
+        )
         .put(
             "results",
             JSONObject()
@@ -103,7 +151,9 @@ class ThermalFeaReportTest {
                 .put("releasedWarpMm", 0.42)
                 .put("peakLiftMpa", 0.11)
                 .put("peakShearMpa", 0.06)
-                .put("solverSeconds", 14.5),
+                .put("solverSeconds", 14.5)
+                .put("meanIterationsPerLayer", 73.25)
+                .put("maxIterationsPerLayer", 132),
         )
         .put(
             "confidence",
