@@ -44,7 +44,8 @@ jobs:
           python3 -m py_compile \
             scripts/filasim-thermal-integrity-patch.py \
             scripts/filasim-thermal-integrity-hardening.py \
-            scripts/filasim-thermal-integrity-audit-fixes.py
+            scripts/filasim-thermal-integrity-audit-fixes.py \
+            scripts/filasim-thermal-integrity-progress.py
 
       - name: Patch exact pinned filaSim source
         shell: bash
@@ -56,11 +57,15 @@ jobs:
           python3 scripts/filasim-thermal-integrity-patch.py "$source"
           python3 scripts/filasim-thermal-integrity-hardening.py "$source"
           python3 scripts/filasim-thermal-integrity-audit-fixes.py "$source"
+          python3 scripts/filasim-thermal-integrity-progress.py "$source"
           test -f "$source/.enderslicer-thermal-integrity"
           test -f "$source/.enderslicer-thermal-integrity-hardening"
           test -f "$source/.enderslicer-thermal-integrity-audit-fixes"
+          test -f "$source/.enderslicer-thermal-integrity-progress"
           grep -q 'pub mod thermal;' "$source/crates/filasim-core/src/lib.rs"
           grep -q 'solve_thermal_integrity' "$source/crates/filasim-wasm/src/lib.rs"
+          grep -q 'Preparing voxel model' "$source/crates/filasim-wasm/src/lib.rs"
+          grep -q 'progress: true' "$source/web/src/worker/engine.worker.ts"
           grep -q 'thermalIntegrity' "$source/web/src/engine/EngineProtocol.ts"
           grep -q 'thermalIntegrity' "$source/web/src/worker/engine.worker.ts"
           grep -q 'sealed_cavity_does_not_receive_ambient_boundary_faces' "$source/crates/filasim-core/src/thermal.rs"
