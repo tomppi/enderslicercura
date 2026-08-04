@@ -1,0 +1,184 @@
+name: Thermal Integrity Branch Checks
+
+on:
+  push:
+    branches:
+      - feature/thermal-integrity-simulation
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: thermal-integrity-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FILASIM_COMMIT: e7485ec22d4ebe8baca04190404fbb877c90e031
+  NODE_VERSION: 22.18.0
+  WASM_PACK_VERSION: 0.13.1
+
+jobs:
+  solver-source-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: app/src/main/filasim/thermal-integrity.js
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install pinned wasm-pack
+        uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-pack@${{ env.WASM_PACK_VERSION }}
+
+      - name: Parse deterministic Android sources
+        run: |
+          python3 -m py_compile \
+            scripts/prepare-filasim-assets-with-pinch.py \
+            scripts/filasim-thermal-integrity-patch.py
+          node --check app/src/main/filasim/android-bridge.js
+          node --check app/src/main/filasim/thermal-integrity.js
+
+      - name: Patch exact pinned filaSim source
+        shell: bash
+        run: |
+          set -euo pipefail
+          source="$RUNNER_TEMP/filasim-source"
+          git clone --filter=blob:none https://github.com/CNCKitchen/smartInfillGenerator.git "$source"
+          git -C "$source" checkout --detach "$FILASIM_COMMIT"
+          python3 scripts/filasim-thermal-integrity-patch.py "$source"
+          test -f "$source/.enderslicer-thermal-integrity"
+          grep -q 'pub mod thermal;' "$source/crates/filasim-core/src/lib.rs"
+          grep -q 'solve_thermal_integrity' "$source/crates/filasim-wasm/src/lib.rs"
+          grep -q 'thermalIntegrity' "$source/web/src/engine/EngineProtocol.ts"
+          grep -q 'thermalIntegrity' "$source/web/src/worker/engine.worker.ts"
+
+      - name: Run thermal finite-volume unit tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          source="$RUNNER_TEMP/filasim-source"
+          cargo test --manifest-path "$source/Cargo.toml" -p filasim-core thermal --locked
+
+      - name: Compile patched WASM and TypeScript workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          source="$RUNNER_TEMP/filasim-source"
+          cd "$source/web"
+          npm ci --no-audit --no-fund
+          node scripts/build-wasm.mjs st
+          VITE_BASE=./ npm run build
+          test -f dist/index.html
+
+  native-report-and-apk:
+    needs: solver-source-contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install pinned wasm-pack
+        uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-pack@${{ env.WASM_PACK_VERSION }}
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.4.1'
+
+      - name: Run isolated report validation tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          work="$RUNNER_TEMP/thermal-report-contract"
+          mkdir -p \
+            "$work/src/main/kotlin/android/content" \
+            "$work/src/main/kotlin/com/tomppi/enderslicer/smartinfill" \
+            "$work/src/test/kotlin/com/tomppi/enderslicer/smartinfill"
+          cp app/src/main/java/com/tomppi/enderslicer/smartinfill/ThermalFeaReport.kt \
+            app/src/main/java/com/tomppi/enderslicer/smartinfill/ThermalIntegrityReport.kt \
+            "$work/src/main/kotlin/com/tomppi/enderslicer/smartinfill/"
+          cp app/src/test/java/com/tomppi/enderslicer/smartinfill/ThermalFeaReportTest.kt \
+            app/src/test/java/com/tomppi/enderslicer/smartinfill/ThermalIntegrityReportTest.kt \
+            "$work/src/test/kotlin/com/tomppi/enderslicer/smartinfill/"
+          cat > "$work/settings.gradle.kts" <<'EOF'
+          pluginManagement { repositories { gradlePluginPortal(); mavenCentral() } }
+          dependencyResolutionManagement { repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS); repositories { mavenCentral() } }
+          rootProject.name = "thermal-report-contract"
+          EOF
+          cat > "$work/build.gradle.kts" <<'EOF'
+          plugins { kotlin("jvm") version "2.3.21" }
+          kotlin { jvmToolchain(17) }
+          dependencies {
+              implementation("org.json:json:20240303")
+              testImplementation("junit:junit:4.13.2")
+          }
+          tasks.test { useJUnit() }
+          EOF
+          cat > "$work/src/main/kotlin/android/content/Context.kt" <<'EOF'
+          package android.content
+          import java.io.File
+          open class Context(open val filesDir: File)
+          EOF
+          gradle -p "$work" test --stacktrace
+
+      - name: Check native and worker schema lockstep
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'analysisKind: "fdm-service-thermal-integrity"' app/src/main/filasim/thermal-integrity.js
+          grep -q 'solverModel: "voxel-finite-volume-implicit-thermomechanical"' app/src/main/filasim/thermal-integrity.js
+          grep -q 'precisionSource: "raw-worker-response"' app/src/main/filasim/thermal-integrity.js
+          grep -q 'ANALYSIS_KIND = "fdm-service-thermal-integrity"' app/src/main/java/com/tomppi/enderslicer/smartinfill/ThermalIntegrityReport.kt
+          grep -q 'SOLVER_MODEL = "voxel-finite-volume-implicit-thermomechanical"' app/src/main/java/com/tomppi/enderslicer/smartinfill/ThermalIntegrityReport.kt
+          grep -q 'captureThermalIntegrityReport' app/src/main/filasim/thermal-integrity.js
+          grep -q 'captureThermalIntegrityReport' app/src/main/java/com/tomppi/enderslicer/smartinfill/SmartInfillActivity.kt
+          grep -q 'BASE.ASSET_FORMAT = 9' scripts/prepare-filasim-assets-with-pinch.py
+
+      - name: Run complete Android tests and assemble debug APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle :app:testDebugUnitTest :app:assembleDebug --stacktrace --no-daemon
+
+      - name: Verify packaged thermal-integrity runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk="app/build/outputs/apk/debug/app-debug.apk"
+          test -f "$apk"
+          unzip -l "$apk" | grep -q 'assets/filasim/thermal-integrity.js'
+          unzip -l "$apk" | grep -q 'assets/filasim/android-bridge.js'
+          unzip -p "$apk" assets/filasim/.source-version | grep -q 'format=9'
+          unzip -p "$apk" assets/filasim/index.html | grep -q 'enderslicer-thermal-integrity-1'
+          unzip -p "$apk" assets/filasim/SHA256SUMS | grep -q 'thermal-integrity.js'
+          sha256sum "$apk" | tee app/build/outputs/apk/debug/app-debug.apk.sha256
+
+      - name: Upload thermal-integrity debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: enderslicercura-thermal-integrity-debug
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            app/build/outputs/apk/debug/app-debug.apk.sha256
+          if-no-files-found: error
+          retention-days: 14
