@@ -47,7 +47,9 @@ jobs:
             scripts/filasim-thermal-integrity-audit-fixes.py \
             scripts/filasim-thermal-integrity-progress.py \
             scripts/filasim-thermal-integrity-react-tab.py \
-            scripts/filasim-thermal-integrity-bugfix-round1.py
+            scripts/filasim-thermal-integrity-bugfix-round1.py \
+            scripts/filasim-thermal-integrity-bugfix-round2.py \
+            scripts/prepare-filasim-assets-with-thermal-integrity-v9.py
 
       - name: Patch exact pinned filaSim source
         shell: bash
@@ -62,17 +64,26 @@ jobs:
           python3 scripts/filasim-thermal-integrity-progress.py "$source"
           python3 scripts/filasim-thermal-integrity-react-tab.py "$source"
           python3 scripts/filasim-thermal-integrity-bugfix-round1.py "$source"
+          python3 scripts/filasim-thermal-integrity-bugfix-round2.py "$source"
           test -f "$source/.enderslicer-thermal-integrity"
           test -f "$source/.enderslicer-thermal-integrity-hardening"
           test -f "$source/.enderslicer-thermal-integrity-audit-fixes"
           test -f "$source/.enderslicer-thermal-integrity-progress-v2"
           test -f "$source/.enderslicer-thermal-integrity-react-tab-v1"
           test -f "$source/.enderslicer-thermal-integrity-bugfix-round1"
+          test -f "$source/.enderslicer-thermal-integrity-bugfix-round2"
           grep -q 'pub mod thermal;' "$source/crates/filasim-core/src/lib.rs"
           grep -q 'progress::publish' "$source/crates/filasim-core/src/thermal.rs"
           grep -q 'MAX_SUPPORTED_TEMPERATURE_C' "$source/crates/filasim-core/src/thermal.rs"
+          grep -q 'radiation_tangent_w_m2' "$source/crates/filasim-core/src/thermal.rs"
+          grep -q 'solve_nonlinear_temperature' "$source/crates/filasim-core/src/thermal.rs"
+          grep -q 'MIN_LINE_SEARCH_ALPHA' "$source/crates/filasim-core/src/thermal.rs"
+          grep -q 'nonlinear_residual_l2' "$source/crates/filasim-core/src/thermal.rs"
           grep -q 'steady thermal radiation iteration did not converge' "$source/crates/filasim-core/src/thermal.rs"
-          grep -q 'transient thermal radiation iteration did not converge' "$source/crates/filasim-core/src/thermal.rs"
+          grep -q 'transient thermal radiation iteration' "$source/crates/filasim-core/src/thermal.rs"
+          grep -q 'steady thermal solve violated global energy balance' "$source/crates/filasim-core/src/thermal.rs"
+          grep -q 'benchy_like_five_watt_radiative_case_converges_and_balances' "$source/crates/filasim-core/src/thermal.rs"
+          grep -q 'transient_radiation_uses_the_same_stable_nonlinear_path' "$source/crates/filasim-core/src/thermal.rs"
           grep -q 'thermal PCG lost positive definiteness' "$source/crates/filasim-core/src/thermal.rs"
           grep -q 'solve_thermal_integrity' "$source/crates/filasim-wasm/src/lib.rs"
           grep -q 'Preparing voxel model' "$source/crates/filasim-wasm/src/lib.rs"
