@@ -18,6 +18,16 @@ def replace_once(path: pathlib.Path, old: str, new: str, label: str) -> None:
     path.write_text(text.replace(old, new, 1), encoding="utf-8")
 
 
+def replace_remaining_once(path: pathlib.Path, old: str, new: str, label: str) -> None:
+    text = path.read_text(encoding="utf-8")
+    count = text.count(old)
+    if count == 0:
+        return
+    if count != 1:
+        raise RuntimeError(f"Expected one remaining {label} in {path}, found {count}")
+    path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+
 def apply(source_root: pathlib.Path) -> None:
     source_root = source_root.resolve()
     thermal = source_root / "crates/filasim-core/src/thermal.rs"
@@ -34,6 +44,18 @@ def apply(source_root: pathlib.Path) -> None:
         grid.scale[upper_left] = 0.0;
 ''',
         "staircase test cell indexing",
+    )
+
+    # The hardening script has two identical cooled-boundary comparisons. Its
+    # idempotent helper changes the linear-system occurrence first; explicitly
+    # replace the one remaining energy-accounting occurrence as well.
+    replace_remaining_once(
+        thermal,
+        '''        if boundary.face == options.cooled_face {
+''',
+        '''        if boundary.cooled {
+''',
+        "cooled-boundary energy-balance comparison",
     )
 
     # The voxel-hardening transform intentionally replaces the first matching
