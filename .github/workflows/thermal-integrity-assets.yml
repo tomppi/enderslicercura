@@ -53,8 +53,10 @@ jobs:
             scripts/filasim-thermal-integrity-hardening.py \
             scripts/filasim-thermal-integrity-audit-fixes.py \
             scripts/filasim-thermal-integrity-progress.py \
-            scripts/filasim-thermal-integrity-react-tab.py
+            scripts/filasim-thermal-integrity-react-tab.py \
+            scripts/filasim-thermal-integrity-bugfix-round1.py
           node --check app/src/main/filasim/thermal-integrity.js
+          node --check app/src/main/filasim/thermal-integrity-guard.js
           node --check app/src/main/filasim/thermal-integrity-workspace.js
           node --check app/src/main/filasim/thermal-integrity-live-progress.js
 
@@ -72,12 +74,23 @@ jobs:
           grep -qx 'format=8' "$root/.source-version"
           grep -qx "commit=${FILASIM_COMMIT}" "$root/.source-version"
           test -s "$root/thermal-integrity.js"
+          test -s "$root/thermal-integrity-guard.js"
           test -s "$root/thermal-integrity-workspace.js"
           test -s "$root/thermal-integrity-live-progress.js"
           grep -q 'enderslicer-thermal-integrity' "$root/thermal-integrity.js"
           grep -q 'fdm-service-thermal-integrity' "$root/thermal-integrity.js"
           grep -q 'enderslicer-thermal-integrity-mount' "$root/thermal-integrity.js"
+          grep -q 'runInFlight' "$root/thermal-integrity.js"
+          grep -q 'analysisEpoch' "$root/thermal-integrity.js"
+          grep -q 'sourceIdentity' "$root/thermal-integrity.js"
+          grep -q 'stale result was discarded' "$root/thermal-integrity.js"
+          grep -q '2_000_000' "$root/thermal-integrity.js"
+          grep -q 'enderslicer-thermal-integrity-invalidated' "$root/thermal-integrity.js"
           ! grep -q 'document.querySelector(".panel")' "$root/thermal-integrity.js"
+          grep -q 'MUTATING_OPS' "$root/thermal-integrity-guard.js"
+          grep -q 'rejectOverlappingRequest' "$root/thermal-integrity-guard.js"
+          grep -q 'messageerror' "$root/thermal-integrity-guard.js"
+          grep -q 'enderslicer-thermal-integrity-invalidated' "$root/thermal-integrity-guard.js"
           grep -q 'ti-progress-bar' "$root/thermal-integrity-workspace.js"
           grep -q 'ti-cancel' "$root/thermal-integrity-workspace.js"
           ! grep -q 'enderslicer-thermal-integrity-tab' "$root/thermal-integrity-workspace.js"
@@ -87,20 +100,26 @@ jobs:
           grep -q 'setProgressBuffer' "$root/thermal-integrity-live-progress.js"
           grep -R -q 'enderslicer-thermal-workspace' "$root/assets"
           grep -R -q 'enderslicer-thermal-integrity-mount' "$root/assets"
+          grep -R -q 'MAX_MOBILE_GRID_CELLS' "$root/assets"
+          grep -R -q 'steady thermal radiation iteration did not converge' "$root/assets"
+          grep -q '<script src="./thermal-integrity-guard.js"></script>' "$root/index.html"
           grep -q '<script src="./thermal-integrity-live-progress.js"></script>' "$root/index.html"
           grep -q '<script src="./thermal-integrity-workspace.js"></script>' "$root/index.html"
           grep -q '<script src="./thermal-integrity.js"></script>' "$root/index.html"
+          guard_line=$(grep -n 'thermal-integrity-guard.js' "$root/index.html" | cut -d: -f1)
           live_line=$(grep -n 'thermal-integrity-live-progress.js' "$root/index.html" | cut -d: -f1)
           workspace_line=$(grep -n 'thermal-integrity-workspace.js' "$root/index.html" | cut -d: -f1)
           ui_line=$(grep -n 'thermal-integrity.js' "$root/index.html" | cut -d: -f1)
+          test "$guard_line" -le "$live_line"
           test "$live_line" -le "$workspace_line"
           test "$workspace_line" -le "$ui_line"
 
           test -s "$marker"
           grep -qx 'format=1' "$marker"
           grep -qx "filasim=${FILASIM_COMMIT}" "$marker"
-          grep -qx 'transforms=solver,hardening,audit-fixes,progress-v2,react-tab-v1' "$marker"
+          grep -qx 'transforms=solver,hardening,audit-fixes,progress-v2,react-tab-v1,bugfix-round1' "$marker"
           grep -q 'thermal-integrity.js' "$root/SHA256SUMS"
+          grep -q 'thermal-integrity-guard.js' "$root/SHA256SUMS"
           grep -q 'thermal-integrity-workspace.js' "$root/SHA256SUMS"
           grep -q 'thermal-integrity-live-progress.js' "$root/SHA256SUMS"
           grep -q 'thermal-integrity-version.txt' "$root/SHA256SUMS"
