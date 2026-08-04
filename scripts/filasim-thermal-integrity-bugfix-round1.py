@@ -219,7 +219,7 @@ def apply(source_root: pathlib.Path) -> None:
 '''
         closing = text.rfind("\n}\n")
         if closing < 0:
-            raise RuntimeError("Unable to locate thermal test-module closing brace")
+            raise RuntimeError("Unable to locate thermal.rs test-module closing brace")
         thermal.write_text(text[:closing] + insertion + text[closing:], encoding="utf-8")
 
     replace_once(
@@ -275,21 +275,35 @@ def apply(source_root: pathlib.Path) -> None:
         "Android workload safety budget",
     )
 
-    for path in (rail, panel):
-        replace_once(
-            path,
-            '''  const buildsim = s.appMode === "buildsim";
-''',
-            f'''  useEffect(() => {{
+    lifecycle_effect = f'''  useEffect(() => {{
     if (!s.model && thermalActive) {{
       window.dispatchEvent(new CustomEvent<boolean>("{EVENT}", {{ detail: false }}));
     }}
   }}, [s.model, thermalActive]);
-+
-+  const buildsim = s.appMode === "buildsim";
-'''.replace("+", ""),
-            f"{path.name} missing-model Thermal exit",
-        )
+
+'''
+    replace_once(
+        rail,
+        '''  const buildsim = s.appMode === "buildsim";
+''',
+        lifecycle_effect + '''  const buildsim = s.appMode === "buildsim";
+''',
+        "StepRail missing-model Thermal exit",
+    )
+    replace_once(
+        panel,
+        '''      unitRev: s.unitRev,
+    }))
+  );
+  const buildsim = s.appMode === "buildsim";
+''',
+        '''      unitRev: s.unitRev,
+    }))
+  );
+''' + lifecycle_effect + '''  const buildsim = s.appMode === "buildsim";
+''',
+        "StepPanel missing-model Thermal exit",
+    )
 
     replace_once(
         topbar,
