@@ -45,23 +45,21 @@ def patch_ui_v12(target: pathlib.Path) -> None:
     # plumbing. Always render physical-validity warnings inline and continue the
     # thermal-only calculation; the WASM boundary blocks structural FEA when the
     # solved field leaves the material model.
-    modal = '''      if (physicalWarnings.length && !window.confirm(
-        `${physicalWarnings.join("\\n")}\\n\\nThe thermal field can still be calculated, but structural FEA will be skipped if the solved field leaves the material model. Continue?`
-      )) {
-        throw new Error("Thermal Integrity run cancelled before solving.");
-      }
-'''
     inline = '''      if (physicalWarnings.length && preflightBox) {
         preflightBox.className = "ti-status ti-warning";
         preflightBox.textContent +=
-          `\\n${physicalWarnings.join("\\n")}\\n` +
+          `\n${physicalWarnings.join("\n")}\n` +
           "The temperature field will still be calculated. Structural FEA will be skipped automatically if the solved field leaves the material model.";
       }
 '''
-    if modal in text:
-        text = text.replace(modal, inline, 1)
-    elif inline not in text:
-        raise RuntimeError("Thermal inline physical-warning contract is missing")
+    if inline not in text:
+        start_marker = '      if (physicalWarnings.length && !window.confirm('
+        end_marker = '      let transform = null;\n'
+        start = text.find(start_marker)
+        end = text.find(end_marker, start + 1) if start >= 0 else -1
+        if start < 0 or end < 0:
+            raise RuntimeError("Thermal modal warning block could not be located")
+        text = text[:start] + inline + text[end:]
 
     target.write_text(text, encoding="utf-8")
     verified = target.read_text(encoding="utf-8")
