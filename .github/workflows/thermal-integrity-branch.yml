@@ -16,7 +16,7 @@ concurrency:
 env:
   FILASIM_COMMIT: e7485ec22d4ebe8baca04190404fbb877c90e031
   NODE_VERSION: 22.18.0
-  WASM_PACK_VERSION: 0.13.1
+  WASM_PACK_VERSION: 0.15.0
 
 jobs:
   solver-source-contract:
@@ -28,8 +28,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: npm
-          cache-dependency-path: app/src/main/filasim/thermal-integrity.js
 
       - uses: dtolnay/rust-toolchain@stable
 
