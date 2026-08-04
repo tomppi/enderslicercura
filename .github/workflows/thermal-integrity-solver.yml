@@ -80,6 +80,7 @@ jobs:
           grep -q 'MAX_TRANSIENT_CELL_STEPS' "$source/crates/filasim-wasm/src/lib.rs"
           grep -q 'service limit must exceed its reference temperature' "$source/crates/filasim-wasm/src/lib.rs"
           grep -q 'Android reportable maximum of 2000' "$source/crates/filasim-wasm/src/lib.rs"
+          grep -q 'thermal structural FEA did not converge' "$source/crates/filasim-wasm/src/lib.rs"
           grep -q 'progress: true' "$source/web/src/worker/engine.worker.ts"
           grep -q 'thermalIntegrity' "$source/web/src/engine/EngineProtocol.ts"
           grep -q 'thermalIntegrity' "$source/web/src/worker/engine.worker.ts"
