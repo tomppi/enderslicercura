@@ -46,7 +46,8 @@ jobs:
             scripts/filasim-thermal-integrity-hardening.py \
             scripts/filasim-thermal-integrity-audit-fixes.py \
             scripts/filasim-thermal-integrity-progress.py \
-            scripts/filasim-thermal-integrity-react-tab.py
+            scripts/filasim-thermal-integrity-react-tab.py \
+            scripts/filasim-thermal-integrity-bugfix-round1.py
 
       - name: Patch exact pinned filaSim source
         shell: bash
@@ -60,20 +61,32 @@ jobs:
           python3 scripts/filasim-thermal-integrity-audit-fixes.py "$source"
           python3 scripts/filasim-thermal-integrity-progress.py "$source"
           python3 scripts/filasim-thermal-integrity-react-tab.py "$source"
+          python3 scripts/filasim-thermal-integrity-bugfix-round1.py "$source"
           test -f "$source/.enderslicer-thermal-integrity"
           test -f "$source/.enderslicer-thermal-integrity-hardening"
           test -f "$source/.enderslicer-thermal-integrity-audit-fixes"
           test -f "$source/.enderslicer-thermal-integrity-progress-v2"
           test -f "$source/.enderslicer-thermal-integrity-react-tab-v1"
+          test -f "$source/.enderslicer-thermal-integrity-bugfix-round1"
           grep -q 'pub mod thermal;' "$source/crates/filasim-core/src/lib.rs"
           grep -q 'progress::publish' "$source/crates/filasim-core/src/thermal.rs"
+          grep -q 'MAX_SUPPORTED_TEMPERATURE_C' "$source/crates/filasim-core/src/thermal.rs"
+          grep -q 'steady thermal radiation iteration did not converge' "$source/crates/filasim-core/src/thermal.rs"
+          grep -q 'transient thermal radiation iteration did not converge' "$source/crates/filasim-core/src/thermal.rs"
+          grep -q 'thermal PCG lost positive definiteness' "$source/crates/filasim-core/src/thermal.rs"
+          grep -q 'extreme_temperature_above_report_range_is_rejected' "$source/crates/filasim-core/src/thermal.rs"
           grep -q 'solve_thermal_integrity' "$source/crates/filasim-wasm/src/lib.rs"
           grep -q 'Preparing voxel model' "$source/crates/filasim-wasm/src/lib.rs"
+          grep -q 'MAX_MOBILE_GRID_CELLS' "$source/crates/filasim-wasm/src/lib.rs"
+          grep -q 'MAX_TRANSIENT_CELL_STEPS' "$source/crates/filasim-wasm/src/lib.rs"
+          grep -q 'service limit must exceed its reference temperature' "$source/crates/filasim-wasm/src/lib.rs"
           grep -q 'progress: true' "$source/web/src/worker/engine.worker.ts"
           grep -q 'thermalIntegrity' "$source/web/src/engine/EngineProtocol.ts"
           grep -q 'thermalIntegrity' "$source/web/src/worker/engine.worker.ts"
           grep -q 'enderslicer-thermal-workspace' "$source/web/src/ui/StepRail.tsx"
+          grep -q 'if (!s.model && thermalActive)' "$source/web/src/ui/StepRail.tsx"
           grep -q 'enderslicer-thermal-integrity-mount' "$source/web/src/ui/StepPanel.tsx"
+          grep -q 'if (!s.model && thermalActive)' "$source/web/src/ui/StepPanel.tsx"
           grep -q 'sealed_cavity_does_not_receive_ambient_boundary_faces' "$source/crates/filasim-core/src/thermal.rs"
           grep -q '&material_stiffness' "$source/crates/filasim-wasm/src/lib.rs"
 
