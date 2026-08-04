@@ -39,6 +39,16 @@ def apply(source_root: pathlib.Path) -> None:
 
     replace_once(
         thermal,
+        "const MIN_ABSOLUTE_TEMPERATURE_C: f64 = -273.15;\n",
+        "const MIN_ABSOLUTE_TEMPERATURE_C: f64 = -273.15;\n"
+        "/// Upper result limit accepted by the Android Thermal Integrity report.\n"
+        "/// The reusable core solver itself remains valid above this value.\n"
+        "pub const MAX_SUPPORTED_TEMPERATURE_C: f64 = 2_000.0;\n",
+        "Android reporting temperature constant",
+    )
+
+    replace_once(
+        thermal,
         '''    let mut total_iterations = 0usize;
     let mut residual = f64::INFINITY;
     for _ in 0..MAX_RADIATION_ITERS {
@@ -230,7 +240,9 @@ def apply(source_root: pathlib.Path) -> None:
         '''        let thermal =
             filasim_core::thermal::solve_thermal(&grid, &material_fraction, &thermal_options)
                 .map_err(err)?;
-        if thermal.maximum_temperature_c > 2_000.0 {
+        if thermal.maximum_temperature_c
+            > filasim_core::thermal::MAX_SUPPORTED_TEMPERATURE_C
+        {
             return Err(err("thermal result exceeds the Android reportable maximum of 2000 °C"));
         }
         emit_progress(
