@@ -38,30 +38,38 @@ jobs:
           test -n "$apk"
           test -s "$apk"
 
+          unzip -t "$apk"
           unzip -Z1 "$apk" > apk-entries.txt
           grep -qx 'assets/filasim/thermal-integrity.js' apk-entries.txt
           grep -qx 'assets/filasim/thermal-integrity-guard.js' apk-entries.txt
           grep -qx 'assets/filasim/thermal-integrity-workspace.js' apk-entries.txt
           grep -qx 'assets/filasim/thermal-integrity-live-progress.js' apk-entries.txt
           grep -qx 'assets/filasim/thermal-integrity-version.txt' apk-entries.txt
+          grep -qx 'assets/filasim/source-version.txt' apk-entries.txt
+          ! grep -qx 'assets/filasim/.source-version' apk-entries.txt
           grep -qx 'assets/filasim/SHA256SUMS' apk-entries.txt
           grep -qx 'assets/filasim/index.html' apk-entries.txt
           grep -q '^assets/filasim/assets/.*\.wasm$' apk-entries.txt
           grep -qx 'lib/arm64-v8a/libcuraengine_exec.so' apk-entries.txt
 
-          unzip -p "$apk" assets/filasim/index.html > index.html
-          unzip -p "$apk" assets/filasim/thermal-integrity.js > thermal-integrity.js
-          unzip -p "$apk" assets/filasim/thermal-integrity-guard.js > thermal-integrity-guard.js
-          unzip -p "$apk" assets/filasim/thermal-integrity-workspace.js > thermal-integrity-workspace.js
-          unzip -p "$apk" assets/filasim/thermal-integrity-live-progress.js > thermal-integrity-live-progress.js
-          unzip -p "$apk" assets/filasim/thermal-integrity-version.txt > thermal-integrity-version.txt
-          unzip -p "$apk" assets/filasim/SHA256SUMS > SHA256SUMS
-          while IFS= read -r entry; do unzip -p "$apk" "$entry"; done \
-            < <(grep '^assets/filasim/assets/.*\.js$' apk-entries.txt) > bundled-filasim.js
-          wasm_entry=$(grep '^assets/filasim/assets/.*\.wasm$' apk-entries.txt | head -n 1)
-          test -n "$wasm_entry"
-          unzip -p "$apk" "$wasm_entry" > filasim.wasm
-          test -s filasim.wasm
+          rm -rf extracted
+          mkdir extracted
+          unzip -q "$apk" 'assets/filasim/*' -d extracted
+          test -d extracted/assets/filasim
+          (cd extracted/assets/filasim && sha256sum -c SHA256SUMS)
+
+          cp extracted/assets/filasim/index.html index.html
+          cp extracted/assets/filasim/thermal-integrity.js thermal-integrity.js
+          cp extracted/assets/filasim/thermal-integrity-guard.js thermal-integrity-guard.js
+          cp extracted/assets/filasim/thermal-integrity-workspace.js thermal-integrity-workspace.js
+          cp extracted/assets/filasim/thermal-integrity-live-progress.js thermal-integrity-live-progress.js
+          cp extracted/assets/filasim/thermal-integrity-version.txt thermal-integrity-version.txt
+          cp extracted/assets/filasim/source-version.txt source-version.txt
+          cp extracted/assets/filasim/SHA256SUMS SHA256SUMS
+          cat extracted/assets/filasim/assets/*.js > bundled-filasim.js
+          wasm=$(find extracted/assets/filasim/assets -type f -name '*.wasm' -print -quit)
+          test -n "$wasm"
+          test -s "$wasm"
 
           grep -q '<script src="./thermal-integrity-guard.js"></script>' index.html
           grep -q '<script src="./thermal-integrity-live-progress.js"></script>' index.html
@@ -96,14 +104,18 @@ jobs:
           grep -q 'setProgressBuffer' thermal-integrity-live-progress.js
           grep -q 'enderslicer-thermal-workspace' bundled-filasim.js
           grep -q 'enderslicer-thermal-integrity-mount' bundled-filasim.js
-          grep -a -q 'thermal grid is too large for the Android safety budget' filasim.wasm
-          grep -a -q 'transient thermal workload is too large for Android' filasim.wasm
-          grep -a -q 'steady thermal radiation iteration did not converge' filasim.wasm
-          grep -a -q 'thermal result exceeds the Android reportable maximum of 2000' filasim.wasm
-          grep -a -q 'thermal structural FEA did not converge' filasim.wasm
+          grep -a -q 'thermal grid is too large for the Android safety budget' "$wasm"
+          grep -a -q 'transient thermal workload is too large for Android' "$wasm"
+          grep -a -q 'steady thermal radiation iteration did not converge' "$wasm"
+          grep -a -q 'thermal result exceeds the Android reportable maximum of 2000' "$wasm"
+          grep -a -q 'thermal structural FEA did not converge' "$wasm"
+          grep -qx 'format=8' source-version.txt
+          grep -qx "commit=${FILASIM_COMMIT}" source-version.txt
           grep -qx 'format=1' thermal-integrity-version.txt
           grep -qx "filasim=${FILASIM_COMMIT}" thermal-integrity-version.txt
           grep -qx 'transforms=solver,hardening,audit-fixes,progress-v2,react-tab-v1,bugfix-round1' thermal-integrity-version.txt
+          grep -q 'source-version.txt' SHA256SUMS
+          ! grep -q '  \.source-version$' SHA256SUMS
           grep -q 'thermal-integrity.js' SHA256SUMS
           grep -q 'thermal-integrity-guard.js' SHA256SUMS
           grep -q 'thermal-integrity-workspace.js' SHA256SUMS
