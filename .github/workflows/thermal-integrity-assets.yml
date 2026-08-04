@@ -100,8 +100,6 @@ jobs:
           grep -q 'setProgressBuffer' "$root/thermal-integrity-live-progress.js"
           grep -R -q 'enderslicer-thermal-workspace' "$root/assets"
           grep -R -q 'enderslicer-thermal-integrity-mount' "$root/assets"
-          grep -R -q 'MAX_MOBILE_GRID_CELLS' "$root/assets"
-          grep -R -q 'steady thermal radiation iteration did not converge' "$root/assets"
           grep -q '<script src="./thermal-integrity-guard.js"></script>' "$root/index.html"
           grep -q '<script src="./thermal-integrity-live-progress.js"></script>' "$root/index.html"
           grep -q '<script src="./thermal-integrity-workspace.js"></script>' "$root/index.html"
@@ -127,6 +125,10 @@ jobs:
           wasm=$(find "$root/assets" -type f -name '*.wasm' -print -quit)
           test -n "$wasm"
           test -s "$wasm"
+          grep -a -q 'thermal grid is too large for the Android safety budget' "$wasm"
+          grep -a -q 'transient thermal workload is too large for Android' "$wasm"
+          grep -a -q 'steady thermal radiation iteration did not converge' "$wasm"
+          grep -a -q 'thermal result exceeds the Android reportable maximum of 2000' "$wasm"
           test -n "$(find "$root/assets" -type f -name '*.js' -print -quit)"
 
       - name: Run thermal report unit tests
