@@ -40,7 +40,35 @@ def patch_ui_v12(target: pathlib.Path) -> None:
         text = text.replace(physical, compatible, 1)
     elif compatible not in text:
         raise RuntimeError("Thermal report solver-model contract is missing")
+
+    # This Android host intentionally does not depend on JavaScript modal-dialog
+    # plumbing. Always render physical-validity warnings inline and continue the
+    # thermal-only calculation; the WASM boundary blocks structural FEA when the
+    # solved field leaves the material model.
+    modal = '''      if (physicalWarnings.length && !window.confirm(
+        `${physicalWarnings.join("\\n")}\\n\\nThe thermal field can still be calculated, but structural FEA will be skipped if the solved field leaves the material model. Continue?`
+      )) {
+        throw new Error("Thermal Integrity run cancelled before solving.");
+      }
+'''
+    inline = '''      if (physicalWarnings.length && preflightBox) {
+        preflightBox.className = "ti-status ti-warning";
+        preflightBox.textContent +=
+          `\\n${physicalWarnings.join("\\n")}\\n` +
+          "The temperature field will still be calculated. Structural FEA will be skipped automatically if the solved field leaves the material model.";
+      }
+'''
+    if modal in text:
+        text = text.replace(modal, inline, 1)
+    elif inline not in text:
+        raise RuntimeError("Thermal inline physical-warning contract is missing")
+
     target.write_text(text, encoding="utf-8")
+    verified = target.read_text(encoding="utf-8")
+    if "window.confirm(" in verified:
+        raise RuntimeError("Thermal runtime still depends on a JavaScript modal confirmation")
+    if "The temperature field will still be calculated" not in verified:
+        raise RuntimeError("Thermal inline material warning is missing")
 
 
 thermal.patch_thermal_ui_runtime = patch_ui_v12
