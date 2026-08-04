@@ -59,14 +59,24 @@ def apply_thermal_transforms(source_root: pathlib.Path) -> None:
     marker_paths = tuple(source_root / name for name in THERMAL_MARKERS)
     marker_state = tuple(path.is_file() for path in marker_paths)
 
-    if any(marker_state) and not all(marker_state):
+    legacy_complete = marker_state == (True, True, True, False)
+    if any(marker_state) and not all(marker_state) and not legacy_complete:
         missing = [path.name for path, present in zip(marker_paths, marker_state) if not present]
         raise RuntimeError(
             "Thermal-integrity source is only partially transformed; missing markers: "
             + ", ".join(missing)
         )
 
-    if not all(marker_state):
+    if legacy_complete:
+        transform = THERMAL_TRANSFORMS[-1]
+        if not transform.is_file():
+            raise RuntimeError(f"Thermal-integrity transform is missing: {transform}")
+        subprocess.run(
+            [sys.executable, str(transform), str(source_root)],
+            cwd=PROJECT_ROOT,
+            check=True,
+        )
+    elif not all(marker_state):
         for transform in THERMAL_TRANSFORMS:
             if not transform.is_file():
                 raise RuntimeError(f"Thermal-integrity transform is missing: {transform}")
