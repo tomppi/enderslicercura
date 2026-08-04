@@ -86,4 +86,6 @@ jobs:
       - name: Run thermal report unit tests
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon :app:testDebugUnitTest -x :app:verifyCuraEngineExecutable
+          ./gradlew --no-daemon :app:testDebugUnitTest \
+            --tests 'com.tomppi.enderslicer.smartinfill.ThermalIntegrityReportTest' \
+            -x :app:verifyCuraEngineExecutable
