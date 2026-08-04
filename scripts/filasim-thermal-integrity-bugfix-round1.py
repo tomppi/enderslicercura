@@ -250,6 +250,40 @@ def apply(source_root: pathlib.Path) -> None:
         "Android reportable temperature ceiling",
     )
 
+    replace_once(
+        wasm,
+        '''        let (solution, _compliance) = filasim_core::simp::solve_with_eps_cached(
+            &mut self.solver_cache,
+            &grid,
+            levels,
+            &assembled.problem,
+            &solve_settings,
+            temperature_eps.clone().into(),
+        )
+        .map_err(err)?;
+        let von_mises = filasim_core::thermal::thermal_von_mises(
+''',
+        '''        let (solution, _compliance) = filasim_core::simp::solve_with_eps_cached(
+            &mut self.solver_cache,
+            &grid,
+            levels,
+            &assembled.problem,
+            &solve_settings,
+            temperature_eps.clone().into(),
+        )
+        .map_err(err)?;
+        if !solution.converged {
+            return Err(err(&format!(
+                "thermal structural FEA did not converge ({} iterations, relative residual {:.3e})",
+                solution.iterations,
+                solution.rel_residual,
+            )));
+        }
+        let von_mises = filasim_core::thermal::thermal_von_mises(
+''',
+        "structural convergence enforcement",
+    )
+
     lifecycle_effect = f'''  useEffect(() => {{
     if (!s.model && thermalActive) {{
       window.dispatchEvent(new CustomEvent<boolean>("{EVENT}", {{ detail: false }}));
