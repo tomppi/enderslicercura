@@ -51,9 +51,11 @@ jobs:
             scripts/filasim-thermal-integrity-bugfix-round2.py \
             scripts/filasim-thermal-integrity-linear-fast-path.py \
             scripts/filasim-thermal-integrity-physical-model-v1.py \
+            scripts/filasim-thermal-integrity-physical-contract-fix.py \
             scripts/prepare-filasim-assets-with-thermal-integrity-v9.py \
             scripts/prepare-filasim-assets-with-thermal-integrity-v10.py \
-            scripts/prepare-filasim-assets-with-thermal-integrity-v11.py
+            scripts/prepare-filasim-assets-with-thermal-integrity-v11.py \
+            scripts/prepare-filasim-assets-with-thermal-integrity-v12.py
 
       - name: Patch exact pinned filaSim source
         shell: bash
@@ -71,6 +73,7 @@ jobs:
           python3 scripts/filasim-thermal-integrity-bugfix-round2.py "$source"
           python3 scripts/filasim-thermal-integrity-linear-fast-path.py "$source"
           python3 scripts/filasim-thermal-integrity-physical-model-v1.py "$source"
+          python3 scripts/filasim-thermal-integrity-physical-contract-fix.py "$source"
           test -f "$source/.enderslicer-thermal-integrity"
           test -f "$source/.enderslicer-thermal-integrity-hardening"
           test -f "$source/.enderslicer-thermal-integrity-audit-fixes"
@@ -80,6 +83,7 @@ jobs:
           test -f "$source/.enderslicer-thermal-integrity-bugfix-round2"
           test -f "$source/.enderslicer-thermal-integrity-linear-fast-path-v1"
           test -f "$source/.enderslicer-thermal-integrity-physical-model-v1"
+          test -f "$source/.enderslicer-thermal-integrity-physical-contract-fix-v1"
           grep -q 'pub mod thermal;' "$source/crates/filasim-core/src/lib.rs"
           grep -q 'progress::publish' "$source/crates/filasim-core/src/thermal.rs"
           grep -q 'MAX_SUPPORTED_TEMPERATURE_C' "$source/crates/filasim-core/src/thermal.rs"
@@ -92,6 +96,8 @@ jobs:
           grep -q 'Contact-heater power enters through source_w' "$source/crates/filasim-core/src/thermal.rs"
           grep -q 'physical_model_all_exterior_heater_area' "$source/crates/filasim-core/src/thermal.rs"
           grep -q 'contact_heater_does_not_reject_power_directly_to_ambient' "$source/crates/filasim-core/src/thermal.rs"
+          grep -q 'heater_orientation_uses_all_exterior_faces_while_sink_stays_global' "$source/crates/filasim-core/src/thermal.rs"
+          ! grep -q 'selected_face_uses_only_the_global_extreme_not_a_step_underside' "$source/crates/filasim-core/src/thermal.rs"
           grep -q 'solve_thermal_integrity' "$source/crates/filasim-wasm/src/lib.rs"
           grep -q 'thermal_integrity_preflight' "$source/crates/filasim-wasm/src/lib.rs"
           grep -q 'map_cell_temperature_to_mesh' "$source/crates/filasim-wasm/src/lib.rs"
