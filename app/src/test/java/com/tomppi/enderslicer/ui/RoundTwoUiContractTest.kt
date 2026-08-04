@@ -15,7 +15,8 @@ class RoundTwoUiContractTest {
 
         assertTrue(viewModel.contains("sliceResultId = result.artifactId"))
         assertTrue(viewModel.contains("isCompleteGcode(source, expectedArtifactId)"))
-        assertTrue(state.contains("SliceArtifactPublisher.isCompleteGcode(it, sliceResultId)"))
+        assertTrue(state.contains("val expectedId = sliceResultId ?: return false"))
+        assertTrue(state.contains("SliceArtifactPublisher.isCompleteGcode(file, expectedId)"))
         assertTrue(integrated.contains("slicerState.hasCurrentGcode()"))
         assertFalse(publisher.contains("return@synchronized Closeable { }"))
     }
