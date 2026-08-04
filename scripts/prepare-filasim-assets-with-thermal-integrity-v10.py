@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Extend the Thermal Integrity v9 preparer with final logic-audit fixes."""
+"""Final Thermal Integrity logic-audit preparer.
+
+Composes the stable nonlinear radiation solver, exact linear fast path, and
+Android UI labels that explicitly describe the global-extreme boundary planes.
+"""
 
 from __future__ import annotations
 
