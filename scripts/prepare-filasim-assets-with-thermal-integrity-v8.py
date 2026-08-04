@@ -37,7 +37,7 @@ THERMAL_MARKERS = (
 THERMAL_UI_SOURCE = PROJECT_ROOT / "app/src/main/filasim/thermal-integrity.js"
 THERMAL_UI_NAME = "thermal-integrity.js"
 THERMAL_UI_TAG = f'<script src="./{THERMAL_UI_NAME}"></script>'
-THERMAL_PACKAGE_MARKER = ".thermal-integrity-version"
+THERMAL_PACKAGE_MARKER = "thermal-integrity-version.txt"
 THERMAL_PACKAGE_MARKER_TEXT = (
     "format=1\n"
     f"filasim={BASE.FILASIM_COMMIT}\n"
