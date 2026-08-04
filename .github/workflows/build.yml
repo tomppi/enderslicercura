@@ -20,7 +20,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: feature/non-planar-curvislicer
-          fetch-depth: 4
+          fetch-depth: 5
 
       - name: Apply reviewed general-audit fixes
         run: |
@@ -39,14 +39,22 @@ jobs:
           """
           if 'def replace_first' not in text:
               text = text.replace(helper_marker, helper + helper_marker, 1)
-          old_call = """replace_once(
+
+          preview_old = """replace_once(
               'app/src/main/java/com/tomppi/enderslicer/engine/GcodeLayerPreview.kt',
               '''                val command = GcodeCommand.parse(rawLine) ?: return@forEach\\n                if (modalState.apply(command)) return@forEach\\n''',
           """
-          new_call = old_call.replace('replace_once(', 'replace_first(', 1)
-          if old_call not in text:
+          if preview_old not in text:
               raise RuntimeError('Unable to narrow the layer-preview replacement')
-          path.write_text(text.replace(old_call, new_call, 1))
+          text = text.replace(preview_old, preview_old.replace('replace_once(', 'replace_first(', 1), 1)
+
+          begin_old = """    '''        if (current.isBusy) return false\\n        _uiState.update { it.copy(isBusy = true, statusMessage = message) }\\n''',
+          """
+          begin_new = """    '''        if (_uiState.value.isBusy) return false\\n        _uiState.update { it.copy(isBusy = true, statusMessage = message) }\\n''',
+          """
+          if begin_old not in text:
+              raise RuntimeError('Unable to align the beginOperation replacement')
+          path.write_text(text.replace(begin_old, begin_new, 1))
           PY
           python3 -m py_compile tools/apply_general_audit_fixes.py
           python3 tools/apply_general_audit_fixes.py
