@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import importlib.util
 import pathlib
+import subprocess
 import sys
 
 
@@ -27,6 +28,85 @@ if ROUND2 not in thermal.THERMAL_TRANSFORMS:
     thermal.THERMAL_TRANSFORMS = (*thermal.THERMAL_TRANSFORMS, ROUND2)
 if round2_marker not in thermal.THERMAL_MARKERS:
     thermal.THERMAL_MARKERS = (*thermal.THERMAL_MARKERS, round2_marker)
+
+
+def apply_thermal_transforms_v9(source_root: pathlib.Path) -> None:
+    source_root = source_root.resolve()
+    marker_paths = tuple(source_root / name for name in thermal.THERMAL_MARKERS)
+    marker_state = tuple(path.is_file() for path in marker_paths)
+    first_missing = next(
+        (index for index, present in enumerate(marker_state) if not present),
+        len(marker_state),
+    )
+    if any(marker_state[first_missing:]):
+        missing = [
+            path.name
+            for path, present in zip(marker_paths, marker_state)
+            if not present
+        ]
+        raise RuntimeError(
+            "Thermal-integrity source is only partially transformed; missing markers: "
+            + ", ".join(missing)
+        )
+
+    for transform in thermal.THERMAL_TRANSFORMS[first_missing:]:
+        if not transform.is_file():
+            raise RuntimeError(f"Thermal-integrity transform is missing: {transform}")
+        subprocess.run(
+            [sys.executable, str(transform), str(source_root)],
+            cwd=thermal.PROJECT_ROOT,
+            check=True,
+        )
+
+    missing = [path.name for path in marker_paths if not path.is_file()]
+    if missing:
+        raise RuntimeError(
+            "Thermal-integrity source markers are missing after transformation: "
+            + ", ".join(missing)
+        )
+
+    core = source_root / "crates/filasim-core/src/thermal.rs"
+    wasm = source_root / "crates/filasim-wasm/src/lib.rs"
+    worker = source_root / "web/src/worker/engine.worker.ts"
+    protocol = source_root / "web/src/engine/EngineProtocol.ts"
+    rail = source_root / "web/src/ui/StepRail.tsx"
+    panel = source_root / "web/src/ui/StepPanel.tsx"
+    topbar = source_root / "web/src/ui/TopBar.tsx"
+    required_contracts = (
+        (core, "solve_thermal"),
+        (core, "progress::publish"),
+        (core, "MAX_SUPPORTED_TEMPERATURE_C"),
+        (core, "radiation_tangent_w_m2"),
+        (core, "solve_nonlinear_temperature"),
+        (core, "MIN_LINE_SEARCH_ALPHA"),
+        (core, "steady thermal radiation iteration"),
+        (core, "did not converge within"),
+        (core, "steady thermal solve violated global energy balance"),
+        (core, "benchy_like_five_watt_radiative_case_converges_and_balances"),
+        (core, "transient_radiation_uses_the_same_stable_nonlinear_path"),
+        (wasm, "solve_thermal_integrity"),
+        (wasm, "Preparing voxel model"),
+        (wasm, "MAX_MOBILE_GRID_CELLS"),
+        (wasm, "service limit must exceed its reference temperature"),
+        (worker, "thermalIntegrity"),
+        (worker, "progress: true"),
+        (protocol, "thermalIntegrity"),
+        (rail, "enderslicer-thermal-workspace"),
+        (rail, "Thermal Integrity — service-temperature"),
+        (rail, "if (!s.model && thermalActive)"),
+        (panel, "enderslicer-thermal-integrity-mount"),
+        (panel, "if (!s.model && thermalActive)"),
+        (topbar, 'new CustomEvent<boolean>("enderslicer-thermal-workspace"'),
+    )
+    for path, marker in required_contracts:
+        if not path.is_file() or marker not in path.read_text(encoding="utf-8"):
+            raise RuntimeError(
+                f"Thermal-integrity v9 contract {marker!r} is missing from {path}"
+            )
+
+
+# The v8 Android export hook resolves this module global at call time.
+thermal.apply_thermal_transforms = apply_thermal_transforms_v9
 
 thermal.THERMAL_PACKAGE_MARKER_TEXT = (
     "format=1\n"
