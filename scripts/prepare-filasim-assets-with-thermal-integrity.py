@@ -40,6 +40,11 @@ def require_text(text: str, needle: str, label: str) -> None:
         raise RuntimeError(f"Generated filaSim thermal integrity source lost {label}")
 
 
+def reject_text(text: str, needle: str, message: str) -> None:
+    if needle in text:
+        raise RuntimeError(message)
+
+
 def verify_hardened_thermal_source(source_root: pathlib.Path) -> None:
     thermal = (source_root / "crates/filasim-core/src/thermal.rs").read_text(encoding="utf-8")
     wasm = (source_root / "crates/filasim-wasm/src/lib.rs").read_text(encoding="utf-8")
@@ -63,30 +68,59 @@ def verify_hardened_thermal_source(source_root: pathlib.Path) -> None:
         "cut-cell conduction regression",
     )
     require_text(thermal, "if boundary.cooled {", "solved cooled-boundary selection")
-    if "boundary.face == options.cooled_face" in thermal:
-        raise RuntimeError(
-            "Generated filaSim energy accounting still uses the unhardened cooled-face comparison"
-        )
+    reject_text(
+        thermal,
+        "boundary.face == options.cooled_face",
+        "Generated filaSim energy accounting still uses the unhardened cooled-face comparison",
+    )
 
-    eigen_start = wasm.find("filasim_core::thermal::thermal_eigen_forces(")
-    eigen_end = wasm.find(").map_err(err)?", eigen_start)
-    if eigen_start < 0 or eigen_end < 0:
-        raise RuntimeError("Generated filaSim thermal eigenforce call is missing")
-    eigen_call = wasm[eigen_start:eigen_end]
-    require_text(eigen_call, "&temperature_eps", "occupancy-scaled thermal eigenforces")
-    if "&material_stiffness" in eigen_call:
-        raise RuntimeError("Thermal eigenforces were incorrectly decoupled from cut-cell occupancy")
+    eigen_signature = '''filasim_core::thermal::thermal_eigen_forces(
+                &grid,
+                &temperature_eps,
+                &thermal.temperatures_c,
+'''
+    wrong_eigen_signature = '''filasim_core::thermal::thermal_eigen_forces(
+                &grid,
+                &material_stiffness,
+                &thermal.temperatures_c,
+'''
+    require_text(wasm, eigen_signature, "occupancy-scaled thermal eigenforces")
+    reject_text(
+        wasm,
+        wrong_eigen_signature,
+        "Thermal eigenforces were incorrectly decoupled from cut-cell occupancy",
+    )
 
-    stress_start = wasm.find("filasim_core::thermal::thermal_von_mises(")
-    stress_end = wasm.find(").map_err(err)?", stress_start)
-    if stress_start < 0 or stress_end < 0:
-        raise RuntimeError("Generated filaSim thermal material-stress call is missing")
-    stress_call = wasm[stress_start:stress_end]
-    require_text(stress_call, "&material_stiffness", "occupancy-decoupled material stress")
-    if "&temperature_eps" in stress_call:
-        raise RuntimeError("Thermal material stress still contains geometric cut-cell occupancy")
+    stress_signature = '''filasim_core::thermal::thermal_von_mises(
+            &grid,
+            &solution.u,
+            e0,
+            nu,
+            &material_stiffness,
+            &thermal.temperatures_c,
+'''
+    wrong_stress_signature = '''filasim_core::thermal::thermal_von_mises(
+            &grid,
+            &solution.u,
+            e0,
+            nu,
+            &temperature_eps,
+            &thermal.temperatures_c,
+'''
+    require_text(wasm, stress_signature, "occupancy-decoupled material stress")
+    reject_text(
+        wasm,
+        wrong_stress_signature,
+        "Thermal material stress still contains geometric cut-cell occupancy",
+    )
 
     require_text(wasm, "relative_density[ci]", "occupancy-decoupled strength allowable")
+    require_text(wasm, "temperature_eps.clone(),", "unambiguous thermal stiffness field")
+    reject_text(
+        wasm,
+        "temperature_eps.clone().into(),",
+        "Thermal stiffness field still uses an ambiguous Into conversion",
+    )
     require_text(protocol, "thermalIntegrity", "typed thermal worker protocol")
     require_text(worker, 'case "thermalIntegrity":', "thermal worker operation")
 
