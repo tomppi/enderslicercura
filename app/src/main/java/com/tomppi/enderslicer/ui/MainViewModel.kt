@@ -1235,7 +1235,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun beginOperation(message: String): Boolean {
-        if (current.isBusy) return false
+        if (_uiState.value.isBusy) return false
         workspaceMutationGeneration.incrementAndGet()
         _uiState.update { it.copy(isBusy = true, statusMessage = message) }
         return true

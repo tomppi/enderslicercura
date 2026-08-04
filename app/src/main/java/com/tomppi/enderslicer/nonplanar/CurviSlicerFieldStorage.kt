@@ -78,6 +78,8 @@ internal object CurviSlicerFieldStorage {
         return sidecar.takeIf(File::isFile)?.let(::read)?.diagnostics
     }
 
+    fun isPrepared(workspace: File): Boolean = File(workspace, FILE_NAME).isFile
+
     private fun read(file: File): CurviSlicerPipeline.Prepared =
         DataInputStream(file.inputStream().buffered()).use { input ->
             require(input.readInt() == MAGIC) { "Invalid CurviSlicer field marker" }
