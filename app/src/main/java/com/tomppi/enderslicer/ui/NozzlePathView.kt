@@ -19,17 +19,22 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.tomppi.enderslicer.engine.GcodeNozzlePath
 import com.tomppi.enderslicer.engine.GcodeNozzlePathParser
 import com.tomppi.enderslicer.viewer.NozzlePathSurfaceView
@@ -79,6 +84,34 @@ private fun NozzlePathPlayer(path: GcodeNozzlePath, artifactKey: String, modifie
     var moveIndex by rememberSaveable(artifactKey) { mutableIntStateOf(0) }
     var playing by rememberSaveable(artifactKey) { mutableStateOf(false) }
     val safeIndex = moveIndex.coerceIn(0, max(path.moveCount - 1, 0))
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var surfaceView by remember(artifactKey) { mutableStateOf<NozzlePathSurfaceView?>(null) }
+
+    DisposableEffect(lifecycleOwner, surfaceView) {
+        val view = surfaceView
+        if (view == null) {
+            onDispose { }
+        } else {
+            val observer = LifecycleEventObserver { _, event ->
+                when (event) {
+                    Lifecycle.Event.ON_RESUME -> view.onResume()
+                    Lifecycle.Event.ON_PAUSE,
+                    Lifecycle.Event.ON_STOP,
+                    Lifecycle.Event.ON_DESTROY,
+                    -> view.onPause()
+                    else -> Unit
+                }
+            }
+            lifecycleOwner.lifecycle.addObserver(observer)
+            if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+                view.onResume()
+            }
+            onDispose {
+                lifecycleOwner.lifecycle.removeObserver(observer)
+                view.onPause()
+            }
+        }
+    }
 
     LaunchedEffect(playing, artifactKey, path.moveCount) {
         while (playing && isActive) {
@@ -98,8 +131,14 @@ private fun NozzlePathPlayer(path: GcodeNozzlePath, artifactKey: String, modifie
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth(),
-                factory = { context -> NozzlePathSurfaceView(context) },
+                factory = { context ->
+                    NozzlePathSurfaceView(context).also { surfaceView = it }
+                },
                 update = { view -> view.setPath(path, safeIndex) },
+                onRelease = { view ->
+                    view.onPause()
+                    if (surfaceView === view) surfaceView = null
+                },
             )
 
             Card(
@@ -121,7 +160,7 @@ private fun NozzlePathPlayer(path: GcodeNozzlePath, artifactKey: String, modifie
                         "Move ${sourceIndex + 1}/${path.sourceMoveCount}"
                     }
                     Text(
-                        "$moveLabel · Z %.3f mm · %.1f mm/s".format(
+                        "$moveLabel · Z %.3f mm · %.1f mm/s requested".format(
                             path.moves[offset + GcodeNozzlePath.Z2],
                             path.moves[offset + GcodeNozzlePath.SPEED],
                         ),

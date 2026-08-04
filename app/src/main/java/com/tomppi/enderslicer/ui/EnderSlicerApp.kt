@@ -739,11 +739,6 @@ private fun ActionBar(
     }
 }
 
-private fun MainUiState.hasCurrentGcode(): Boolean = gcodePath
-    ?.let(::File)
-    ?.let { it.isFile && it.length() > 0L }
-    ?: false
-
 private fun formatEstimatedPrintTime(totalSeconds: Int): String {
     val seconds = totalSeconds.coerceAtLeast(0)
     val days = seconds / 86_400

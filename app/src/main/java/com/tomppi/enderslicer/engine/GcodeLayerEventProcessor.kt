@@ -218,9 +218,7 @@ object GcodeLayerEventProcessor {
         require(line.none { it == '\u0000' || it == '\r' || it == '\n' }) { "Custom G-code contains a control character" }
         val command = GcodeCommand.parse(line)
             ?: throw IllegalArgumentException("Custom G-code must contain a recognized command")
-        require(command.opcode !in BLOCKED_CUSTOM_COMMANDS) {
-            "Custom G-code command ${command.opcode} is blocked for safety"
-        }
+        GcodeCommandPolicy.requireSafeCustomEvent(command)
         if (command.opcode == "M104" || command.opcode == "M109") {
             val target = command.value('S') ?: command.value('R')
             require(target != null && target in 0.0..450.0) { "Custom nozzle temperature is invalid" }
@@ -228,9 +226,6 @@ object GcodeLayerEventProcessor {
         if (command.opcode == "M140" || command.opcode == "M190") {
             val target = command.value('S') ?: command.value('R')
             require(target != null && target in 0.0..200.0) { "Custom bed temperature is invalid" }
-        }
-        if (command.opcode == "G0" || command.opcode == "G1") {
-            require(!command.has('E')) { "Custom G-code extrusion is not allowed" }
         }
     }
 
@@ -247,26 +242,4 @@ object GcodeLayerEventProcessor {
 
     private const val Z_EPSILON = 0.01f
     private const val MAX_TARGET_ERROR_MM = 0.6f
-    private val BLOCKED_CUSTOM_COMMANDS = setOf(
-        "G0",
-        "G1",
-        "G2",
-        "G3",
-        "G10",
-        "G11",
-        "G28",
-        "G29",
-        "G90",
-        "G91",
-        "G92",
-        "M18",
-        "M84",
-        "M112",
-        "M410",
-        "M500",
-        "M501",
-        "M502",
-        "M997",
-        "M999",
-    )
 }

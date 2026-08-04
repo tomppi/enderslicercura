@@ -47,6 +47,8 @@ class CurviSlicerSafetyRegressionTest {
         val directory = Files.createTempDirectory("curvi-machine-end").toFile()
         try {
             val endLines = listOf(
+                ";LAYER:end",
+                ";LAYER:999",
                 "G91",
                 "G1 E-2 F2700",
                 "G1 E-2 Z0.2 F2400",

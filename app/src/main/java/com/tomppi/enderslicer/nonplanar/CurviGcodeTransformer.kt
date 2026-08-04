@@ -1,6 +1,7 @@
 package com.tomppi.enderslicer.nonplanar
 
 import com.tomppi.enderslicer.engine.GcodeCommand
+import com.tomppi.enderslicer.engine.GcodeCommandPolicy
 import com.tomppi.enderslicer.engine.GcodeModalState
 import com.tomppi.enderslicer.engine.PrinterEnvelope
 import java.io.File
@@ -16,7 +17,6 @@ internal object CurviGcodeTransformer {
     private const val EPSILON = 1e-8
     private const val MAX_EMITTED_MOVES = 3_000_000
     private const val SLOPE_TOLERANCE_DEGREES = 0.05
-    private val TOKEN = Regex("([A-Za-z])\\s*([+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+))")
 
     fun transform(
         file: File,
@@ -41,6 +41,7 @@ internal object CurviGcodeTransformer {
         var logicalFeed = 0.0
         var emittedFeed = Double.NaN
         var inPrintableLayers = false
+        var afterMachineEnd = false
         var currentLayer: Int? = null
         var lineNumber = 0
         var sourceMoves = 0
@@ -70,6 +71,32 @@ internal object CurviGcodeTransformer {
                     input.forEachLine { rawLine ->
                         lineNumber++
                         val trimmed = rawLine.trimStart()
+                        if (afterMachineEnd) {
+                            require(trimmed != CurviSlicerRuntime.MACHINE_END_SENTINEL) {
+                                "CurviSlicer machine-end sentinel appears more than once"
+                            }
+                            output.appendLine(rawLine)
+                            return@forEachLine
+                        }
+                        if (trimmed == CurviSlicerRuntime.MACHINE_END_SENTINEL) {
+                            // This is a monotonic phase boundary. No later comment or command may
+                            // re-enable deformation of the user-authored machine-end script.
+                            afterMachineEnd = true
+                            inPrintableLayers = false
+                            currentLayer = null
+                            output.appendLine(rawLine)
+                            if (abs(curvedE - planarE) > EPSILON) {
+                                output.appendLine(
+                                    "G92 E${format(planarE)} ; restore Cura E coordinate before machine end G-code",
+                                )
+                            }
+                            curvedE = planarE
+                            idealCurvedE = planarE
+                            planarX = curvedX
+                            planarY = curvedY
+                            planarZ = curvedZ
+                            return@forEachLine
+                        }
                         if (trimmed.startsWith(";TIME_ELAPSED:")) {
                             val originalElapsed = trimmed.substringAfter(':').trim().toDoubleOrNull()
                             if (originalElapsed != null) {
@@ -86,25 +113,6 @@ internal object CurviGcodeTransformer {
                             currentLayer = trimmed.substringAfter(':').trim().toIntOrNull()
                             inPrintableLayers = true
                         }
-                        if (trimmed == CurviSlicerRuntime.MACHINE_END_SENTINEL) {
-                            // Machine end G-code starts from the already curved XYZ position,
-                            // but its absolute-E commands were authored against Cura's planar E
-                            // coordinate. Restore only E so retract/prime deltas remain identical.
-                            inPrintableLayers = false
-                            currentLayer = null
-                            output.appendLine(rawLine)
-                            if (abs(curvedE - planarE) > EPSILON) {
-                                output.appendLine(
-                                    "G92 E${format(planarE)} ; restore Cura E coordinate before machine end G-code",
-                                )
-                            }
-                            curvedE = planarE
-                            idealCurvedE = planarE
-                            planarX = curvedX
-                            planarY = curvedY
-                            planarZ = curvedZ
-                            return@forEachLine
-                        }
                         if (trimmed.startsWith(";End of Gcode", ignoreCase = true) || trimmed.startsWith(";END_OF_PRINT")) {
                             inPrintableLayers = false
                             currentLayer = null
@@ -115,6 +123,7 @@ internal object CurviGcodeTransformer {
                             output.appendLine(rawLine)
                             return@forEachLine
                         }
+                        GcodeCommandPolicy.requireCurviSupported(command, inPrintableLayers)
                         if (modal.apply(command)) {
                             output.appendLine(rawLine)
                             return@forEachLine
@@ -137,9 +146,6 @@ internal object CurviGcodeTransformer {
                                 }
                                 output.appendLine(rawLine)
                             }
-                            "G2", "G3" -> error(
-                                "CurviSlicer cannot safely interpret G2/G3 arcs; disable arc fitting and custom arc purge paths",
-                            )
                             "G0", "G1" -> {
                                 val nextPlanarX = modal.position(planarX, command.value('X'))
                                 val nextPlanarY = modal.position(planarY, command.value('Y'))
@@ -160,8 +166,6 @@ internal object CurviGcodeTransformer {
                                         }
                                         builder.append(" E").append(format(emittedE))
                                         command.value('F')?.let { builder.append(" F").append(format(it)) }
-                                        val unknown = unknownTokens(rawLine)
-                                        if (unknown.isNotBlank()) builder.append(' ').append(unknown)
                                         rawLine.substringAfter(';', "").takeIf { ';' in rawLine }
                                             ?.let { builder.append(" ;").append(it) }
                                         output.appendLine(builder.toString())
@@ -239,7 +243,6 @@ internal object CurviGcodeTransformer {
                                 } else {
                                     deltaE
                                 }
-                                val unknownTokens = unknownTokens(rawLine)
                                 val comment = rawLine.substringAfter(';', "").takeIf { ';' in rawLine }
                                 var emittedCurvedE = curvedE
                                 var cumulativeLength = 0.0
@@ -311,7 +314,6 @@ internal object CurviGcodeTransformer {
                                         builder.append(" F").append(format(safeFeed))
                                         emittedFeed = safeFeed
                                     }
-                                    if (segment == 0 && unknownTokens.isNotBlank()) builder.append(' ').append(unknownTokens)
                                     if (segment == segmentCount - 1 && comment != null) builder.append(" ;").append(comment)
                                     output.appendLine(builder.toString())
                                     emittedMoves++
@@ -372,15 +374,6 @@ internal object CurviGcodeTransformer {
         } finally {
             temporary.delete()
         }
-    }
-
-    private fun unknownTokens(rawLine: String): String {
-        val code = rawLine.substringBefore(';')
-        val opcodeEnd = code.indexOfFirst(Char::isWhitespace).let { if (it < 0) code.length else it }
-        val remainder = code.substring(opcodeEnd)
-        return TOKEN.findAll(remainder)
-            .filter { it.groupValues[1].single().uppercaseChar() !in setOf('X', 'Y', 'Z', 'E', 'F') }
-            .joinToString(" ") { it.value.trim() }
     }
 
     private fun quantize(value: Double): Double = format(value).toDouble()

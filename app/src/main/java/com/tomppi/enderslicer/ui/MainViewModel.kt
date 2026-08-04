@@ -667,7 +667,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val previousArtifactId = _uiState.value.gcodePath?.let(::File)?.parentFile?.name
                 _uiState.update { current ->
                     current.copy(
-                        sliceResultId = current.sliceResultId ?: result.artifactId,
+                        sliceResultId = result.artifactId,
                         gcodePath = result.gcodeFile.absolutePath,
                         baseGcodePath = result.baseGcodeFile.absolutePath,
                         layerPreview = result.layerPreview,
@@ -685,8 +685,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun exportGcode(uri: Uri) {
-        val sourcePath = _uiState.value.gcodePath
-        if (sourcePath == null) {
+        val artifactSnapshot = _uiState.value
+        val sourcePath = artifactSnapshot.gcodePath
+        val expectedArtifactId = artifactSnapshot.sliceResultId
+        if (sourcePath == null || expectedArtifactId == null) {
             showOperationFailure(IllegalStateException("Slice the model before exporting G-code"))
             return
         }
@@ -696,8 +698,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             runCatching {
                 withContext(Dispatchers.IO) {
                     val source = File(sourcePath)
-                    check(source.isFile && source.length() > 0L) { "Generated G-code is no longer available" }
-                    SliceArtifactPublisher.acquireLease(source).use {
+                    check(SliceArtifactPublisher.isCompleteGcode(source, expectedArtifactId)) {
+                        "Generated G-code is incomplete, stale, or no longer available"
+                    }
+                    SliceArtifactPublisher.acquireLease(source, expectedArtifactId).use {
                         app.contentResolver.openOutputStream(uri, "w")?.buffered()?.use { output ->
                             source.inputStream().buffered().use { input -> input.copyTo(output) }
                         } ?: error("Unable to open the G-code destination")

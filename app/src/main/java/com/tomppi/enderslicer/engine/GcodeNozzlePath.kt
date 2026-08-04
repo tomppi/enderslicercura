@@ -65,6 +65,7 @@ object GcodeNozzlePathParser {
         var z = 0.0
         var e = 0.0
         var feedRateMmPerMinute = 0.0
+        var speedFactor = 1.0
         var sourceIndex = 0
         var extrusionMoves = 0
         var travelMoves = 0
@@ -81,17 +82,24 @@ object GcodeNozzlePathParser {
                 linesRead++
                 checkCancellation(linesRead)
                 val command = GcodeCommand.parse(rawLine) ?: return@forEach
+                GcodeCommandPolicy.requirePreviewSafe(command, sourceIndex)
+                GcodeCommandPolicy.speedFactor(command)?.let {
+                    speedFactor = it
+                    return@forEach
+                }
                 if (modalState.apply(command)) return@forEach
                 when (command.opcode) {
+                    "G28" -> {
+                        x = 0.0
+                        y = 0.0
+                        z = 0.0
+                    }
                     "G92" -> {
                         command.value('X')?.let { x = it }
                         command.value('Y')?.let { y = it }
                         command.value('Z')?.let { z = it }
                         command.value('E')?.let { e = it }
                     }
-                    "G2", "G3" -> error(
-                        "Nozzle Path cannot safely display G2/G3 arcs; disable arc fitting and re-slice",
-                    )
                     "G0", "G1" -> {
                         val startX = x
                         val startY = y
@@ -134,7 +142,7 @@ object GcodeNozzlePathParser {
                         maxZ = maxOf(maxZ, sz, ez)
                         accumulator.add(
                             sx, sy, sz, ex, ey, ez,
-                            (feedRateMmPerMinute / 60.0).coerceAtLeast(0.0).toFloat(),
+                            (feedRateMmPerMinute / 60.0 * speedFactor).coerceAtLeast(0.0).toFloat(),
                             kind.code,
                         )
                         sourceIndices.add(retainedSourceIndex)
@@ -172,16 +180,20 @@ object GcodeNozzlePathParser {
                 linesRead++
                 checkCancellation(linesRead)
                 val command = GcodeCommand.parse(rawLine) ?: return@forEach
+                GcodeCommandPolicy.requirePreviewSafe(command, count)
+                GcodeCommandPolicy.speedFactor(command)?.let { return@forEach }
                 if (modalState.apply(command)) return@forEach
                 when (command.opcode) {
+                    "G28" -> {
+                        x = 0.0
+                        y = 0.0
+                        z = 0.0
+                    }
                     "G92" -> {
                         command.value('X')?.let { x = it }
                         command.value('Y')?.let { y = it }
                         command.value('Z')?.let { z = it }
                     }
-                    "G2", "G3" -> error(
-                        "Nozzle Path cannot safely display G2/G3 arcs; disable arc fitting and re-slice",
-                    )
                     "G0", "G1" -> {
                         val nextX = modalState.position(x, command.value('X'))
                         val nextY = modalState.position(y, command.value('Y'))

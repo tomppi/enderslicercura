@@ -83,6 +83,7 @@ object GcodeSanitizer {
                 }
 
                 val command = GcodeCommand.parse(rawLine) ?: return@forEach
+                GcodeCommandPolicy.requirePublishedSafe(command, currentLayer, lineNumber)
                 if (modalState.apply(command)) return@forEach
                 when (command.opcode) {
                     "G92" -> {
