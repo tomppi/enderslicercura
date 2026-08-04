@@ -61,7 +61,7 @@ jobs:
         run: |
           set -euo pipefail
           root=app/src/main/assets/filasim
-          marker="$root/.thermal-integrity-version"
+          marker="$root/thermal-integrity-version.txt"
 
           test -f "$root/.source-version"
           grep -qx 'format=8' "$root/.source-version"
@@ -76,7 +76,7 @@ jobs:
           grep -qx "filasim=${FILASIM_COMMIT}" "$marker"
           grep -qx 'transforms=solver,hardening,audit-fixes' "$marker"
           grep -q 'thermal-integrity.js' "$root/SHA256SUMS"
-          grep -q '.thermal-integrity-version' "$root/SHA256SUMS"
+          grep -q 'thermal-integrity-version.txt' "$root/SHA256SUMS"
 
           wasm=$(find "$root/assets" -type f -name '*.wasm' -print -quit)
           test -n "$wasm"
