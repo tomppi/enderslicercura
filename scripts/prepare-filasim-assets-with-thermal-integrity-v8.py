@@ -34,20 +34,25 @@ THERMAL_MARKERS = (
     ".enderslicer-thermal-integrity",
     ".enderslicer-thermal-integrity-hardening",
     ".enderslicer-thermal-integrity-audit-fixes",
-    ".enderslicer-thermal-integrity-progress",
+    ".enderslicer-thermal-integrity-progress-v2",
 )
 THERMAL_UI_SOURCE = PROJECT_ROOT / "app/src/main/filasim/thermal-integrity.js"
 THERMAL_UI_NAME = "thermal-integrity.js"
 THERMAL_WORKSPACE_SOURCE = PROJECT_ROOT / "app/src/main/filasim/thermal-integrity-workspace.js"
 THERMAL_WORKSPACE_NAME = "thermal-integrity-workspace.js"
+THERMAL_LIVE_SOURCE = PROJECT_ROOT / "app/src/main/filasim/thermal-integrity-live-progress.js"
+THERMAL_LIVE_NAME = "thermal-integrity-live-progress.js"
 THERMAL_UI_TAG = f'<script src="./{THERMAL_UI_NAME}"></script>'
 THERMAL_WORKSPACE_TAG = f'<script src="./{THERMAL_WORKSPACE_NAME}"></script>'
-THERMAL_RUNTIME_TAGS = f"{THERMAL_WORKSPACE_TAG}\n  {THERMAL_UI_TAG}"
+THERMAL_LIVE_TAG = f'<script src="./{THERMAL_LIVE_NAME}"></script>'
+THERMAL_RUNTIME_TAGS = (
+    f"{THERMAL_LIVE_TAG}\n  {THERMAL_WORKSPACE_TAG}\n  {THERMAL_UI_TAG}"
+)
 THERMAL_PACKAGE_MARKER = "thermal-integrity-version.txt"
 THERMAL_PACKAGE_MARKER_TEXT = (
     "format=1\n"
     f"filasim={BASE.FILASIM_COMMIT}\n"
-    "transforms=solver,hardening,audit-fixes,progress\n"
+    "transforms=solver,hardening,audit-fixes,progress-v2\n"
 )
 
 _BASE_PATCH_ANDROID_EXPORT = BASE.patch_android_export
@@ -59,6 +64,9 @@ def apply_thermal_transforms(source_root: pathlib.Path) -> None:
     marker_paths = tuple(source_root / name for name in THERMAL_MARKERS)
     marker_state = tuple(path.is_file() for path in marker_paths)
 
+    # A cached source prepared by the previous build has the first three
+    # transforms but no v2 progress marker. Upgrade only the progress layer;
+    # a different partial combination remains an error rather than guessing.
     legacy_complete = marker_state == (True, True, True, False)
     if any(marker_state) and not all(marker_state) and not legacy_complete:
         missing = [path.name for path, present in zip(marker_paths, marker_state) if not present]
@@ -99,6 +107,7 @@ def apply_thermal_transforms(source_root: pathlib.Path) -> None:
     protocol_entry = source_root / "web/src/engine/EngineProtocol.ts"
     required_contracts = (
         (core_module, "solve_thermal"),
+        (core_module, "progress::publish"),
         (wasm_entry, "solve_thermal_integrity"),
         (wasm_entry, "Preparing voxel model"),
         (worker_entry, "thermalIntegrity"),
@@ -128,6 +137,11 @@ def inject_thermal_integrity_runtime(index_file: pathlib.Path) -> None:
     _BASE_INJECT_BRIDGE(index_file)
 
     copy_verified(
+        THERMAL_LIVE_SOURCE,
+        index_file.with_name(THERMAL_LIVE_NAME),
+        "thermal-integrity live-progress runtime",
+    )
+    copy_verified(
         THERMAL_WORKSPACE_SOURCE,
         index_file.with_name(THERMAL_WORKSPACE_NAME),
         "thermal-integrity workspace runtime",
@@ -139,24 +153,29 @@ def inject_thermal_integrity_runtime(index_file: pathlib.Path) -> None:
     )
 
     text = index_file.read_text(encoding="utf-8")
-    if THERMAL_WORKSPACE_TAG not in text:
-        if THERMAL_UI_TAG in text:
-            text = text.replace(THERMAL_UI_TAG, THERMAL_RUNTIME_TAGS, 1)
-        elif "</body>" in text:
-            text = text.replace("</body>", f"  {THERMAL_RUNTIME_TAGS}\n</body>", 1)
-        elif "</head>" in text:
-            text = text.replace("</head>", f"  {THERMAL_RUNTIME_TAGS}\n</head>", 1)
-        else:
-            raise RuntimeError("Unable to inject the thermal-integrity runtimes into index.html")
-    elif THERMAL_UI_TAG not in text:
-        text = text.replace(THERMAL_WORKSPACE_TAG, THERMAL_RUNTIME_TAGS, 1)
+    for tag in (THERMAL_LIVE_TAG, THERMAL_WORKSPACE_TAG):
+        text = text.replace(f"  {tag}\n", "").replace(tag, "")
+    if THERMAL_UI_TAG in text:
+        text = text.replace(THERMAL_UI_TAG, THERMAL_RUNTIME_TAGS, 1)
+    elif "</body>" in text:
+        text = text.replace("</body>", f"  {THERMAL_RUNTIME_TAGS}\n</body>", 1)
+    elif "</head>" in text:
+        text = text.replace("</head>", f"  {THERMAL_RUNTIME_TAGS}\n</head>", 1)
+    else:
+        raise RuntimeError("Unable to inject the thermal-integrity runtimes into index.html")
     index_file.write_text(text, encoding="utf-8")
 
     verified = index_file.read_text(encoding="utf-8")
-    if THERMAL_WORKSPACE_TAG not in verified or THERMAL_UI_TAG not in verified:
-        raise RuntimeError("Thermal-integrity runtime tags were not retained in index.html")
-    if verified.index(THERMAL_WORKSPACE_TAG) > verified.index(THERMAL_UI_TAG):
-        raise RuntimeError("Thermal-integrity workspace runtime must load before the UI runtime")
+    for tag in (THERMAL_LIVE_TAG, THERMAL_WORKSPACE_TAG, THERMAL_UI_TAG):
+        if verified.count(tag) != 1:
+            raise RuntimeError(f"Thermal-integrity runtime tag was not retained exactly once: {tag}")
+    positions = [
+        verified.index(THERMAL_LIVE_TAG),
+        verified.index(THERMAL_WORKSPACE_TAG),
+        verified.index(THERMAL_UI_TAG),
+    ]
+    if positions != sorted(positions):
+        raise RuntimeError("Thermal-integrity runtimes are not in live/workspace/UI load order")
 
     marker = index_file.with_name(THERMAL_PACKAGE_MARKER)
     marker.write_text(THERMAL_PACKAGE_MARKER_TEXT, encoding="utf-8")
