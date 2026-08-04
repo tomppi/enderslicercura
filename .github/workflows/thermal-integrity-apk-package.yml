@@ -100,6 +100,7 @@ jobs:
           grep -a -q 'transient thermal workload is too large for Android' filasim.wasm
           grep -a -q 'steady thermal radiation iteration did not converge' filasim.wasm
           grep -a -q 'thermal result exceeds the Android reportable maximum of 2000' filasim.wasm
+          grep -a -q 'thermal structural FEA did not converge' filasim.wasm
           grep -qx 'format=1' thermal-integrity-version.txt
           grep -qx "filasim=${FILASIM_COMMIT}" thermal-integrity-version.txt
           grep -qx 'transforms=solver,hardening,audit-fixes,progress-v2,react-tab-v1,bugfix-round1' thermal-integrity-version.txt
