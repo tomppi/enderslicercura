@@ -46,6 +46,26 @@ def apply(source_root: pathlib.Path) -> None:
         "staircase test cell indexing",
     )
 
+    # Keep the geometric occupancy factor physically continuous. Active cells
+    # already have positive occupancy, so only a tiny numerical floor is needed;
+    # a 1% floor would noticeably over-connect extremely small cut cells.
+    replace_once(
+        thermal,
+        '''        face_area_fraction[ci] = occupancy.clamp(0.0, 1.0).powf(2.0 / 3.0).max(0.01);
+''',
+        '''        face_area_fraction[ci] = occupancy.clamp(0.0, 1.0).powf(2.0 / 3.0).max(1e-9);
+''',
+        "cut-cell area numerical floor",
+    )
+    replace_once(
+        thermal,
+        '''                        face_area_fraction[ci].min(face_area_fraction[cj]).max(0.01);
+''',
+        '''                        face_area_fraction[ci].min(face_area_fraction[cj]).max(1e-9);
+''',
+        "shared cut-cell area numerical floor",
+    )
+
     # The hardening script has two identical cooled-boundary comparisons. Its
     # idempotent helper changes the linear-system occurrence first; explicitly
     # replace the one remaining energy-accounting occurrence as well.
