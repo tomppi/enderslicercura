@@ -261,7 +261,8 @@ def apply(source_root: pathlib.Path) -> None:
             temperature_eps.clone().into(),
         )
         .map_err(err)?;
-        let von_mises = filasim_core::thermal::thermal_von_mises(
+        emit_progress(
+            "Post-processing",
 ''',
         '''        let (solution, _compliance) = filasim_core::simp::solve_with_eps_cached(
             &mut self.solver_cache,
@@ -279,7 +280,8 @@ def apply(source_root: pathlib.Path) -> None:
                 solution.rel_residual,
             )));
         }
-        let von_mises = filasim_core::thermal::thermal_von_mises(
+        emit_progress(
+            "Post-processing",
 ''',
         "structural convergence enforcement",
     )
