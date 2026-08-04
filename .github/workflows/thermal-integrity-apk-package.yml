@@ -107,7 +107,8 @@ jobs:
           grep -q 'enderslicer-thermal-integrity-mount' bundled-filasim.js
           grep -a -q 'thermal grid is too large for the Android safety budget' "$wasm"
           grep -a -q 'transient thermal workload is too large for Android' "$wasm"
-          grep -a -q 'steady thermal radiation iteration did not converge' "$wasm"
+          grep -a -q 'steady thermal radiation iteration' "$wasm"
+          grep -a -q 'did not converge within' "$wasm"
           grep -a -q 'line search could not reduce nonlinear residual' "$wasm"
           grep -a -q 'steady thermal solve violated global energy balance' "$wasm"
           grep -a -q 'thermal result exceeds the Android reportable maximum of 2000' "$wasm"
