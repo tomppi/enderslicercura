@@ -67,7 +67,8 @@ jobs:
           grep -qx 'format=8' "$root/.source-version"
           grep -qx "commit=${FILASIM_COMMIT}" "$root/.source-version"
           test -s "$root/thermal-integrity.js"
-          grep -q 'EnderSlicerThermalIntegrity' "$root/thermal-integrity.js"
+          grep -q 'enderslicer-thermal-integrity' "$root/thermal-integrity.js"
+          grep -q 'fdm-service-thermal-integrity' "$root/thermal-integrity.js"
           grep -q '<script src="./thermal-integrity.js"></script>' "$root/index.html"
 
           test -s "$marker"
@@ -100,7 +101,8 @@ jobs:
           unzip -p "$apk" assets/filasim/SHA256SUMS > "$RUNNER_TEMP/SHA256SUMS"
 
           grep -q '<script src="./thermal-integrity.js"></script>' "$RUNNER_TEMP/index.html"
-          grep -q 'EnderSlicerThermalIntegrity' "$RUNNER_TEMP/thermal-integrity.js"
+          grep -q 'enderslicer-thermal-integrity' "$RUNNER_TEMP/thermal-integrity.js"
+          grep -q 'fdm-service-thermal-integrity' "$RUNNER_TEMP/thermal-integrity.js"
           grep -qx 'format=1' "$RUNNER_TEMP/thermal-version"
           grep -qx "filasim=${FILASIM_COMMIT}" "$RUNNER_TEMP/thermal-version"
           grep -qx 'transforms=solver,hardening,audit-fixes' "$RUNNER_TEMP/thermal-version"
