@@ -1,8 +1,8 @@
 /*
  * Android host adapter for the pinned filaSim web workspace.
  * The upstream application remains responsible for analysis and optimization;
- * this adapter only injects the displayed EnderSlicerCura STL and returns
- * graded/binary modifier ZIPs or a solid-topology replacement STL.
+ * this adapter injects the displayed EnderSlicerCura STL, returns validated
+ * optimizer outputs, and captures an auditable build-process thermal FEA report.
  */
 (() => {
   "use strict";
@@ -14,12 +14,272 @@
   const APPLY_SMART_INFILL_LABEL = "Apply Smart Infill";
   const APPLY_SMART_INFILL_NOTE =
     "Transfers the optimized infill regions to EnderSlicer and returns to the model.";
+  const THERMAL_REPORT_GROUP_ID = "enderslicer-thermal-fea-report";
+  const THERMAL_REPORT_LABEL = "Save Thermal FEA Report";
+  const THERMAL_REPORT_NOTE =
+    "Saves a source-fingerprinted report for warp and bed-reaction results. No absolute pass/fail threshold is claimed.";
   let modelLoadStarted = false;
   let exporting = false;
   let exportUiObserver = null;
 
   function normalizedText(element) {
     return String(element?.textContent || "").replace(/\s+/g, " ").trim();
+  }
+
+  function sameText(element, value) {
+    if (normalizedText(element) !== value) element.textContent = value;
+  }
+
+  function currentWorkspace() {
+    return document.querySelector("label.workspace select")?.value || "optimize";
+  }
+
+  function findGroup(label) {
+    const wanted = label.toLowerCase();
+    return Array.from(document.querySelectorAll(".panel .group")).find((group) => {
+      const heading = normalizedText(group.querySelector(".g-label span")).toLowerCase();
+      return heading === wanted;
+    }) || null;
+  }
+
+  function findKvValue(labelPrefix) {
+    const wanted = labelPrefix.toLowerCase();
+    for (const row of document.querySelectorAll(".panel .kv")) {
+      const label = normalizedText(row.firstElementChild).toLowerCase();
+      if (label.startsWith(wanted)) {
+        return normalizedText(row.children[1] || row.lastElementChild);
+      }
+    }
+    return "";
+  }
+
+  function parseFirstNumber(text) {
+    const match = String(text).replace(/,/g, ".").match(/[-+]?\d+(?:\.\d+)?(?:e[-+]?\d+)?/i);
+    if (!match) return null;
+    const value = Number(match[0]);
+    return Number.isFinite(value) ? value : null;
+  }
+
+  function parseLengthMm(text) {
+    const match = String(text)
+      .replace(/,/g, ".")
+      .match(/([-+]?\d+(?:\.\d+)?(?:e[-+]?\d+)?)\s*(nm|µm|μm|um|mm|cm|m|mil|in|inch|ft)\b/i);
+    if (!match) return null;
+    const value = Number(match[1]);
+    if (!Number.isFinite(value)) return null;
+    const unit = match[2].toLowerCase();
+    const scale = {
+      nm: 1e-6,
+      "µm": 1e-3,
+      "μm": 1e-3,
+      um: 1e-3,
+      mm: 1,
+      cm: 10,
+      m: 1000,
+      mil: 0.0254,
+      in: 25.4,
+      inch: 25.4,
+      ft: 304.8,
+    }[unit];
+    return scale == null ? null : value * scale;
+  }
+
+  function parseStressMpa(text) {
+    const match = String(text)
+      .replace(/,/g, ".")
+      .match(/([-+]?\d+(?:\.\d+)?(?:e[-+]?\d+)?)\s*(pa|kpa|mpa|gpa|psi|ksi|n\/mm(?:²|2))\b/i);
+    if (!match) return null;
+    const value = Number(match[1]);
+    if (!Number.isFinite(value)) return null;
+    const unit = match[2].toLowerCase();
+    const scale = {
+      pa: 1e-6,
+      kpa: 1e-3,
+      mpa: 1,
+      gpa: 1000,
+      psi: 0.006894757293168,
+      ksi: 6.894757293168,
+      "n/mm²": 1,
+      "n/mm2": 1,
+    }[unit];
+    return scale == null ? null : value * scale;
+  }
+
+  function parsePair(text, parser) {
+    const parts = String(text).split("·");
+    if (parts.length < 2) return null;
+    const first = parser(parts[0]);
+    const second = parser(parts[1]);
+    return first == null || second == null ? null : [first, second];
+  }
+
+  function readInputNumber(label) {
+    const input = findGroup(label)?.querySelector('input[type="number"]');
+    if (!input) return null;
+    const value = Number(input.value);
+    return Number.isFinite(value) ? value : null;
+  }
+
+  function readMaterial() {
+    const group = findGroup("Material");
+    const name = normalizedText(group?.querySelector(".g-label b"));
+    const detail = normalizedText(group?.querySelector(".dim"));
+    const shrink = detail.match(
+      /Shrink XY\s*([-+]?\d+(?:[.,]\d+)?)\s*%\s*·\s*Z\s*([-+]?\d+(?:[.,]\d+)?)\s*%(?:\s*·\s*locks at\s*([-+]?\d+(?:[.,]\d+)?)\s*°C)?/i,
+    );
+    if (!name || !shrink) return null;
+    const xy = Number(shrink[1].replace(",", "."));
+    const z = Number(shrink[2].replace(",", "."));
+    const lock = shrink[3] == null ? null : Number(shrink[3].replace(",", "."));
+    if (![xy, z].every(Number.isFinite) || (lock != null && !Number.isFinite(lock))) return null;
+    return { name, shrinkXyPercent: Math.abs(xy), shrinkZPercent: Math.abs(z), lockingTemperatureC: lock };
+  }
+
+  function readVoxelSizeMm() {
+    const panelText = normalizedText(document.querySelector(".panel"));
+    const match = panelText.match(
+      /\bh\s*=\s*([-+]?\d+(?:[.,]\d+)?(?:e[-+]?\d+)?)\s*(nm|µm|μm|um|mm|cm|m|mil|in|inch|ft)\b/i,
+    );
+    return match ? parseLengthMm(`${match[1]} ${match[2]}`) : null;
+  }
+
+  function readSolverSeconds() {
+    const statuses = Array.from(document.querySelectorAll(".panel .status.ok"));
+    const status = statuses.map(normalizedText).find((text) => /Max warp/i.test(text)) || "";
+    const match = status.replace(/,/g, ".").match(/([-+]?\d+(?:\.\d+)?)\s*s(?:\b|$)/i);
+    if (!match) return null;
+    const value = Number(match[1]);
+    return Number.isFinite(value) ? value : null;
+  }
+
+  function staleThermalResult() {
+    return Array.from(document.querySelectorAll(".panel .warnbanner")).some((element) => {
+      const text = normalizedText(element).toLowerCase();
+      return text.includes("settings changed") || text.includes("out of date") || text.includes("stale");
+    });
+  }
+
+  function collectThermalReport() {
+    if (currentWorkspace() !== "buildsim") {
+      throw new Error("Switch filaSim to Build Simulation first");
+    }
+    if (staleThermalResult()) {
+      throw new Error("The build-simulation result is stale; run the simulation again");
+    }
+
+    const material = readMaterial();
+    const warp = parsePair(findKvValue("On bed / released"), parseLengthMm);
+    const peel = parsePair(findKvValue("Bed peel"), parseStressMpa);
+    const stiffness = findKvValue("Stiffness field");
+    if (!material || !warp || !peel || !stiffness) {
+      throw new Error("Run the complete build simulation before saving a report");
+    }
+
+    const report = {
+      schemaVersion: 1,
+      analysisKind: "fdm-build-thermomechanical",
+      solverModel: "sequential-voxel-inherent-strain",
+      sourceName: String(android.sourceFileName()),
+      sourceSha256: String(android.sourceSha256()),
+      upstreamCommit: String(android.upstreamCommit()),
+      generatedAtEpochMillis: Date.now(),
+      material,
+      process: {
+        bedTemperatureC: readInputNumber("Bed temp"),
+        chamberTemperatureC: readInputNumber("Chamber temp"),
+        densityAware: /as-printed/i.test(stiffness),
+      },
+      mesh: {
+        voxelSizeMm: readVoxelSizeMm(),
+      },
+      results: {
+        bondedWarpMm: Math.abs(warp[0]),
+        releasedWarpMm: Math.abs(warp[1]),
+        peakLiftMpa: Math.abs(peel[0]),
+        peakShearMpa: Math.abs(peel[1]),
+        solverSeconds: readSolverSeconds(),
+      },
+      confidence: {
+        level: "experimental-literature-seeded",
+        calibratedToPrinter: false,
+      },
+    };
+
+    const required = [
+      report.material.shrinkXyPercent,
+      report.material.shrinkZPercent,
+      report.results.bondedWarpMm,
+      report.results.releasedWarpMm,
+      report.results.peakLiftMpa,
+      report.results.peakShearMpa,
+    ];
+    if (!required.every(Number.isFinite)) {
+      throw new Error("filaSim displayed a non-finite thermal result");
+    }
+    return report;
+  }
+
+  function thermalResultReady() {
+    if (currentWorkspace() !== "buildsim") return false;
+    return Boolean(findKvValue("On bed / released") && findKvValue("Bed peel"));
+  }
+
+  function syncThermalReportUi() {
+    const existing = document.getElementById(THERMAL_REPORT_GROUP_ID);
+    if (!thermalResultReady()) {
+      existing?.remove();
+      return false;
+    }
+
+    const panel = document.querySelector(".panel");
+    if (!panel) return false;
+    const group = existing || document.createElement("div");
+    if (!existing) {
+      group.id = THERMAL_REPORT_GROUP_ID;
+      group.className = "group";
+
+      const heading = document.createElement("div");
+      heading.className = "g-label";
+      const title = document.createElement("span");
+      title.textContent = "EnderSlicer report";
+      heading.appendChild(title);
+
+      const button = document.createElement("button");
+      button.className = "primary";
+      button.textContent = THERMAL_REPORT_LABEL;
+      button.addEventListener("click", () => {
+        try {
+          const payload = JSON.stringify(collectThermalReport());
+          if (!android.captureThermalReport(payload)) {
+            throw new Error("Android rejected the thermal FEA report");
+          }
+        } catch (error) {
+          console.error("EnderSlicerCura thermal FEA report capture failed", error);
+          alert(`Unable to save the thermal FEA report: ${error?.message || error}`);
+        }
+      });
+
+      const note = document.createElement("div");
+      note.className = "dim small";
+      note.textContent = THERMAL_REPORT_NOTE;
+
+      group.appendChild(heading);
+      group.appendChild(button);
+      group.appendChild(note);
+      panel.appendChild(group);
+    }
+
+    const button = group.querySelector("button");
+    if (button) {
+      const stale = staleThermalResult();
+      button.disabled = stale;
+      button.title = stale
+        ? "Settings changed after the solve; run Build Simulation again"
+        : "Save a validated native report tied to this model fingerprint";
+    }
+    const note = group.querySelector(".dim");
+    if (note) sameText(note, THERMAL_REPORT_NOTE);
+    return true;
   }
 
   /**
@@ -66,10 +326,14 @@
     return true;
   }
 
-  function installAndroidExportUi() {
+  function installAndroidHostUi() {
     simplifyModifierExportUi();
+    syncThermalReportUi();
     if (exportUiObserver) return;
-    exportUiObserver = new MutationObserver(() => simplifyModifierExportUi());
+    exportUiObserver = new MutationObserver(() => {
+      simplifyModifierExportUi();
+      syncThermalReportUi();
+    });
     exportUiObserver.observe(document.documentElement, {
       childList: true,
       characterData: true,
@@ -209,7 +473,7 @@
   };
 
   const startAndroidHost = () => {
-    installAndroidExportUi();
+    installAndroidHostUi();
     setTimeout(loadModelFromAndroid, 250);
   };
   if (document.readyState === "loading") {
