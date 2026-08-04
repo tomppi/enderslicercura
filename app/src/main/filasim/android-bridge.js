@@ -17,10 +17,81 @@
   const THERMAL_REPORT_GROUP_ID = "enderslicer-thermal-fea-report";
   const THERMAL_REPORT_LABEL = "Save Thermal FEA Report";
   const THERMAL_REPORT_NOTE =
-    "Saves a source-fingerprinted report for warp and bed-reaction results. No absolute pass/fail threshold is claimed.";
+    "Saves the exact solver values in a source-fingerprinted report. Bed reactions are indicators, not an absolute pass/fail threshold.";
   let modelLoadStarted = false;
   let exporting = false;
   let exportUiObserver = null;
+  let latestBuildSimRaw = null;
+
+  /*
+   * Capture the exact request and response of filaSim's typed buildSim worker
+   * operation before React formats values for display. This keeps the native
+   * report at solver precision without modifying or forking the pinned engine.
+   * Progress messages are ignored; only the final successful response is kept.
+   */
+  function installBuildSimWorkerCapture() {
+    const NativeWorker = window.Worker;
+    if (!NativeWorker || NativeWorker.__enderSlicerThermalCapture) return;
+
+    const WrappedWorker = new Proxy(NativeWorker, {
+      construct(Target, args) {
+        const worker = Reflect.construct(Target, args);
+        const pendingBuildSim = new Map();
+        const nativePostMessage = worker.postMessage.bind(worker);
+
+        worker.postMessage = function postMessage(message, transferOrOptions) {
+          if (message?.op === "buildSim" && Number.isSafeInteger(message.id)) {
+            latestBuildSimRaw = null;
+            pendingBuildSim.set(message.id, {
+              opts: { ...(message.opts || {}) },
+              requestedAtEpochMillis: Date.now(),
+            });
+          }
+          if (arguments.length > 1) nativePostMessage(message, transferOrOptions);
+          else nativePostMessage(message);
+        };
+
+        worker.addEventListener("message", (event) => {
+          const message = event.data;
+          if (!message || !Number.isSafeInteger(message.id) || message.progress) return;
+          const request = pendingBuildSim.get(message.id);
+          if (!request) return;
+          pendingBuildSim.delete(message.id);
+          if (!message.ok || !message.data?.stats) {
+            latestBuildSimRaw = null;
+            return;
+          }
+          const stats = message.data.stats;
+          latestBuildSimRaw = {
+            opts: request.opts,
+            stats: {
+              maxDisplacement: stats.maxDisplacement,
+              bondedMax: stats.bondedMax,
+              releasedMax: stats.releasedMax,
+              peakLift: stats.peakLift,
+              peakShear: stats.peakShear,
+              layers: stats.layers,
+              itersMax: stats.itersMax,
+              itersMean: stats.itersMean,
+              cells: stats.cells,
+              seconds: stats.seconds,
+              densityAware: stats.densityAware,
+              nx: stats.nx,
+              ny: stats.ny,
+              nz: stats.nz,
+              h: stats.h,
+            },
+            completedAtEpochMillis: Date.now(),
+          };
+        });
+        return worker;
+      },
+    });
+    Object.defineProperty(WrappedWorker, "__enderSlicerThermalCapture", { value: true });
+    window.Worker = WrappedWorker;
+  }
+
+  installBuildSimWorkerCapture();
 
   function normalizedText(element) {
     return String(element?.textContent || "").replace(/\s+/g, " ").trim();
@@ -42,114 +113,8 @@
     }) || null;
   }
 
-  function findKvValue(labelPrefix) {
-    const wanted = labelPrefix.toLowerCase();
-    for (const row of document.querySelectorAll(".panel .kv")) {
-      const label = normalizedText(row.firstElementChild).toLowerCase();
-      if (label.startsWith(wanted)) {
-        return normalizedText(row.children[1] || row.lastElementChild);
-      }
-    }
-    return "";
-  }
-
-  function parseFirstNumber(text) {
-    const match = String(text).replace(/,/g, ".").match(/[-+]?\d+(?:\.\d+)?(?:e[-+]?\d+)?/i);
-    if (!match) return null;
-    const value = Number(match[0]);
-    return Number.isFinite(value) ? value : null;
-  }
-
-  function parseLengthMm(text) {
-    const match = String(text)
-      .replace(/,/g, ".")
-      .match(/([-+]?\d+(?:\.\d+)?(?:e[-+]?\d+)?)\s*(nm|µm|μm|um|mm|cm|m|mil|in|inch|ft)\b/i);
-    if (!match) return null;
-    const value = Number(match[1]);
-    if (!Number.isFinite(value)) return null;
-    const unit = match[2].toLowerCase();
-    const scale = {
-      nm: 1e-6,
-      "µm": 1e-3,
-      "μm": 1e-3,
-      um: 1e-3,
-      mm: 1,
-      cm: 10,
-      m: 1000,
-      mil: 0.0254,
-      in: 25.4,
-      inch: 25.4,
-      ft: 304.8,
-    }[unit];
-    return scale == null ? null : value * scale;
-  }
-
-  function parseStressMpa(text) {
-    const match = String(text)
-      .replace(/,/g, ".")
-      .match(/([-+]?\d+(?:\.\d+)?(?:e[-+]?\d+)?)\s*(pa|kpa|mpa|gpa|psi|ksi|n\/mm(?:²|2))\b/i);
-    if (!match) return null;
-    const value = Number(match[1]);
-    if (!Number.isFinite(value)) return null;
-    const unit = match[2].toLowerCase();
-    const scale = {
-      pa: 1e-6,
-      kpa: 1e-3,
-      mpa: 1,
-      gpa: 1000,
-      psi: 0.006894757293168,
-      ksi: 6.894757293168,
-      "n/mm²": 1,
-      "n/mm2": 1,
-    }[unit];
-    return scale == null ? null : value * scale;
-  }
-
-  function parsePair(text, parser) {
-    const parts = String(text).split("·");
-    if (parts.length < 2) return null;
-    const first = parser(parts[0]);
-    const second = parser(parts[1]);
-    return first == null || second == null ? null : [first, second];
-  }
-
-  function readInputNumber(label) {
-    const input = findGroup(label)?.querySelector('input[type="number"]');
-    if (!input) return null;
-    const value = Number(input.value);
-    return Number.isFinite(value) ? value : null;
-  }
-
-  function readMaterial() {
-    const group = findGroup("Material");
-    const name = normalizedText(group?.querySelector(".g-label b"));
-    const detail = normalizedText(group?.querySelector(".dim"));
-    const shrink = detail.match(
-      /Shrink XY\s*([-+]?\d+(?:[.,]\d+)?)\s*%\s*·\s*Z\s*([-+]?\d+(?:[.,]\d+)?)\s*%(?:\s*·\s*locks at\s*([-+]?\d+(?:[.,]\d+)?)\s*°C)?/i,
-    );
-    if (!name || !shrink) return null;
-    const xy = Number(shrink[1].replace(",", "."));
-    const z = Number(shrink[2].replace(",", "."));
-    const lock = shrink[3] == null ? null : Number(shrink[3].replace(",", "."));
-    if (![xy, z].every(Number.isFinite) || (lock != null && !Number.isFinite(lock))) return null;
-    return { name, shrinkXyPercent: Math.abs(xy), shrinkZPercent: Math.abs(z), lockingTemperatureC: lock };
-  }
-
-  function readVoxelSizeMm() {
-    const panelText = normalizedText(document.querySelector(".panel"));
-    const match = panelText.match(
-      /\bh\s*=\s*([-+]?\d+(?:[.,]\d+)?(?:e[-+]?\d+)?)\s*(nm|µm|μm|um|mm|cm|m|mil|in|inch|ft)\b/i,
-    );
-    return match ? parseLengthMm(`${match[1]} ${match[2]}`) : null;
-  }
-
-  function readSolverSeconds() {
-    const statuses = Array.from(document.querySelectorAll(".panel .status.ok"));
-    const status = statuses.map(normalizedText).find((text) => /Max warp/i.test(text)) || "";
-    const match = status.replace(/,/g, ".").match(/([-+]?\d+(?:\.\d+)?)\s*s(?:\b|$)/i);
-    if (!match) return null;
-    const value = Number(match[1]);
-    return Number.isFinite(value) ? value : null;
+  function readMaterialName() {
+    return normalizedText(findGroup("Material")?.querySelector(".g-label b"));
   }
 
   function staleThermalResult() {
@@ -159,6 +124,17 @@
     });
   }
 
+  function finite(value, label) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) throw new Error(`filaSim returned a non-finite ${label}`);
+    return number;
+  }
+
+  function optionalFinite(value, label) {
+    if (value == null) return null;
+    return finite(value, label);
+  }
+
   function collectThermalReport() {
     if (currentWorkspace() !== "buildsim") {
       throw new Error("Switch filaSim to Build Simulation first");
@@ -166,62 +142,63 @@
     if (staleThermalResult()) {
       throw new Error("The build-simulation result is stale; run the simulation again");
     }
-
-    const material = readMaterial();
-    const warp = parsePair(findKvValue("On bed / released"), parseLengthMm);
-    const peel = parsePair(findKvValue("Bed peel"), parseStressMpa);
-    const stiffness = findKvValue("Stiffness field");
-    if (!material || !warp || !peel || !stiffness) {
+    const raw = latestBuildSimRaw;
+    if (!raw?.opts || !raw?.stats) {
       throw new Error("Run the complete build simulation before saving a report");
     }
+    const materialName = readMaterialName();
+    if (!materialName) throw new Error("Unable to identify the active filaSim material");
 
+    const opts = raw.opts;
+    const stats = raw.stats;
     const report = {
       schemaVersion: 1,
       analysisKind: "fdm-build-thermomechanical",
       solverModel: "sequential-voxel-inherent-strain",
+      precisionSource: "raw-worker-response",
       sourceName: String(android.sourceFileName()),
       sourceSha256: String(android.sourceSha256()),
       upstreamCommit: String(android.upstreamCommit()),
       generatedAtEpochMillis: Date.now(),
-      material,
+      material: {
+        name: materialName,
+        shrinkXyPercent: Math.abs(finite(opts.shrink, "XY shrink")) * 100,
+        shrinkZPercent: Math.abs(finite(opts.shrinkZ, "Z shrink")) * 100,
+        lockingTemperatureC: optionalFinite(opts.tLock, "locking temperature"),
+      },
       process: {
-        bedTemperatureC: readInputNumber("Bed temp"),
-        chamberTemperatureC: readInputNumber("Chamber temp"),
-        densityAware: /as-printed/i.test(stiffness),
+        bedTemperatureC: optionalFinite(opts.tBed, "bed temperature"),
+        chamberTemperatureC: optionalFinite(opts.tChamber, "chamber temperature"),
+        finalTemperatureC: optionalFinite(opts.tFinal, "final temperature"),
+        densityAware: Boolean(stats.densityAware),
       },
       mesh: {
-        voxelSizeMm: readVoxelSizeMm(),
+        voxelSizeMm: finite(stats.h, "voxel size"),
+        nx: finite(stats.nx, "grid X dimension"),
+        ny: finite(stats.ny, "grid Y dimension"),
+        nz: finite(stats.nz, "grid Z dimension"),
+        activeCells: finite(stats.cells, "active cell count"),
+        buildLayers: finite(stats.layers, "build layer count"),
       },
       results: {
-        bondedWarpMm: Math.abs(warp[0]),
-        releasedWarpMm: Math.abs(warp[1]),
-        peakLiftMpa: Math.abs(peel[0]),
-        peakShearMpa: Math.abs(peel[1]),
-        solverSeconds: readSolverSeconds(),
+        bondedWarpMm: Math.abs(finite(stats.bondedMax, "bonded warp")),
+        releasedWarpMm: Math.abs(finite(stats.releasedMax, "released warp")),
+        peakLiftMpa: Math.abs(finite(stats.peakLift, "bed lift traction")),
+        peakShearMpa: Math.abs(finite(stats.peakShear, "bed shear traction")),
+        solverSeconds: finite(stats.seconds, "solver time"),
+        meanIterationsPerLayer: finite(stats.itersMean, "mean iteration count"),
+        maxIterationsPerLayer: finite(stats.itersMax, "maximum iteration count"),
       },
       confidence: {
         level: "experimental-literature-seeded",
         calibratedToPrinter: false,
       },
     };
-
-    const required = [
-      report.material.shrinkXyPercent,
-      report.material.shrinkZPercent,
-      report.results.bondedWarpMm,
-      report.results.releasedWarpMm,
-      report.results.peakLiftMpa,
-      report.results.peakShearMpa,
-    ];
-    if (!required.every(Number.isFinite)) {
-      throw new Error("filaSim displayed a non-finite thermal result");
-    }
     return report;
   }
 
   function thermalResultReady() {
-    if (currentWorkspace() !== "buildsim") return false;
-    return Boolean(findKvValue("On bed / released") && findKvValue("Bed peel"));
+    return currentWorkspace() === "buildsim" && Boolean(latestBuildSimRaw?.stats);
   }
 
   function syncThermalReportUi() {
@@ -275,7 +252,7 @@
       button.disabled = stale;
       button.title = stale
         ? "Settings changed after the solve; run Build Simulation again"
-        : "Save a validated native report tied to this model fingerprint";
+        : "Save exact raw-worker values in a native report tied to this model fingerprint";
     }
     const note = group.querySelector(".dim");
     if (note) sameText(note, THERMAL_REPORT_NOTE);
