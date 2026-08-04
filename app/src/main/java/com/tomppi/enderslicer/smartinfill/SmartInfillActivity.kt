@@ -2,6 +2,8 @@ package com.tomppi.enderslicer.smartinfill
 
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.app.AlertDialog
+import android.content.ClipData
 import android.content.Intent
 import android.graphics.Color
 import android.net.Uri
@@ -35,6 +37,9 @@ class SmartInfillActivity : ComponentActivity() {
     private lateinit var sourceFingerprint: String
     private lateinit var webView: WebView
     private lateinit var exportBridge: ExportBridge
+    private lateinit var reportStore: ThermalFeaReportStore
+    private lateinit var reportButton: Button
+    private var storedThermalReport: StoredThermalFeaReport? = null
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -54,6 +59,8 @@ class SmartInfillActivity : ComponentActivity() {
             finishWithError("Unable to fingerprint the STL supplied to Smart Infill")
             return
         }
+        reportStore = ThermalFeaReportStore(applicationContext)
+        storedThermalReport = reportStore.load(sourceFingerprint, FILASIM_COMMIT)
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -67,11 +74,20 @@ class SmartInfillActivity : ComponentActivity() {
         }
         toolbar.addView(
             TextView(this).apply {
-                text = "Smart Infill · filaSim"
+                text = "Smart Infill / Thermal FEA · filaSim"
                 textSize = 17f
                 setTextColor(Color.WHITE)
             },
             LinearLayout.LayoutParams(0, dp(48), 1f).apply { gravity = Gravity.CENTER_VERTICAL },
+        )
+        reportButton = Button(this).apply {
+            text = "Report"
+            isEnabled = storedThermalReport != null
+            setOnClickListener { showThermalReport() }
+        }
+        toolbar.addView(
+            reportButton,
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(48)),
         )
         toolbar.addView(
             Button(this).apply {
@@ -165,6 +181,58 @@ class SmartInfillActivity : ComponentActivity() {
         finish()
     }
 
+    private fun onThermalReportSaved(stored: StoredThermalFeaReport) {
+        storedThermalReport = stored
+        reportButton.isEnabled = true
+        Toast.makeText(
+            this,
+            "Thermal FEA report saved for this exact model fingerprint",
+            Toast.LENGTH_LONG,
+        ).show()
+        showThermalReport()
+    }
+
+    private fun showThermalReport() {
+        val stored = storedThermalReport ?: return
+        AlertDialog.Builder(this)
+            .setTitle("Thermal FEA · experimental")
+            .setMessage(stored.report.summaryText())
+            .setPositiveButton("Share report") { _, _ -> shareThermalReport(stored) }
+            .setNegativeButton("Close", null)
+            .show()
+    }
+
+    private fun shareThermalReport(stored: StoredThermalFeaReport) {
+        val directory = File(cacheDir, EXPORT_DIRECTORY).apply { mkdirs() }
+        val safeBase = stored.report.sourceName
+            .substringBeforeLast('.', stored.report.sourceName)
+            .replace(Regex("[^A-Za-z0-9._-]"), "_")
+            .ifBlank { "model" }
+        val shareFile = File(directory, "${System.currentTimeMillis()}-${safeBase}-thermal-fea.md")
+        runCatching {
+            stored.markdownFile.copyTo(shareFile, overwrite = true)
+            val uri = FileProvider.getUriForFile(
+                this,
+                "${BuildConfig.APPLICATION_ID}.files",
+                shareFile,
+            )
+            val send = Intent(Intent.ACTION_SEND)
+                .setType("text/markdown")
+                .putExtra(Intent.EXTRA_STREAM, uri)
+                .putExtra(Intent.EXTRA_SUBJECT, "Thermal FEA report · ${stored.report.sourceName}")
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                .apply { clipData = ClipData.newRawUri("Thermal FEA report", uri) }
+            startActivity(Intent.createChooser(send, "Share thermal FEA report"))
+        }.onFailure { error ->
+            shareFile.delete()
+            Toast.makeText(
+                this,
+                error.message ?: "Unable to share the thermal FEA report",
+                Toast.LENGTH_LONG,
+            ).show()
+        }
+    }
+
     private fun pruneExportCache() {
         val directory = File(cacheDir, EXPORT_DIRECTORY)
         if (!directory.isDirectory) return
@@ -220,6 +288,30 @@ class SmartInfillActivity : ComponentActivity() {
 
         @JavascriptInterface
         fun upstreamCommit(): String = FILASIM_COMMIT
+
+        @JavascriptInterface
+        @Synchronized
+        fun captureThermalReport(payload: String): Boolean {
+            if (payload.length !in 2..MAX_THERMAL_REPORT_CHARS) return false
+            val stored = runCatching {
+                activity.reportStore.save(
+                    payload = payload,
+                    expectedSourceSha256 = sourceSha256,
+                    expectedUpstreamCommit = FILASIM_COMMIT,
+                )
+            }.getOrElse { error ->
+                activity.runOnUiThread {
+                    Toast.makeText(
+                        activity,
+                        error.message ?: "Thermal FEA report validation failed",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                }
+                return false
+            }
+            activity.runOnUiThread { activity.onThermalReportSaved(stored) }
+            return true
+        }
 
         @JavascriptInterface
         @Synchronized
@@ -443,6 +535,7 @@ class SmartInfillActivity : ComponentActivity() {
         private const val MINIMUM_ZIP_BYTES = 22L
         private const val MAX_EXPORT_BYTES = 512L * 1024L * 1024L
         private const val MAX_METADATA_CHARS = 64 * 1024
+        private const val MAX_THERMAL_REPORT_CHARS = 64 * 1024
         private const val MAX_MODIFIERS = 16
         private const val CHUNK_BUFFER_BYTES = 128 * 1024
         private const val MAX_RETAINED_ORPHANS = 4
