@@ -53,6 +53,9 @@ internal object GcodeCommandPolicy {
         when (command.family) {
             'G' -> when (command.code) {
                 0, 1 -> requireLinearParameters(command)
+                2, 3 -> error(
+                    "Unsupported G2/G3 arc at line $lineNumber; the G-code was not made available for export",
+                )
                 in SAFE_NON_MOTION_G -> Unit
                 in TRUSTED_STARTUP_G -> require(currentLayer == null) {
                     "Unsafe ${command.opcode} at line $lineNumber after printable layers began"
@@ -73,6 +76,9 @@ internal object GcodeCommandPolicy {
         when (command.family) {
             'G' -> when (command.code) {
                 0, 1 -> requireLinearParameters(command)
+                2, 3 -> error(
+                    "Nozzle Path cannot safely display G2/G3 arcs; re-slice without arc commands",
+                )
                 in SAFE_NON_MOTION_G -> Unit
                 in TRUSTED_STARTUP_G -> require(spatialMovesSeen == 0) {
                     "Nozzle Path cannot safely display ${command.opcode} after spatial motion has started"
