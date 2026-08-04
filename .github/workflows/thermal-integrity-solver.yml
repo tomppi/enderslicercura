@@ -49,7 +49,9 @@ jobs:
             scripts/filasim-thermal-integrity-react-tab.py \
             scripts/filasim-thermal-integrity-bugfix-round1.py \
             scripts/filasim-thermal-integrity-bugfix-round2.py \
-            scripts/prepare-filasim-assets-with-thermal-integrity-v9.py
+            scripts/filasim-thermal-integrity-linear-fast-path.py \
+            scripts/prepare-filasim-assets-with-thermal-integrity-v9.py \
+            scripts/prepare-filasim-assets-with-thermal-integrity-v10.py
 
       - name: Patch exact pinned filaSim source
         shell: bash
@@ -65,6 +67,7 @@ jobs:
           python3 scripts/filasim-thermal-integrity-react-tab.py "$source"
           python3 scripts/filasim-thermal-integrity-bugfix-round1.py "$source"
           python3 scripts/filasim-thermal-integrity-bugfix-round2.py "$source"
+          python3 scripts/filasim-thermal-integrity-linear-fast-path.py "$source"
           test -f "$source/.enderslicer-thermal-integrity"
           test -f "$source/.enderslicer-thermal-integrity-hardening"
           test -f "$source/.enderslicer-thermal-integrity-audit-fixes"
@@ -72,12 +75,15 @@ jobs:
           test -f "$source/.enderslicer-thermal-integrity-react-tab-v1"
           test -f "$source/.enderslicer-thermal-integrity-bugfix-round1"
           test -f "$source/.enderslicer-thermal-integrity-bugfix-round2"
+          test -f "$source/.enderslicer-thermal-integrity-linear-fast-path-v1"
           grep -q 'pub mod thermal;' "$source/crates/filasim-core/src/lib.rs"
           grep -q 'progress::publish' "$source/crates/filasim-core/src/thermal.rs"
           grep -q 'MAX_SUPPORTED_TEMPERATURE_C' "$source/crates/filasim-core/src/thermal.rs"
           grep -q 'radiation_tangent_w_m2' "$source/crates/filasim-core/src/thermal.rs"
           grep -q 'solve_nonlinear_temperature' "$source/crates/filasim-core/src/thermal.rs"
           grep -q 'MIN_LINE_SEARCH_ALPHA' "$source/crates/filasim-core/src/thermal.rs"
+          grep -q 'NONLINEAR_ABS_RESIDUAL_W' "$source/crates/filasim-core/src/thermal.rs"
+          grep -q 'options.emissivity <= 0.0' "$source/crates/filasim-core/src/thermal.rs"
           grep -q 'nonlinear_residual_l2' "$source/crates/filasim-core/src/thermal.rs"
           grep -q 'steady thermal radiation iteration' "$source/crates/filasim-core/src/thermal.rs"
           grep -q 'did not converge within' "$source/crates/filasim-core/src/thermal.rs"
