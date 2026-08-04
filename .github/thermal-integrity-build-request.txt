@@ -1,0 +1,5 @@
+Thermal Integrity APK build request
+Requested: 2026-08-04T16:36:00+03:00
+Branch: feature/thermal-integrity-simulation
+
+This marker exists solely to force a fresh push event for the branch-scoped APK workflow. It can be removed after the workflow is confirmed to trigger.
