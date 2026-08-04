@@ -1,14 +1,14 @@
 /*
- * EnderSlicerCura Thermal Integrity workspace shell.
+ * EnderSlicerCura Thermal Integrity progress and cancellation shell.
  *
- * Keeps the service-temperature analysis on its own workflow tab and exposes
- * phase progress, elapsed time, voxel preflight details and safe cancellation.
+ * React owns the Thermal workflow station and panel. This injected runtime only
+ * augments the Android-only Thermal Integrity controls; it never hides, moves,
+ * or restyles React-managed panel children.
  */
 (() => {
   "use strict";
 
   const GROUP_ID = "enderslicer-thermal-integrity";
-  const TAB_ID = "enderslicer-thermal-integrity-tab";
   const STYLE_ID = "enderslicer-thermal-integrity-workspace-style";
   const PREFLIGHT_ID_START = -1_500_000_000;
   const ENGINE_OPS = new Set([
@@ -26,11 +26,9 @@
   let cancelFlag = null;
   let activeRequestId = null;
   let nextPreflightId = PREFLIGHT_ID_START;
-  let thermalActive = false;
   let runActive = false;
   let runStartedAt = 0;
   let elapsedTimer = null;
-  let observer = null;
   let progressState = { phase: "Idle", progress: 0, detail: "" };
 
   function installWorkerAccess() {
@@ -84,8 +82,6 @@
     const style = document.createElement("style");
     style.id = STYLE_ID;
     style.textContent = `
-      #${GROUP_ID}[hidden] { display:none !important; }
-      #${TAB_ID}.station { cursor:pointer; }
       #${GROUP_ID} .ti-actions { grid-template-columns:1.25fr .75fr 1fr !important; }
       #${GROUP_ID} .ti-progress-shell {
         margin-top:8px; padding:8px; border-radius:6px;
@@ -298,84 +294,16 @@
     worker.postMessage({ id, op: "voxelInfo" });
   }
 
-  function restorePanelChildren(panel, group) {
-    for (const child of Array.from(panel.children)) {
-      if (child === group) continue;
-      if (Object.prototype.hasOwnProperty.call(child.dataset, "tiPreviousDisplay")) {
-        child.style.display = child.dataset.tiPreviousDisplay;
-        delete child.dataset.tiPreviousDisplay;
-      }
-    }
-  }
-
-  function syncWorkspace() {
-    const panel = document.querySelector(".panel");
-    const group = document.getElementById(GROUP_ID);
-    const tab = document.getElementById(TAB_ID);
-    if (!panel || !group || !tab) return;
-
-    group.hidden = !thermalActive;
-    tab.classList.toggle("active", thermalActive);
-    if (thermalActive) {
-      for (const station of document.querySelectorAll(".rail .station")) {
-        if (station !== tab) station.classList.remove("active");
-      }
-      for (const child of Array.from(panel.children)) {
-        if (child === group) continue;
-        if (!Object.prototype.hasOwnProperty.call(child.dataset, "tiPreviousDisplay")) {
-          child.dataset.tiPreviousDisplay = child.style.display || "";
-        }
-        child.style.display = "none";
-      }
-    } else {
-      restorePanelChildren(panel, group);
-    }
-  }
-
-  function leaveWorkspace() {
-    if (!thermalActive) return;
-    thermalActive = false;
-    syncWorkspace();
-  }
-
-  function ensureTab() {
-    const rail = document.querySelector(".rail");
-    if (!rail) return false;
-    let tab = document.getElementById(TAB_ID);
-    if (!tab) {
-      tab = document.createElement("button");
-      tab.id = TAB_ID;
-      tab.type = "button";
-      tab.className = "station";
-      tab.title = "Thermal Integrity — service-temperature heat flow and structural FEA";
-      tab.innerHTML = '<span class="st-no">T</span><span class="st-name">Thermal</span>';
-      tab.addEventListener("click", () => {
-        thermalActive = true;
-        syncWorkspace();
-      });
-      rail.appendChild(tab);
-    }
-
-    for (const station of rail.querySelectorAll(".station")) {
-      if (station === tab || station.dataset.tiLeaveBound === "1") continue;
-      station.dataset.tiLeaveBound = "1";
-      station.addEventListener("click", leaveWorkspace);
-    }
-    return true;
-  }
-
   function ensureUi() {
     installStyle();
     const group = document.getElementById(GROUP_ID);
     if (!group) return false;
     ensureProgressUi(group);
-    ensureTab();
-    syncWorkspace();
+    renderProgress();
     return true;
   }
 
   installWorkerAccess();
   ensureUi();
-  observer = new MutationObserver(() => ensureUi());
-  observer.observe(document.documentElement, { childList: true, subtree: true });
+  new MutationObserver(ensureUi).observe(document.documentElement, { childList: true, subtree: true });
 })();
