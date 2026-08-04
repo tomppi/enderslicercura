@@ -23,6 +23,26 @@
   let exportUiObserver = null;
   let latestBuildSimRaw = null;
 
+  function normalizedText(element) {
+    return String(element?.textContent || "").replace(/\s+/g, " ").trim();
+  }
+
+  function currentWorkspace() {
+    return document.querySelector("label.workspace select")?.value || "optimize";
+  }
+
+  function findGroup(label) {
+    const wanted = label.toLowerCase();
+    return Array.from(document.querySelectorAll(".panel .group")).find((group) => {
+      const heading = normalizedText(group.querySelector(".g-label span")).toLowerCase();
+      return heading === wanted;
+    }) || null;
+  }
+
+  function readMaterialName() {
+    return normalizedText(findGroup("Material")?.querySelector(".g-label b"));
+  }
+
   /*
    * Capture the exact request and response of filaSim's typed buildSim worker
    * operation before React formats values for display. This keeps the native
@@ -44,6 +64,7 @@
             latestBuildSimRaw = null;
             pendingBuildSim.set(message.id, {
               opts: { ...(message.opts || {}) },
+              materialName: readMaterialName(),
               requestedAtEpochMillis: Date.now(),
             });
           }
@@ -64,6 +85,7 @@
           const stats = message.data.stats;
           latestBuildSimRaw = {
             opts: request.opts,
+            materialName: request.materialName,
             stats: {
               maxDisplacement: stats.maxDisplacement,
               bondedMax: stats.bondedMax,
@@ -93,28 +115,8 @@
 
   installBuildSimWorkerCapture();
 
-  function normalizedText(element) {
-    return String(element?.textContent || "").replace(/\s+/g, " ").trim();
-  }
-
   function sameText(element, value) {
     if (normalizedText(element) !== value) element.textContent = value;
-  }
-
-  function currentWorkspace() {
-    return document.querySelector("label.workspace select")?.value || "optimize";
-  }
-
-  function findGroup(label) {
-    const wanted = label.toLowerCase();
-    return Array.from(document.querySelectorAll(".panel .group")).find((group) => {
-      const heading = normalizedText(group.querySelector(".g-label span")).toLowerCase();
-      return heading === wanted;
-    }) || null;
-  }
-
-  function readMaterialName() {
-    return normalizedText(findGroup("Material")?.querySelector(".g-label b"));
   }
 
   function staleThermalResult() {
@@ -146,12 +148,12 @@
     if (!raw?.opts || !raw?.stats) {
       throw new Error("Run the complete build simulation before saving a report");
     }
-    const materialName = readMaterialName();
-    if (!materialName) throw new Error("Unable to identify the active filaSim material");
+    const materialName = String(raw.materialName || "").trim();
+    if (!materialName) throw new Error("Unable to identify the material used by the solver request");
 
     const opts = raw.opts;
     const stats = raw.stats;
-    const report = {
+    return {
       schemaVersion: 1,
       analysisKind: "fdm-build-thermomechanical",
       solverModel: "sequential-voxel-inherent-strain",
@@ -194,7 +196,6 @@
         calibratedToPrinter: false,
       },
     };
-    return report;
   }
 
   function thermalResultReady() {
