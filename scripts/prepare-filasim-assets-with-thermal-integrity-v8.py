@@ -37,6 +37,12 @@ THERMAL_MARKERS = (
 THERMAL_UI_SOURCE = PROJECT_ROOT / "app/src/main/filasim/thermal-integrity.js"
 THERMAL_UI_NAME = "thermal-integrity.js"
 THERMAL_UI_TAG = f'<script src="./{THERMAL_UI_NAME}"></script>'
+THERMAL_PACKAGE_MARKER = ".thermal-integrity-version"
+THERMAL_PACKAGE_MARKER_TEXT = (
+    "format=1\n"
+    f"filasim={BASE.FILASIM_COMMIT}\n"
+    "transforms=solver,hardening,audit-fixes\n"
+)
 
 _BASE_PATCH_ANDROID_EXPORT = BASE.patch_android_export
 _BASE_INJECT_BRIDGE = BASE.inject_bridge
@@ -103,6 +109,11 @@ def inject_thermal_integrity_runtime(index_file: pathlib.Path) -> None:
 
     if THERMAL_UI_TAG not in index_file.read_text(encoding="utf-8"):
         raise RuntimeError("Thermal-integrity runtime tag was not retained in index.html")
+
+    marker = index_file.with_name(THERMAL_PACKAGE_MARKER)
+    marker.write_text(THERMAL_PACKAGE_MARKER_TEXT, encoding="utf-8")
+    if marker.read_text(encoding="utf-8") != THERMAL_PACKAGE_MARKER_TEXT:
+        raise RuntimeError("Thermal-integrity package marker did not verify byte-for-byte")
 
 
 BASE.patch_android_export = patch_android_export_with_thermal_integrity
