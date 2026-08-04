@@ -52,7 +52,8 @@ jobs:
             scripts/filasim-thermal-integrity-patch.py \
             scripts/filasim-thermal-integrity-hardening.py \
             scripts/filasim-thermal-integrity-audit-fixes.py \
-            scripts/filasim-thermal-integrity-progress.py
+            scripts/filasim-thermal-integrity-progress.py \
+            scripts/filasim-thermal-integrity-react-tab.py
           node --check app/src/main/filasim/thermal-integrity.js
           node --check app/src/main/filasim/thermal-integrity-workspace.js
           node --check app/src/main/filasim/thermal-integrity-live-progress.js
@@ -75,10 +76,17 @@ jobs:
           test -s "$root/thermal-integrity-live-progress.js"
           grep -q 'enderslicer-thermal-integrity' "$root/thermal-integrity.js"
           grep -q 'fdm-service-thermal-integrity' "$root/thermal-integrity.js"
-          grep -q 'enderslicer-thermal-integrity-tab' "$root/thermal-integrity-workspace.js"
+          grep -q 'enderslicer-thermal-integrity-mount' "$root/thermal-integrity.js"
+          ! grep -q 'document.querySelector(".panel")' "$root/thermal-integrity.js"
           grep -q 'ti-progress-bar' "$root/thermal-integrity-workspace.js"
+          grep -q 'ti-cancel' "$root/thermal-integrity-workspace.js"
+          ! grep -q 'enderslicer-thermal-integrity-tab' "$root/thermal-integrity-workspace.js"
+          ! grep -q 'document.querySelector(".panel")' "$root/thermal-integrity-workspace.js"
+          ! grep -q 'style.display' "$root/thermal-integrity-workspace.js"
           grep -q 'ti-progress-solver' "$root/thermal-integrity-live-progress.js"
           grep -q 'setProgressBuffer' "$root/thermal-integrity-live-progress.js"
+          grep -R -q 'enderslicer-thermal-workspace' "$root/assets"
+          grep -R -q 'enderslicer-thermal-integrity-mount' "$root/assets"
           grep -q '<script src="./thermal-integrity-live-progress.js"></script>' "$root/index.html"
           grep -q '<script src="./thermal-integrity-workspace.js"></script>' "$root/index.html"
           grep -q '<script src="./thermal-integrity.js"></script>' "$root/index.html"
@@ -91,7 +99,7 @@ jobs:
           test -s "$marker"
           grep -qx 'format=1' "$marker"
           grep -qx "filasim=${FILASIM_COMMIT}" "$marker"
-          grep -qx 'transforms=solver,hardening,audit-fixes,progress-v2' "$marker"
+          grep -qx 'transforms=solver,hardening,audit-fixes,progress-v2,react-tab-v1' "$marker"
           grep -q 'thermal-integrity.js' "$root/SHA256SUMS"
           grep -q 'thermal-integrity-workspace.js' "$root/SHA256SUMS"
           grep -q 'thermal-integrity-live-progress.js' "$root/SHA256SUMS"
