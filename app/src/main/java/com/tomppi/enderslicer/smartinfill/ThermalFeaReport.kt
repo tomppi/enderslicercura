@@ -31,7 +31,7 @@ internal data class ThermalFeaReport(
     val upstreamCommit: String,
     val analysisFingerprintSha256: String,
     val generatedAtEpochMillis: Long,
-    /** filaSim's cumulative row-major 3×4 model transform, including placement. */
+    /** filaSim layout: row-major 3×3 linear matrix followed by tx, ty, tz. */
     val modelTransform3x4: List<Double>,
     val materialName: String,
     val shrinkXyPercent: Double,
@@ -151,15 +151,12 @@ internal data class ThermalFeaReport(
         appendLine()
         appendLine("## Build pose")
         appendLine()
-        appendLine("filaSim cumulative row-major 3×4 transform; this binds the report to the exact orientation, scale, and plate placement that were solved.")
+        appendLine("filaSim stores the transform as nine row-major linear terms followed by tx, ty, tz. It is rendered below as a 3×4 affine matrix and binds this report to the exact orientation, scale, and plate placement that were solved.")
         appendLine()
         appendLine("```text")
-        for (row in 0 until 3) {
-            appendLine(
-                modelTransform3x4.subList(row * 4, row * 4 + 4)
-                    .joinToString(prefix = "[ ", postfix = " ]", separator = "  ") { formatNumber(it) },
-            )
-        }
+        appendLine(formatTransformRow(0, 1, 2, 9))
+        appendLine(formatTransformRow(3, 4, 5, 10))
+        appendLine(formatTransformRow(6, 7, 8, 11))
         appendLine("```")
         appendLine()
         appendLine("## Inputs")
@@ -211,6 +208,10 @@ internal data class ThermalFeaReport(
         appendLine()
         appendLine("Thermal-conductivity measurements for printed PLA/PET-G/ABS across infill, pattern, and temperature are available in DOI `10.3390/ma18173950`, but are not applied here because this solver does not yet include a heat-conduction equation.")
     }
+
+    private fun formatTransformRow(a: Int, b: Int, c: Int, t: Int): String =
+        listOf(modelTransform3x4[a], modelTransform3x4[b], modelTransform3x4[c], modelTransform3x4[t])
+            .joinToString(prefix = "[ ", postfix = " ]", separator = "  ") { formatNumber(it) }
 
     companion object {
         const val SCHEMA_VERSION = 1
@@ -433,12 +434,12 @@ internal data class ThermalFeaReport(
             val a = transform[0]
             val b = transform[1]
             val c = transform[2]
-            val d = transform[4]
-            val e = transform[5]
-            val f = transform[6]
-            val g = transform[8]
-            val h = transform[9]
-            val i = transform[10]
+            val d = transform[3]
+            val e = transform[4]
+            val f = transform[5]
+            val g = transform[6]
+            val h = transform[7]
+            val i = transform[8]
             val determinant = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g)
             require(determinant.isFinite() && abs(determinant) > MIN_TRANSFORM_DETERMINANT) {
                 "Thermal FEA model transform is singular"
