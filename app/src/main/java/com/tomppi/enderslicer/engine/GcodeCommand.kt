@@ -21,6 +21,7 @@ internal object GcodeCommand {
     data class Parsed(
         val identity: Identity,
         private val parameters: Map<Char, Double>,
+        val rawArguments: String,
         val hasLineNumber: Boolean,
         val hasChecksum: Boolean,
     ) {
@@ -55,7 +56,7 @@ internal object GcodeCommand {
         if (numericValue > Int.MAX_VALUE) return null
 
         val parameters = linkedMapOf<Char, Double>()
-        val remainder = command.substring(opcodeMatch.range.last + 1)
+        val remainder = command.substring(opcodeMatch.range.last + 1).trim()
         PARAMETER.findAll(remainder).forEach { match ->
             val letter = match.groupValues[1].single().uppercaseChar()
             val value = match.groupValues[2].toDoubleOrNull()
@@ -64,6 +65,7 @@ internal object GcodeCommand {
         return Parsed(
             identity = Identity(family, numericValue.toInt()),
             parameters = parameters,
+            rawArguments = remainder,
             hasLineNumber = lineNumber != null,
             hasChecksum = hasChecksum,
         )
