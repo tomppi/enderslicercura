@@ -120,6 +120,18 @@ def apply(source_root: pathlib.Path) -> None:
         "occupancy-decoupled material stress field",
     )
 
+    # `solve_with_eps_cached` accepts Vec<f32> through Into<EpsField>. Passing
+    # `.into()` here leaves the generic target ambiguous under the WASM build;
+    # pass the Vec directly so the function's bound performs the conversion.
+    replace_remaining_once(
+        wasm,
+        '''            temperature_eps.clone().into(),
+''',
+        '''            temperature_eps.clone(),
+''',
+        "thermal stiffness field conversion",
+    )
+
     marker = source_root / ".enderslicer-thermal-integrity-audit-fixes"
     marker.write_text(MARKER + "\n", encoding="utf-8")
 
