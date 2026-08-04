@@ -20,7 +20,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: feature/non-planar-curvislicer
-          fetch-depth: 6
+          fetch-depth: 7
 
       - name: Apply reviewed general-audit fixes
         run: |
@@ -75,14 +75,14 @@ jobs:
           python3 -m py_compile tools/apply_general_audit_fixes.py
           python3 tools/apply_general_audit_fixes.py
 
-      - name: Restore workflow and commit source fixes
+      - name: Commit source fixes without workflow mutation
         run: |
           set -euo pipefail
-          git show HEAD^:.github/workflows/build.yml > .github/workflows/build.yml
           rm -f tools/apply_general_audit_fixes.py
+          rm -rf tools/__pycache__
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add -A
+          git add -A app docs tools
           git diff --cached --check
           git commit -m "fix: resolve general application audit findings"
           git push origin HEAD:feature/non-planar-curvislicer
