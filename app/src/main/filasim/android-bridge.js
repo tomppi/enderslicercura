@@ -17,7 +17,7 @@
   const THERMAL_REPORT_GROUP_ID = "enderslicer-thermal-fea-report";
   const THERMAL_REPORT_LABEL = "Save Thermal FEA Report";
   const THERMAL_REPORT_NOTE =
-    "Saves the exact solver values in a source-fingerprinted report. Bed reactions are indicators, not an absolute pass/fail threshold.";
+    "Saves exact solver values, build orientation, and model identity. Bed reactions are indicators, not an absolute pass/fail threshold.";
   let modelLoadStarted = false;
   let exporting = false;
   let exportUiObserver = null;
@@ -43,11 +43,17 @@
     return normalizedText(findGroup("Material")?.querySelector(".g-label b"));
   }
 
+  function postNative(nativePostMessage, message, hasTransfer, transferOrOptions) {
+    if (hasTransfer) nativePostMessage(message, transferOrOptions);
+    else nativePostMessage(message);
+  }
+
   /*
    * Capture the exact request and response of filaSim's typed buildSim worker
-   * operation before React formats values for display. This keeps the native
-   * report at solver precision without modifying or forking the pinned engine.
-   * Progress messages are ignored; only the final successful response is kept.
+   * operation before React formats values for display. Immediately before a
+   * build run, query the worker's cumulative model transform and only then
+   * forward buildSim. The report is therefore bound to both source STL bytes
+   * and the exact orientation/placement actually solved.
    */
   function installBuildSimWorkerCapture() {
     const NativeWorker = window.Worker;
@@ -57,24 +63,58 @@
       construct(Target, args) {
         const worker = Reflect.construct(Target, args);
         const pendingBuildSim = new Map();
+        const pendingPose = new Map();
         const nativePostMessage = worker.postMessage.bind(worker);
+        let nextPoseRequestId = -1;
 
         worker.postMessage = function postMessage(message, transferOrOptions) {
+          const hasTransfer = arguments.length > 1;
           if (message?.op === "buildSim" && Number.isSafeInteger(message.id)) {
             latestBuildSimRaw = null;
-            pendingBuildSim.set(message.id, {
+            const poseRequestId = nextPoseRequestId--;
+            pendingPose.set(poseRequestId, {
+              buildMessage: message,
+              hasTransfer,
+              transferOrOptions,
               opts: { ...(message.opts || {}) },
               materialName: readMaterialName(),
               requestedAtEpochMillis: Date.now(),
             });
+            nativePostMessage({ id: poseRequestId, op: "transformMatrix" });
+            return;
           }
-          if (arguments.length > 1) nativePostMessage(message, transferOrOptions);
-          else nativePostMessage(message);
+          postNative(nativePostMessage, message, hasTransfer, transferOrOptions);
         };
 
         worker.addEventListener("message", (event) => {
           const message = event.data;
-          if (!message || !Number.isSafeInteger(message.id) || message.progress) return;
+          if (!message || !Number.isSafeInteger(message.id)) return;
+
+          const poseRequest = pendingPose.get(message.id);
+          if (poseRequest) {
+            pendingPose.delete(message.id);
+            const transform = message.ok && Array.isArray(message.data) ? message.data.slice() : null;
+            if (!transform || transform.length !== 12 || !transform.every(Number.isFinite)) {
+              latestBuildSimRaw = null;
+              console.error("EnderSlicerCura could not capture filaSim's exact model transform");
+              return;
+            }
+            pendingBuildSim.set(poseRequest.buildMessage.id, {
+              opts: poseRequest.opts,
+              materialName: poseRequest.materialName,
+              modelTransform: transform,
+              requestedAtEpochMillis: poseRequest.requestedAtEpochMillis,
+            });
+            postNative(
+              nativePostMessage,
+              poseRequest.buildMessage,
+              poseRequest.hasTransfer,
+              poseRequest.transferOrOptions,
+            );
+            return;
+          }
+
+          if (message.progress) return;
           const request = pendingBuildSim.get(message.id);
           if (!request) return;
           pendingBuildSim.delete(message.id);
@@ -86,6 +126,7 @@
           latestBuildSimRaw = {
             opts: request.opts,
             materialName: request.materialName,
+            modelTransform: request.modelTransform,
             stats: {
               maxDisplacement: stats.maxDisplacement,
               bondedMax: stats.bondedMax,
@@ -145,7 +186,7 @@
       throw new Error("The build-simulation result is stale; run the simulation again");
     }
     const raw = latestBuildSimRaw;
-    if (!raw?.opts || !raw?.stats) {
+    if (!raw?.opts || !raw?.stats || !Array.isArray(raw.modelTransform)) {
       throw new Error("Run the complete build simulation before saving a report");
     }
     const materialName = String(raw.materialName || "").trim();
@@ -162,6 +203,9 @@
       sourceSha256: String(android.sourceSha256()),
       upstreamCommit: String(android.upstreamCommit()),
       generatedAtEpochMillis: Date.now(),
+      pose: {
+        transform3x4: raw.modelTransform.map((value, index) => finite(value, `transform[${index}]`)),
+      },
       material: {
         name: materialName,
         shrinkXyPercent: Math.abs(finite(opts.shrink, "XY shrink")) * 100,
@@ -253,7 +297,7 @@
       button.disabled = stale;
       button.title = stale
         ? "Settings changed after the solve; run Build Simulation again"
-        : "Save exact raw-worker values in a native report tied to this model fingerprint";
+        : "Save exact raw-worker values and model transform in a native report";
     }
     const note = group.querySelector(".dim");
     if (note) sameText(note, THERMAL_REPORT_NOTE);
