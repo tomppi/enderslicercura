@@ -9,7 +9,7 @@ import runpy
 import sys
 
 THERMAL_PREPARER = pathlib.Path(__file__).with_name(
-    "prepare-filasim-assets-with-thermal-integrity-v8.py"
+    "prepare-filasim-assets-with-thermal-integrity-v9.py"
 )
 FINALIZER = pathlib.Path(__file__).with_name("finalize-filasim-apk-manifest.py")
 
