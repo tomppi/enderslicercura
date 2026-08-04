@@ -28,6 +28,14 @@ jobs:
           cat tools/curvislicer-round2-fixes.part{1,2,3,4} > tools/curvislicer-round2-fixes.verified.b64
           echo '5bb1325efb244c9adfca188ca5e701a6882a9171488d1a097dd43042f5491c29  tools/curvislicer-round2-fixes.verified.b64' | sha256sum --check
           base64 --decode tools/curvislicer-round2-fixes.verified.b64 | gzip --decompress > tools/apply_curvislicer_round2_fixes.py
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('tools/apply_curvislicer_round2_fixes.py')
+          lines = path.read_text().splitlines(keepends=True)
+          assert 'private val TOKEN' in lines[412]
+          lines[412] = lines[412].replace("'''", "r'''", 1)
+          path.write_text(''.join(lines))
+          PY
           python3 -m py_compile tools/apply_curvislicer_round2_fixes.py
           python3 tools/apply_curvislicer_round2_fixes.py
 
