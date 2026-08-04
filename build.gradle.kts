@@ -5,9 +5,12 @@ plugins {
 
 val filaSimCommit = "e7485ec22d4ebe8baca04190404fbb877c90e031"
 val filaSimFormat = 9
-val filaSimScript = layout.projectDirectory.file("scripts/prepare-filasim-assets-with-pinch.py")
+val filaSimScript = layout.projectDirectory.file("scripts/prepare-filasim-assets-with-thermal-integrity.py")
+val filaSimPinchScript = layout.projectDirectory.file("scripts/prepare-filasim-assets-with-pinch.py")
 val filaSimBaseScript = layout.projectDirectory.file("scripts/prepare-filasim-assets.py")
 val filaSimThermalPatch = layout.projectDirectory.file("scripts/filasim-thermal-integrity-patch.py")
+val filaSimThermalHardening = layout.projectDirectory.file("scripts/filasim-thermal-integrity-hardening.py")
+val filaSimThermalAuditFixes = layout.projectDirectory.file("scripts/filasim-thermal-integrity-audit-fixes.py")
 val filaSimBridge = layout.projectDirectory.file("app/src/main/filasim/android-bridge.js")
 val filaSimThermalWorkspace = layout.projectDirectory.file("app/src/main/filasim/thermal-integrity.js")
 val filaSimAssetsDirectory = layout.projectDirectory.dir("app/src/main/assets/filasim")
@@ -21,8 +24,11 @@ project(":app") {
         inputs.property("filaSimCommit", filaSimCommit)
         inputs.property("filaSimFormat", filaSimFormat)
         inputs.file(filaSimScript)
+        inputs.file(filaSimPinchScript)
         inputs.file(filaSimBaseScript)
         inputs.file(filaSimThermalPatch)
+        inputs.file(filaSimThermalHardening)
+        inputs.file(filaSimThermalAuditFixes)
         inputs.file(filaSimBridge)
         inputs.file(filaSimThermalWorkspace)
         outputs.dir(filaSimAssetsDirectory)
