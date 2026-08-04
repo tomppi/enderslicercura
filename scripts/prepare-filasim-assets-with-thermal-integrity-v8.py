@@ -29,12 +29,14 @@ THERMAL_TRANSFORMS = (
     pathlib.Path(__file__).with_name("filasim-thermal-integrity-hardening.py"),
     pathlib.Path(__file__).with_name("filasim-thermal-integrity-audit-fixes.py"),
     pathlib.Path(__file__).with_name("filasim-thermal-integrity-progress.py"),
+    pathlib.Path(__file__).with_name("filasim-thermal-integrity-react-tab.py"),
 )
 THERMAL_MARKERS = (
     ".enderslicer-thermal-integrity",
     ".enderslicer-thermal-integrity-hardening",
     ".enderslicer-thermal-integrity-audit-fixes",
     ".enderslicer-thermal-integrity-progress-v2",
+    ".enderslicer-thermal-integrity-react-tab-v1",
 )
 THERMAL_UI_SOURCE = PROJECT_ROOT / "app/src/main/filasim/thermal-integrity.js"
 THERMAL_UI_NAME = "thermal-integrity.js"
@@ -52,7 +54,7 @@ THERMAL_PACKAGE_MARKER = "thermal-integrity-version.txt"
 THERMAL_PACKAGE_MARKER_TEXT = (
     "format=1\n"
     f"filasim={BASE.FILASIM_COMMIT}\n"
-    "transforms=solver,hardening,audit-fixes,progress-v2\n"
+    "transforms=solver,hardening,audit-fixes,progress-v2,react-tab-v1\n"
 )
 
 _BASE_PATCH_ANDROID_EXPORT = BASE.patch_android_export
@@ -64,19 +66,18 @@ def apply_thermal_transforms(source_root: pathlib.Path) -> None:
     marker_paths = tuple(source_root / name for name in THERMAL_MARKERS)
     marker_state = tuple(path.is_file() for path in marker_paths)
 
-    # A cached source prepared by the previous build has the first three
-    # transforms but no v2 progress marker. Upgrade only the progress layer;
-    # a different partial combination remains an error rather than guessing.
-    legacy_complete = marker_state == (True, True, True, False)
-    if any(marker_state) and not all(marker_state) and not legacy_complete:
+    # Valid cached states are a contiguous prefix of the ordered transform set.
+    # This upgrades old three- or four-transform caches deterministically while
+    # still rejecting arbitrary partial combinations.
+    first_missing = next((index for index, present in enumerate(marker_state) if not present), len(marker_state))
+    if any(marker_state[first_missing:]):
         missing = [path.name for path, present in zip(marker_paths, marker_state) if not present]
         raise RuntimeError(
             "Thermal-integrity source is only partially transformed; missing markers: "
             + ", ".join(missing)
         )
 
-    if legacy_complete:
-        transform = THERMAL_TRANSFORMS[-1]
+    for transform in THERMAL_TRANSFORMS[first_missing:]:
         if not transform.is_file():
             raise RuntimeError(f"Thermal-integrity transform is missing: {transform}")
         subprocess.run(
@@ -84,15 +85,6 @@ def apply_thermal_transforms(source_root: pathlib.Path) -> None:
             cwd=PROJECT_ROOT,
             check=True,
         )
-    elif not all(marker_state):
-        for transform in THERMAL_TRANSFORMS:
-            if not transform.is_file():
-                raise RuntimeError(f"Thermal-integrity transform is missing: {transform}")
-            subprocess.run(
-                [sys.executable, str(transform), str(source_root)],
-                cwd=PROJECT_ROOT,
-                check=True,
-            )
 
     missing = [path.name for path in marker_paths if not path.is_file()]
     if missing:
@@ -105,6 +97,8 @@ def apply_thermal_transforms(source_root: pathlib.Path) -> None:
     wasm_entry = source_root / "crates/filasim-wasm/src/lib.rs"
     worker_entry = source_root / "web/src/worker/engine.worker.ts"
     protocol_entry = source_root / "web/src/engine/EngineProtocol.ts"
+    rail_entry = source_root / "web/src/ui/StepRail.tsx"
+    panel_entry = source_root / "web/src/ui/StepPanel.tsx"
     required_contracts = (
         (core_module, "solve_thermal"),
         (core_module, "progress::publish"),
@@ -113,6 +107,9 @@ def apply_thermal_transforms(source_root: pathlib.Path) -> None:
         (worker_entry, "thermalIntegrity"),
         (worker_entry, "progress: true"),
         (protocol_entry, "thermalIntegrity"),
+        (rail_entry, "enderslicer-thermal-workspace"),
+        (rail_entry, "Thermal Integrity — service-temperature"),
+        (panel_entry, "enderslicer-thermal-integrity-mount"),
     )
     for path, marker in required_contracts:
         if not path.is_file() or marker not in path.read_text(encoding="utf-8"):
@@ -133,6 +130,28 @@ def copy_verified(source: pathlib.Path, target: pathlib.Path, label: str) -> Non
         raise RuntimeError(f"Copied {label} did not verify byte-for-byte")
 
 
+def patch_thermal_ui_mount(target: pathlib.Path) -> None:
+    old = '''    const panel = document.querySelector(".panel");
+    if (!panel) return false;
+    const group = createGroup();
+    panel.appendChild(group);
+'''
+    new = '''    const mount = document.getElementById("enderslicer-thermal-integrity-mount");
+    if (!mount) return false;
+    const group = createGroup();
+    mount.appendChild(group);
+'''
+    text = target.read_text(encoding="utf-8")
+    if new not in text:
+        if text.count(old) != 1:
+            raise RuntimeError("Thermal Integrity UI no longer has the expected legacy panel mount")
+        text = text.replace(old, new, 1)
+        target.write_text(text, encoding="utf-8")
+    verified = target.read_text(encoding="utf-8")
+    if new not in verified or 'document.querySelector(".panel")' in verified:
+        raise RuntimeError("Thermal Integrity UI was not isolated to the React-owned mount")
+
+
 def inject_thermal_integrity_runtime(index_file: pathlib.Path) -> None:
     _BASE_INJECT_BRIDGE(index_file)
 
@@ -146,11 +165,13 @@ def inject_thermal_integrity_runtime(index_file: pathlib.Path) -> None:
         index_file.with_name(THERMAL_WORKSPACE_NAME),
         "thermal-integrity workspace runtime",
     )
+    thermal_ui_target = index_file.with_name(THERMAL_UI_NAME)
     copy_verified(
         THERMAL_UI_SOURCE,
-        index_file.with_name(THERMAL_UI_NAME),
+        thermal_ui_target,
         "thermal-integrity UI runtime",
     )
+    patch_thermal_ui_mount(thermal_ui_target)
 
     text = index_file.read_text(encoding="utf-8")
     for tag in (THERMAL_LIVE_TAG, THERMAL_WORKSPACE_TAG):
