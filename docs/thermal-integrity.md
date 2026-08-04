@@ -38,16 +38,22 @@ The storage term is omitted in steady-state mode.
 - Separate X, Y and Z conductivity inputs represent print anisotropy.
 - Conductivity between neighboring cells uses a harmonic face average.
 - Conductivity inside partial-density cells is blended between air and bulk material using the selected density exponent.
+- Geometric cut-cell occupancy is separated from intrinsic printed-material density. Occupancy reduces face area and heat capacity; it does not incorrectly turn a fully solid boundary cell into low-density polymer.
+- Internal conductance uses the shared cut-cell face fraction, reducing staircase artifacts at curved voxel boundaries.
 - Solver units are W, mm and K/°C; SI conductivity and convection coefficients are converted at the assembly boundary.
 
 ### Surface boundaries
 
-The user selects one of six axis-aligned exposed voxel-face groups for each role:
+The user selects one of six axis-aligned global face groups for each role:
 
 - X−, X+, Y−, Y+, Z− or Z+
-- **Heated face:** total surface heat power is distributed by exposed voxel-face area.
-- **Fixed-temperature face:** a Dirichlet boundary is coupled through the cell half-distance.
-- Other exposed faces reject heat through convection and radiation.
+- **Heated face:** total surface heat power is distributed by exposed voxel-face area on the selected global extreme plane.
+- **Fixed-temperature face:** a Dirichlet boundary is coupled through the cell half-distance on the selected global extreme plane.
+- Other exterior surfaces reject heat through convection and radiation.
+
+A downward-facing step, overhang underside or cavity wall with the same normal is not silently treated as the selected heater or mount. Only the global extreme face receives that special boundary.
+
+Ambient convection and radiation are applied only to void connected to the outside of the padded voxel grid. A sealed internal cavity is treated as sealed rather than receiving fictitious ambient airflow. An internal channel that is actually open to the exterior remains exterior-connected.
 
 A separate volumetric power input distributes internal heat over material volume. Surface and volumetric power can be combined.
 
@@ -65,7 +71,9 @@ Use steady state when the heat source remains active long enough for the part to
 
 Transient mode uses implicit Euler, which remains stable for large time steps but can lose temporal accuracy when the step is too coarse. The workspace limits a run to 2,000 time steps and reports maximum and material-volume-weighted mean temperature history.
 
-Refine the time step until the peak temperature and time-to-peak stop changing materially.
+The coupled structural solve is evaluated using the **final temperature field at the requested duration**. The temperature history still reports earlier thermal peaks, but this first implementation does not run a full structural solve at every time step. To inspect an intermediate structural state, rerun transient analysis with the duration set to that time. For a constant heating case, increase duration until both temperature and structural outputs converge toward steady state.
+
+Refine the time step until peak temperature and time-to-peak stop changing materially.
 
 ## Thermo-mechanical coupling
 
@@ -85,6 +93,8 @@ The same local temperature field controls:
 - local thermal-mechanical von Mises stress.
 
 Retention is conservatively interpolated from 100% at the reference temperature to the selected floor fraction at the literature-seeded service limit. Above that limit, the floor is retained and the report is marked as property extrapolation.
+
+The structural stiffness operator remains occupancy-scaled, but reported material stress and strength use occupancy-decoupled printed density. This prevents partially occupied surface voxels from producing false safety-factor bands around curved geometry.
 
 This is intentionally transparent and bounded. It does not pretend that one universal glass-transition or heat-deflection value fully describes every filament, raster and load duration.
 
@@ -134,8 +144,8 @@ The workspace and native Markdown report include:
 - heat input, heat rejection and transient stored-energy rate;
 - energy-balance residual;
 - exposed heated and cooled areas;
-- maximum coupled deformation;
-- maximum thermal-mechanical von Mises stress;
+- maximum coupled deformation at equilibrium or final transient time;
+- maximum thermal-mechanical von Mises stress at equilibrium or final transient time;
 - minimum modulus and strength retention;
 - conservative temperature- and density-reduced safety factor;
 - temperature margin to the selected material preset limit;
@@ -152,7 +162,7 @@ The reported material safety factor is the minimum over active material cells of
 local allowable strength / local von Mises stress
 ```
 
-The local allowable is reduced by both temperature and material fraction.
+The local allowable is reduced by both temperature and printed material density. Geometric cut-cell occupancy is removed from both material stress and density allowable so the ratio represents the printed material rather than the voxelization boundary.
 
 - A result below one is a warning under the entered assumptions.
 - A result above one is not proof of service life, fatigue life, creep resistance, layer adhesion or regulatory compliance.
@@ -168,6 +178,8 @@ imbalance = |Qin − Qrejected − dU/dt| / max(|Qin|, |Qrejected|, |dU/dt|)
 ```
 
 For steady state, `dU/dt` is zero. A high residual means the numerical result needs investigation—typically a finer grid, smaller transient time step or more appropriate boundaries. It is not an additional physical heat loss.
+
+Heat rejection is evaluated against the same fixed-temperature, convection and radiation surfaces used by the solved operator. Sealed cavities are not included as ambient heat-rejection surfaces.
 
 ## Exact provenance
 
@@ -194,13 +206,17 @@ The current implementation does **not** calculate:
 
 - G-code/nozzle-path reheating or cooling history;
 - interlayer weld kinetics or delamination probability;
+- a structural solve at every transient time step;
 - temperature-dependent creep or stress relaxation;
 - fatigue or impact life;
 - moisture, aging, chemical exposure or UV degradation;
 - melting, phase change or annealing;
 - enclosure airflow CFD;
+- gas conduction or natural convection inside sealed cavities;
 - certified thermal contact resistance;
 - a probability of failure or regulatory verdict.
+
+A sealed cavity is treated as adiabatic at its internal wall in this first implementation. Model cavity gas or inserts explicitly when they materially affect heat transfer.
 
 The fixed face, convection and emissivity values must be selected for the actual environment. Natural-convection coefficients and interface temperatures can dominate the answer.
 
@@ -222,12 +238,14 @@ Use a simple rectangular bar or L-bracket with an obvious hot and cold end.
 2. Choose PLA, steady state, X− heat and X+ fixed temperature.
 3. Apply 1–3 W, ambient 23 °C, fixed surface 23 °C, convection 8 W/(m²·K), emissivity 0.9.
 4. Use free expansion and no mechanical load for the first run.
-5. Verify that temperature decreases monotonically from the heated end toward the fixed-temperature end.
+5. Verify that temperature decreases monotonically from the heated global end toward the fixed-temperature global end.
 6. Confirm heat rejected approximately equals heat input and the reported energy imbalance is small.
 7. Rotate the same STL 90° and repeat; the analysis fingerprint must change and anisotropic conductivity should change the field when X/Y/Z values differ.
 8. Run transient mode and reduce the time step until peak temperature and time-to-peak converge.
-9. Add a real support/load case and compare free-expansion with constrained thermal stress.
-10. Print a non-critical coupon, instrument it with temperature sensors and calibrate conductivity, convection and contact assumptions before relying on a real design.
+9. For an intermediate transient structural state, repeat with the duration ending at that time.
+10. Add a real support/load case and compare free-expansion with constrained thermal stress.
+11. Test a model containing a sealed cavity and confirm it does not act as an ambient-cooled internal surface.
+12. Print a non-critical coupon, instrument it with temperature sensors and calibrate conductivity, convection and contact assumptions before relying on a real design.
 
 ## Build and regression gates
 
@@ -235,6 +253,9 @@ The thermal-integrity branch workflow validates:
 
 - deterministic patching of the exact pinned filaSim commit;
 - Rust finite-volume unit tests;
+- sealed-cavity exterior-connectivity behavior;
+- global-extreme heater/fixed-face selection;
+- cut-cell conductivity and occupancy-decoupled material stress;
 - WASM and TypeScript compilation;
 - raw JavaScript syntax;
 - Android/native schema lockstep;
