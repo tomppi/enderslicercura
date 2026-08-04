@@ -95,6 +95,7 @@ jobs:
           grep -q 'rejectOverlappingRequest' thermal-integrity-guard.js
           grep -q 'messageerror' thermal-integrity-guard.js
           grep -q 'enderslicer-thermal-integrity-invalidated' thermal-integrity-guard.js
+          grep -q 'recordsAddThermalGroup' thermal-integrity-guard.js
           grep -q 'ti-progress-bar' thermal-integrity-workspace.js
           grep -q 'ti-cancel' thermal-integrity-workspace.js
           ! grep -q 'enderslicer-thermal-integrity-tab' thermal-integrity-workspace.js
@@ -107,13 +108,15 @@ jobs:
           grep -a -q 'thermal grid is too large for the Android safety budget' "$wasm"
           grep -a -q 'transient thermal workload is too large for Android' "$wasm"
           grep -a -q 'steady thermal radiation iteration did not converge' "$wasm"
+          grep -a -q 'line search could not reduce nonlinear residual' "$wasm"
+          grep -a -q 'steady thermal solve violated global energy balance' "$wasm"
           grep -a -q 'thermal result exceeds the Android reportable maximum of 2000' "$wasm"
           grep -a -q 'thermal structural FEA did not converge' "$wasm"
           grep -qx 'format=8' source-version.txt
           grep -qx "commit=${FILASIM_COMMIT}" source-version.txt
           grep -qx 'format=1' thermal-integrity-version.txt
           grep -qx "filasim=${FILASIM_COMMIT}" thermal-integrity-version.txt
-          grep -qx 'transforms=solver,hardening,audit-fixes,progress-v2,react-tab-v1,bugfix-round1' thermal-integrity-version.txt
+          grep -qx 'transforms=solver,hardening,audit-fixes,progress-v2,react-tab-v1,bugfix-round1,bugfix-round2' thermal-integrity-version.txt
           grep -q 'source-version.txt' SHA256SUMS
           ! grep -q '  \.source-version$' SHA256SUMS
           grep -q 'thermal-integrity.js' SHA256SUMS
