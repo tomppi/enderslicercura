@@ -54,6 +54,8 @@ jobs:
           unzip -p "$apk" assets/filasim/thermal-integrity-live-progress.js > thermal-integrity-live-progress.js
           unzip -p "$apk" assets/filasim/thermal-integrity-version.txt > thermal-integrity-version.txt
           unzip -p "$apk" assets/filasim/SHA256SUMS > SHA256SUMS
+          while IFS= read -r entry; do unzip -p "$apk" "$entry"; done \
+            < <(grep '^assets/filasim/assets/.*\.js$' apk-entries.txt) > bundled-filasim.js
 
           grep -q '<script src="./thermal-integrity-live-progress.js"></script>' index.html
           grep -q '<script src="./thermal-integrity-workspace.js"></script>' index.html
@@ -65,13 +67,20 @@ jobs:
           test "$workspace_line" -le "$ui_line"
           grep -q 'enderslicer-thermal-integrity' thermal-integrity.js
           grep -q 'fdm-service-thermal-integrity' thermal-integrity.js
-          grep -q 'enderslicer-thermal-integrity-tab' thermal-integrity-workspace.js
+          grep -q 'enderslicer-thermal-integrity-mount' thermal-integrity.js
+          ! grep -q 'document.querySelector(".panel")' thermal-integrity.js
           grep -q 'ti-progress-bar' thermal-integrity-workspace.js
+          grep -q 'ti-cancel' thermal-integrity-workspace.js
+          ! grep -q 'enderslicer-thermal-integrity-tab' thermal-integrity-workspace.js
+          ! grep -q 'document.querySelector(".panel")' thermal-integrity-workspace.js
+          ! grep -q 'style.display' thermal-integrity-workspace.js
           grep -q 'ti-progress-solver' thermal-integrity-live-progress.js
           grep -q 'setProgressBuffer' thermal-integrity-live-progress.js
+          grep -q 'enderslicer-thermal-workspace' bundled-filasim.js
+          grep -q 'enderslicer-thermal-integrity-mount' bundled-filasim.js
           grep -qx 'format=1' thermal-integrity-version.txt
           grep -qx "filasim=${FILASIM_COMMIT}" thermal-integrity-version.txt
-          grep -qx 'transforms=solver,hardening,audit-fixes,progress-v2' thermal-integrity-version.txt
+          grep -qx 'transforms=solver,hardening,audit-fixes,progress-v2,react-tab-v1' thermal-integrity-version.txt
           grep -q 'thermal-integrity.js' SHA256SUMS
           grep -q 'thermal-integrity-workspace.js' SHA256SUMS
           grep -q 'thermal-integrity-live-progress.js' SHA256SUMS
