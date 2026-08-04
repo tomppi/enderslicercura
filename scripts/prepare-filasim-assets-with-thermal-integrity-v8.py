@@ -24,6 +24,7 @@ SPEC.loader.exec_module(PINCH)
 
 BASE = PINCH.BASE
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
+INVALIDATED_EVENT = "enderslicer-thermal-integrity-invalidated"
 THERMAL_TRANSFORMS = (
     pathlib.Path(__file__).with_name("filasim-thermal-integrity-patch.py"),
     pathlib.Path(__file__).with_name("filasim-thermal-integrity-hardening.py"),
@@ -159,7 +160,7 @@ def patch_thermal_ui_runtime(target: pathlib.Path) -> None:
         text,
         '  const STORAGE_KEY = "enderslicer.thermalIntegrity.v1";\n',
         '  const STORAGE_KEY = "enderslicer.thermalIntegrity.v1";\n'
-        '  const INVALIDATED_EVENT = "enderslicer-thermal-integrity-invalidated";\n',
+        f'  const INVALIDATED_EVENT = "{INVALIDATED_EVENT}";\n',
         "invalidation event constant",
     )
     text = replace_ui_once(
@@ -436,7 +437,7 @@ def patch_thermal_ui_runtime(target: pathlib.Path) -> None:
         "runInFlight",
         "analysisEpoch",
         "sourceIdentity",
-        "MAX" if False else "2_000_000",
+        "2_000_000",
         "stale result was discarded",
         "service limit must be higher",
         INVALIDATED_EVENT,
