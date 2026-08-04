@@ -3,6 +3,7 @@
 from __future__ import annotations
 import importlib.util
 import pathlib
+import subprocess
 import sys
 
 V11 = pathlib.Path(__file__).with_name("prepare-filasim-assets-with-thermal-integrity-v11.py")
@@ -46,9 +47,10 @@ def patch_ui_v12(target: pathlib.Path) -> None:
     # thermal-only calculation; the WASM boundary blocks structural FEA when the
     # solved field leaves the material model.
     inline = '''      if (physicalWarnings.length && preflightBox) {
+        const lineBreak = String.fromCharCode(10);
         preflightBox.className = "ti-status ti-warning";
         preflightBox.textContent +=
-          `\n${physicalWarnings.join("\n")}\n` +
+          lineBreak + physicalWarnings.join(lineBreak) + lineBreak +
           "The temperature field will still be calculated. Structural FEA will be skipped automatically if the solved field leaves the material model.";
       }
 '''
@@ -67,6 +69,9 @@ def patch_ui_v12(target: pathlib.Path) -> None:
         raise RuntimeError("Thermal runtime still depends on a JavaScript modal confirmation")
     if "The temperature field will still be calculated" not in verified:
         raise RuntimeError("Thermal inline material warning is missing")
+    if "String.fromCharCode(10)" not in verified:
+        raise RuntimeError("Thermal inline warning does not use escape-safe line breaks")
+    subprocess.run(["node", "--check", str(target)], check=True)
 
 
 thermal.patch_thermal_ui_runtime = patch_ui_v12
