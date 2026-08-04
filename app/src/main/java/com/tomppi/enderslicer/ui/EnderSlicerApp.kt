@@ -69,6 +69,7 @@ private enum class ViewerMode { MODEL, LAYERS, NOZZLE_PATH }
 fun EnderSlicerApp(
     viewModel: MainViewModel = viewModel(),
     topBarActions: @Composable () -> Unit = {},
+    sliceBlockedReason: String? = null,
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -309,6 +310,7 @@ fun EnderSlicerApp(
             ActionBar(
                 state = state,
                 nonPlanarEnabled = nonPlanarSettings.enabled,
+                sliceBlockedReason = sliceBlockedReason,
                 onSlice = viewModel::sliceModel,
                 onExportGcode = { gcodeExportPicker.launch(GcodeExportName.suggest()) },
             )
@@ -689,6 +691,7 @@ private fun ViewerModeButton(
 private fun ActionBar(
     state: MainUiState,
     nonPlanarEnabled: Boolean,
+    sliceBlockedReason: String?,
     onSlice: () -> Unit,
     onExportGcode: () -> Unit,
 ) {
@@ -701,6 +704,9 @@ private fun ActionBar(
                 .padding(horizontal = 12.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(5.dp),
         ) {
+            sliceBlockedReason?.let { reason ->
+                Text(reason, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelSmall)
+            }
             state.estimatedPrintSeconds?.takeIf { gcodeAvailable }?.let { seconds ->
                 Text(
                     "Estimated print time: ${formatEstimatedPrintTime(seconds)}",
@@ -716,7 +722,7 @@ private fun ActionBar(
                 if (state.isBusy) CircularProgressIndicator(modifier = Modifier.height(28.dp))
                 Button(
                     onClick = onSlice,
-                    enabled = state.engineAvailable && state.modelPath != null && !state.isBusy,
+                    enabled = state.engineAvailable && state.modelPath != null && !state.isBusy && sliceBlockedReason == null,
                     modifier = Modifier.weight(1f),
                 ) {
                     Text(

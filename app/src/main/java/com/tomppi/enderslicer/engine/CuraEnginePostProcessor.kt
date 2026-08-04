@@ -24,6 +24,9 @@ internal object CuraEnginePostProcessor {
     ): Result {
         val effectiveEnvelope = resolvedEnvelope(outputFile.parentFile) ?: printerEnvelope
         val firmware = CalibrationFirmwareEncoder.fromFlavor(effectiveEnvelope.gcodeFlavor)
+        require(plannedLayerEvents.isEmpty() || !CurviSlicerFieldStorage.isPrepared(outputFile.parentFile)) {
+            "CurviSlicer cannot be combined with height-based calibration events"
+        }
         val curviDiagnostics = CurviSlicerFieldStorage.curveStagedGcode(outputFile, effectiveEnvelope)
         val effectiveTransport = if (curviDiagnostics == null) {
             settingsTransport

@@ -1,5 +1,7 @@
 package com.tomppi.enderslicer.engine
 
+import java.util.Locale
+
 /** One canonical, fail-closed command policy shared by all G-code safety consumers. */
 internal object GcodeCommandPolicy {
     private val LINEAR_PARAMETERS = setOf('X', 'Y', 'Z', 'E', 'F')
@@ -40,7 +42,9 @@ internal object GcodeCommandPolicy {
                     "CurviSlicer cannot safely interpret ${command.opcode}; remove unsupported motion or coordinate commands",
                 )
             }
+            'M' -> requirePublishedM(command, lineNumber = null, consumer = "CurviSlicer")
             'T' -> require(command.code == 0) { "CurviSlicer does not support tool changes (${command.opcode})" }
+            else -> error("CurviSlicer cannot safely interpret command family ${command.family}")
         }
     }
 
@@ -65,9 +69,28 @@ internal object GcodeCommandPolicy {
                         "the G-code was not made available for export",
                 )
             }
+            'M' -> requirePublishedM(command, lineNumber, "Published G-code")
             'T' -> require(command.code == 0) {
                 "Unsupported tool change ${command.opcode} at line $lineNumber"
             }
+            else -> error(
+                "Unsupported command family ${command.family} at line $lineNumber; " +
+                    "the G-code was not made available for export",
+            )
+        }
+    }
+
+    /** Rejects executable lines that the numeric parser intentionally cannot model. */
+    fun requirePublishedTextSafe(rawLine: String, gcodeFlavor: String, lineNumber: Int) {
+        val command = rawLine.substringBefore(';').trim()
+        if (command.isEmpty()) return
+        val flavor = gcodeFlavor.lowercase(Locale.US)
+        val safe = "klipper" in flavor && (
+            KLIPPER_PRESSURE_ADVANCE.matches(command) || KLIPPER_RETRACTION.matches(command)
+        )
+        require(safe) {
+            "Unsupported textual or malformed command at line $lineNumber; " +
+                "the G-code was not made available for export"
         }
     }
 
@@ -87,9 +110,11 @@ internal object GcodeCommandPolicy {
                     "Nozzle Path cannot safely display ${command.opcode}; re-slice without unsupported motion commands",
                 )
             }
+            'M' -> requirePublishedM(command, lineNumber = null, consumer = "Nozzle Path")
             'T' -> require(command.code == 0) {
                 "Nozzle Path cannot safely display tool change ${command.opcode}"
             }
+            else -> error("Nozzle Path cannot safely display command family ${command.family}")
         }
     }
 
@@ -108,9 +133,116 @@ internal object GcodeCommandPolicy {
         return percent / 100.0
     }
 
+    private fun requirePublishedM(command: GcodeCommand.Parsed, lineNumber: Int?, consumer: String) {
+        val location = lineNumber?.let { " at line $it" }.orEmpty()
+        fun only(vararg letters: Char) {
+            require(command.hasOnlyParameters(letters.toSet())) {
+                "$consumer rejects unsupported ${command.opcode} parameters$location"
+            }
+        }
+        fun bounded(letter: Char, minimum: Double, maximum: Double, required: Boolean = false) {
+            val value = command.value(letter)
+            if (required) requireNotNull(value) { "$consumer requires ${command.opcode} $letter$location" }
+            if (value != null) require(value.isFinite() && value in minimum..maximum) {
+                "$consumer rejects ${command.opcode} $letter outside $minimum..$maximum$location"
+            }
+        }
+
+        when (command.code) {
+            0, 1 -> only('P', 'S')
+            18, 84 -> only('S', 'X', 'Y', 'Z', 'E')
+            25, 77, 82, 83, 107, 117, 118, 240, 400 -> Unit
+            73 -> {
+                only('P', 'R')
+                bounded('P', 0.0, 100.0)
+                bounded('R', 0.0, 1_000_000.0)
+            }
+            104, 109 -> {
+                only('S', 'R', 'T')
+                bounded('S', 0.0, 500.0)
+                bounded('R', 0.0, 500.0)
+                bounded('T', 0.0, 32.0)
+            }
+            106 -> {
+                only('P', 'S')
+                bounded('P', 0.0, 255.0)
+                bounded('S', 0.0, 255.0)
+            }
+            140, 190 -> {
+                only('S', 'R')
+                bounded('S', 0.0, 200.0)
+                bounded('R', 0.0, 200.0)
+            }
+            204 -> {
+                only('P', 'R', 'S', 'T')
+                command.parameterLetters.forEach { bounded(it, 0.0, 100_000.0) }
+            }
+            205 -> {
+                only('B', 'E', 'J', 'S', 'T', 'X', 'Y', 'Z')
+                command.parameterLetters.forEach { letter ->
+                    bounded(letter, 0.0, if (letter == 'J') 1.0 else 100_000.0)
+                }
+            }
+            207 -> {
+                only('F', 'R', 'S', 'T', 'W', 'Z')
+                command.parameterLetters.forEach { bounded(it, 0.0, 100_000.0) }
+            }
+            208 -> {
+                only('F', 'R', 'S')
+                command.parameterLetters.forEach { bounded(it, 0.0, 100_000.0) }
+            }
+            220, 221 -> {
+                only('S', 'T')
+                bounded('S', 1.0, 999.0, required = true)
+                bounded('T', 0.0, 32.0)
+            }
+            300 -> {
+                only('P', 'S')
+                bounded('P', 0.0, 600_000.0)
+                bounded('S', 0.0, 100_000.0)
+            }
+            420 -> {
+                only('S', 'Z')
+                bounded('S', 0.0, 1.0)
+                bounded('Z', 0.0, 100.0)
+            }
+            572 -> {
+                only('D', 'S', 'T')
+                bounded('D', 0.0, 255.0)
+                bounded('S', 0.0, 10.0, required = true)
+                bounded('T', 0.0, 32.0)
+            }
+            600 -> {
+                only('B', 'E', 'L', 'R', 'U', 'X', 'Y', 'Z')
+                command.parameterLetters.forEach { bounded(it, -1_000.0, 1_000.0) }
+            }
+            900 -> {
+                only('K', 'L', 'S', 'T')
+                bounded('K', 0.0, 10.0)
+                bounded('L', 0.0, 10.0)
+                bounded('S', 0.0, 10.0)
+                bounded('T', 0.0, 32.0)
+            }
+            else -> error(
+                "$consumer rejects unmodeled persistent or machine-control command ${command.opcode}$location; " +
+                    "the G-code was not made available for export",
+            )
+        }
+    }
+
     private fun requireUnframed(command: GcodeCommand.Parsed, consumer: String) {
         require(!command.hasLineNumber && !command.hasChecksum) {
             "$consumer does not accept line-number or checksum framing; re-slice unframed G-code"
         }
     }
+
+    private val KLIPPER_PRESSURE_ADVANCE = Regex(
+        "^SET_PRESSURE_ADVANCE\\s+ADVANCE=[+]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)$",
+        RegexOption.IGNORE_CASE,
+    )
+    private val KLIPPER_RETRACTION = Regex(
+        "^SET_RETRACTION\\s+RETRACT_LENGTH=[+]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)\\s+" +
+            "RETRACT_SPEED=[+]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)$",
+        RegexOption.IGNORE_CASE,
+    )
 }

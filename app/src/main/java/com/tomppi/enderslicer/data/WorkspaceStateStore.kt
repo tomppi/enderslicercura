@@ -29,6 +29,7 @@ class WorkspaceStateStore(private val filesDirectory: File) {
     private val stateDirectory = File(filesDirectory, "persistent-state").apply { mkdirs() }
     private val workspaceFile = File(stateDirectory, "current-workspace.json")
 
+    @Synchronized
     fun save(snapshot: Snapshot) {
         validate(snapshot)
         val temporary = File(stateDirectory, "current-workspace.next")
@@ -73,6 +74,7 @@ class WorkspaceStateStore(private val filesDirectory: File) {
         }
     }
 
+    @Synchronized
     fun load(): Snapshot? {
         if (!workspaceFile.isFile || workspaceFile.length() == 0L) return null
         require(workspaceFile.length() <= MAX_WORKSPACE_BYTES) {
@@ -83,6 +85,7 @@ class WorkspaceStateStore(private val filesDirectory: File) {
         return snapshot
     }
 
+    @Synchronized
     fun clear() {
         workspaceFile.delete()
         File(stateDirectory, "current-workspace.next").delete()

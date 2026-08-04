@@ -13,6 +13,7 @@ import com.tomppi.enderslicer.calibration.CalibrationTowerGenerator
 import com.tomppi.enderslicer.calibration.CalibrationTowerSpec
 import com.tomppi.enderslicer.data.AppStateStore
 import com.tomppi.enderslicer.data.BuiltInGcode
+import com.tomppi.enderslicer.data.PendingDocumentExportStore
 import com.tomppi.enderslicer.data.PrinterDefinitionLoader
 import com.tomppi.enderslicer.data.WorkspaceStateStore
 import com.tomppi.enderslicer.engine.CuraEngineRunner
@@ -24,6 +25,7 @@ import com.tomppi.enderslicer.engine.SliceArtifactPublisher
 import com.tomppi.enderslicer.mesh.MeshTriangleLimits
 import com.tomppi.enderslicer.model.ModelPlacement
 import com.tomppi.enderslicer.model.SlicerSettings
+import com.tomppi.enderslicer.nonplanar.CurviSlicerRuntime
 import com.tomppi.enderslicer.profile.CuraImportedSettingsResolver
 import com.tomppi.enderslicer.profile.CuraProfileParser
 import com.tomppi.enderslicer.profile.CuraProjectAudit
@@ -39,6 +41,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -92,6 +95,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val engine = CuraEngineRunner(app)
     private val stateStore = AppStateStore(app)
     private val workspaceStore = WorkspaceStateStore(app)
+    private val pendingExportStore = PendingDocumentExportStore(app)
     private val initialStartGcode = BuiltInGcode.START
     private val initialEndGcode = BuiltInGcode.END
     private var importedSettingsBaseline: SlicerSettings? = null
@@ -99,7 +103,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var importedScene: CuraProjectScene? = null
     private var plannedCalibrationEvents: List<PlannedLayerEvent> = emptyList()
     private var settingsPersistenceJob: Job? = null
+    private val workspaceMutationGeneration = AtomicLong(0L)
     private val layerEventSequence = AtomicLong(0L)
+    private val deferredRestoreActions = ArrayDeque<() -> Unit>()
+    @Volatile private var restoringPersistedState = true
 
     private val _uiState = MutableStateFlow(
         MainUiState(
@@ -119,6 +126,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun importStl(uri: Uri) {
+        if (deferUntilRestoreCompletes { importStl(uri) }) return
         if (!beginOperation("Reading STL…")) return
         val sceneSnapshot = importedScene
         val stateSnapshot = _uiState.value
@@ -218,6 +226,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * must never be inferred for geometry already derived from the displayed STL.
      */
     fun importPartTopoResult(uri: Uri) {
+        if (deferUntilRestoreCompletes { importPartTopoResult(uri) }) return
         val stateSnapshot = _uiState.value
         val analyzedDisplayedMesh = stateSnapshot.mesh
         if (analyzedDisplayedMesh == null || stateSnapshot.modelPath == null) {
@@ -293,6 +302,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun importCuraProfile(uri: Uri) {
+        if (deferUntilRestoreCompletes { importCuraProfile(uri) }) return
         if (!beginOperation("Importing Cura profile…")) return
         viewModelScope.launch {
             runCatching {
@@ -311,6 +321,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun importCuraProject(uri: Uri) {
+        if (deferUntilRestoreCompletes { importCuraProject(uri) }) return
         if (!beginOperation("Importing Cura project…")) return
         viewModelScope.launch {
             runCatching {
@@ -356,14 +367,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 statusMessage = "Settings changed; slice again to export G-code",
             )
         }
-        persistSettings(changed)
+        persistSettings(changed, workspaceMutationGeneration.incrementAndGet())
     }
 
     fun resetAllSettingOverrides() {
         if (_uiState.value.isBusy) return
         val baseline = importedSettingsBaseline ?: SlicerSettings()
         val restored = baseline.copy(overriddenSettingKeys = emptySet())
-        persistSettings(restored)
+        persistSettings(restored, workspaceMutationGeneration.incrementAndGet())
         _uiState.update {
             it.copy(
                 settings = restored,
@@ -487,6 +498,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         if (!beginOperation("CuraEngine is slicing…")) return
         val plannedEventsSnapshot = plannedCalibrationEvents.toList()
+        if (plannedEventsSnapshot.isNotEmpty() && CurviSlicerRuntime.snapshot() != null) {
+            _uiState.update {
+                it.copy(
+                    isBusy = false,
+                    statusMessage = "CurviSlicer cannot be combined with height-based calibration towers; disable non-planar slicing",
+                )
+            }
+            return
+        }
 
         viewModelScope.launch {
             runCatching {
@@ -685,6 +705,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun exportGcode(uri: Uri) {
+        if (deferUntilRestoreCompletes { exportGcode(uri) }) return
         val artifactSnapshot = _uiState.value
         val sourcePath = artifactSnapshot.gcodePath
         val expectedArtifactId = artifactSnapshot.sliceResultId
@@ -701,10 +722,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     check(SliceArtifactPublisher.isCompleteGcode(source, expectedArtifactId)) {
                         "Generated G-code is incomplete, stale, or no longer available"
                     }
-                    SliceArtifactPublisher.acquireLease(source, expectedArtifactId).use {
-                        app.contentResolver.openOutputStream(uri, "w")?.buffered()?.use { output ->
-                            source.inputStream().buffered().use { input -> input.copyTo(output) }
-                        } ?: error("Unable to open the G-code destination")
+                    pendingExportStore.begin(uri)
+                    try {
+                        SliceArtifactPublisher.acquireLease(source, expectedArtifactId).use {
+                            val written = app.contentResolver.openOutputStream(uri, "w")?.buffered()?.use { output ->
+                                source.inputStream().buffered().use { input -> input.copyTo(output).also { output.flush() } }
+                            } ?: error("Unable to open the G-code destination")
+                            check(written == source.length()) { "The G-code export ended before every byte was written" }
+                        }
+                        pendingExportStore.complete(uri)
+                    } catch (error: Throwable) {
+                        pendingExportStore.fail(app.contentResolver, uri)
+                        throw error
                     }
                 }
             }.onSuccess {
@@ -714,14 +743,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun exportConfiguration(uri: Uri) {
+        if (deferUntilRestoreCompletes { exportConfiguration(uri) }) return
         if (!beginOperation("Exporting configuration…")) return
         viewModelScope.launch {
             runCatching {
                 withContext(Dispatchers.IO) {
-                    val snapshot = configurationJson(_uiState.value)
-                    app.contentResolver.openOutputStream(uri, "wt")?.bufferedWriter()?.use { writer ->
-                        writer.write(snapshot.toString(2))
-                    } ?: error("Unable to open the export destination")
+                    val bytes = configurationJson(_uiState.value).toString(2).toByteArray(Charsets.UTF_8)
+                    pendingExportStore.begin(uri)
+                    try {
+                        val written = app.contentResolver.openOutputStream(uri, "w")?.buffered()?.use { output ->
+                            output.write(bytes)
+                            output.flush()
+                            bytes.size.toLong()
+                        } ?: error("Unable to open the export destination")
+                        check(written == bytes.size.toLong()) { "The configuration export was incomplete" }
+                        pendingExportStore.complete(uri)
+                    } catch (error: Throwable) {
+                        pendingExportStore.fail(app.contentResolver, uri)
+                        throw error
+                    }
                 }
             }.onSuccess {
                 _uiState.update { it.copy(isBusy = false, statusMessage = "Configuration exported") }
@@ -792,10 +832,37 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun deferUntilRestoreCompletes(action: () -> Unit): Boolean = synchronized(deferredRestoreActions) {
+        if (!restoringPersistedState) {
+            false
+        } else {
+            deferredRestoreActions.addLast(action)
+            true
+        }
+    }
+
+    private fun finishRestoreAndReplayResults() {
+        val actions = synchronized(deferredRestoreActions) {
+            restoringPersistedState = false
+            val pending = deferredRestoreActions.toList()
+            deferredRestoreActions.clear()
+            pending
+        }
+        if (actions.isEmpty()) return
+        viewModelScope.launch {
+            actions.forEach { action ->
+                if (_uiState.value.isBusy) uiState.first { state -> !state.isBusy }
+                action()
+                if (_uiState.value.isBusy) uiState.first { state -> !state.isBusy }
+            }
+        }
+    }
+
     private fun restorePersistedState() {
         viewModelScope.launch {
             val result = runCatching {
                 withContext(Dispatchers.IO) {
+                    pendingExportStore.recover(app.contentResolver)
                     val saved = stateStore.savedImport()
                     val config = saved?.let { persisted ->
                         val parsed = persisted.file.inputStream().use { input ->
@@ -888,6 +955,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 }
             }
+            finishRestoreAndReplayResults()
         }
     }
 
@@ -965,13 +1033,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         config?.endGcode ?: initialEndGcode,
     )
 
-    private fun persistSettings(settings: SlicerSettings) {
+    private fun persistSettings(settings: SlicerSettings, generation: Long) {
         val stateSnapshot = _uiState.value.copy(settings = settings)
         val previousWrite = settingsPersistenceJob
         settingsPersistenceJob = viewModelScope.launch(Dispatchers.IO) {
             previousWrite?.join()
             stateStore.saveSettings(settings)
-            persistCurrentWorkspace(stateSnapshot)
+            if (workspaceMutationGeneration.get() == generation) {
+                persistCurrentWorkspace(stateSnapshot)
+            }
         }
     }
 
@@ -1165,7 +1235,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun beginOperation(message: String): Boolean {
-        if (_uiState.value.isBusy) return false
+        if (current.isBusy) return false
+        workspaceMutationGeneration.incrementAndGet()
         _uiState.update { it.copy(isBusy = true, statusMessage = message) }
         return true
     }

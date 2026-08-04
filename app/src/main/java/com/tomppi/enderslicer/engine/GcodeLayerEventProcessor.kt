@@ -86,7 +86,8 @@ object GcodeLayerEventProcessor {
 
             baseFile.bufferedReader().useLines { lines ->
                 lines.forEach { line ->
-                    val opcode = GcodeCommand.parse(line)?.opcode
+                    val parsedCommand = GcodeCommand.parse(line)
+                    val opcode = parsedCommand?.opcode
 
                     if (fanCalibration && calibrationFanStarted && (opcode == "M106" || opcode == "M107")) {
                         return@forEach
@@ -95,9 +96,9 @@ object GcodeLayerEventProcessor {
                     writer.write(line)
                     writer.newLine()
 
-                    when (opcode) {
-                        "G10" -> firmwareRetracted = true
-                        "G11" -> {
+                    when {
+                        parsedCommand != null && firmware.isFirmwareRetract(parsedCommand) -> firmwareRetracted = true
+                        parsedCommand != null && firmware.isFirmwareUnretract(parsedCommand) -> {
                             firmwareRetracted = false
                             if (deferredRetraction.isNotEmpty()) {
                                 deferredRetraction.forEach(::writeEvent)

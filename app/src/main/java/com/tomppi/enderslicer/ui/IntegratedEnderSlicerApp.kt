@@ -68,6 +68,7 @@ fun IntegratedEnderSlicerApp(
     var smartInfillPackage by remember { mutableStateOf(smartInfillStore.loadActive()) }
     val smartInfillLoadWarning = remember(smartInfillStore) { smartInfillStore.consumeLoadWarning() }
     var smartInfillImporting by remember { mutableStateOf(false) }
+    var smartInfillValidating by remember { mutableStateOf(false) }
     var octoPrintOpen by rememberSaveable { mutableStateOf(false) }
     var smartInfillOpen by rememberSaveable { mutableStateOf(false) }
     var plateMenuExpanded by rememberSaveable { mutableStateOf(false) }
@@ -92,6 +93,8 @@ fun IntegratedEnderSlicerApp(
     LaunchedEffect(slicerState.mesh, smartInfillPackage?.id) {
         val packageValue = smartInfillPackage ?: return@LaunchedEffect
         val mesh = slicerState.mesh ?: return@LaunchedEffect
+        smartInfillValidating = true
+        SmartInfillRuntime.activate(null)
         try {
             withContext(Dispatchers.IO) {
                 val validationFile = File(
@@ -106,6 +109,7 @@ fun IntegratedEnderSlicerApp(
                     validationFile.delete()
                 }
             }
+            if (smartInfillPackage?.id == packageValue.id) SmartInfillRuntime.activate(packageValue)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Throwable) {
@@ -119,6 +123,10 @@ fun IntegratedEnderSlicerApp(
                     "Smart Infill was cleared because the model geometry or placement changed",
                     Toast.LENGTH_LONG,
                 ).show()
+            }
+        } finally {
+            if (smartInfillPackage == null || smartInfillPackage?.id == packageValue.id) {
+                smartInfillValidating = false
             }
         }
     }
@@ -139,17 +147,15 @@ fun IntegratedEnderSlicerApp(
         }
     }
 
-    val smartInfillLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.StartActivityForResult(),
-    ) { result ->
-        if (result.resultCode != Activity.RESULT_OK) return@rememberLauncherForActivityResult
+    fun processSmartInfillResult(result: androidx.activity.result.ActivityResult) {
+        if (result.resultCode != Activity.RESULT_OK) return
         val data = result.data
         val exportUri = data?.data
         val resultKind = data?.getStringExtra(SmartInfillActivity.EXTRA_RESULT_KIND)
         if (exportUri == null || resultKind.isNullOrBlank()) {
             exportUri?.let(::deleteHandoff)
             Toast.makeText(context, "filaSim returned an incomplete export", Toast.LENGTH_LONG).show()
-            return@rememberLauncherForActivityResult
+            return
         }
         if (slicerViewModel.uiState.value.isBusy || smartInfillImporting) {
             deleteHandoff(exportUri)
@@ -158,7 +164,7 @@ fun IntegratedEnderSlicerApp(
                 "Smart Infill export was not applied because another operation is active",
                 Toast.LENGTH_LONG,
             ).show()
-            return@rememberLauncherForActivityResult
+            return
         }
 
         if (resultKind == SmartInfillActivity.RESULT_SHAPE) {
@@ -195,20 +201,20 @@ fun IntegratedEnderSlicerApp(
                 }
                 deleteHandoff(exportUri)
             }
-            return@rememberLauncherForActivityResult
+            return
         }
 
         if (resultKind != SmartInfillActivity.RESULT_MODIFIERS) {
             deleteHandoff(exportUri)
             Toast.makeText(context, "filaSim returned an unknown export type", Toast.LENGTH_LONG).show()
-            return@rememberLauncherForActivityResult
+            return
         }
         val metadata = data?.getStringExtra(SmartInfillActivity.EXTRA_METADATA_JSON)
         val sourceSha = data?.getStringExtra(SmartInfillActivity.EXTRA_SOURCE_SHA256)
         if (metadata.isNullOrBlank() || sourceSha.isNullOrBlank()) {
             deleteHandoff(exportUri)
             Toast.makeText(context, "filaSim returned incomplete Smart Infill metadata", Toast.LENGTH_LONG).show()
-            return@rememberLauncherForActivityResult
+            return
         }
         val previousPackage = smartInfillPackage
         smartInfillImporting = true
@@ -248,6 +254,15 @@ fun IntegratedEnderSlicerApp(
                 deleteHandoff(exportUri)
             }
         }
+    }
+
+    val smartInfillLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        if (slicerViewModel.deferUntilRestoreCompletes { processSmartInfillResult(result) }) {
+            return@rememberLauncherForActivityResult
+        }
+        processSmartInfillResult(result)
     }
 
     fun clearBuildPlate() {
@@ -329,6 +344,11 @@ fun IntegratedEnderSlicerApp(
 
     EnderSlicerApp(
         viewModel = slicerViewModel,
+        sliceBlockedReason = when {
+            smartInfillImporting -> "Smart Infill import is still being committed"
+            smartInfillValidating -> "Smart Infill is being validated for the current model"
+            else -> null
+        },
         topBarActions = {
             Box {
                 TopBarTextAction(

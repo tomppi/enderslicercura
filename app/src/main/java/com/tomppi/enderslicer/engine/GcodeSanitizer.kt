@@ -3,6 +3,8 @@ package com.tomppi.enderslicer.engine
 import com.tomppi.enderslicer.BuildConfig
 import java.io.File
 import kotlin.math.ceil
+import kotlin.math.max
+import kotlin.math.sqrt
 
 object GcodeSanitizer {
     data class Summary(
@@ -57,6 +59,10 @@ object GcodeSanitizer {
         var nozzleTargetLayer: Int? = null
         var lineNumber = 0
         var temperatureCalibration = false
+        var feedRateMmPerMinute = 0.0
+        var speedFactor = 1.0
+        var rawMotionSeconds = 0.0
+        var effectiveMotionSeconds = 0.0
 
         file.bufferedReader().useLines { lines ->
             lines.forEach { rawLine ->
@@ -82,8 +88,20 @@ object GcodeSanitizer {
                     }
                 }
 
-                val command = GcodeCommand.parse(rawLine) ?: return@forEach
+                val command = GcodeCommand.parse(rawLine)
+                if (command == null) {
+                    GcodeCommandPolicy.requirePublishedTextSafe(
+                        rawLine = rawLine,
+                        gcodeFlavor = printerEnvelope?.gcodeFlavor ?: PrinterEnvelope.DEFAULT_GCODE_FLAVOR,
+                        lineNumber = lineNumber,
+                    )
+                    return@forEach
+                }
                 GcodeCommandPolicy.requirePublishedSafe(command, currentLayer, lineNumber)
+                GcodeCommandPolicy.speedFactor(command)?.let { factor ->
+                    speedFactor = factor
+                    return@forEach
+                }
                 if (modalState.apply(command)) return@forEach
                 when (command.opcode) {
                     "G92" -> {
@@ -107,7 +125,17 @@ object GcodeSanitizer {
                         x = modalState.position(x, command.value('X'))
                         y = modalState.position(y, command.value('Y'))
                         z = modalState.position(z, command.value('Z'))
+                        command.value('F')?.let { feedRateMmPerMinute = it }
                         val spatialMove = startX != x || startY != y || startZ != z
+                        if (spatialMove && feedRateMmPerMinute > 0.0) {
+                            val dx = x - startX
+                            val dy = y - startY
+                            val dz = z - startZ
+                            val distance = sqrt(dx * dx + dy * dy + dz * dz)
+                            val rawSpeed = feedRateMmPerMinute / 60.0
+                            rawMotionSeconds += distance / rawSpeed
+                            effectiveMotionSeconds += distance / (rawSpeed * speedFactor)
+                        }
                         if (spatialMove) {
                             printerEnvelope?.requireMotionMove(
                                 startX = startX,
@@ -173,7 +201,10 @@ object GcodeSanitizer {
             }
         }
 
-        val estimatedSeconds = lastElapsed?.let { ceil(it).toInt() }
+        val adjustedElapsed = lastElapsed?.let { elapsed ->
+            max(0.0, elapsed + effectiveMotionSeconds - rawMotionSeconds)
+        }
+        val estimatedSeconds = adjustedElapsed?.let { ceil(it).toInt() }
         val temporary = File(file.parentFile, "${file.name}.validated")
         temporary.delete()
         temporary.outputStream().buffered().writer(Charsets.UTF_8).buffered().use { writer ->

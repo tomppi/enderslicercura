@@ -551,8 +551,7 @@ class OctoPrintRepository(
 
     private fun activateConfiguration(config: OctoPrintConfig, key: String, info: OctoPrintServerInfo) {
         resetSession()
-        store.saveApiKey(key)
-        store.saveConfig(config)
+        store.saveConfiguration(config, key)
         cachedServerInfo = info
         lastStaticRefreshMillis = System.currentTimeMillis()
         _state.value = OctoPrintUiState(
