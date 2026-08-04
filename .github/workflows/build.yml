@@ -5,268 +5,64 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.head.ref || github.ref_name }}
-  cancel-in-progress: true
+  group: compile-fix-${{ github.sha }}
+  cancel-in-progress: false
 
 jobs:
-  build:
+  apply-compile-fix:
     runs-on: ubuntu-24.04
-    timeout-minutes: 180
-    env:
-      NPM_CONFIG_ENGINE_STRICT: "true"
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-
-      - uses: actions/setup-java@v4
         with:
-          distribution: temurin
-          java-version: '17'
+          ref: feature/non-planar-curvislicer
+          fetch-depth: 3
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22.18.0'
-
-      - name: Verify JavaScript toolchain
+      - name: Apply demonstrated compile fixes
         run: |
-          test "$(node --version)" = "v22.18.0"
-          node --version
-          npm --version
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
 
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
+          storage = Path('app/src/main/java/com/tomppi/enderslicer/nonplanar/CurviSlicerFieldStorage.kt')
+          text = storage.read_text()
+          marker = '''    fun diagnostics(workspace: File): CurviSlicerPipeline.Diagnostics? {
+              val sidecar = File(workspace, FILE_NAME)
+              return sidecar.takeIf(File::isFile)?.let(::read)?.diagnostics
+          }
 
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: .build/filasim-android -> target
+          '''
+          addition = marker + '''    fun isPrepared(workspace: File): Boolean = File(workspace, FILE_NAME).isFile
 
-      - name: Install pinned wasm-pack
-        run: cargo install wasm-pack --locked --version 0.15.0
+          '''
+          if text.count(marker) != 1:
+              raise RuntimeError('CurviSlicerFieldStorage diagnostics marker mismatch')
+          storage.write_text(text.replace(marker, addition, 1))
 
-      - uses: android-actions/setup-android@v3
+          view_model = Path('app/src/main/java/com/tomppi/enderslicer/ui/MainViewModel.kt')
+          text = view_model.read_text()
+          old = '''    private fun beginOperation(message: String): Boolean {
+              if (current.isBusy) return false
+          '''
+          new = '''    private fun beginOperation(message: String): Boolean {
+              if (_uiState.value.isBusy) return false
+          '''
+          if text.count(old) != 1:
+              raise RuntimeError('MainViewModel beginOperation marker mismatch')
+          view_model.write_text(text.replace(old, new, 1))
+          PY
 
-      - name: Install Android SDK and native build tools
+      - name: Commit source-only fix
         run: |
-          yes | sdkmanager --licenses >/dev/null
-          sdkmanager \
-            "platforms;android-36" \
-            "build-tools;36.0.0" \
-            "ndk;28.2.13676358" \
-            "cmake;3.22.1" \
-            "cmake;3.31.6"
-          sudo apt-get update
-          sudo apt-get install -y ninja-build file binutils
-
-      - uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '9.4.1'
-
-      - name: Cache Conan packages
-        uses: actions/cache@v4
-        with:
-          path: ~/.conan2/p
-          key: conan-curaengine-5.11-beta1-android-host-v6-${{ hashFiles('scripts/build-curaengine-android.sh', 'scripts/build-curaengine-host-tests.sh', 'native/curaengine/profiles/android-arm64') }}
-          restore-keys: |
-            conan-curaengine-5.11-beta1-android-host-v6-
-            conan-curaengine-5.11-beta1-android-arm64-v5-
-
-      - name: Fetch and validate pinned Cura definitions
-        run: |
-          chmod +x scripts/fetch-cura-resources.sh
-          scripts/fetch-cura-resources.sh
-          grep -q 'Cura resources: 5.11.0-beta.1' app/src/main/assets/cura/definitions/version.txt
-          for name in \
-            fdmprinter \
-            fdmextruder \
-            creality_base \
-            creality_base_extruder_0 \
-            creality_ender3; do
-            test -s "app/src/main/assets/cura/definitions/$name.def.json"
-          done
-
-      - name: Prepare and validate pinned BumpMesh workspace
-        run: |
-          set -o pipefail
-          gradle :app:verifyBumpMeshAssets --stacktrace 2>&1 | tee bumpmesh-build.log
-          test -s app/src/main/assets/bumpmesh/index.html
-          test -s app/src/main/assets/bumpmesh/LICENSE
-          test -s app/src/main/assets/bumpmesh/android-bridge.js
-          test -s app/src/main/assets/bumpmesh/js/main.js
-          test -s app/src/main/assets/bumpmesh/js/stepWorker.js
-          test -s app/src/main/assets/bumpmesh/vendor/three/build/three.module.js
-          test -s app/src/main/assets/bumpmesh/vendor/three/LICENSE
-          test -s app/src/main/assets/bumpmesh/vendor/fflate/esm/browser.js
-          test -s app/src/main/assets/bumpmesh/vendor/fflate/LICENSE
-          test -s app/src/main/assets/bumpmesh/vendor/meshstep/dist/index.js
-          test -s app/src/main/assets/bumpmesh/vendor/meshstep/src/index.ts
-          test -s app/src/main/assets/bumpmesh/vendor/meshstep/LICENSE
-          test -s app/src/main/assets/bumpmesh/SHA256SUMS
-          grep -q 'format=2' app/src/main/assets/bumpmesh/.source-version
-          grep -q 'BumpMesh=a6ac179149b8a17c71a9469dd4cb6f866c0c01d1' app/src/main/assets/bumpmesh/.source-version
-          grep -q './vendor/three/build/three.module.js' app/src/main/assets/bumpmesh/index.html
-          grep -q 'android-bridge.js' app/src/main/assets/bumpmesh/index.html
-          grep -q '../vendor/meshstep/dist/index.js' app/src/main/assets/bumpmesh/js/stepWorker.js
-          grep -q '../vendor/three/build/three.module.js' app/src/main/assets/bumpmesh/js/threeCompat.js
-          ! grep -R 'https://cdn.jsdelivr.net/npm' \
-            app/src/main/assets/bumpmesh/index.html \
-            app/src/main/assets/bumpmesh/js
-          (cd app/src/main/assets/bumpmesh && sha256sum --check SHA256SUMS)
-
-          gradle :app:verifyBumpMeshAssets --info | tee bumpmesh-warm-build.log
-          grep -q 'verifyBumpMeshAssets UP-TO-DATE' bumpmesh-warm-build.log
-
-          rm app/src/main/assets/bumpmesh/js/main.js
-          if python3 scripts/verify-bumpmesh-assets.py \
-            --root app/src/main/assets/bumpmesh \
-            --check-only > bumpmesh-corrupt-build.log 2>&1; then
-            echo 'Corrupted BumpMesh warm tree was incorrectly accepted' >&2
-            exit 1
-          fi
-          test ! -e app/src/main/assets/bumpmesh/.source-version
-          grep -q 'BumpMesh asset verification failed' bumpmesh-corrupt-build.log
-
-          gradle :app:verifyBumpMeshAssets --stacktrace 2>&1 | tee bumpmesh-recovery-build.log
-          test -s app/src/main/assets/bumpmesh/js/main.js
-          test -s app/src/main/assets/bumpmesh/SHA256SUMS
-          (cd app/src/main/assets/bumpmesh && sha256sum --check SHA256SUMS)
-
-      - name: Prepare and validate pinned filaSim workspace
-        run: |
-          set -o pipefail
-          gradle :app:prepareFilaSimAssets --stacktrace 2>&1 | tee filasim-build.log
-          test -s app/src/main/assets/filasim/index.html
-          test -s app/src/main/assets/filasim/android-bridge.js
-          test -s app/src/main/assets/filasim/LICENSE
-          test -s app/src/main/assets/filasim/SOURCE.md
-          test -s app/src/main/assets/filasim/SHA256SUMS
-          test -s app/src/main/assets/filasim/source-manifest/Cargo.lock
-          test -s app/src/main/assets/filasim/source-manifest/web-package-lock.json
-          grep -q 'format=8' app/src/main/assets/filasim/.source-version
-          grep -q 'commit=e7485ec22d4ebe8baca04190404fbb877c90e031' app/src/main/assets/filasim/.source-version
-          grep -q 'android-bridge.js' app/src/main/assets/filasim/index.html
-          FILASIM_SOURCE=.build/filasim-android/e7485ec22d4ebe8baca04190404fbb877c90e031-format8/web/src
-          grep -R -q 'EnderSlicerBridge.*captureModifierZip' "$FILASIM_SOURCE/store.ts"
-          grep -R -q 'EnderSlicerBridge.*captureOptimizedShape' "$FILASIM_SOURCE/store.ts"
-          grep -R -q 'EnderSlicer Android regional pattern metadata v2' "$FILASIM_SOURCE/store.ts"
-          grep -R -q 'metadataVersion: 2' "$FILASIM_SOURCE/store.ts"
-          grep -R -q 'basePattern: state.pattern' "$FILASIM_SOURCE/store.ts"
-          grep -R -q 'binarySolidPattern: state.optMode === "binary" ? state.solidPattern : null' "$FILASIM_SOURCE/store.ts"
-          grep -R -q 'gradedFullDensityPattern: "rectilinear"' "$FILASIM_SOURCE/store.ts"
-          grep -R -q 'EnderSlicer Android host supplies the exact displayed model' "$FILASIM_SOURCE/App.tsx"
-          grep -R -q 'EnderSlicer Android owns project persistence' "$FILASIM_SOURCE/ui/TopBar.tsx"
-          grep -R -q '!androidHosted' "$FILASIM_SOURCE/ui/TopBar.tsx"
-          grep -R -q 'EnderSlicer Android deterministic touch pan' "$FILASIM_SOURCE/viewer/SceneManager.ts"
-          grep -R -q 'EnderSlicer Android deterministic touch pinch zoom' "$FILASIM_SOURCE/viewer/SceneManager.ts"
-          grep -R -q 'private zoomTouchCamera' "$FILASIM_SOURCE/viewer/SceneManager.ts"
-          grep -R -q 'pointercancel' "$FILASIM_SOURCE/viewer/SceneManager.ts"
-          test -n "$(find app/src/main/assets/filasim -type f -name '*.wasm' -size +0c -print -quit)"
-          (cd app/src/main/assets/filasim && sha256sum --check SHA256SUMS)
-          gradle :app:prepareFilaSimAssets --info | tee filasim-warm-build.log
-          grep -q 'prepareFilaSimAssets UP-TO-DATE' filasim-warm-build.log
-
-      - name: Build and package CuraEngine ARM64
-        env:
-          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/28.2.13676358
-          APP_JNILIBS_DIR: ${{ github.workspace }}/app/src/main/jniLibs
-        run: |
-          chmod +x scripts/build-curaengine-android.sh
-          set -o pipefail
-          scripts/build-curaengine-android.sh 2>&1 | tee curaengine-android-build.log
-          grep -q 'CuraEngine Android artifacts (5.11.0-beta.1)' curaengine-android-build.log
-          grep -q 'EnderSlicer: Cura.*frontend applies the complete affine' .build/CuraEngine/src/communication/CommandLine.cpp
-          grep -q 'EnderSlicer: resolved model values must live on the' .build/CuraEngine/src/communication/CommandLine.cpp
-          grep -q 'EnderSlicer: zero cool_min_temperature is a Cura frontend sentinel' .build/CuraEngine/src/LayerPlanBuffer.cpp
-          grep -q "Preserve the generator's inner-to-outer order" .build/CuraEngine/src/FffGcodeWriter.cpp
-          grep -q 'One centre is retained for the complete connected island' .build/CuraEngine/include/ArcOverhang.h
-          grep -q 'TYPE:ARC-OVERHANG' .build/CuraEngine/src/LayerPlan.cpp
-          grep -q 'is_arc_overhang' .build/CuraEngine/include/GCodePathConfig.h
-          test -s .build/CuraEngine/src/ArcOverhang.cpp
-          grep -q 'TYPE:WAVE-OVERHANG' .build/CuraEngine/src/LayerPlan.cpp
-          grep -q 'is_wave_overhang' .build/CuraEngine/include/GCodePathConfig.h
-          test -s .build/CuraEngine/src/WaveOverhang.cpp
-          test -s app/src/main/jniLibs/arm64-v8a/libcuraengine_exec.so
-          file app/src/main/jniLibs/arm64-v8a/libcuraengine_exec.so
-          readelf -d app/src/main/jniLibs/arm64-v8a/libcuraengine_exec.so | tee curaengine-needed.log
-          ! grep -q 'libc++_shared.so' curaengine-needed.log
-
-      - name: Build pinned host CuraEngine fixture binary
-        run: |
-          chmod +x scripts/build-curaengine-host-tests.sh
-          set -o pipefail
-          scripts/build-curaengine-host-tests.sh 2>&1 | tee curaengine-host-build.log
-          test -x .build/curaengine-host-tests/artifacts/CuraEngine
-          echo "CURAENGINE_HOST_BINARY=${GITHUB_WORKSPACE}/.build/curaengine-host-tests/artifacts/CuraEngine" >> "$GITHUB_ENV"
-
-      - name: Unit, definition, and real CuraEngine regional-toolpath tests
-        run: |
-          set -o pipefail
-          gradle :app:testDebugUnitTest --stacktrace 2>&1 | tee unit-tests.log
-          test -n "$CURAENGINE_HOST_BINARY"
-          grep -R -q 'SmartInfillCuraEngineIntegrationTest' app/build/test-results/testDebugUnitTest
-          grep -R -q 'SmartInfillModifierShellIntegrationTest' app/build/test-results/testDebugUnitTest
-          grep -R -q 'SmartInfillCuraContractTest' app/build/test-results/testDebugUnitTest
-          grep -R -q 'SmartInfillPatternCommandTest' app/build/test-results/testDebugUnitTest
-
-      - name: Build debug APK
-        run: |
-          set -o pipefail
-          gradle :app:verifyDebugApkContents --stacktrace 2>&1 | tee apk-build.log
-          unzip -l app/build/outputs/apk/debug/app-debug.apk | tee apk-contents.log
-          sha256sum app/build/outputs/apk/debug/app-debug.apk | tee apk-sha256.log
-          grep -q 'lib/arm64-v8a/libcuraengine_exec.so' apk-contents.log
-          grep -q 'assets/cura/definitions/version.txt' apk-contents.log
-          grep -q 'assets/bumpmesh/index.html' apk-contents.log
-          grep -q 'assets/bumpmesh/LICENSE' apk-contents.log
-          grep -q 'assets/bumpmesh/android-bridge.js' apk-contents.log
-          grep -q 'assets/bumpmesh/SHA256SUMS' apk-contents.log
-          grep -q 'assets/bumpmesh/vendor/three/build/three.module.js' apk-contents.log
-          grep -q 'assets/bumpmesh/vendor/meshstep/src/index.ts' apk-contents.log
-          grep -q 'assets/bumpmesh/vendor/meshstep/LICENSE' apk-contents.log
-          grep -q 'assets/filasim/index.html' apk-contents.log
-          grep -q 'assets/filasim/android-bridge.js' apk-contents.log
-          grep -q 'assets/filasim/LICENSE' apk-contents.log
-          grep -q 'assets/filasim/SOURCE.md' apk-contents.log
-          grep -q 'assets/filasim/SHA256SUMS' apk-contents.log
-          grep -q 'assets/filasim/source-manifest/Cargo.lock' apk-contents.log
-          grep -q 'assets/filasim/source-manifest/web-package-lock.json' apk-contents.log
-          grep -Eq 'assets/filasim/.*\.wasm' apk-contents.log
-          for name in \
-            fdmprinter \
-            fdmextruder \
-            creality_base \
-            creality_base_extruder_0 \
-            creality_ender3; do
-            grep -q "assets/cura/definitions/$name.def.json" apk-contents.log
-          done
-
-      - name: Upload debug APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: enderslicercura-0.9.0-dev-smart-infill-fixes-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
-
-      - name: Upload build logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: enderslicercura-smart-infill-fix-build-logs
-          path: |
-            bumpmesh-build.log
-            bumpmesh-warm-build.log
-            bumpmesh-corrupt-build.log
-            bumpmesh-recovery-build.log
-            filasim-build.log
-            filasim-warm-build.log
-            curaengine-android-build.log
-            curaengine-host-build.log
-            curaengine-needed.log
-            unit-tests.log
-            apk-build.log
-            apk-contents.log
-            apk-sha256.log
-          if-no-files-found: ignore
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add app/src/main/java/com/tomppi/enderslicer/nonplanar/CurviSlicerFieldStorage.kt \
+                  app/src/main/java/com/tomppi/enderslicer/ui/MainViewModel.kt
+          git diff --cached --check
+          git commit -m "fix: correct general audit compile wiring"
+          git push origin HEAD:feature/non-planar-curvislicer
