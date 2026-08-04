@@ -3,9 +3,8 @@
 
 Applied after the solver, voxel hardening, audit, progress and React-tab
 transforms. This layer fixes correctness and lifecycle defects that can survive
-compile-only validation: nonlinear non-convergence, unsupported result ranges,
-invalid material ranges, oversized mobile workloads and React workspace state
-when the model disappears.
+compile-only validation: nonlinear non-convergence, invalid material ranges,
+oversized mobile workloads and React workspace state when the model disappears.
 """
 
 from __future__ import annotations
@@ -37,14 +36,6 @@ def apply(source_root: pathlib.Path) -> None:
     for path in (thermal, wasm, rail, panel, topbar):
         if not path.is_file():
             raise RuntimeError(f"Thermal bug-fix target is missing: {path}")
-
-    replace_once(
-        thermal,
-        "const MIN_ABSOLUTE_TEMPERATURE_C: f64 = -273.15;\n",
-        "const MIN_ABSOLUTE_TEMPERATURE_C: f64 = -273.15;\n"
-        "const MAX_SUPPORTED_TEMPERATURE_C: f64 = 2_000.0;\n",
-        "supported temperature limit",
-    )
 
     replace_once(
         thermal,
@@ -144,31 +135,6 @@ def apply(source_root: pathlib.Path) -> None:
 
     replace_once(
         thermal,
-        '''    if temperature
-        .iter()
-        .enumerate()
-        .any(|(i, t)| system.active[i] && (!t.is_finite() || *t <= MIN_ABSOLUTE_TEMPERATURE_C))
-    {
-        return Err("thermal solution contains an invalid temperature".into());
-    }
-''',
-        '''    if temperature.iter().enumerate().any(|(i, t)| {
-        system.active[i]
-            && (!t.is_finite()
-                || *t <= MIN_ABSOLUTE_TEMPERATURE_C
-                || *t > MAX_SUPPORTED_TEMPERATURE_C)
-    }) {
-        return Err(format!(
-            "thermal solution is outside the supported {:.2}..{MAX_SUPPORTED_TEMPERATURE_C:.0} °C reporting range",
-            MIN_ABSOLUTE_TEMPERATURE_C,
-        ));
-    }
-''',
-        "thermal result temperature range",
-    )
-
-    replace_once(
-        thermal,
         '''    if rel <= tolerance {
         return Ok(LinearSolve { values: x, iterations: 0, relative_residual: rel });
     }
@@ -200,27 +166,6 @@ def apply(source_root: pathlib.Path) -> None:
 ''',
         "iterative PCG residual product validation",
     )
-
-    text = thermal.read_text(encoding="utf-8")
-    test_marker = "    fn extreme_temperature_above_report_range_is_rejected()"
-    if test_marker not in text:
-        insertion = r'''
-
-    #[test]
-    fn extreme_temperature_above_report_range_is_rejected() {
-        let grid = VoxelGrid::solid_box(2, 1, 1, 1.0);
-        let mut options = base_options();
-        options.heat_power_w = 100_000.0;
-        options.emissivity = 0.0;
-        options.convection_w_m2_k = 0.0;
-        let error = solve_thermal(&grid, &vec![1.0; grid.cell_count()], &options).unwrap_err();
-        assert!(error.contains("supported"), "{error}");
-    }
-'''
-        closing = text.rfind("\n}\n")
-        if closing < 0:
-            raise RuntimeError("Unable to locate thermal.rs test-module closing brace")
-        thermal.write_text(text[:closing] + insertion + text[closing:], encoding="utf-8")
 
     replace_once(
         wasm,
@@ -273,6 +218,24 @@ def apply(source_root: pathlib.Path) -> None:
         let heated_face =
 ''',
         "Android workload safety budget",
+    )
+
+    replace_once(
+        wasm,
+        '''        let thermal =
+            filasim_core::thermal::solve_thermal(&grid, &material_fraction, &thermal_options)
+                .map_err(err)?;
+        emit_progress(
+''',
+        '''        let thermal =
+            filasim_core::thermal::solve_thermal(&grid, &material_fraction, &thermal_options)
+                .map_err(err)?;
+        if thermal.maximum_temperature_c > 2_000.0 {
+            return Err(err("thermal result exceeds the Android reportable maximum of 2000 °C"));
+        }
+        emit_progress(
+''',
+        "Android reportable temperature ceiling",
     )
 
     lifecycle_effect = f'''  useEffect(() => {{
