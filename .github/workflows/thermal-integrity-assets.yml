@@ -129,6 +129,7 @@ jobs:
           grep -a -q 'transient thermal workload is too large for Android' "$wasm"
           grep -a -q 'steady thermal radiation iteration did not converge' "$wasm"
           grep -a -q 'thermal result exceeds the Android reportable maximum of 2000' "$wasm"
+          grep -a -q 'thermal structural FEA did not converge' "$wasm"
           test -n "$(find "$root/assets" -type f -name '*.js' -print -quit)"
 
       - name: Run thermal report unit tests
