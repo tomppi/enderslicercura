@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - feature/thermal-integrity-simulation
+  pull_request:
+    branches:
+      - feature/thermal-fea-build-simulation
   workflow_dispatch:
 
 permissions:
