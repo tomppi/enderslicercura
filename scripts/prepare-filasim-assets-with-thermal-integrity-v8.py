@@ -50,16 +50,27 @@ _BASE_INJECT_BRIDGE = BASE.inject_bridge
 
 def apply_thermal_transforms(source_root: pathlib.Path) -> None:
     source_root = source_root.resolve()
-    for transform in THERMAL_TRANSFORMS:
-        if not transform.is_file():
-            raise RuntimeError(f"Thermal-integrity transform is missing: {transform}")
-        subprocess.run(
-            [sys.executable, str(transform), str(source_root)],
-            cwd=PROJECT_ROOT,
-            check=True,
+    marker_paths = tuple(source_root / name for name in THERMAL_MARKERS)
+    marker_state = tuple(path.is_file() for path in marker_paths)
+
+    if any(marker_state) and not all(marker_state):
+        missing = [path.name for path, present in zip(marker_paths, marker_state) if not present]
+        raise RuntimeError(
+            "Thermal-integrity source is only partially transformed; missing markers: "
+            + ", ".join(missing)
         )
 
-    missing = [name for name in THERMAL_MARKERS if not (source_root / name).is_file()]
+    if not all(marker_state):
+        for transform in THERMAL_TRANSFORMS:
+            if not transform.is_file():
+                raise RuntimeError(f"Thermal-integrity transform is missing: {transform}")
+            subprocess.run(
+                [sys.executable, str(transform), str(source_root)],
+                cwd=PROJECT_ROOT,
+                check=True,
+            )
+
+    missing = [path.name for path in marker_paths if not path.is_file()]
     if missing:
         raise RuntimeError(
             "Thermal-integrity source markers are missing after transformation: "
