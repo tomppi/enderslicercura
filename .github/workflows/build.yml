@@ -16,20 +16,31 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: feature/non-planar-curvislicer
-          fetch-depth: 2
+          fetch-depth: 20
 
-      - name: Apply reviewed repair payload
+      - name: Verify and apply reviewed repair payload
         run: |
           set -euo pipefail
-          base64 --decode tools/curvislicer-round2-fixes.py.gz.b64 | gzip --decompress > tools/apply_curvislicer_round2_fixes.py
+          test "$(git hash-object tools/curvislicer-round2-fixes.part1)" = 28364a19a101e92dd5ff2f88d2e5936776501b47
+          test "$(git hash-object tools/curvislicer-round2-fixes.part2)" = b11c289e8147d315556a404cb199c9afb0872ea8
+          test "$(git hash-object tools/curvislicer-round2-fixes.part3)" = b3aa33406ade525fb69c66dd19a8f9b80da67346
+          test "$(git hash-object tools/curvislicer-round2-fixes.part4)" = b2bafa819a4e981afd0cda135e2e7d421d2a13bd
+          cat tools/curvislicer-round2-fixes.part{1,2,3,4} > tools/curvislicer-round2-fixes.verified.b64
+          echo '5bb1325efb244c9adfca188ca5e701a6882a9171488d1a097dd43042f5491c29  tools/curvislicer-round2-fixes.verified.b64' | sha256sum --check
+          base64 --decode tools/curvislicer-round2-fixes.verified.b64 | gzip --decompress > tools/apply_curvislicer_round2_fixes.py
           python3 -m py_compile tools/apply_curvislicer_round2_fixes.py
           python3 tools/apply_curvislicer_round2_fixes.py
 
       - name: Restore workflow and commit source fixes
         run: |
           set -euo pipefail
-          git show HEAD^:.github/workflows/build.yml > .github/workflows/build.yml
+          git show 62c7d7f276f85f6e6be8fb981274fe1553a403fa:.github/workflows/build.yml > .github/workflows/build.yml
           rm -f tools/curvislicer-round2-fixes.py.gz.b64
+          rm -f tools/curvislicer-round2-fixes.verified.b64
+          rm -f tools/curvislicer-round2-fixes.part1
+          rm -f tools/curvislicer-round2-fixes.part2
+          rm -f tools/curvislicer-round2-fixes.part3
+          rm -f tools/curvislicer-round2-fixes.part4
           rm -f tools/apply_curvislicer_round2_fixes.py
           rm -f .github/workflows/apply-curvislicer-round2-fixes.yml
           git config user.name github-actions[bot]
