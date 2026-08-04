@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Add phase progress callbacks to the generated Thermal Integrity worker."""
+"""Add phase and live residual progress to the generated Thermal Integrity solver."""
 
 from __future__ import annotations
 
 import pathlib
 
 
-MARKER = "EnderSlicer thermal integrity progress v1"
+MARKER = "EnderSlicer thermal integrity progress v2"
 
 
 def replace_once(path: pathlib.Path, old: str, new: str, label: str) -> None:
@@ -21,10 +21,60 @@ def replace_once(path: pathlib.Path, old: str, new: str, label: str) -> None:
 
 def apply(source_root: pathlib.Path) -> None:
     source_root = source_root.resolve()
+    thermal = source_root / "crates/filasim-core/src/thermal.rs"
     wasm = source_root / "crates/filasim-wasm/src/lib.rs"
     worker = source_root / "web/src/worker/engine.worker.ts"
-    if not wasm.is_file() or not worker.is_file():
+    if not thermal.is_file() or not wasm.is_file() or not worker.is_file():
         raise RuntimeError("Apply the thermal solver transforms before progress instrumentation")
+
+    # filaSim's existing shared progress sink remains writable while WASM has
+    # blocked the worker message loop. Publish a bounded residual trace from
+    # the custom thermal PCG so Android can prove the solve is still advancing.
+    replace_once(
+        thermal,
+        '''use crate::cancel;
+''',
+        '''use crate::{cancel, progress};
+''',
+        "thermal progress module import",
+    )
+    replace_once(
+        thermal,
+        '''    let mut rel = dot(&r, &r, &system.active).sqrt() / rhs_norm;
+    if !rel.is_finite() {
+        return Err("thermal solver residual is non-finite".into());
+    }
+''',
+        '''    let mut rel = dot(&r, &r, &system.active).sqrt() / rhs_norm;
+    if !rel.is_finite() {
+        return Err("thermal solver residual is non-finite".into());
+    }
+    // Publish the initial residual and then one sample every eight PCG
+    // iterations. At 4,000 iterations this remains well below filaSim's 2,048
+    // slot shared buffer while still updating several times per second.
+    let mut residual_trace = vec![rel as f32];
+    progress::publish(&residual_trace);
+''',
+        "thermal initial residual publication",
+    )
+    replace_once(
+        thermal,
+        '''        if !rel.is_finite() {
+            return Err("thermal solver diverged to a non-finite residual".into());
+        }
+        if rel <= tolerance {
+''',
+        '''        if !rel.is_finite() {
+            return Err("thermal solver diverged to a non-finite residual".into());
+        }
+        if iteration == 1 || iteration % 8 == 0 || rel <= tolerance {
+            residual_trace.push(rel as f32);
+            progress::publish(&residual_trace);
+        }
+        if rel <= tolerance {
+''',
+        "thermal iterative residual publication",
+    )
 
     replace_once(
         wasm,
@@ -144,7 +194,7 @@ def apply(source_root: pathlib.Path) -> None:
         "thermal worker progress callback",
     )
 
-    marker = source_root / ".enderslicer-thermal-integrity-progress"
+    marker = source_root / ".enderslicer-thermal-integrity-progress-v2"
     marker.write_text(MARKER + "\n", encoding="utf-8")
 
 
