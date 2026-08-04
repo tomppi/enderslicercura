@@ -84,10 +84,12 @@ def patch_thermal_ui_runtime_v10(target: pathlib.Path) -> None:
 # v8's runtime injector resolves this module global at call time.
 v9.thermal.patch_thermal_ui_runtime = patch_thermal_ui_runtime_v10
 
+# This marker intentionally lists pinned-source transforms only. The UI label
+# correction above is an Android packaging patch, not a filaSim source transform.
 v9.thermal.THERMAL_PACKAGE_MARKER_TEXT = (
     "format=1\n"
     f"filasim={v9.thermal.BASE.FILASIM_COMMIT}\n"
-    "transforms=solver,hardening,audit-fixes,progress-v2,react-tab-v1,bugfix-round1,bugfix-round2,linear-fast-path-v1,boundary-labels-v1\n"
+    "transforms=solver,hardening,audit-fixes,progress-v2,react-tab-v1,bugfix-round1,bugfix-round2,linear-fast-path-v1\n"
 )
 
 if __name__ == "__main__":
