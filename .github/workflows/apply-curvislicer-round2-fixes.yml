@@ -1,0 +1,38 @@
+name: Apply CurviSlicer Round 2 Fixes
+
+on:
+  push:
+    branches:
+      - feature/non-planar-curvislicer
+    paths:
+      - tools/curvislicer-round2-fixes.py.gz.b64
+      - .github/workflows/apply-curvislicer-round2-fixes.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/non-planar-curvislicer
+          fetch-depth: 0
+      - name: Decode and apply fixes
+        run: |
+          base64 --decode tools/curvislicer-round2-fixes.py.gz.b64 | gzip --decompress > tools/apply_curvislicer_round2_fixes.py
+          python3 -m py_compile tools/apply_curvislicer_round2_fixes.py
+          python3 tools/apply_curvislicer_round2_fixes.py
+      - name: Commit repaired source
+        run: |
+          rm -f tools/curvislicer-round2-fixes.py.gz.b64
+          rm -f tools/apply_curvislicer_round2_fixes.py
+          rm -f .github/workflows/apply-curvislicer-round2-fixes.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git diff --cached --check
+          git commit -m "fix: resolve CurviSlicer round-two audit findings"
+          git push origin HEAD:feature/non-planar-curvislicer
