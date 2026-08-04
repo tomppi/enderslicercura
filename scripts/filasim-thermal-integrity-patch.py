@@ -1153,7 +1153,7 @@ WASM_METHOD = r'''
     /// 3-2-1 rigid-body grounding; constrained mode uses the active supports.
     ///
     /// Return array: [stats JSON, cell temperatures f32, history f64,
-    /// per-mesh-vertex structural displacements f32].
+    /// per-mesh-vertex structural displacements f32, material fraction f32].
     pub fn solve_thermal_integrity(&mut self, opts_json: &str) -> Result<js_sys::Array, JsValue> {
         let opts: ThermalIntegrityOpts = serde_json::from_str(opts_json).map_err(err)?;
         self.ensure_grid()?;
@@ -1410,6 +1410,7 @@ WASM_METHOD = r'''
         array.push(&js_sys::Float32Array::from(thermal.temperatures_c.as_slice()));
         array.push(&js_sys::Float64Array::from(thermal.history.as_slice()));
         array.push(&js_sys::Float32Array::from(mesh_displacements.as_slice()));
+        array.push(&js_sys::Float32Array::from(material_fraction.as_slice()));
         Ok(array)
     }
 
@@ -1506,6 +1507,7 @@ ENGINE_METHOD = r'''
     temperatures: Float32Array;
     history: Float64Array;
     displacements: Float32Array;
+    materialFraction: Float32Array;
   }> {
     this.resetProgress();
     return this.call({ op: "thermalIntegrity", opts });
@@ -1522,11 +1524,17 @@ WORKER_CASE = r'''
         const temperatures = array[1] as Float32Array;
         const history = array[2] as Float64Array;
         const displacements = array[3] as Float32Array;
+        const materialFraction = array[4] as Float32Array;
         stats.seconds = (performance.now() - t0) / 1000;
         reply(
           msg,
-          { stats, temperatures, history, displacements },
-          [temperatures.buffer, history.buffer, displacements.buffer]
+          { stats, temperatures, history, displacements, materialFraction },
+          [
+            temperatures.buffer,
+            history.buffer,
+            displacements.buffer,
+            materialFraction.buffer,
+          ]
         );
         return;
       }
@@ -1598,6 +1606,7 @@ def apply(source_root: pathlib.Path) -> None:
         "    temperatures: Float32Array;\n"
         "    history: Float64Array;\n"
         "    displacements: Float32Array;\n"
+        "    materialFraction: Float32Array;\n"
         "  };\n"
         "  buildSim: SolveResult<BuildSimStats>;\n",
         "thermal protocol response",
