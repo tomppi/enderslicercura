@@ -229,13 +229,21 @@ jobs:
         run: |
           set -euo pipefail
           apk="app/build/outputs/apk/debug/app-debug.apk"
+          entries="$RUNNER_TEMP/app-debug-apk-entries.txt"
+          source_version="$RUNNER_TEMP/filasim-source-version.txt"
+          index_html="$RUNNER_TEMP/filasim-index.html"
+          sums="$RUNNER_TEMP/filasim-sha256sums.txt"
           test -f "$apk"
-          unzip -l "$apk" | grep -q 'lib/arm64-v8a/libcuraengine_exec.so'
-          unzip -l "$apk" | grep -q 'assets/filasim/thermal-integrity.js'
-          unzip -l "$apk" | grep -q 'assets/filasim/android-bridge.js'
-          unzip -p "$apk" assets/filasim/.source-version | grep -q 'format=9'
-          unzip -p "$apk" assets/filasim/index.html | grep -q 'enderslicer-thermal-integrity-1'
-          unzip -p "$apk" assets/filasim/SHA256SUMS | grep -q 'thermal-integrity.js'
+          unzip -Z1 "$apk" > "$entries"
+          grep -Fxq 'lib/arm64-v8a/libcuraengine_exec.so' "$entries"
+          grep -Fxq 'assets/filasim/thermal-integrity.js' "$entries"
+          grep -Fxq 'assets/filasim/android-bridge.js' "$entries"
+          unzip -p "$apk" assets/filasim/.source-version > "$source_version"
+          grep -q 'format=9' "$source_version"
+          unzip -p "$apk" assets/filasim/index.html > "$index_html"
+          grep -q 'enderslicer-thermal-integrity-1' "$index_html"
+          unzip -p "$apk" assets/filasim/SHA256SUMS > "$sums"
+          grep -q 'thermal-integrity.js' "$sums"
           sha256sum "$apk" | tee app/build/outputs/apk/debug/app-debug.apk.sha256
 
       - name: Upload thermal-integrity debug APK
