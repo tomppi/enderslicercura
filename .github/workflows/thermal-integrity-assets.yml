@@ -17,6 +17,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  FILASIM_COMMIT: e7485ec22d4ebe8baca04190404fbb877c90e031
   NODE_VERSION: 22.18.0
   WASM_PACK_VERSION: 0.15.0
 
@@ -60,22 +61,23 @@ jobs:
         run: |
           set -euo pipefail
           root=app/src/main/assets/filasim
+          source_root=".build/filasim-android/${FILASIM_COMMIT}-format8"
+          binding="$source_root/web/src/wasm/filasim_wasm.js"
+
           test -f "$root/.source-version"
           grep -qx 'format=8' "$root/.source-version"
-          grep -qx 'commit=e7485ec22d4ebe8baca04190404fbb877c90e031' "$root/.source-version"
+          grep -qx "commit=${FILASIM_COMMIT}" "$root/.source-version"
           test -s "$root/thermal-integrity.js"
           grep -q 'EnderSlicerThermalIntegrity' "$root/thermal-integrity.js"
           grep -q '<script src="./thermal-integrity.js"></script>' "$root/index.html"
           grep -q 'thermal-integrity.js' "$root/SHA256SUMS"
 
+          test -s "$binding"
+          grep -q 'solve_thermal_integrity' "$binding"
           find "$root/assets" -type f -name '*.js' -print0 \
             | xargs -0 cat > "$RUNNER_TEMP/filasim-runtime.js"
           grep -q 'thermalIntegrity' "$RUNNER_TEMP/filasim-runtime.js"
-
-          wasm=$(find "$root/assets" -type f -name '*.wasm' -print -quit)
-          test -n "$wasm"
-          strings "$wasm" > "$RUNNER_TEMP/filasim-wasm-strings.txt"
-          grep -q 'solve_thermal_integrity' "$RUNNER_TEMP/filasim-wasm-strings.txt"
+          test -n "$(find "$root/assets" -type f -name '*.wasm' -print -quit)"
 
       - name: Run Android tests and build debug APK
         run: |
@@ -97,9 +99,15 @@ jobs:
 
           wasm_entry=$(unzip -Z1 "$apk" | awk '/^assets\/filasim\/.*\.wasm$/ { print; exit }')
           test -n "$wasm_entry"
-          unzip -p "$apk" "$wasm_entry" > "$RUNNER_TEMP/filasim.wasm"
-          strings "$RUNNER_TEMP/filasim.wasm" > "$RUNNER_TEMP/packaged-wasm-strings.txt"
-          grep -q 'solve_thermal_integrity' "$RUNNER_TEMP/packaged-wasm-strings.txt"
+
+          unzip -Z1 "$apk" | awk '/^assets\/filasim\/assets\/.*\.js$/ { print }' \
+            > "$RUNNER_TEMP/packaged-js-entries.txt"
+          test -s "$RUNNER_TEMP/packaged-js-entries.txt"
+          : > "$RUNNER_TEMP/packaged-runtime.js"
+          while IFS= read -r entry; do
+            unzip -p "$apk" "$entry" >> "$RUNNER_TEMP/packaged-runtime.js"
+          done < "$RUNNER_TEMP/packaged-js-entries.txt"
+          grep -q 'thermalIntegrity' "$RUNNER_TEMP/packaged-runtime.js"
 
       - name: Upload thermal debug APK
         uses: actions/upload-artifact@v4
