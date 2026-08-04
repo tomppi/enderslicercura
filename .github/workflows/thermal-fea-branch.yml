@@ -67,7 +67,7 @@ jobs:
           EOF
           gradle -p "$work" test --stacktrace
 
-      - name: Check bridge/report schema lockstep
+      - name: Check bridge and native schema lockstep
         shell: bash
         run: |
           set -euo pipefail
@@ -75,3 +75,7 @@ jobs:
           grep -q 'PRECISION_SOURCE = "raw-worker-response"' app/src/main/java/com/tomppi/enderslicer/smartinfill/ThermalFeaReport.kt
           grep -q 'solverModel: "sequential-voxel-inherent-strain"' app/src/main/filasim/android-bridge.js
           grep -q 'SOLVER_MODEL = "sequential-voxel-inherent-strain"' app/src/main/java/com/tomppi/enderslicer/smartinfill/ThermalFeaReport.kt
+          grep -q 'op: "transformMatrix"' app/src/main/filasim/android-bridge.js
+          grep -q 'transform3x4' app/src/main/filasim/android-bridge.js
+          grep -q 'analysisFingerprintSha256' app/src/main/java/com/tomppi/enderslicer/smartinfill/ThermalFeaReport.kt
+          grep -q 'forwardWithoutReport' app/src/main/filasim/android-bridge.js
