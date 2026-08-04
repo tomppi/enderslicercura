@@ -5,13 +5,15 @@
  * arrays can be reported. This guard supplies the lifecycle protection that a
  * normal EngineClient call would otherwise provide: one active thermal request,
  * invalidation when model/grid/load state changes, cooperative cancellation on
- * mutation, and recovery from worker errors or React panel remounts.
+ * mutation, recovery from worker errors or React panel remounts, and protection
+ * against MutationObserver feedback loops in the progress shell.
  */
 (() => {
   "use strict";
 
   const INVALIDATED_EVENT = "enderslicer-thermal-integrity-invalidated";
   const RUN_STATE_EVENT = "enderslicer-thermal-integrity-run-state";
+  const THERMAL_GROUP_ID = "enderslicer-thermal-integrity";
   const MUTATING_OPS = new Set([
     "load",
     "loadMesh",
@@ -36,6 +38,37 @@
   let activeRequestId = null;
   let cancelFlag = null;
   let invalidationEpoch = 0;
+
+  function recordsAddThermalGroup(records) {
+    return records.some((record) =>
+      Array.from(record.addedNodes || []).some((node) =>
+        node instanceof Element &&
+        (node.id === THERMAL_GROUP_ID || Boolean(node.querySelector?.(`#${THERMAL_GROUP_ID}`)))
+      )
+    );
+  }
+
+  function installMutationObserverGuard() {
+    const NativeMutationObserver = window.MutationObserver;
+    if (!NativeMutationObserver || NativeMutationObserver.__enderSlicerThermalObserverGuard) return;
+
+    const WrappedMutationObserver = new Proxy(NativeMutationObserver, {
+      construct(Target, args) {
+        const callback = args[0];
+        const guardedCallback =
+          typeof callback === "function" && callback.name === "ensureUi"
+            ? (records, observer) => {
+                if (recordsAddThermalGroup(records)) callback(records, observer);
+              }
+            : callback;
+        return Reflect.construct(Target, [guardedCallback]);
+      },
+    });
+    Object.defineProperty(WrappedMutationObserver, "__enderSlicerThermalObserverGuard", {
+      value: true,
+    });
+    window.MutationObserver = WrappedMutationObserver;
+  }
 
   function dispatchRunState(active, error = "") {
     window.dispatchEvent(
@@ -172,6 +205,7 @@
     true
   );
 
+  installMutationObserverGuard();
   installWorkerGuard();
   syncUi();
   new MutationObserver(syncUi).observe(document.documentElement, { childList: true, subtree: true });
