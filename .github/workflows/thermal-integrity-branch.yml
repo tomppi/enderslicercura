@@ -91,7 +91,7 @@ jobs:
   native-report-and-apk:
     needs: solver-source-contract
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
 
@@ -104,16 +104,70 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
 
       - name: Install pinned wasm-pack
         uses: taiki-e/install-action@v2
         with:
           tool: wasm-pack@${{ env.WASM_PACK_VERSION }}
 
+      - uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK and CuraEngine native build tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null
+          sdkmanager \
+            "platforms;android-36" \
+            "build-tools;36.0.0" \
+            "ndk;28.2.13676358" \
+            "cmake;3.22.1"
+          sudo apt-get update
+          sudo apt-get install -y ninja-build file binutils
+
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.4.1'
+
+      - name: Cache Conan packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.conan2/p
+          key: conan-curaengine-5.11-beta1-android-thermal-v1-${{ hashFiles('scripts/build-curaengine-android.sh', 'native/curaengine/profiles/android-arm64') }}
+          restore-keys: |
+            conan-curaengine-5.11-beta1-android-thermal-v1-
+            conan-curaengine-5.11-beta1-android-host-v6-
+            conan-curaengine-5.11-beta1-android-arm64-v5-
+
+      - name: Fetch pinned Cura definitions
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x scripts/fetch-cura-resources.sh
+          scripts/fetch-cura-resources.sh
+          grep -q 'Cura resources: 5.11.0-beta.1' app/src/main/assets/cura/definitions/version.txt
+
+      - name: Build and package CuraEngine ARM64
+        shell: bash
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/28.2.13676358
+          APP_JNILIBS_DIR: ${{ github.workspace }}/app/src/main/jniLibs
+        run: |
+          set -euo pipefail
+          chmod +x scripts/build-curaengine-android.sh
+          scripts/build-curaengine-android.sh 2>&1 | tee curaengine-android-build.log
+          grep -q 'CuraEngine Android artifacts (5.11.0-beta.1)' curaengine-android-build.log
+          test -s app/src/main/jniLibs/arm64-v8a/libcuraengine_exec.so
+          file app/src/main/jniLibs/arm64-v8a/libcuraengine_exec.so
+          readelf -d app/src/main/jniLibs/arm64-v8a/libcuraengine_exec.so | tee curaengine-needed.log
+          ! grep -q 'libc++_shared.so' curaengine-needed.log
 
       - name: Run isolated report validation tests
         shell: bash
@@ -177,6 +231,7 @@ jobs:
           set -euo pipefail
           apk="app/build/outputs/apk/debug/app-debug.apk"
           test -f "$apk"
+          unzip -l "$apk" | grep -q 'lib/arm64-v8a/libcuraengine_exec.so'
           unzip -l "$apk" | grep -q 'assets/filasim/thermal-integrity.js'
           unzip -l "$apk" | grep -q 'assets/filasim/android-bridge.js'
           unzip -p "$apk" assets/filasim/.source-version | grep -q 'format=9'
@@ -192,4 +247,15 @@ jobs:
             app/build/outputs/apk/debug/app-debug.apk
             app/build/outputs/apk/debug/app-debug.apk.sha256
           if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload focused build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: enderslicercura-thermal-integrity-build-logs
+          path: |
+            curaengine-android-build.log
+            curaengine-needed.log
+          if-no-files-found: ignore
           retention-days: 14
