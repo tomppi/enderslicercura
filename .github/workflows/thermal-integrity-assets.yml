@@ -55,6 +55,7 @@ jobs:
             scripts/filasim-thermal-integrity-progress.py
           node --check app/src/main/filasim/thermal-integrity.js
           node --check app/src/main/filasim/thermal-integrity-workspace.js
+          node --check app/src/main/filasim/thermal-integrity-live-progress.js
 
       - name: Prepare verified format-8 thermal filaSim assets
         run: python3 scripts/prepare-filasim-assets-with-thermal-integrity-v8.py
@@ -71,20 +72,29 @@ jobs:
           grep -qx "commit=${FILASIM_COMMIT}" "$root/.source-version"
           test -s "$root/thermal-integrity.js"
           test -s "$root/thermal-integrity-workspace.js"
+          test -s "$root/thermal-integrity-live-progress.js"
           grep -q 'enderslicer-thermal-integrity' "$root/thermal-integrity.js"
           grep -q 'fdm-service-thermal-integrity' "$root/thermal-integrity.js"
           grep -q 'enderslicer-thermal-integrity-tab' "$root/thermal-integrity-workspace.js"
           grep -q 'ti-progress-bar' "$root/thermal-integrity-workspace.js"
+          grep -q 'ti-progress-solver' "$root/thermal-integrity-live-progress.js"
+          grep -q 'setProgressBuffer' "$root/thermal-integrity-live-progress.js"
+          grep -q '<script src="./thermal-integrity-live-progress.js"></script>' "$root/index.html"
           grep -q '<script src="./thermal-integrity-workspace.js"></script>' "$root/index.html"
           grep -q '<script src="./thermal-integrity.js"></script>' "$root/index.html"
-          test "$(grep -n 'thermal-integrity-workspace.js' "$root/index.html" | cut -d: -f1)" -le "$(grep -n 'thermal-integrity.js' "$root/index.html" | cut -d: -f1)"
+          live_line=$(grep -n 'thermal-integrity-live-progress.js' "$root/index.html" | cut -d: -f1)
+          workspace_line=$(grep -n 'thermal-integrity-workspace.js' "$root/index.html" | cut -d: -f1)
+          ui_line=$(grep -n 'thermal-integrity.js' "$root/index.html" | cut -d: -f1)
+          test "$live_line" -le "$workspace_line"
+          test "$workspace_line" -le "$ui_line"
 
           test -s "$marker"
           grep -qx 'format=1' "$marker"
           grep -qx "filasim=${FILASIM_COMMIT}" "$marker"
-          grep -qx 'transforms=solver,hardening,audit-fixes,progress' "$marker"
+          grep -qx 'transforms=solver,hardening,audit-fixes,progress-v2' "$marker"
           grep -q 'thermal-integrity.js' "$root/SHA256SUMS"
           grep -q 'thermal-integrity-workspace.js' "$root/SHA256SUMS"
+          grep -q 'thermal-integrity-live-progress.js' "$root/SHA256SUMS"
           grep -q 'thermal-integrity-version.txt' "$root/SHA256SUMS"
 
           wasm=$(find "$root/assets" -type f -name '*.wasm' -print -quit)
