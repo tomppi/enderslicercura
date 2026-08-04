@@ -11,6 +11,7 @@
   if (!android) return;
 
   const CHUNK_BYTES = 256 * 1024;
+  const POSE_CAPTURE_TIMEOUT_MS = 2000;
   const APPLY_SMART_INFILL_LABEL = "Apply Smart Infill";
   const APPLY_SMART_INFILL_NOTE =
     "Transfers the optimized infill regions to EnderSlicer and returns to the model.";
@@ -54,6 +55,11 @@
    * build run, query the worker's cumulative model transform and only then
    * forward buildSim. The report is therefore bound to both source STL bytes
    * and the exact orientation/placement actually solved.
+   *
+   * Report capture is fail-open: if the auxiliary pose query fails or times
+   * out, the original buildSim request is still forwarded unchanged. A report
+   * will simply not be offered for that run, so instrumentation can never block
+   * the actual FEA calculation.
    */
   function installBuildSimWorkerCapture() {
     const NativeWorker = window.Worker;
@@ -67,19 +73,38 @@
         const nativePostMessage = worker.postMessage.bind(worker);
         let nextPoseRequestId = -1;
 
+        function forwardWithoutReport(poseRequest, reason) {
+          latestBuildSimRaw = null;
+          console.error(`EnderSlicerCura thermal report capture disabled for this run: ${reason}`);
+          postNative(
+            nativePostMessage,
+            poseRequest.buildMessage,
+            poseRequest.hasTransfer,
+            poseRequest.transferOrOptions,
+          );
+        }
+
         worker.postMessage = function postMessage(message, transferOrOptions) {
           const hasTransfer = arguments.length > 1;
           if (message?.op === "buildSim" && Number.isSafeInteger(message.id)) {
             latestBuildSimRaw = null;
             const poseRequestId = nextPoseRequestId--;
-            pendingPose.set(poseRequestId, {
+            const poseRequest = {
               buildMessage: message,
               hasTransfer,
               transferOrOptions,
               opts: { ...(message.opts || {}) },
               materialName: readMaterialName(),
               requestedAtEpochMillis: Date.now(),
-            });
+              timeout: null,
+            };
+            poseRequest.timeout = setTimeout(() => {
+              const stillPending = pendingPose.get(poseRequestId);
+              if (!stillPending) return;
+              pendingPose.delete(poseRequestId);
+              forwardWithoutReport(stillPending, "model-transform query timed out");
+            }, POSE_CAPTURE_TIMEOUT_MS);
+            pendingPose.set(poseRequestId, poseRequest);
             nativePostMessage({ id: poseRequestId, op: "transformMatrix" });
             return;
           }
@@ -93,10 +118,10 @@
           const poseRequest = pendingPose.get(message.id);
           if (poseRequest) {
             pendingPose.delete(message.id);
+            clearTimeout(poseRequest.timeout);
             const transform = message.ok && Array.isArray(message.data) ? message.data.slice() : null;
             if (!transform || transform.length !== 12 || !transform.every(Number.isFinite)) {
-              latestBuildSimRaw = null;
-              console.error("EnderSlicerCura could not capture filaSim's exact model transform");
+              forwardWithoutReport(poseRequest, "model-transform response was invalid");
               return;
             }
             pendingBuildSim.set(poseRequest.buildMessage.id, {
@@ -194,6 +219,10 @@
 
     const opts = raw.opts;
     const stats = raw.stats;
+    const requestedState = String(opts.state || "");
+    if (requestedState !== "bonded" && requestedState !== "released") {
+      throw new Error("filaSim returned an unsupported build-simulation state");
+    }
     return {
       schemaVersion: 1,
       analysisKind: "fdm-build-thermomechanical",
@@ -210,12 +239,15 @@
         name: materialName,
         shrinkXyPercent: Math.abs(finite(opts.shrink, "XY shrink")) * 100,
         shrinkZPercent: Math.abs(finite(opts.shrinkZ, "Z shrink")) * 100,
+        yieldStrengthMpa: optionalFinite(opts.yieldStrength, "yield strength"),
         lockingTemperatureC: optionalFinite(opts.tLock, "locking temperature"),
       },
       process: {
         bedTemperatureC: optionalFinite(opts.tBed, "bed temperature"),
         chamberTemperatureC: optionalFinite(opts.tChamber, "chamber temperature"),
         finalTemperatureC: optionalFinite(opts.tFinal, "final temperature"),
+        thermalDecayMm: optionalFinite(opts.decayMm, "thermal decay depth"),
+        requestedState,
         densityAware: Boolean(stats.densityAware),
       },
       mesh: {
