@@ -20,6 +20,12 @@ internal object GcodeCommandPolicy {
         "M400",
     )
 
+    private data class ReadOnlyArgumentRule(
+        val allowFlag: Boolean,
+        val numericRange: ClosedFloatingPointRange<Double>? = null,
+        val integerOnly: Boolean = false,
+    )
+
     fun requireLinearParameters(command: GcodeCommand.Parsed) {
         require(command.hasOnlyParameters(LINEAR_PARAMETERS)) {
             "Unsupported ${command.opcode} parameters ${command.parameterLetters.sorted().joinToString("")}"
@@ -152,6 +158,18 @@ internal object GcodeCommandPolicy {
             0, 1 -> only('P', 'S')
             18, 84 -> only('S', 'X', 'Y', 'Z', 'E')
             25, 77, 82, 83, 107, 117, 118, 240, 400 -> Unit
+            27 -> requireReadOnlyArguments(
+                command = command,
+                consumer = consumer,
+                location = location,
+                rules = mapOf('C' to ReadOnlyArgumentRule(allowFlag = true)),
+            )
+            31, 115, 119 -> requireReadOnlyArguments(
+                command = command,
+                consumer = consumer,
+                location = location,
+                rules = emptyMap(),
+            )
             73 -> {
                 only('P', 'R')
                 bounded('P', 0.0, 100.0)
@@ -163,12 +181,32 @@ internal object GcodeCommandPolicy {
                 bounded('R', 0.0, 500.0)
                 bounded('T', 0.0, 32.0)
             }
-            105 -> only()
+            105 -> requireReadOnlyArguments(
+                command = command,
+                consumer = consumer,
+                location = location,
+                rules = mapOf(
+                    'R' to ReadOnlyArgumentRule(allowFlag = true),
+                    'T' to ReadOnlyArgumentRule(
+                        allowFlag = false,
+                        numericRange = 0.0..32.0,
+                        integerOnly = true,
+                    ),
+                ),
+            )
             106 -> {
                 only('P', 'S')
                 bounded('P', 0.0, 255.0)
                 bounded('S', 0.0, 255.0)
             }
+            114 -> requireReadOnlyArguments(
+                command = command,
+                consumer = consumer,
+                location = location,
+                rules = setOf('D', 'E', 'R').associateWith {
+                    ReadOnlyArgumentRule(allowFlag = true)
+                },
+            )
             140, 190 -> {
                 only('S', 'R')
                 bounded('S', 0.0, 200.0)
@@ -207,6 +245,18 @@ internal object GcodeCommandPolicy {
                 bounded('S', 0.0, 1.0)
                 bounded('Z', 0.0, 100.0)
             }
+            503 -> requireReadOnlyArguments(
+                command = command,
+                consumer = consumer,
+                location = location,
+                rules = mapOf(
+                    'S' to ReadOnlyArgumentRule(
+                        allowFlag = true,
+                        numericRange = 0.0..1.0,
+                        integerOnly = true,
+                    ),
+                ),
+            )
             572 -> {
                 only('D', 'S', 'T')
                 bounded('D', 0.0, 255.0)
@@ -231,12 +281,60 @@ internal object GcodeCommandPolicy {
         }
     }
 
+    private fun requireReadOnlyArguments(
+        command: GcodeCommand.Parsed,
+        consumer: String,
+        location: String,
+        rules: Map<Char, ReadOnlyArgumentRule>,
+    ) {
+        val compact = command.rawArguments.filterNot { it.isWhitespace() }
+        if (compact.isEmpty()) return
+
+        val seen = hashSetOf<Char>()
+        var offset = 0
+        while (offset < compact.length) {
+            val match = READ_ONLY_ARGUMENT.find(compact, offset)
+                ?.takeIf { it.range.first == offset }
+                ?: error("$consumer rejects malformed ${command.opcode} arguments$location")
+            val letter = match.groupValues[1].single().uppercaseChar()
+            val rule = rules[letter]
+                ?: error("$consumer rejects unsupported ${command.opcode} argument $letter$location")
+            require(seen.add(letter)) {
+                "$consumer rejects duplicate ${command.opcode} argument $letter$location"
+            }
+
+            val rawValue = match.groupValues[2]
+            if (rawValue.isEmpty()) {
+                require(rule.allowFlag) {
+                    "$consumer requires a value for ${command.opcode} $letter$location"
+                }
+            } else {
+                val range = requireNotNull(rule.numericRange) {
+                    "$consumer rejects a value for flag-only ${command.opcode} $letter$location"
+                }
+                val value = rawValue.toDoubleOrNull()
+                require(value != null && value.isFinite() && value in range) {
+                    "$consumer rejects ${command.opcode} $letter outside ${range.start}..${range.endInclusive}$location"
+                }
+                if (rule.integerOnly) {
+                    require(value == value.toInt().toDouble()) {
+                        "$consumer requires an integer ${command.opcode} $letter$location"
+                    }
+                }
+            }
+            offset = match.range.last + 1
+        }
+    }
+
     private fun requireUnframed(command: GcodeCommand.Parsed, consumer: String) {
         require(!command.hasLineNumber && !command.hasChecksum) {
             "$consumer does not accept line-number or checksum framing; re-slice unframed G-code"
         }
     }
 
+    private val READ_ONLY_ARGUMENT = Regex(
+        "([A-Za-z])([+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+))?",
+    )
     private val KLIPPER_PRESSURE_ADVANCE = Regex(
         "^SET_PRESSURE_ADVANCE\\s+ADVANCE=[+]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)$",
         RegexOption.IGNORE_CASE,
