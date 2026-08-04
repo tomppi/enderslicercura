@@ -48,7 +48,9 @@ jobs:
       - name: Validate preparation scripts
         run: |
           python3 -m py_compile \
+            scripts/prepare-filasim-assets-with-pinch.py \
             scripts/prepare-filasim-assets-with-thermal-integrity-v8.py \
+            scripts/finalize-filasim-apk-manifest.py \
             scripts/filasim-thermal-integrity-patch.py \
             scripts/filasim-thermal-integrity-hardening.py \
             scripts/filasim-thermal-integrity-audit-fixes.py \
@@ -61,7 +63,7 @@ jobs:
           node --check app/src/main/filasim/thermal-integrity-live-progress.js
 
       - name: Prepare verified format-8 thermal filaSim assets
-        run: python3 scripts/prepare-filasim-assets-with-thermal-integrity-v8.py
+        run: python3 scripts/prepare-filasim-assets-with-pinch.py
 
       - name: Verify generated thermal asset contract
         shell: bash
@@ -73,6 +75,8 @@ jobs:
           test -f "$root/.source-version"
           grep -qx 'format=8' "$root/.source-version"
           grep -qx "commit=${FILASIM_COMMIT}" "$root/.source-version"
+          test -s "$root/source-version.txt"
+          cmp "$root/.source-version" "$root/source-version.txt"
           test -s "$root/thermal-integrity.js"
           test -s "$root/thermal-integrity-guard.js"
           test -s "$root/thermal-integrity-workspace.js"
@@ -116,11 +120,14 @@ jobs:
           grep -qx 'format=1' "$marker"
           grep -qx "filasim=${FILASIM_COMMIT}" "$marker"
           grep -qx 'transforms=solver,hardening,audit-fixes,progress-v2,react-tab-v1,bugfix-round1' "$marker"
+          grep -q 'source-version.txt' "$root/SHA256SUMS"
+          ! grep -q '  \.source-version$' "$root/SHA256SUMS"
           grep -q 'thermal-integrity.js' "$root/SHA256SUMS"
           grep -q 'thermal-integrity-guard.js' "$root/SHA256SUMS"
           grep -q 'thermal-integrity-workspace.js' "$root/SHA256SUMS"
           grep -q 'thermal-integrity-live-progress.js' "$root/SHA256SUMS"
           grep -q 'thermal-integrity-version.txt' "$root/SHA256SUMS"
+          (cd "$root" && sha256sum -c SHA256SUMS)
 
           wasm=$(find "$root/assets" -type f -name '*.wasm' -print -quit)
           test -n "$wasm"
