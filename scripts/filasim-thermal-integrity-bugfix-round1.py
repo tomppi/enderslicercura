@@ -252,27 +252,11 @@ def apply(source_root: pathlib.Path) -> None:
 
     replace_once(
         wasm,
-        '''        let (solution, _compliance) = filasim_core::simp::solve_with_eps_cached(
-            &mut self.solver_cache,
-            &grid,
-            levels,
-            &assembled.problem,
-            &solve_settings,
-            temperature_eps.clone().into(),
-        )
-        .map_err(err)?;
+        '''        .map_err(err)?;
         emit_progress(
             "Post-processing",
 ''',
-        '''        let (solution, _compliance) = filasim_core::simp::solve_with_eps_cached(
-            &mut self.solver_cache,
-            &grid,
-            levels,
-            &assembled.problem,
-            &solve_settings,
-            temperature_eps.clone().into(),
-        )
-        .map_err(err)?;
+        '''        .map_err(err)?;
         if !solution.converged {
             return Err(err(&format!(
                 "thermal structural FEA did not converge ({} iterations, relative residual {:.3e})",
