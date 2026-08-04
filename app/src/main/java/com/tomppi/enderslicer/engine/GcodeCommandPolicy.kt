@@ -163,6 +163,7 @@ internal object GcodeCommandPolicy {
                 bounded('R', 0.0, 500.0)
                 bounded('T', 0.0, 32.0)
             }
+            105 -> only()
             106 -> {
                 only('P', 'S')
                 bounded('P', 0.0, 255.0)
