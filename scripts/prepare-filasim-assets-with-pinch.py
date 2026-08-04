@@ -6,6 +6,7 @@ from __future__ import annotations
 import importlib.util
 import pathlib
 import re
+import shutil
 
 BASE_SCRIPT = pathlib.Path(__file__).with_name("prepare-filasim-assets.py")
 SPEC = importlib.util.spec_from_file_location("enderslicer_filasim_base", BASE_SCRIPT)
@@ -14,11 +15,22 @@ if SPEC is None or SPEC.loader is None:
 BASE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(BASE)
 
-# Format 8 carries the complete regional-pattern metadata contract. The patch
-# below also upgrades an already-patched format-8 source tree so stale Gradle or
-# source caches cannot preserve nullable browser-state values in new APKs.
-BASE.ASSET_FORMAT = 8
+THERMAL_PATCH_SCRIPT = pathlib.Path(__file__).with_name("filasim-thermal-integrity-patch.py")
+THERMAL_SPEC = importlib.util.spec_from_file_location(
+    "enderslicer_filasim_thermal_integrity",
+    THERMAL_PATCH_SCRIPT,
+)
+if THERMAL_SPEC is None or THERMAL_SPEC.loader is None:
+    raise RuntimeError(f"Unable to load thermal integrity patch: {THERMAL_PATCH_SCRIPT}")
+THERMAL_PATCH = importlib.util.module_from_spec(THERMAL_SPEC)
+THERMAL_SPEC.loader.exec_module(THERMAL_PATCH)
+
+# Format 9 adds deterministic Rust/WASM service-temperature heat transfer and
+# thermo-mechanical coupling. A new format forces a clean pinned-source tree so
+# cached format-8 sources cannot omit the thermal module or typed worker API.
+BASE.ASSET_FORMAT = 9
 _BASE_PATCH_ANDROID_EXPORT = BASE.patch_android_export
+_BASE_PATCH_ANDROID_STARTUP = BASE.patch_android_startup
 _BASE_PATCH_ANDROID_TOPBAR = BASE.patch_android_topbar
 _BASE_PATCH_ANDROID_VIEWER = BASE.patch_android_viewer
 _BASE_INJECT_BRIDGE = BASE.inject_bridge
@@ -64,6 +76,12 @@ def patch_android_export_with_pattern_contract(store_file: pathlib.Path) -> None
     if old not in text:
         raise RuntimeError("Unable to locate Android modifier pattern metadata for versioning")
     store_file.write_text(text.replace(old, hardened_v2, 1), encoding="utf-8")
+
+
+def patch_android_startup_with_thermal_integrity(app_file: pathlib.Path) -> None:
+    _BASE_PATCH_ANDROID_STARTUP(app_file)
+    source_root = app_file.resolve().parents[2]
+    THERMAL_PATCH.apply(source_root)
 
 
 def patch_android_topbar_and_export_ui(topbar_file: pathlib.Path) -> None:
@@ -254,27 +272,50 @@ def patch_android_viewer_with_pinch(scene_file: pathlib.Path) -> None:
     scene_file.write_text(text, encoding="utf-8")
 
 
-def inject_versioned_android_bridge(index_file: pathlib.Path) -> None:
+def inject_versioned_android_assets(index_file: pathlib.Path) -> None:
     _BASE_INJECT_BRIDGE(index_file)
     text = index_file.read_text(encoding="utf-8")
-    new = '<script src="./android-bridge.js?v=enderslicer-android-4"></script>'
-    if new in text:
-        return
-    candidates = (
-        '<script src="./android-bridge.js"></script>',
-        '<script src="./android-bridge.js?v=enderslicer-android-3"></script>',
+    bridge_new = '<script src="./android-bridge.js?v=enderslicer-android-5"></script>'
+    if bridge_new not in text:
+        candidates = (
+            '<script src="./android-bridge.js"></script>',
+            '<script src="./android-bridge.js?v=enderslicer-android-3"></script>',
+            '<script src="./android-bridge.js?v=enderslicer-android-4"></script>',
+        )
+        for old in candidates:
+            if old in text:
+                text = text.replace(old, bridge_new, 1)
+                break
+        else:
+            raise RuntimeError("Unable to version the Android filaSim bridge asset")
+
+    thermal_source = (
+        pathlib.Path(__file__).resolve().parents[1]
+        / "app/src/main/filasim/thermal-integrity.js"
     )
-    for old in candidates:
-        if old in text:
-            index_file.write_text(text.replace(old, new, 1), encoding="utf-8")
-            return
-    raise RuntimeError("Unable to version the Android filaSim bridge asset")
+    if not thermal_source.is_file():
+        raise RuntimeError(f"Thermal integrity workspace is missing: {thermal_source}")
+    thermal_target = index_file.parent / "thermal-integrity.js"
+    shutil.copy2(thermal_source, thermal_target)
+    thermal_script = (
+        '<script src="./thermal-integrity.js?'
+        'v=enderslicer-thermal-integrity-1"></script>'
+    )
+    if thermal_script not in text:
+        if "</head>" in text:
+            text = text.replace("</head>", f"  {thermal_script}\n</head>", 1)
+        elif "</body>" in text:
+            text = text.replace("</body>", f"  {thermal_script}\n</body>", 1)
+        else:
+            raise RuntimeError("Unable to inject the thermal integrity workspace")
+    index_file.write_text(text, encoding="utf-8")
 
 
 BASE.patch_android_export = patch_android_export_with_pattern_contract
+BASE.patch_android_startup = patch_android_startup_with_thermal_integrity
 BASE.patch_android_topbar = patch_android_topbar_and_export_ui
 BASE.patch_android_viewer = patch_android_viewer_with_pinch
-BASE.inject_bridge = inject_versioned_android_bridge
+BASE.inject_bridge = inject_versioned_android_assets
 
 
 if __name__ == "__main__":
