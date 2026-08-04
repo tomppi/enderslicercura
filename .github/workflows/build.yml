@@ -20,7 +20,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: feature/non-planar-curvislicer
-          fetch-depth: 3
+          fetch-depth: 4
 
       - name: Apply demonstrated compile fixes
         run: |
@@ -30,29 +30,18 @@ jobs:
 
           storage = Path('app/src/main/java/com/tomppi/enderslicer/nonplanar/CurviSlicerFieldStorage.kt')
           text = storage.read_text()
-          marker = '''    fun diagnostics(workspace: File): CurviSlicerPipeline.Diagnostics? {
-              val sidecar = File(workspace, FILE_NAME)
-              return sidecar.takeIf(File::isFile)?.let(::read)?.diagnostics
-          }
-
-          '''
-          addition = marker + '''    fun isPrepared(workspace: File): Boolean = File(workspace, FILE_NAME).isFile
-
-          '''
+          marker = '    private fun read(file: File): CurviSlicerPipeline.Prepared =\n'
+          addition = '    fun isPrepared(workspace: File): Boolean = File(workspace, FILE_NAME).isFile\n\n' + marker
           if text.count(marker) != 1:
-              raise RuntimeError('CurviSlicerFieldStorage diagnostics marker mismatch')
+              raise RuntimeError('CurviSlicerFieldStorage read boundary mismatch')
           storage.write_text(text.replace(marker, addition, 1))
 
           view_model = Path('app/src/main/java/com/tomppi/enderslicer/ui/MainViewModel.kt')
           text = view_model.read_text()
-          old = '''    private fun beginOperation(message: String): Boolean {
-              if (current.isBusy) return false
-          '''
-          new = '''    private fun beginOperation(message: String): Boolean {
-              if (_uiState.value.isBusy) return false
-          '''
+          old = '    private fun beginOperation(message: String): Boolean {\n        if (current.isBusy) return false\n'
+          new = '    private fun beginOperation(message: String): Boolean {\n        if (_uiState.value.isBusy) return false\n'
           if text.count(old) != 1:
-              raise RuntimeError('MainViewModel beginOperation marker mismatch')
+              raise RuntimeError('MainViewModel beginOperation boundary mismatch')
           view_model.write_text(text.replace(old, new, 1))
           PY
 
