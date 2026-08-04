@@ -117,7 +117,7 @@ jobs:
           grep -qx "commit=${FILASIM_COMMIT}" source-version.txt
           grep -qx 'format=1' thermal-integrity-version.txt
           grep -qx "filasim=${FILASIM_COMMIT}" thermal-integrity-version.txt
-          grep -qx 'transforms=solver,hardening,audit-fixes,progress-v2,react-tab-v1,bugfix-round1,bugfix-round2' thermal-integrity-version.txt
+          grep -qx 'transforms=solver,hardening,audit-fixes,progress-v2,react-tab-v1,bugfix-round1,bugfix-round2,linear-fast-path-v1' thermal-integrity-version.txt
           grep -q 'source-version.txt' SHA256SUMS
           ! grep -q '  \.source-version$' SHA256SUMS
           grep -q 'thermal-integrity.js' SHA256SUMS
