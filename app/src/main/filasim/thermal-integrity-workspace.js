@@ -174,6 +174,14 @@
   }
 
   function renderProgress() {
+    if (runActive && activeRequestId === null && runStartedAt > 0) {
+      const run = document.getElementById("ti-run");
+      if (run && !run.disabled && performance.now() - runStartedAt > 300) {
+        const status = document.getElementById("ti-status");
+        finishRun(false, status?.textContent || "The run stopped before the solver started.");
+        return;
+      }
+    }
     const shell = document.getElementById("ti-progress-shell");
     const bar = document.getElementById("ti-progress-bar");
     const phase = document.getElementById("ti-progress-phase");
