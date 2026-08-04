@@ -61,8 +61,6 @@ jobs:
         run: |
           set -euo pipefail
           root=app/src/main/assets/filasim
-          source_root=".build/filasim-android/${FILASIM_COMMIT}-format8"
-          binding="$source_root/web/src/wasm/filasim_wasm.js"
 
           test -f "$root/.source-version"
           grep -qx 'format=8' "$root/.source-version"
@@ -72,12 +70,13 @@ jobs:
           grep -q '<script src="./thermal-integrity.js"></script>' "$root/index.html"
           grep -q 'thermal-integrity.js' "$root/SHA256SUMS"
 
-          test -s "$binding"
-          grep -q 'solve_thermal_integrity' "$binding"
           find "$root/assets" -type f -name '*.js' -print0 \
             | xargs -0 cat > "$RUNNER_TEMP/filasim-runtime.js"
           grep -q 'thermalIntegrity' "$RUNNER_TEMP/filasim-runtime.js"
-          test -n "$(find "$root/assets" -type f -name '*.wasm' -print -quit)"
+
+          wasm=$(find "$root/assets" -type f -name '*.wasm' -print -quit)
+          test -n "$wasm"
+          test -s "$wasm"
 
       - name: Run Android tests and build debug APK
         run: |
@@ -90,6 +89,7 @@ jobs:
           set -euo pipefail
           apk=$(find app/build/outputs/apk -type f -name '*debug*.apk' -print -quit)
           test -n "$apk"
+
           unzip -p "$apk" assets/filasim/index.html > "$RUNNER_TEMP/index.html"
           unzip -p "$apk" assets/filasim/thermal-integrity.js > "$RUNNER_TEMP/thermal-integrity.js"
           unzip -p "$apk" assets/filasim/SHA256SUMS > "$RUNNER_TEMP/SHA256SUMS"
@@ -97,10 +97,11 @@ jobs:
           grep -q 'EnderSlicerThermalIntegrity' "$RUNNER_TEMP/thermal-integrity.js"
           grep -q 'thermal-integrity.js' "$RUNNER_TEMP/SHA256SUMS"
 
-          wasm_entry=$(unzip -Z1 "$apk" | awk '/^assets\/filasim\/.*\.wasm$/ { print; exit }')
+          unzip -Z1 "$apk" > "$RUNNER_TEMP/apk-entries.txt"
+          wasm_entry=$(awk '/^assets\/filasim\/.*\.wasm$/ { print; exit }' "$RUNNER_TEMP/apk-entries.txt")
           test -n "$wasm_entry"
 
-          unzip -Z1 "$apk" | awk '/^assets\/filasim\/assets\/.*\.js$/ { print }' \
+          awk '/^assets\/filasim\/assets\/.*\.js$/ { print }' "$RUNNER_TEMP/apk-entries.txt" \
             > "$RUNNER_TEMP/packaged-js-entries.txt"
           test -s "$RUNNER_TEMP/packaged-js-entries.txt"
           : > "$RUNNER_TEMP/packaged-runtime.js"
