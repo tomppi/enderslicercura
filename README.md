@@ -59,11 +59,15 @@ The same pinned filaSim workspace exposes **Build Simulation** as a separate mod
 - Bed lift-traction and in-plane shear reaction fields
 - Bed and chamber temperature inputs through filaSim's locking-temperature ladder
 - XY-versus-Z shrink and optional as-printed density-aware stiffness
-- Native, persistent Markdown reports tied to the exact analyzed STL SHA-256
-- Strict Android validation of solver identity, filaSim commit, units, numerical ranges and calibration claims
+- Exact raw-worker output capture before UI rounding
+- Native Markdown reports bound to the STL SHA-256 and filaSim's cumulative 3×4 solver transform
+- Distinct analysis fingerprints for different orientations, placements, materials, process inputs and grids
+- Strict Android validation of solver identity, filaSim commit, units, transform invertibility, numerical ranges and calibration claims
 - Literature provenance for printed PLA/ABS thermal-expansion seeds
 
-After a successful build simulation, **Save Thermal FEA Report** stores an auditable report. The toolbar's **Report** button reopens or shares the report for that exact model fingerprint.
+Immediately before a build-simulation run, the Android host asks filaSim for the exact cumulative model transform. The auxiliary capture is fail-open: if provenance capture fails, the FEA calculation still runs unchanged, but no report is offered for that run.
+
+After a successful build simulation, **Save Thermal FEA Report** stores an auditable report. Different orientations of the same STL are stored as different analyses instead of overwriting one another. The toolbar's **Report** button opens or shares the newest valid report for that source model.
 
 This is a build-process thermo-mechanical approximation. It does not yet solve transient heat conduction, G-code path reheating, interlayer welding, creep, service-temperature softening or an absolute probability of bed release. Bed reactions are failure drivers, not a calibrated pass/fail verdict.
 
