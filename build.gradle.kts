@@ -4,10 +4,12 @@ plugins {
 }
 
 val filaSimCommit = "e7485ec22d4ebe8baca04190404fbb877c90e031"
-val filaSimFormat = 8
+val filaSimFormat = 9
 val filaSimScript = layout.projectDirectory.file("scripts/prepare-filasim-assets-with-pinch.py")
 val filaSimBaseScript = layout.projectDirectory.file("scripts/prepare-filasim-assets.py")
+val filaSimThermalPatch = layout.projectDirectory.file("scripts/filasim-thermal-integrity-patch.py")
 val filaSimBridge = layout.projectDirectory.file("app/src/main/filasim/android-bridge.js")
+val filaSimThermalWorkspace = layout.projectDirectory.file("app/src/main/filasim/thermal-integrity.js")
 val filaSimAssetsDirectory = layout.projectDirectory.dir("app/src/main/assets/filasim")
 val bumpMeshVerifier = layout.projectDirectory.file("scripts/verify-bumpmesh-assets.py")
 val bumpMeshAssetsDirectory = layout.projectDirectory.dir("app/src/main/assets/bumpmesh")
@@ -20,7 +22,9 @@ project(":app") {
         inputs.property("filaSimFormat", filaSimFormat)
         inputs.file(filaSimScript)
         inputs.file(filaSimBaseScript)
+        inputs.file(filaSimThermalPatch)
         inputs.file(filaSimBridge)
+        inputs.file(filaSimThermalWorkspace)
         outputs.dir(filaSimAssetsDirectory)
         workingDir(rootProject.projectDir)
         environment("NPM_CONFIG_ENGINE_STRICT", "true")
