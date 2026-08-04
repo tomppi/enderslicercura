@@ -9,7 +9,7 @@ import org.junit.Test
 
 class GcodeRoundTwoSafetyTest {
     @Test
-    fun canonicalizesAliasesAndTransportFramingBeforeSafetyDecisions() {
+    fun canonicalizesAliasesAndRejectsTransportFramingAtSafetyBoundaries() {
         val linear = requireNotNull(GcodeCommand.parse("N42 g001X10.5 Y2*77 ; framed"))
         assertEquals("G1", linear.opcode)
         assertTrue(linear.hasLineNumber)
@@ -20,6 +20,16 @@ class GcodeRoundTwoSafetyTest {
         assertEquals("G92", requireNotNull(GcodeCommand.parse("G092 E0")).opcode)
         assertEquals("M83", requireNotNull(GcodeCommand.parse("m083")).opcode)
         assertEquals(null, GcodeCommand.parse("G1.5 X1"))
+
+        listOf(
+            { GcodeCommandPolicy.requireCurviSupported(linear, inPrintableLayers = true) },
+            { GcodeCommandPolicy.requirePublishedSafe(linear, currentLayer = 0, lineNumber = 42) },
+            { GcodeCommandPolicy.requirePreviewSafe(linear, spatialMovesSeen = 0) },
+        ).forEach { consumer ->
+            val failure = runCatching(consumer).exceptionOrNull()
+            assertTrue(failure is IllegalArgumentException)
+            assertTrue(requireNotNull(failure).message.orEmpty().contains("framing"))
+        }
     }
 
     @Test
