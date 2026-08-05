@@ -2,11 +2,15 @@ import fs from "node:fs";
 import vm from "node:vm";
 import assert from "node:assert/strict";
 
-class FakeMutationObserver { observe() {} disconnect() {} }
+class FakeMutationObserver {
+  constructor(callback) { this.callback = callback; }
+  observe() {}
+  disconnect() {}
+}
 class FakeWorker {}
 const listeners = new Map();
 const windowObject = {
-  EnderSlicerAndroid: {}, Worker: FakeWorker,
+  EnderSlicerAndroid: {}, Worker: FakeWorker, MutationObserver: FakeMutationObserver,
   addEventListener(name, callback) { listeners.set(name, callback); },
   dispatchEvent() {}, location: { reload() {} },
   setTimeout, clearTimeout, setInterval, clearInterval,
@@ -57,6 +61,45 @@ assert.deepEqual(
   [0.18, 0.18, 0.13],
 );
 
+const observerGuard = fs.readFileSync(
+  new URL("../app/src/main/filasim/annealing-calculator-observer-guard.js", import.meta.url),
+  "utf8",
+);
+new vm.Script(observerGuard, { filename: "annealing-calculator-observer-guard.js" }).runInThisContext();
+globalThis.MutationObserver = windowObject.MutationObserver;
+
+const annealingObserverApi = windowObject.EnderSlicerAnnealingObserverTestApi;
+assert.ok(annealingObserverApi, "Anneal observer test API was not exposed");
+const annealingMount = { id: "enderslicer-annealing-calculator-mount" };
+const annealingInternal = { id: "ac-material-source", querySelector() { return null; } };
+assert.equal(
+  annealingObserverApi.recordsAddAnnealingMount([{ addedNodes: [annealingMount] }]),
+  true,
+  "React adding the Anneal mount must trigger installation",
+);
+assert.equal(
+  annealingObserverApi.recordsAddAnnealingMount([{ addedNodes: [annealingInternal] }]),
+  false,
+  "Anneal's own status/source mutations must not retrigger installUi",
+);
+
+const thermalAdapter = fs.readFileSync(
+  new URL("../app/src/main/filasim/thermal-material-profile-adapter.js", import.meta.url),
+  "utf8",
+);
+new vm.Script(thermalAdapter, { filename: "thermal-material-profile-adapter.js" }).runInThisContext();
+const thermalObserverApi = windowObject.EnderSlicerThermalMaterialObserverTestApi;
+assert.ok(thermalObserverApi, "Thermal material observer test API was not exposed");
+assert.equal(
+  thermalObserverApi.recordsAddThermalGroup([{ addedNodes: [{ id: "enderslicer-thermal-integrity" }] }]),
+  true,
+);
+assert.equal(
+  thermalObserverApi.recordsAddThermalGroup([{ addedNodes: [{ id: "ti-material-source" }] }]),
+  false,
+  "Thermal source-note mutations must not retrigger material synchronization",
+);
+
 const parts = [
   "annealing-calculator-01-core.js",
   "annealing-calculator-02-ui.js",
@@ -73,4 +116,4 @@ assert.equal(api.formatDuration(3661), "1 h 1 min");
 assert.equal(api.validateCycleInputs({ ovenTemperatureC: 80, initialTemperatureC: 23, targetToleranceC: 2, handlingTemperatureC: 45, roomTemperatureC: 23 }), true);
 assert.throws(() => api.validateCycleInputs({ ovenTemperatureC: 80, initialTemperatureC: 79, targetToleranceC: 2, handlingTemperatureC: 45, roomTemperatureC: 23 }), /core target/);
 assert.throws(() => api.validateCycleInputs({ ovenTemperatureC: 80, initialTemperatureC: 23, targetToleranceC: 2, handlingTemperatureC: 20, roomTemperatureC: 23 }), /handling target/);
-console.log("Annealing calculator and filaSim material-source contracts passed");
+console.log("Annealing calculator, observer guards and filaSim material-source contracts passed");
