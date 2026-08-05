@@ -33,6 +33,24 @@ _base_ui = thermal.patch_thermal_ui_runtime
 def patch_ui_v12(target: pathlib.Path) -> None:
     _base_ui(target)
     text = target.read_text(encoding="utf-8")
+
+    # Replace the feature-local Worker proxy and request listener churn with the
+    # shared broker injected ahead of every Thermal/Anneal runtime by v13.
+    worker_start = text.find("  function installWorkerAccess() {")
+    worker_end = text.find("  function finite(", worker_start + 1)
+    if worker_start < 0 or worker_end < 0:
+        raise RuntimeError("Thermal UI Worker access block could not be located")
+    broker_request = '''  const workerBroker = window.EnderSlicerFilaSimWorkerBroker;
+  if (!workerBroker) throw new Error("filaSim worker broker is unavailable");
+
+  function request(op, payload = {}, onProgress = null) {
+    return workerBroker.request(op, payload, onProgress);
+  }
+
+'''
+    text = text[:worker_start] + broker_request + text[worker_end:]
+    text = text.replace("  installWorkerAccess();\n", "", 1)
+
     # Keep the persistent Android report schema compatible in this feature
     # round. The package transform marker records the physical-model revision.
     physical = 'solverModel: "voxel-finite-volume-contact-heater-thermomechanical-v2",'
@@ -71,6 +89,10 @@ def patch_ui_v12(target: pathlib.Path) -> None:
         raise RuntimeError("Thermal inline material warning is missing")
     if "String.fromCharCode(10)" not in verified:
         raise RuntimeError("Thermal inline warning does not use escape-safe line breaks")
+    if "EnderSlicerFilaSimWorkerBroker" not in verified:
+        raise RuntimeError("Thermal runtime is not using the shared worker broker")
+    if "new Proxy(ExistingWorker" in verified:
+        raise RuntimeError("Thermal runtime still installs a feature-local Worker proxy")
     subprocess.run(["node", "--check", str(target)], check=True)
 
 
