@@ -16,6 +16,7 @@ ANNEALING_PARTIAL_DURATION = pathlib.Path(__file__).with_name("filasim-annealing
 ANNEALING_SHORT_DURATION_STABILITY = pathlib.Path(__file__).with_name(
     "filasim-annealing-short-duration-stability.py"
 )
+ANNEALING_THERMAL_ONLY = pathlib.Path(__file__).with_name("filasim-annealing-thermal-only.py")
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
 MATERIAL_RUNTIME = PROJECT_ROOT / "app/src/main/filasim/material-profile-source.js"
 THERMAL_MATERIAL_ADAPTER = PROJECT_ROOT / "app/src/main/filasim/thermal-material-profile-adapter.js"
@@ -28,6 +29,7 @@ ANNEALING_UI_PARTS = (
     PROJECT_ROOT / "app/src/main/filasim/annealing-calculator-03a-workload-preflight.js",
     PROJECT_ROOT / "app/src/main/filasim/annealing-calculator-03b-materials.js",
     PROJECT_ROOT / "app/src/main/filasim/annealing-calculator-03c-partial-duration.js",
+    PROJECT_ROOT / "app/src/main/filasim/annealing-calculator-03d-thermal-only.js",
     PROJECT_ROOT / "app/src/main/filasim/annealing-calculator-04-report.js",
 )
 for path in (
@@ -37,6 +39,7 @@ for path in (
     ANNEALING_3D_RESULT_FIX,
     ANNEALING_PARTIAL_DURATION,
     ANNEALING_SHORT_DURATION_STABILITY,
+    ANNEALING_THERMAL_ONLY,
     MATERIAL_RUNTIME,
     THERMAL_MATERIAL_ADAPTER,
     ANNEALING_OBSERVER_GUARD,
@@ -59,6 +62,7 @@ for transform in (
     ANNEALING_3D_RESULT_FIX,
     ANNEALING_PARTIAL_DURATION,
     ANNEALING_SHORT_DURATION_STABILITY,
+    ANNEALING_THERMAL_ONLY,
 ):
     if transform not in thermal.THERMAL_TRANSFORMS:
         thermal.THERMAL_TRANSFORMS = (*thermal.THERMAL_TRANSFORMS, transform)
@@ -68,6 +72,7 @@ for marker in (
     ".enderslicer-annealing-3d-result-fix-v1",
     ".enderslicer-annealing-partial-duration-v1",
     ".enderslicer-annealing-short-duration-stability-v1",
+    ".enderslicer-annealing-thermal-only-v1",
 ):
     if marker not in thermal.THERMAL_MARKERS:
         thermal.THERMAL_MARKERS = (*thermal.THERMAL_MARKERS, marker)
@@ -110,7 +115,8 @@ def build_annealing_runtime(target: pathlib.Path) -> None:
         "filaSimMaterialProfile",
         "runCycleWithVoxelBudgetAndPartialResults",
         "120 million solid-cell steps",
-        "thermalOnly: true",
+        "thermalOnly = true",
+        "includeVisualizationFields = stage === \"heating\"",
     ):
         if contract not in verified:
             raise RuntimeError(f"Generated annealing runtime is missing {contract!r}")
@@ -206,7 +212,8 @@ thermal.THERMAL_PACKAGE_MARKER_TEXT = (
     "transforms=solver,hardening,audit-fixes,progress-v2,react-tab-v1,"
     "bugfix-round1,bugfix-round2,linear-fast-path-v1,physical-model-v1,"
     "annealing-v8,filasim-material-source-v1,observer-guard-v1,step-budget-v2,"
-    "3d-result-fix-v1,partial-duration-v1,short-duration-stability-v1\n"
+    "3d-result-fix-v1,partial-duration-v1,short-duration-stability-v1,"
+    "thermal-only-v1\n"
 )
 
 if __name__ == "__main__":
