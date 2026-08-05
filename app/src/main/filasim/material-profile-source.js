@@ -19,6 +19,7 @@
   ]);
   const numberOr = (value, fallback) => Number.isFinite(Number(value)) ? Number(value) : fallback;
   const positiveOr = (value, fallback) => Number.isFinite(Number(value)) && Number(value) > 0 ? Number(value) : fallback;
+  let cachedSnapshot = null;
 
   function inferFamily(name) {
     const n = String(name || "").toUpperCase().replace(/[\s_-]+/g, "");
@@ -30,23 +31,53 @@
     if (n.includes("PLA")) return "PLA";
     return "GENERIC";
   }
+
+  function normalizeSnapshot(snapshot, source) {
+    const materials = Array.isArray(snapshot?.materials)
+      ? snapshot.materials.filter((material) => material && material.process !== "isotropic")
+      : [];
+    if (!materials.length) return null;
+    return Object.freeze({
+      activeMaterialName: String(snapshot.activeMaterialName || materials[0].name),
+      materials: Object.freeze(materials.slice()),
+      print: snapshot.print || null,
+      source,
+    });
+  }
+
   function persistedSnapshot() {
     try {
       const data = JSON.parse(localStorage.getItem("sig.settings.v1") || "null");
-      const materials = Array.isArray(data?.materials) ? data.materials.filter((m) => m && m.process !== "isotropic") : [];
-      if (materials.length) return { activeMaterialName: materials[0].name, materials, print: null, source: "filaSim persisted material library" };
+      return normalizeSnapshot(data, "filaSim persisted material library");
     } catch (_) { /* optional */ }
     return null;
   }
+
+  function fallbackSnapshot() {
+    return Object.freeze({
+      activeMaterialName: "PLA",
+      materials: Object.freeze(FALLBACK_MATERIALS.map((material) => Object.freeze({ ...material }))),
+      print: null,
+      source: "pinned filaSim default fallback",
+    });
+  }
+
   function getSnapshot() {
+    if (cachedSnapshot) return cachedSnapshot;
     try {
       const live = window.EnderSlicerFilaSimMaterialSource?.getSnapshot?.();
-      if (live?.materials?.length) return { ...live, source: "filaSim live material library" };
+      const normalized = normalizeSnapshot(live, "filaSim live material library");
+      if (normalized) return (cachedSnapshot = normalized);
     } catch (_) { /* bridge not ready */ }
-    return persistedSnapshot() || { activeMaterialName: "PLA", materials: FALLBACK_MATERIALS.map((m) => ({ ...m })), print: null, source: "pinned filaSim default fallback" };
+    return (cachedSnapshot = persistedSnapshot() || fallbackSnapshot());
   }
+
+  function invalidateSnapshot() {
+    cachedSnapshot = null;
+  }
+
   function fdmMaterials(snapshot = getSnapshot()) {
-    return snapshot.materials.filter((m) => m && m.process !== "isotropic");
+    return snapshot.materials;
   }
   function resolveMaterialFromSnapshot(snapshot, requestedName) {
     const materials = fdmMaterials(snapshot);
@@ -87,8 +118,11 @@
   }
   function resolveMaterial(name) { return resolveMaterialFromSnapshot(getSnapshot(), name); }
   function setActiveMaterial(name) {
-    try { return window.EnderSlicerFilaSimMaterialSource?.setActiveMaterial?.(name) === true; }
-    catch (_) { return false; }
+    try {
+      const changed = window.EnderSlicerFilaSimMaterialSource?.setActiveMaterial?.(name) === true;
+      if (changed) invalidateSnapshot();
+      return changed;
+    } catch (_) { return false; }
   }
   function populateSelect(select, materials, preferredName) {
     const names = materials.map((m) => String(m.name));
@@ -106,6 +140,12 @@
     if (selected) select.value = selected;
     return selected;
   }
+
+  window.addEventListener(CHANGE_EVENT, invalidateSnapshot);
+  window.addEventListener("storage", (event) => {
+    if (event?.key === "sig.settings.v1") invalidateSnapshot();
+  });
+
   window.EnderSlicerFilaSimProfiles = Object.freeze({
     eventName: CHANGE_EVENT, getSnapshot, fdmMaterials, inferFamily,
     resolveMaterial, resolveMaterialFromSnapshot, setActiveMaterial, populateSelect,
