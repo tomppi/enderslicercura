@@ -13,6 +13,9 @@ ANNEALING_TRANSFORM = pathlib.Path(__file__).with_name("filasim-annealing-cycle.
 MATERIAL_TRANSFORM = pathlib.Path(__file__).with_name("filasim-annealing-material-source.py")
 ANNEALING_3D_RESULT_FIX = pathlib.Path(__file__).with_name("filasim-annealing-3d-result-fix.py")
 ANNEALING_PARTIAL_DURATION = pathlib.Path(__file__).with_name("filasim-annealing-partial-duration.py")
+ANNEALING_SHORT_DURATION_STABILITY = pathlib.Path(__file__).with_name(
+    "filasim-annealing-short-duration-stability.py"
+)
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
 MATERIAL_RUNTIME = PROJECT_ROOT / "app/src/main/filasim/material-profile-source.js"
 THERMAL_MATERIAL_ADAPTER = PROJECT_ROOT / "app/src/main/filasim/thermal-material-profile-adapter.js"
@@ -33,6 +36,7 @@ for path in (
     MATERIAL_TRANSFORM,
     ANNEALING_3D_RESULT_FIX,
     ANNEALING_PARTIAL_DURATION,
+    ANNEALING_SHORT_DURATION_STABILITY,
     MATERIAL_RUNTIME,
     THERMAL_MATERIAL_ADAPTER,
     ANNEALING_OBSERVER_GUARD,
@@ -54,6 +58,7 @@ for transform in (
     MATERIAL_TRANSFORM,
     ANNEALING_3D_RESULT_FIX,
     ANNEALING_PARTIAL_DURATION,
+    ANNEALING_SHORT_DURATION_STABILITY,
 ):
     if transform not in thermal.THERMAL_TRANSFORMS:
         thermal.THERMAL_TRANSFORMS = (*thermal.THERMAL_TRANSFORMS, transform)
@@ -62,6 +67,7 @@ for marker in (
     ".enderslicer-filasim-material-source-v1",
     ".enderslicer-annealing-3d-result-fix-v1",
     ".enderslicer-annealing-partial-duration-v1",
+    ".enderslicer-annealing-short-duration-stability-v1",
 ):
     if marker not in thermal.THERMAL_MARKERS:
         thermal.THERMAL_MARKERS = (*thermal.THERMAL_MARKERS, marker)
@@ -199,8 +205,8 @@ thermal.THERMAL_PACKAGE_MARKER_TEXT = (
     f"filasim={thermal.BASE.FILASIM_COMMIT}\n"
     "transforms=solver,hardening,audit-fixes,progress-v2,react-tab-v1,"
     "bugfix-round1,bugfix-round2,linear-fast-path-v1,physical-model-v1,"
-    "annealing-v7,filasim-material-source-v1,observer-guard-v1,step-budget-v2,"
-    "3d-result-fix-v1,partial-duration-v1\n"
+    "annealing-v8,filasim-material-source-v1,observer-guard-v1,step-budget-v2,"
+    "3d-result-fix-v1,partial-duration-v1,short-duration-stability-v1\n"
 )
 
 if __name__ == "__main__":
