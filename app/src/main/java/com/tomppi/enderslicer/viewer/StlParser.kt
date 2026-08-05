@@ -213,8 +213,9 @@ object StlParser {
 
     /**
      * Parses the actual ASCII STL grammar instead of globally grouping every
-     * three lines beginning with `vertex`. The optional consumer keeps the
-     * counting and materialization passes on exactly the same validation path.
+     * three lines beginning with `vertex`. One reusable token-range buffer keeps
+     * both passes on the same grammar without regex, split lists or lowercased
+     * line copies.
      */
     private fun scanAscii(file: File, maxTriangles: Int, consumer: TriangleConsumer?): AsciiScan {
         var state = AsciiState.EXPECT_FACET_OR_SOLID
@@ -235,56 +236,73 @@ object StlParser {
         var originX: Double? = null
         var originY: Double? = null
         var originZ: Double? = null
+        val tokenRanges = IntArray(MAX_ASCII_TOKENS * 2)
 
         file.bufferedReader().useLines { lines ->
             lines.forEachIndexed { index, raw ->
                 val lineNumber = index + 1
-                val trimmed = raw.trim()
-                if (trimmed.isEmpty()) return@forEachIndexed
+                val tokenCount = tokenize(raw, tokenRanges)
+                if (tokenCount == 0) return@forEachIndexed
                 require(!wrapperClosed) { "Unexpected content after endsolid at line $lineNumber" }
-                val tokens = trimmed.split(WHITESPACE)
-                val keyword = tokens.first().lowercase()
 
-                when (keyword) {
-                    "solid" -> {
+                fun tokenEquals(token: Int, expected: String): Boolean {
+                    if (token >= tokenCount) return false
+                    return raw.regionMatches(
+                        thisOffset = tokenRanges[token * 2],
+                        other = expected,
+                        otherOffset = 0,
+                        length = tokenRanges[token * 2 + 1] - tokenRanges[token * 2],
+                        ignoreCase = true,
+                    ) && expected.length == tokenRanges[token * 2 + 1] - tokenRanges[token * 2]
+                }
+
+                fun number(token: Int, subject: String): Double {
+                    require(token < tokenCount) { "Invalid $subject number at line $lineNumber" }
+                    val start = tokenRanges[token * 2]
+                    val end = tokenRanges[token * 2 + 1]
+                    return parseFinite(raw, start, end, subject, lineNumber)
+                }
+
+                when {
+                    tokenEquals(0, "solid") -> {
                         require(state == AsciiState.EXPECT_FACET_OR_SOLID && !wrapperOpen && !sawFacet) {
                             "Unexpected solid at line $lineNumber"
                         }
                         wrapperOpen = true
                         state = AsciiState.EXPECT_FACET
                     }
-                    "facet" -> {
+                    tokenEquals(0, "facet") -> {
                         require(
                             state == AsciiState.EXPECT_FACET_OR_SOLID ||
                                 state == AsciiState.EXPECT_FACET,
                         ) { "Unexpected facet at line $lineNumber" }
-                        require(tokens.size == 5 && tokens[1].equals("normal", ignoreCase = true)) {
+                        require(tokenCount == 5 && tokenEquals(1, "normal")) {
                             "Malformed facet normal at line $lineNumber"
                         }
-                        parseFinite(tokens[2], "facet normal", lineNumber)
-                        parseFinite(tokens[3], "facet normal", lineNumber)
-                        parseFinite(tokens[4], "facet normal", lineNumber)
+                        number(2, "facet normal")
+                        number(3, "facet normal")
+                        number(4, "facet normal")
                         sawFacet = true
                         vertexCount = 0
                         state = AsciiState.EXPECT_OUTER_LOOP
                     }
-                    "outer" -> {
+                    tokenEquals(0, "outer") -> {
                         require(state == AsciiState.EXPECT_OUTER_LOOP) {
                             "Unexpected outer loop at line $lineNumber"
                         }
-                        require(tokens.size == 2 && tokens[1].equals("loop", ignoreCase = true)) {
+                        require(tokenCount == 2 && tokenEquals(1, "loop")) {
                             "Malformed outer loop at line $lineNumber"
                         }
                         state = AsciiState.EXPECT_VERTEX
                     }
-                    "vertex" -> {
+                    tokenEquals(0, "vertex") -> {
                         require(state == AsciiState.EXPECT_VERTEX && vertexCount < 3) {
                             "Vertex outside a three-vertex outer loop at line $lineNumber"
                         }
-                        require(tokens.size == 4) { "Malformed vertex at line $lineNumber" }
-                        val x = parseFinite(tokens[1], "vertex", lineNumber)
-                        val y = parseFinite(tokens[2], "vertex", lineNumber)
-                        val z = parseFinite(tokens[3], "vertex", lineNumber)
+                        require(tokenCount == 4) { "Malformed vertex at line $lineNumber" }
+                        val x = number(1, "vertex")
+                        val y = number(2, "vertex")
+                        val z = number(3, "vertex")
                         if (originX == null) {
                             originX = x
                             originY = y
@@ -298,14 +316,14 @@ object StlParser {
                         vertexCount++
                         if (vertexCount == 3) state = AsciiState.EXPECT_END_LOOP
                     }
-                    "endloop" -> {
-                        require(state == AsciiState.EXPECT_END_LOOP && tokens.size == 1) {
+                    tokenEquals(0, "endloop") -> {
+                        require(state == AsciiState.EXPECT_END_LOOP && tokenCount == 1) {
                             "Facet must contain exactly three vertices before endloop at line $lineNumber"
                         }
                         state = AsciiState.EXPECT_END_FACET
                     }
-                    "endfacet" -> {
-                        require(state == AsciiState.EXPECT_END_FACET && tokens.size == 1) {
+                    tokenEquals(0, "endfacet") -> {
+                        require(state == AsciiState.EXPECT_END_FACET && tokenCount == 1) {
                             "Unexpected endfacet at line $lineNumber"
                         }
                         triangleCount++
@@ -315,13 +333,16 @@ object StlParser {
                         consumer?.accept(x0, y0, z0, x1, y1, z1, x2, y2, z2)
                         state = AsciiState.EXPECT_FACET
                     }
-                    "endsolid" -> {
+                    tokenEquals(0, "endsolid") -> {
                         require(wrapperOpen && state == AsciiState.EXPECT_FACET) {
                             "Unexpected endsolid at line $lineNumber"
                         }
                         wrapperClosed = true
                     }
-                    else -> error("Unsupported ASCII STL token '$keyword' at line $lineNumber")
+                    else -> {
+                        val keyword = raw.substring(tokenRanges[0], tokenRanges[1])
+                        error("Unsupported ASCII STL token '$keyword' at line $lineNumber")
+                    }
                 }
             }
         }
@@ -339,7 +360,30 @@ object StlParser {
         )
     }
 
-    private fun parseFinite(token: String, subject: String, lineNumber: Int): Double {
+    private fun tokenize(line: String, ranges: IntArray): Int {
+        var index = 0
+        var count = 0
+        while (index < line.length) {
+            while (index < line.length && line[index].isWhitespace()) index++
+            if (index >= line.length) break
+            require(count < MAX_ASCII_TOKENS) { "ASCII STL line contains too many tokens" }
+            val start = index
+            while (index < line.length && !line[index].isWhitespace()) index++
+            ranges[count * 2] = start
+            ranges[count * 2 + 1] = index
+            count++
+        }
+        return count
+    }
+
+    private fun parseFinite(
+        line: String,
+        start: Int,
+        end: Int,
+        subject: String,
+        lineNumber: Int,
+    ): Double {
+        val token = line.substring(start, end)
         val value = token.toDoubleOrNull()
             ?: throw IllegalArgumentException("Invalid $subject number '$token' at line $lineNumber")
         require(value.isFinite()) { "Non-finite $subject at line $lineNumber" }
@@ -407,9 +451,9 @@ object StlParser {
 
     private const val FLOATS_PER_TRIANGLE = 18
     private const val BINARY_BLOCK_TRIANGLES = 4_096
+    private const val MAX_ASCII_TOKENS = 8
     private const val STL_HEADER_BYTES = 84L
     private const val STL_TRIANGLE_BYTES = 50L
     private const val NORMAL_EPSILON = 1e-12f
     private const val NORMAL_EPSILON_DOUBLE = 1e-18
-    private val WHITESPACE = Regex("\\s+")
 }
