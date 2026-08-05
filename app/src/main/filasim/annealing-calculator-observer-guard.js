@@ -47,6 +47,7 @@
                 installedMount = null;
                 return;
               }
+              // Mutations produced by the installed UI must not call installUi again.
               if (currentMount === installedMount) return;
               installedMount = currentMount;
               callback(records, observer);
