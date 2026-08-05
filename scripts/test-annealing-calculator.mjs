@@ -82,6 +82,13 @@ assert.equal(
   false,
   "Anneal's own status/source mutations must not retrigger installUi",
 );
+let guardedInstallCalls = 0;
+function installFilaSimMaterialUi() { guardedInstallCalls += 1; }
+const guardedObserver = new windowObject.MutationObserver(installFilaSimMaterialUi);
+guardedObserver.callback([{ addedNodes: [annealingInternal] }], guardedObserver);
+assert.equal(guardedInstallCalls, 0, "internal Anneal mutations must not execute installUi");
+guardedObserver.callback([{ addedNodes: [annealingMount] }], guardedObserver);
+assert.equal(guardedInstallCalls, 1, "the React Anneal mount must execute installUi exactly once");
 
 const thermalAdapter = fs.readFileSync(
   new URL("../app/src/main/filasim/thermal-material-profile-adapter.js", import.meta.url),
