@@ -52,11 +52,13 @@ jobs:
             scripts/filasim-thermal-integrity-linear-fast-path.py \
             scripts/filasim-thermal-integrity-physical-model-v1.py \
             scripts/filasim-thermal-integrity-physical-contract-fix.py \
+            scripts/filasim_annealing_common.py \
+            scripts/filasim_annealing_core.py \
+            scripts/filasim_annealing_web.py \
             scripts/filasim-annealing-cycle.py \
             scripts/prepare-filasim-assets-with-thermal-integrity-v12.py \
             scripts/prepare-filasim-assets-with-annealing-v13.py \
             scripts/prepare-filasim-assets-with-pinch.py
-          node --check app/src/main/filasim/annealing-calculator.js
           node --check scripts/test-annealing-calculator.mjs
           node scripts/test-annealing-calculator.mjs
 
