@@ -5,16 +5,24 @@
   const MOUNT_ID = "enderslicer-annealing-calculator-mount";
   const CALLBACK_NAMES = new Set(["installUi", "installFilaSimMaterialUi"]);
 
-  function nodeContainsMount(node) {
-    if (!node || typeof node !== "object") return false;
-    if (node.id === MOUNT_ID) return true;
-    return typeof node.querySelector === "function" && Boolean(node.querySelector(`#${MOUNT_ID}`));
+  function mountFromNode(node) {
+    if (!node || typeof node !== "object") return null;
+    if (node.id === MOUNT_ID) return node;
+    return typeof node.querySelector === "function" ? node.querySelector(`#${MOUNT_ID}`) : null;
+  }
+
+  function mountFromRecords(records) {
+    for (const record of Array.from(records || [])) {
+      for (const node of Array.from(record?.addedNodes || [])) {
+        const mount = mountFromNode(node);
+        if (mount) return mount;
+      }
+    }
+    return null;
   }
 
   function recordsAddAnnealingMount(records) {
-    return Array.from(records || []).some((record) =>
-      Array.from(record?.addedNodes || []).some(nodeContainsMount)
-    );
+    return Boolean(mountFromRecords(records));
   }
 
   function installObserverGuard() {
@@ -31,7 +39,7 @@
         const guardedCallback =
           typeof callback === "function" && CALLBACK_NAMES.has(callback.name)
             ? (records, observer) => {
-                const currentMount = document.getElementById(MOUNT_ID);
+                const currentMount = document.getElementById(MOUNT_ID) || mountFromRecords(records);
                 if (!currentMount) {
                   // T and A are reconciled onto the same React DOM element. The
                   // id disappearing means Anneal is inactive; clear the identity
