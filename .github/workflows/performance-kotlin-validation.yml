@@ -42,12 +42,30 @@ jobs:
             "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
             -d "$payload"
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
       - uses: gradle/actions/setup-gradle@v4
+
+      - name: Fetch pinned Cura definitions
+        run: |
+          chmod +x scripts/fetch-cura-resources.sh
+          scripts/fetch-cura-resources.sh
+          grep -q 'Cura resources: 5.11.0-beta.1' app/src/main/assets/cura/definitions/version.txt
+          for name in \
+            fdmprinter \
+            fdmextruder \
+            creality_base \
+            creality_base_extruder_0 \
+            creality_ender3; do
+            test -s "app/src/main/assets/cura/definitions/$name.def.json"
+          done
 
       - name: Compile and run JVM unit tests
         run: |
