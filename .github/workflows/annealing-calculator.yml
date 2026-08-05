@@ -11,6 +11,7 @@ on:
 
 permissions:
   contents: read
+  statuses: write
 
 concurrency:
   group: annealing-calculator-${{ github.ref }}
@@ -20,6 +21,7 @@ env:
   FILASIM_COMMIT: e7485ec22d4ebe8baca04190404fbb877c90e031
   NODE_VERSION: 22.18.0
   WASM_PACK_VERSION: 0.15.0
+  STATUS_CONTEXT: annealing-calculator/contract
 
 jobs:
   annealing-contract:
@@ -27,6 +29,24 @@ jobs:
     timeout-minutes: 50
     steps:
       - uses: actions/checkout@v4
+
+      - name: Mark annealing checks pending
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          payload="$(jq -n \
+            --arg state pending \
+            --arg context "$STATUS_CONTEXT" \
+            --arg description "Geometry-aware annealing validation is running" \
+            --arg target_url "$target_url" \
+            '{state:$state,context:$context,description:$description,target_url:$target_url}')"
+          curl -fsS -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -d "$payload"
 
       - uses: actions/setup-node@v4
         with:
@@ -113,3 +133,29 @@ jobs:
           test -f dist/index.html
           grep -R -q 'enderslicer-annealing-workspace' dist/assets
           grep -R -q 'enderslicer-annealing-calculator-mount' dist/assets
+
+      - name: Publish annealing check status
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          state=failure
+          description="Geometry-aware annealing validation failed"
+          if [ "$JOB_STATUS" = success ]; then
+            state=success
+            description="Geometry-aware annealing validation passed"
+          fi
+          target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          payload="$(jq -n \
+            --arg state "$state" \
+            --arg context "$STATUS_CONTEXT" \
+            --arg description "$description" \
+            --arg target_url "$target_url" \
+            '{state:$state,context:$context,description:$description,target_url:$target_url}')"
+          curl -fsS -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -d "$payload"
