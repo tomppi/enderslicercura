@@ -60,7 +60,7 @@ jobs:
         with:
           tool: wasm-pack@${{ env.WASM_PACK_VERSION }}
 
-      - name: Validate deterministic scripts and Android runtime
+      - name: Validate Python transformation syntax
         run: |
           python3 -m py_compile \
             scripts/filasim-thermal-integrity-patch.py \
@@ -85,16 +85,31 @@ jobs:
             scripts/prepare-filasim-assets-with-thermal-integrity-v12.py \
             scripts/prepare-filasim-assets-with-annealing-v13.py \
             scripts/prepare-filasim-assets-with-pinch.py
+
+      - name: Validate JavaScript syntax
+        run: |
           node --check app/src/main/filasim/filasim-worker-broker.js
           node --check app/src/main/filasim/material-profile-source.js
+          node --check app/src/main/filasim/thermal-integrity-guard.js
+          node --check app/src/main/filasim/thermal-integrity-workspace.js
+          node --check app/src/main/filasim/thermal-integrity-live-progress.js
           node --check app/src/main/filasim/thermal-material-profile-adapter.js
+          node --check app/src/main/filasim/annealing-calculator-01-core.js
           node --check app/src/main/filasim/annealing-calculator-03c-partial-duration.js
           node --check app/src/main/filasim/annealing-calculator-03d-thermal-only.js
           node --check app/src/main/filasim/annealing-calculator-03e-broker-cancel.js
           node --check scripts/test-filasim-worker-broker.mjs
+          node --check scripts/test-thermal-observer-guard.mjs
           node --check scripts/test-annealing-calculator.mjs
-          node scripts/test-filasim-worker-broker.mjs
-          node scripts/test-annealing-calculator.mjs
+
+      - name: Test shared filaSim worker broker
+        run: node scripts/test-filasim-worker-broker.mjs
+
+      - name: Test thermal observer and broker contracts
+        run: node scripts/test-thermal-observer-guard.mjs
+
+      - name: Test annealing runtime contracts
+        run: node scripts/test-annealing-calculator.mjs
 
       - name: Patch exact pinned filaSim source
         shell: bash
