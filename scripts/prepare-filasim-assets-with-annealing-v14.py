@@ -12,14 +12,21 @@ HOT_OBJECT_TRANSFORMS = (
     pathlib.Path(__file__).with_name("filasim-nearby-hot-object-thermal.py"),
     pathlib.Path(__file__).with_name("filasim-nearby-hot-object-api.py"),
     pathlib.Path(__file__).with_name("filasim-nearby-hot-object-viewer.py"),
+    pathlib.Path(__file__).with_name("filasim-workspace-tab-state-fix.py"),
 )
 HOT_OBJECT_CORE_FRAGMENT = pathlib.Path(__file__).with_name("filasim-nearby-hot-object-core.rs")
 HOT_OBJECT_OBSERVER_TEST = pathlib.Path(__file__).with_name(
     "test-nearby-hot-object-observer-guard.mjs"
 )
+WORKSPACE_TAB_REMOUNT_TEST = pathlib.Path(__file__).with_name(
+    "test-workspace-tab-remount.mjs"
+)
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
 HOT_OBJECT_OBSERVER_GUARD = (
     PROJECT_ROOT / "app/src/main/filasim/nearby-hot-object-observer-guard.js"
+)
+ANNEALING_OBSERVER_GUARD = (
+    PROJECT_ROOT / "app/src/main/filasim/annealing-calculator-observer-guard.js"
 )
 HOT_OBJECT_RUNTIME_PARTS = (
     HOT_OBJECT_OBSERVER_GUARD,
@@ -32,6 +39,8 @@ for path in (
     *HOT_OBJECT_TRANSFORMS,
     HOT_OBJECT_CORE_FRAGMENT,
     HOT_OBJECT_OBSERVER_TEST,
+    WORKSPACE_TAB_REMOUNT_TEST,
+    ANNEALING_OBSERVER_GUARD,
     *HOT_OBJECT_RUNTIME_PARTS,
 ):
     if not path.is_file():
@@ -51,6 +60,7 @@ for marker in (
     ".enderslicer-nearby-hot-object-thermal-v1",
     ".enderslicer-nearby-hot-object-api-v1",
     ".enderslicer-nearby-hot-object-viewer-v1",
+    ".enderslicer-workspace-tab-state-fix-v1",
 ):
     if marker not in thermal.THERMAL_MARKERS:
         thermal.THERMAL_MARKERS = (*thermal.THERMAL_MARKERS, marker)
@@ -68,6 +78,15 @@ def patch_nearby_hot_object_runtime(target: pathlib.Path) -> None:
         ["node", str(HOT_OBJECT_OBSERVER_TEST), str(HOT_OBJECT_OBSERVER_GUARD)],
         check=True,
     )
+    subprocess.run(
+        [
+            "node",
+            str(WORKSPACE_TAB_REMOUNT_TEST),
+            str(HOT_OBJECT_OBSERVER_GUARD),
+            str(ANNEALING_OBSERVER_GUARD),
+        ],
+        check=True,
+    )
     target.write_text(
         "".join(path.read_text(encoding="utf-8") for path in HOT_OBJECT_RUNTIME_PARTS),
         encoding="utf-8",
@@ -78,6 +97,8 @@ def patch_nearby_hot_object_runtime(target: pathlib.Path) -> None:
         "Prevent Nearby Hot Object MutationObserver feedback loops",
         "EnderSlicerNearbyObserverTestApi",
         "recordsAddThermalMount",
+        "installedMount",
+        "document.getElementById(MOUNT_ID)",
         "Nearby Hot Object",
         "Select nearest point on model",
         "sourceTargetMm",
@@ -109,10 +130,11 @@ thermal.THERMAL_PACKAGE_MARKER_TEXT = (
     f"filasim={thermal.BASE.FILASIM_COMMIT}\n"
     "transforms=solver,hardening,audit-fixes,progress-v2,react-tab-v1,"
     "bugfix-round1,bugfix-round2,linear-fast-path-v1,physical-model-v1,"
-    "annealing-v8,filasim-material-source-v1,observer-guard-v1,step-budget-v2,"
+    "annealing-v8,filasim-material-source-v1,observer-guard-v2,step-budget-v2,"
     "3d-result-fix-v1,partial-duration-v1,short-duration-stability-v1,"
-    "nearby-hot-object-observer-guard-v1,nearby-hot-object-thermal-v1,"
-    "nearby-hot-object-api-v1,nearby-hot-object-viewer-v1\n"
+    "nearby-hot-object-observer-guard-v2,nearby-hot-object-thermal-v1,"
+    "nearby-hot-object-api-v1,nearby-hot-object-viewer-v1,"
+    "workspace-tab-state-fix-v1,workspace-tab-remount-test-v1\n"
 )
 
 if __name__ == "__main__":
