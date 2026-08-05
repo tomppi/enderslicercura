@@ -12,6 +12,7 @@ V12 = pathlib.Path(__file__).with_name("prepare-filasim-assets-with-thermal-inte
 ANNEALING_TRANSFORM = pathlib.Path(__file__).with_name("filasim-annealing-cycle.py")
 MATERIAL_TRANSFORM = pathlib.Path(__file__).with_name("filasim-annealing-material-source.py")
 ANNEALING_3D_RESULT_FIX = pathlib.Path(__file__).with_name("filasim-annealing-3d-result-fix.py")
+ANNEALING_PARTIAL_DURATION = pathlib.Path(__file__).with_name("filasim-annealing-partial-duration.py")
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
 MATERIAL_RUNTIME = PROJECT_ROOT / "app/src/main/filasim/material-profile-source.js"
 THERMAL_MATERIAL_ADAPTER = PROJECT_ROOT / "app/src/main/filasim/thermal-material-profile-adapter.js"
@@ -23,6 +24,7 @@ ANNEALING_UI_PARTS = (
     PROJECT_ROOT / "app/src/main/filasim/annealing-calculator-03-cycle.js",
     PROJECT_ROOT / "app/src/main/filasim/annealing-calculator-03a-workload-preflight.js",
     PROJECT_ROOT / "app/src/main/filasim/annealing-calculator-03b-materials.js",
+    PROJECT_ROOT / "app/src/main/filasim/annealing-calculator-03c-partial-duration.js",
     PROJECT_ROOT / "app/src/main/filasim/annealing-calculator-04-report.js",
 )
 for path in (
@@ -30,6 +32,7 @@ for path in (
     ANNEALING_TRANSFORM,
     MATERIAL_TRANSFORM,
     ANNEALING_3D_RESULT_FIX,
+    ANNEALING_PARTIAL_DURATION,
     MATERIAL_RUNTIME,
     THERMAL_MATERIAL_ADAPTER,
     ANNEALING_OBSERVER_GUARD,
@@ -46,13 +49,19 @@ v12 = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(v12)
 thermal = v12.thermal
 
-for transform in (ANNEALING_TRANSFORM, MATERIAL_TRANSFORM, ANNEALING_3D_RESULT_FIX):
+for transform in (
+    ANNEALING_TRANSFORM,
+    MATERIAL_TRANSFORM,
+    ANNEALING_3D_RESULT_FIX,
+    ANNEALING_PARTIAL_DURATION,
+):
     if transform not in thermal.THERMAL_TRANSFORMS:
         thermal.THERMAL_TRANSFORMS = (*thermal.THERMAL_TRANSFORMS, transform)
 for marker in (
     ".enderslicer-annealing-cycle-v1",
     ".enderslicer-filasim-material-source-v1",
     ".enderslicer-annealing-3d-result-fix-v1",
+    ".enderslicer-annealing-partial-duration-v1",
 ):
     if marker not in thermal.THERMAL_MARKERS:
         thermal.THERMAL_MARKERS = (*thermal.THERMAL_MARKERS, marker)
@@ -87,10 +96,13 @@ def build_annealing_runtime(target: pathlib.Path) -> None:
     for contract in (
         "coldest material voxel",
         "readinessTemperatureC",
-        "Calculate Complete Oven Cycle",
+        "Simulate Oven Exposure & Cooling",
+        "partial temperature field is shown",
+        "initialTemperatureFieldC",
+        "materialVolumeAtThreshold",
         "Spool-specific dimensional calibration",
         "filaSimMaterialProfile",
-        "runCycleWithVoxelBudget",
+        "runCycleWithVoxelBudgetAndPartialResults",
         "120 million solid-cell steps",
         "thermalOnly: true",
     ):
@@ -187,8 +199,8 @@ thermal.THERMAL_PACKAGE_MARKER_TEXT = (
     f"filasim={thermal.BASE.FILASIM_COMMIT}\n"
     "transforms=solver,hardening,audit-fixes,progress-v2,react-tab-v1,"
     "bugfix-round1,bugfix-round2,linear-fast-path-v1,physical-model-v1,"
-    "annealing-v6,filasim-material-source-v1,observer-guard-v1,step-budget-v2,"
-    "3d-result-fix-v1\n"
+    "annealing-v7,filasim-material-source-v1,observer-guard-v1,step-budget-v2,"
+    "3d-result-fix-v1,partial-duration-v1\n"
 )
 
 if __name__ == "__main__":
