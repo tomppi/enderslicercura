@@ -20,6 +20,7 @@ ANNEALING_UI_PARTS = (
     PROJECT_ROOT / "app/src/main/filasim/annealing-calculator-01-core.js",
     PROJECT_ROOT / "app/src/main/filasim/annealing-calculator-02-ui.js",
     PROJECT_ROOT / "app/src/main/filasim/annealing-calculator-03-cycle.js",
+    PROJECT_ROOT / "app/src/main/filasim/annealing-calculator-03a-workload-preflight.js",
     PROJECT_ROOT / "app/src/main/filasim/annealing-calculator-03b-materials.js",
     PROJECT_ROOT / "app/src/main/filasim/annealing-calculator-04-report.js",
 )
@@ -86,6 +87,8 @@ def build_annealing_runtime(target: pathlib.Path) -> None:
         "Calculate Complete Oven Cycle",
         "Spool-specific dimensional calibration",
         "filaSimMaterialProfile",
+        "runCycleWithVoxelBudget",
+        "120 million solid-cell steps",
         "thermalOnly: true",
     ):
         if contract not in verified:
@@ -123,7 +126,8 @@ def inject_annealing_runtime(index_file: pathlib.Path) -> None:
         index_file.with_name(ANNEALING_STEP_BUDGET_GUARD_NAME),
         (
             "MAX_STAGE_STEPS = 2000",
-            "planStageBudget",
+            "MAX_TRANSIENT_CELL_STEPS = 120_000_000",
+            "applyForSolidCells",
             "automatically increased",
             "#ac-run",
         ),
@@ -180,7 +184,7 @@ thermal.THERMAL_PACKAGE_MARKER_TEXT = (
     f"filasim={thermal.BASE.FILASIM_COMMIT}\n"
     "transforms=solver,hardening,audit-fixes,progress-v2,react-tab-v1,"
     "bugfix-round1,bugfix-round2,linear-fast-path-v1,physical-model-v1,"
-    "annealing-v4,filasim-material-source-v1,observer-guard-v1,step-budget-v1\n"
+    "annealing-v5,filasim-material-source-v1,observer-guard-v1,step-budget-v2\n"
 )
 
 if __name__ == "__main__":
