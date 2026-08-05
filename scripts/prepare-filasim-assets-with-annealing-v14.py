@@ -60,7 +60,7 @@ for marker in (
     ".enderslicer-nearby-hot-object-thermal-v1",
     ".enderslicer-nearby-hot-object-api-v1",
     ".enderslicer-nearby-hot-object-viewer-v1",
-    ".enderslicer-workspace-tab-state-fix-v1",
+    ".enderslicer-workspace-tab-state-fix-v2",
 ):
     if marker not in thermal.THERMAL_MARKERS:
         thermal.THERMAL_MARKERS = (*thermal.THERMAL_MARKERS, marker)
@@ -84,6 +84,7 @@ def patch_nearby_hot_object_runtime(target: pathlib.Path) -> None:
             str(WORKSPACE_TAB_REMOUNT_TEST),
             str(HOT_OBJECT_OBSERVER_GUARD),
             str(ANNEALING_OBSERVER_GUARD),
+            str(HOT_OBJECT_TRANSFORMS[-1]),
         ],
         check=True,
     )
@@ -134,7 +135,7 @@ thermal.THERMAL_PACKAGE_MARKER_TEXT = (
     "3d-result-fix-v1,partial-duration-v1,short-duration-stability-v1,"
     "nearby-hot-object-observer-guard-v2,nearby-hot-object-thermal-v1,"
     "nearby-hot-object-api-v1,nearby-hot-object-viewer-v1,"
-    "workspace-tab-state-fix-v1,workspace-tab-remount-test-v1\n"
+    "workspace-tab-state-fix-v2,workspace-tab-remount-test-v2\n"
 )
 
 if __name__ == "__main__":
