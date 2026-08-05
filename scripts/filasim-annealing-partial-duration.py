@@ -87,6 +87,29 @@ def apply(source_root: pathlib.Path) -> None:
         "transient initial field selection",
     )
 
+    replace_once(
+        thermal,
+        """                if time - started + 1e-9 >= options.readiness_hold_seconds {
+                    readiness_complete_time_seconds = Some(time);
+                    if options.stop_when_ready {
+                        break;
+                    }
+                }
+""",
+        """                if readiness_complete_time_seconds.is_none()
+                    && time - started + 1e-9 >= options.readiness_hold_seconds
+                {
+                    // Preserve the first completion instant even when a
+                    // fixed-duration run continues beyond readiness.
+                    readiness_complete_time_seconds = Some(time);
+                    if options.stop_when_ready {
+                        break;
+                    }
+                }
+""",
+        "first readiness completion time",
+    )
+
     text = thermal.read_text(encoding="utf-8")
     text, count = re.subn(
         r"(?m)^(\s*)initial_temperature_c:\s*([^\n]+),\s*\n(\s*)cooled_temperature_c:",
@@ -156,6 +179,22 @@ mod partial_duration_v1_tests {
         let error = solve_thermal(&grid, &material, &options(1)).unwrap_err();
         assert!(error.contains("initial temperature field does not match"));
     }
+
+    #[test]
+    fn fixed_duration_preserves_first_readiness_completion_time() {
+        let grid = VoxelGrid::solid_box(1, 1, 1, 1.0);
+        let material = vec![1.0; grid.cell_count()];
+        let mut opts = options(grid.cell_count());
+        opts.initial_temperature_field_c = Some(vec![75.0]);
+        opts.ambient_temperature_c = 75.0;
+        opts.readiness_temperature_c = Some(70.0);
+        opts.readiness_cooling = false;
+        opts.readiness_hold_seconds = 2.0;
+        opts.duration_seconds = 5.0;
+        let result = solve_thermal(&grid, &material, &opts).unwrap();
+        assert_eq!(result.final_time_seconds, 5.0);
+        assert_eq!(result.readiness_complete_time_seconds, Some(3.0));
+    }
 }
 '''
             + "\n",
@@ -216,6 +255,7 @@ mod partial_duration_v1_tests {
 
     for path, contract in (
         (thermal, "initial_temperature_field_c: Option<Vec<f64>>"),
+        (thermal, "fixed_duration_preserves_first_readiness_completion_time"),
         (thermal, test_marker),
         (wasm, "initial_temperature_field_c: opts.initial_temperature_field_c.clone()"),
         (client, "initialTemperatureFieldC?: number[] | null"),
