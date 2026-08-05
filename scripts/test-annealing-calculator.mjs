@@ -61,6 +61,8 @@ assert.deepEqual(
   [resolved.conductivityXWmK, resolved.conductivityYWmK, resolved.conductivityZWmK],
   [0.18, 0.18, 0.13],
 );
+assert.match(materialSource, /let cachedSnapshot = null/);
+assert.match(materialSource, /window\.addEventListener\(CHANGE_EVENT, invalidateSnapshot\)/);
 
 const observerGuard = fs.readFileSync(
   new URL("../app/src/main/filasim/annealing-calculator-observer-guard.js", import.meta.url),
@@ -185,4 +187,9 @@ assert.throws(() => api.validateCycleInputs({ ovenTemperatureC: 80, initialTempe
 assert.match(source, /Simulate Oven Exposure & Cooling/);
 assert.match(source, /initialTemperatureFieldC/);
 assert.match(source, /partial temperature field is shown/);
-console.log("Annealing calculator, fixed-duration partial results, voxel workload, step budget, observer guards and filaSim material-source contracts passed");
+assert.match(source, /Float32Array\.from|initialField\.slice/);
+assert.doesNotMatch(source, /Array\.from\(initialField/);
+assert.match(source, /const thresholdFractionCache = new WeakMap\(\)/);
+assert.match(source, /const heatmapPalette = new Uint8ClampedArray/);
+assert.doesNotMatch(source, /image\.data\.set\(\[\.\.\.rgb, 255\]/);
+console.log("Annealing calculator, compact chained fields, cached diagnostics, heatmap allocation, voxel workload, observer guards and filaSim material-source contracts passed");
