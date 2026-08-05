@@ -9,8 +9,26 @@ class FakeMutationObserver {
 }
 class FakeWorker {}
 const listeners = new Map();
+const brokerListeners = new Map();
+const fakeBroker = {
+  request() { return Promise.reject(new Error("test broker has no worker")); },
+  on(name, callback) {
+    const handlers = brokerListeners.get(name) || [];
+    handlers.push(callback);
+    brokerListeners.set(name, handlers);
+    return () => {};
+  },
+  currentWorker() { return null; },
+  cancelArray() { return null; },
+  progressBuffers() { return { count: null, data: null }; },
+  cancelActive() { return false; },
+  terminateCurrent() { return false; },
+};
 const windowObject = {
-  EnderSlicerAndroid: {}, Worker: FakeWorker, MutationObserver: FakeMutationObserver,
+  EnderSlicerAndroid: {},
+  EnderSlicerFilaSimWorkerBroker: fakeBroker,
+  Worker: FakeWorker,
+  MutationObserver: FakeMutationObserver,
   addEventListener(name, callback) { listeners.set(name, callback); },
   dispatchEvent() {}, location: { reload() {} },
   setTimeout, clearTimeout, setInterval, clearInterval,
@@ -174,6 +192,7 @@ const parts = [
   "annealing-calculator-03b-materials.js",
   "annealing-calculator-03c-partial-duration.js",
   "annealing-calculator-03d-thermal-only.js",
+  "annealing-calculator-03e-broker-cancel.js",
   "annealing-calculator-04-report.js",
 ];
 const source = parts.map((name) => fs.readFileSync(new URL(`../app/src/main/filasim/${name}`, import.meta.url), "utf8").trimEnd()).join("\n") + "\n";
@@ -195,4 +214,6 @@ assert.match(source, /const heatmapPalette = new Uint8ClampedArray/);
 assert.doesNotMatch(source, /image\.data\.set\(\[\.\.\.rgb, 255\]/);
 assert.match(source, /options\.thermalOnly = true/);
 assert.match(source, /options\.includeVisualizationFields = stage === "heating"/);
-console.log("Annealing calculator, thermal-only stage path, compact chained fields, cached diagnostics, heatmap allocation, voxel workload, observer guards and filaSim material-source contracts passed");
+assert.match(source, /return broker\.request\(op, payload, onProgress\)/);
+assert.doesNotMatch(source, /new Proxy\(ExistingWorker/);
+console.log("Annealing calculator, broker-backed thermal-only stages, compact chained fields, cached diagnostics, heatmap allocation, voxel workload, observer guards and filaSim material-source contracts passed");
