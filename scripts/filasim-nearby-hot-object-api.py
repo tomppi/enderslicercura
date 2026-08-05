@@ -90,9 +90,17 @@ def apply(source_root: pathlib.Path) -> None:
             use_fixed_temperature_surface: opts.use_fixed_temperature_surface,
         };
 """
-    replace_regex_once(
+
+    # Keep this replacement exact and bounded. In filaSim the preflight call
+    # terminates with `).map_err(err)?;` on the same line. The earlier DOTALL
+    # regex expected `.map_err` on a new line and therefore continued scanning
+    # into the later solve call, deleting the intervening preflight JSON.
+    replace_once(
         wasm,
-        r"^        let summary = filasim_core::thermal::thermal_boundary_summary\(.*?^        \.map_err\(err\)\?;\n",
+        """        let summary = filasim_core::thermal::thermal_boundary_summary(
+            &grid, &material_fraction, &thermal_options,
+        ).map_err(err)?;
+""",
         nearby_ctor + """        let summary = filasim_core::thermal::nearby_hot_object_preflight(
             &grid,
             &material_fraction,
@@ -214,7 +222,16 @@ def apply(source_root: pathlib.Path) -> None:
 
     marker = source_root / ".enderslicer-nearby-hot-object-api-v1"
     marker.write_text(MARKER + "\n", encoding="utf-8")
-    for path, contract in ((wasm, "source_target_mm"), (client, "sourceTargetMm")):
+    required_contracts = (
+        (wasm, "source_target_mm"),
+        (wasm, "pub fn thermal_integrity_preflight"),
+        (wasm, "nearby_hot_object_preflight"),
+        (wasm, '"sourceInitialAbsorbedW"'),
+        (wasm, "solve_nearby_hot_object"),
+        (client, "sourceTargetMm"),
+        (client, "sourceInitialAbsorbedW"),
+    )
+    for path, contract in required_contracts:
         if contract not in path.read_text(encoding="utf-8"):
             raise RuntimeError(f"Nearby-hot-object API contract {contract!r} missing from {path}")
 
