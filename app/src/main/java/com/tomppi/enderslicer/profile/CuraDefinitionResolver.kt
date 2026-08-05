@@ -26,6 +26,22 @@ internal object CuraDefinitionResolver {
         val settings: Map<String, SettingDefinition>,
     )
 
+    private data class CompiledDefinitions(
+        val definitionFiles: Map<String, String>,
+        val machineDefinitionFileName: String,
+        val extruderDefinitionFileName: String,
+        val definitionExpressionKeys: Set<String>,
+        val machineDefinitions: Map<String, SettingDefinition>,
+        val combinedExtruderDefinitions: Map<String, SettingDefinition>,
+        val globalDefaults: Map<String, Any?>,
+        val extruderDefaults: Map<String, Any?>,
+        val globalExpressions: Map<String, CuraExpression>,
+        val extruderExpressions: Map<String, CuraExpression>,
+    )
+
+    @Volatile
+    private var compiledDefinitions: CompiledDefinitions? = null
+
     fun resolve(
         definitionFiles: Map<String, String>,
         machineDefinitionFileName: String,
@@ -35,32 +51,20 @@ internal object CuraDefinitionResolver {
         definitionExpressionKeys: Set<String> = DENSITY_DEPENDENT_EXPRESSION_KEYS,
     ): Result {
         require(definitionFiles.isNotEmpty()) { "No Cura definitions were available for expression resolution" }
-        val documents = definitionFiles.mapValues { (name, content) ->
-            runCatching { parseDocument(content, definitionExpressionKeys) }
-                .getOrElse { throw IllegalArgumentException("Unable to parse Cura definition $name: ${it.message}", it) }
-        }
-        val stackCache = mutableMapOf<String, Map<String, SettingDefinition>>()
-        val machineDefinitions = resolveDefinitionStack(
-            fileName = normalizedDefinitionName(machineDefinitionFileName),
-            documents = documents,
-            cache = stackCache,
-            visiting = linkedSetOf(),
+        val compiled = compiled(
+            definitionFiles = definitionFiles,
+            machineDefinitionFileName = machineDefinitionFileName,
+            extruderDefinitionFileName = extruderDefinitionFileName,
+            definitionExpressionKeys = definitionExpressionKeys,
         )
-        val extruderOnlyDefinitions = resolveDefinitionStack(
-            fileName = normalizedDefinitionName(extruderDefinitionFileName),
-            documents = documents,
-            cache = stackCache,
-            visiting = linkedSetOf(),
-        )
-        val combinedExtruderDefinitions = linkedMapOf<String, SettingDefinition>().apply {
-            putAll(machineDefinitions)
-            putAll(extruderOnlyDefinitions)
-        }
-
-        val globalValues = defaults(machineDefinitions)
-        val extruderValues = defaults(combinedExtruderDefinitions)
-        val globalExpressions = expressions(machineDefinitions)
-        val extruderExpressions = expressions(combinedExtruderDefinitions)
+        val machineDefinitions = compiled.machineDefinitions
+        val combinedExtruderDefinitions = compiled.combinedExtruderDefinitions
+        val globalValues = LinkedHashMap(compiled.globalDefaults)
+        val extruderValues = LinkedHashMap(compiled.extruderDefaults)
+        // Overrides are request-specific, so copy the immutable parsed AST maps
+        // before replacing/removing entries.
+        val globalExpressions = LinkedHashMap(compiled.globalExpressions)
+        val extruderExpressions = LinkedHashMap(compiled.extruderExpressions)
         val lockedGlobal = mutableSetOf<String>()
         val lockedExtruder = mutableSetOf<String>()
 
@@ -150,6 +154,87 @@ internal object CuraDefinitionResolver {
             expressionCount = globalExpressions.size + extruderExpressions.size,
             passes = passes,
         )
+    }
+
+    private fun compiled(
+        definitionFiles: Map<String, String>,
+        machineDefinitionFileName: String,
+        extruderDefinitionFileName: String,
+        definitionExpressionKeys: Set<String>,
+    ): CompiledDefinitions {
+        val normalizedMachine = normalizedDefinitionName(machineDefinitionFileName)
+        val normalizedExtruder = normalizedDefinitionName(extruderDefinitionFileName)
+        compiledDefinitions?.let { cached ->
+            if (
+                cached.machineDefinitionFileName == normalizedMachine &&
+                cached.extruderDefinitionFileName == normalizedExtruder &&
+                cached.definitionExpressionKeys == definitionExpressionKeys &&
+                cached.definitionFiles == definitionFiles
+            ) {
+                return cached
+            }
+        }
+        return compileDefinitions(
+            definitionFiles = definitionFiles,
+            machineDefinitionFileName = normalizedMachine,
+            extruderDefinitionFileName = normalizedExtruder,
+            definitionExpressionKeys = definitionExpressionKeys,
+        )
+    }
+
+    @Synchronized
+    private fun compileDefinitions(
+        definitionFiles: Map<String, String>,
+        machineDefinitionFileName: String,
+        extruderDefinitionFileName: String,
+        definitionExpressionKeys: Set<String>,
+    ): CompiledDefinitions {
+        compiledDefinitions?.let { cached ->
+            if (
+                cached.machineDefinitionFileName == machineDefinitionFileName &&
+                cached.extruderDefinitionFileName == extruderDefinitionFileName &&
+                cached.definitionExpressionKeys == definitionExpressionKeys &&
+                cached.definitionFiles == definitionFiles
+            ) {
+                return cached
+            }
+        }
+
+        val documents = definitionFiles.mapValues { (name, content) ->
+            runCatching { parseDocument(content, definitionExpressionKeys) }
+                .getOrElse { throw IllegalArgumentException("Unable to parse Cura definition $name: ${it.message}", it) }
+        }
+        val stackCache = mutableMapOf<String, Map<String, SettingDefinition>>()
+        val machineDefinitions = resolveDefinitionStack(
+            fileName = machineDefinitionFileName,
+            documents = documents,
+            cache = stackCache,
+            visiting = linkedSetOf(),
+        )
+        val extruderOnlyDefinitions = resolveDefinitionStack(
+            fileName = extruderDefinitionFileName,
+            documents = documents,
+            cache = stackCache,
+            visiting = linkedSetOf(),
+        )
+        val combinedExtruderDefinitions = linkedMapOf<String, SettingDefinition>().apply {
+            putAll(machineDefinitions)
+            putAll(extruderOnlyDefinitions)
+        }
+        val compiled = CompiledDefinitions(
+            definitionFiles = definitionFiles.toMap(),
+            machineDefinitionFileName = machineDefinitionFileName,
+            extruderDefinitionFileName = extruderDefinitionFileName,
+            definitionExpressionKeys = definitionExpressionKeys.toSet(),
+            machineDefinitions = machineDefinitions.toMap(),
+            combinedExtruderDefinitions = combinedExtruderDefinitions.toMap(),
+            globalDefaults = defaults(machineDefinitions).toMap(),
+            extruderDefaults = defaults(combinedExtruderDefinitions).toMap(),
+            globalExpressions = expressions(machineDefinitions).toMap(),
+            extruderExpressions = expressions(combinedExtruderDefinitions).toMap(),
+        )
+        compiledDefinitions = compiled
+        return compiled
     }
 
     private fun resolveDefinitionStack(
