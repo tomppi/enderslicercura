@@ -1,0 +1,106 @@
+name: Performance Kotlin Validation
+
+on:
+  push:
+    branches:
+      - perf/fix-audit-findings-stage1
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  statuses: write
+
+concurrency:
+  group: performance-kotlin-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  STATUS_CONTEXT: performance/kotlin-contract
+
+jobs:
+  kotlin-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Mark Kotlin checks pending
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          payload="$(jq -n \
+            --arg state pending \
+            --arg context "$STATUS_CONTEXT" \
+            --arg description "Performance Kotlin validation is running" \
+            --arg target_url "$target_url" \
+            '{state:$state,context:$context,description:$description,target_url:$target_url}')"
+          curl -fsS -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -d "$payload"
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Fetch pinned Cura definitions
+        run: |
+          chmod +x scripts/fetch-cura-resources.sh
+          scripts/fetch-cura-resources.sh
+          grep -q 'Cura resources: 5.11.0-beta.1' app/src/main/assets/cura/definitions/version.txt
+          for name in \
+            fdmprinter \
+            fdmextruder \
+            creality_base \
+            creality_base_extruder_0 \
+            creality_ender3; do
+            test -s "app/src/main/assets/cura/definitions/$name.def.json"
+          done
+
+      - name: Compile and run JVM unit tests
+        run: |
+          chmod +x gradlew
+          ./gradlew \
+            :app:testDebugUnitTest \
+            -x prepareFilaSimAssets \
+            -x prepareBumpMeshAssets \
+            -x verifyBumpMeshAssets \
+            -x verifyCuraEngineExecutable \
+            --stacktrace \
+            --no-daemon
+
+      - name: Publish Kotlin check status
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          state=failure
+          description="Performance Kotlin validation failed"
+          if [ "$JOB_STATUS" = success ]; then
+            state=success
+            description="Performance Kotlin validation passed"
+          fi
+          target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          payload="$(jq -n \
+            --arg state "$state" \
+            --arg context "$STATUS_CONTEXT" \
+            --arg description "$description" \
+            --arg target_url "$target_url" \
+            '{state:$state,context:$context,description:$description,target_url:$target_url}')"
+          curl -fsS -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -d "$payload"
