@@ -5,6 +5,7 @@
   const MAX_STAGE_STEPS = 2000;
   const MAX_TRANSIENT_CELL_STEPS = 120_000_000;
   const WORKSPACE_EVENT = "enderslicer-annealing-workspace";
+  const UI_READY_EVENT = "enderslicer-annealing-ui-ready";
   const HINT_ID = "ac-step-budget-hint";
 
   function positiveNumber(value, label) {
@@ -155,13 +156,8 @@
     return plan;
   }
 
-  function scheduleMountSync() {
-    // React may commit the panel after the workspace event returns. A short
-    // retry sequence handles both synchronous and deferred Android WebView
-    // commits without observing mutations inside the panel.
-    for (const delay of [0, 16, 80]) {
-      window.setTimeout(() => applyBudget(true), delay);
-    }
+  function syncMountedBudget() {
+    applyBudget(true);
   }
 
   document.addEventListener(
@@ -192,9 +188,8 @@
     },
     true
   );
-  window.addEventListener(WORKSPACE_EVENT, (event) => {
-    if (event?.detail) scheduleMountSync();
-  });
+  window.addEventListener(WORKSPACE_EVENT, syncMountedBudget);
+  window.addEventListener(UI_READY_EVENT, syncMountedBudget);
 
   const api = Object.freeze({
     maxStageSteps: MAX_STAGE_STEPS,
