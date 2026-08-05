@@ -9,16 +9,18 @@ import sys
 
 V13 = pathlib.Path(__file__).with_name("prepare-filasim-assets-with-annealing-v13.py")
 HOT_OBJECT_TRANSFORMS = (
-    pathlib.Path(__file__).with_name("filasim-nearby-hot-object-core.py"),
+    pathlib.Path(__file__).with_name("filasim-nearby-hot-object-thermal.py"),
+    pathlib.Path(__file__).with_name("filasim-nearby-hot-object-api.py"),
     pathlib.Path(__file__).with_name("filasim-nearby-hot-object-viewer.py"),
 )
+HOT_OBJECT_CORE_FRAGMENT = pathlib.Path(__file__).with_name("filasim-nearby-hot-object-core.rs")
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
 HOT_OBJECT_RUNTIME_PARTS = (
     PROJECT_ROOT / "app/src/main/filasim/nearby-hot-object-01-core.js",
     PROJECT_ROOT / "app/src/main/filasim/nearby-hot-object-02-ui.js",
     PROJECT_ROOT / "app/src/main/filasim/nearby-hot-object-03-run.js",
 )
-for path in (V13, *HOT_OBJECT_TRANSFORMS, *HOT_OBJECT_RUNTIME_PARTS):
+for path in (V13, *HOT_OBJECT_TRANSFORMS, HOT_OBJECT_CORE_FRAGMENT, *HOT_OBJECT_RUNTIME_PARTS):
     if not path.is_file():
         raise RuntimeError(f"Nearby Hot Object component is missing: {path}")
 
@@ -33,7 +35,8 @@ for transform in HOT_OBJECT_TRANSFORMS:
     if transform not in thermal.THERMAL_TRANSFORMS:
         thermal.THERMAL_TRANSFORMS = (*thermal.THERMAL_TRANSFORMS, transform)
 for marker in (
-    ".enderslicer-nearby-hot-object-core-v1",
+    ".enderslicer-nearby-hot-object-thermal-v1",
+    ".enderslicer-nearby-hot-object-api-v1",
     ".enderslicer-nearby-hot-object-viewer-v1",
 ):
     if marker not in thermal.THERMAL_MARKERS:
@@ -43,9 +46,10 @@ _base_ui = thermal.patch_thermal_ui_runtime
 
 
 def patch_nearby_hot_object_runtime(target: pathlib.Path) -> None:
-    # Validate the established runtime first, then replace only the visible
-    # Thermal Integrity workspace. Progress/cancellation and the 3D viewer keep
-    # their stable IDs and events.
+    # Let the established chain validate its original runtime first, then replace
+    # only the visible Thermal Integrity workspace with the single supported
+    # Nearby Hot Object workflow. Progress/cancellation and the 3D viewer remain
+    # separate runtimes and continue to use the same stable IDs/events.
     _base_ui(target)
     target.write_text(
         "".join(path.read_text(encoding="utf-8") for path in HOT_OBJECT_RUNTIME_PARTS),
@@ -81,7 +85,8 @@ thermal.THERMAL_PACKAGE_MARKER_TEXT = (
     "bugfix-round1,bugfix-round2,linear-fast-path-v1,physical-model-v1,"
     "annealing-v8,filasim-material-source-v1,observer-guard-v1,step-budget-v2,"
     "3d-result-fix-v1,partial-duration-v1,short-duration-stability-v1,"
-    "nearby-hot-object-core-v1,nearby-hot-object-viewer-v1\n"
+    "nearby-hot-object-thermal-v1,nearby-hot-object-api-v1,"
+    "nearby-hot-object-viewer-v1\n"
 )
 
 if __name__ == "__main__":
