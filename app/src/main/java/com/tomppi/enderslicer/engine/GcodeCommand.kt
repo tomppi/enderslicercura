@@ -77,9 +77,10 @@ internal object GcodeCommand {
                 }
             }
             if (digitCount == 0 || letterIndex < 0) {
-                // Leave the current character available to become the next
-                // compact parameter letter when no numeric value followed.
-                if (index == numberStart) index++
+                // When another compact parameter letter follows immediately,
+                // leave it for the next loop instead of skipping it.
+                if (index < commandEnd && rawLine[index].isAsciiLetter()) continue
+                if (index <= numberStart) index = minOf(commandEnd, numberStart + 1)
                 continue
             }
 
