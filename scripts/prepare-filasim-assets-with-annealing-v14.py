@@ -1,0 +1,92 @@
+#!/usr/bin/env python3
+"""Annealing v13 plus the Nearby Hot Object replacement for Thermal Integrity."""
+from __future__ import annotations
+
+import importlib.util
+import pathlib
+import subprocess
+import sys
+
+V13 = pathlib.Path(__file__).with_name("prepare-filasim-assets-with-annealing-v13.py")
+HOT_OBJECT_TRANSFORMS = (
+    pathlib.Path(__file__).with_name("filasim-nearby-hot-object-core.py"),
+    pathlib.Path(__file__).with_name("filasim-nearby-hot-object-viewer.py"),
+)
+PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
+HOT_OBJECT_RUNTIME_PARTS = (
+    PROJECT_ROOT / "app/src/main/filasim/nearby-hot-object-01-core.js",
+    PROJECT_ROOT / "app/src/main/filasim/nearby-hot-object-02-ui.js",
+    PROJECT_ROOT / "app/src/main/filasim/nearby-hot-object-03-run.js",
+)
+for path in (V13, *HOT_OBJECT_TRANSFORMS, *HOT_OBJECT_RUNTIME_PARTS):
+    if not path.is_file():
+        raise RuntimeError(f"Nearby Hot Object component is missing: {path}")
+
+spec = importlib.util.spec_from_file_location("enderslicer_annealing_v13", V13)
+if spec is None or spec.loader is None:
+    raise RuntimeError(f"Unable to load {V13}")
+v13 = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(v13)
+thermal = v13.thermal
+
+for transform in HOT_OBJECT_TRANSFORMS:
+    if transform not in thermal.THERMAL_TRANSFORMS:
+        thermal.THERMAL_TRANSFORMS = (*thermal.THERMAL_TRANSFORMS, transform)
+for marker in (
+    ".enderslicer-nearby-hot-object-core-v1",
+    ".enderslicer-nearby-hot-object-viewer-v1",
+):
+    if marker not in thermal.THERMAL_MARKERS:
+        thermal.THERMAL_MARKERS = (*thermal.THERMAL_MARKERS, marker)
+
+_base_ui = thermal.patch_thermal_ui_runtime
+
+
+def patch_nearby_hot_object_runtime(target: pathlib.Path) -> None:
+    # Validate the established runtime first, then replace only the visible
+    # Thermal Integrity workspace. Progress/cancellation and the 3D viewer keep
+    # their stable IDs and events.
+    _base_ui(target)
+    target.write_text(
+        "".join(path.read_text(encoding="utf-8") for path in HOT_OBJECT_RUNTIME_PARTS),
+        encoding="utf-8",
+    )
+    subprocess.run(["node", "--check", str(target)], check=True)
+    text = target.read_text(encoding="utf-8")
+    for contract in (
+        "Nearby Hot Object",
+        "Select nearest point on model",
+        "sourceTargetMm",
+        "sourceDiameterMm",
+        "enderslicer-thermal-result-3d",
+        "vertexTemperatures",
+        "The model now shows the final temperature in 3D colours",
+    ):
+        if contract not in text:
+            raise RuntimeError(f"Nearby Hot Object runtime is missing {contract!r}")
+    for forbidden in (
+        "Total contact-heater power",
+        "Contact-heater orientation",
+        "Surface heat power (W)",
+    ):
+        if forbidden in text:
+            raise RuntimeError(f"Obsolete contact-heater UI survived: {forbidden!r}")
+
+
+thermal.patch_thermal_ui_runtime = patch_nearby_hot_object_runtime
+thermal.THERMAL_PACKAGE_MARKER_TEXT = (
+    "format=1\n"
+    f"filasim={thermal.BASE.FILASIM_COMMIT}\n"
+    "transforms=solver,hardening,audit-fixes,progress-v2,react-tab-v1,"
+    "bugfix-round1,bugfix-round2,linear-fast-path-v1,physical-model-v1,"
+    "annealing-v8,filasim-material-source-v1,observer-guard-v1,step-budget-v2,"
+    "3d-result-fix-v1,partial-duration-v1,short-duration-stability-v1,"
+    "nearby-hot-object-core-v1,nearby-hot-object-viewer-v1\n"
+)
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(thermal.BASE.main())
+    except Exception as error:
+        print(f"nearby-hot-object filaSim v14 asset preparation failed: {error}", file=sys.stderr)
+        raise
