@@ -29,6 +29,7 @@ class FakeWorker {
 }
 
 const context = {
+  Atomics,
   console,
   Error,
   Float32Array,
