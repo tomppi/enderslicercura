@@ -181,13 +181,13 @@ object GcodeLayerPreviewParser {
                         }
                         if (!retain) return@forEach
 
-                        currentSegments.add(
-                            startX.toFloat(),
-                            startY.toFloat(),
-                            nextX.toFloat(),
-                            nextY.toFloat(),
-                            speed,
-                            feature.code.toFloat(),
+                        currentSegments.addSegment(
+                            startX = startX.toFloat(),
+                            startY = startY.toFloat(),
+                            endX = nextX.toFloat(),
+                            endY = nextY.toFloat(),
+                            speed = speed,
+                            featureCode = feature.code.toFloat(),
                         )
                         when (feature) {
                             GcodeLayerPreview.Feature.SUPPORT -> currentSupportCount++
@@ -334,10 +334,22 @@ object GcodeLayerPreviewParser {
         var size: Int = 0
             private set
 
-        fun add(vararg additions: Float) {
-            ensure(size + additions.size)
-            additions.copyInto(values, destinationOffset = size)
-            size += additions.size
+        fun addSegment(
+            startX: Float,
+            startY: Float,
+            endX: Float,
+            endY: Float,
+            speed: Float,
+            featureCode: Float,
+        ) {
+            ensure(size + GcodeLayerPreview.VALUES_PER_SEGMENT)
+            values[size] = startX
+            values[size + 1] = startY
+            values[size + 2] = endX
+            values[size + 3] = endY
+            values[size + 4] = speed
+            values[size + 5] = featureCode
+            size += GcodeLayerPreview.VALUES_PER_SEGMENT
         }
 
         fun toArray(): FloatArray = values.copyOf(size)
