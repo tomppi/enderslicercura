@@ -5,7 +5,7 @@ from __future__ import annotations
 import pathlib
 import re
 
-from filasim_annealing_common import ANNEALING_EVENT, MARKER
+from filasim_annealing_common import ANNEALING_EVENT, MARKER, replace_once
 from filasim_annealing_core import patch_thermal_core
 from filasim_annealing_web import patch_client, patch_react_tabs, patch_viewer, patch_wasm
 
@@ -36,6 +36,37 @@ def apply(source_root: pathlib.Path) -> None:
     patch_wasm(wasm)
     patch_client(client)
     patch_viewer(viewer)
+
+    # Fresh source builds receive the 3D result correction here so the normal
+    # exact-source workflow compiles the corrected Viewer. A separate suffix
+    # transform applies the same idempotent replacement to already-cached v5
+    # source trees whose annealing marker is present.
+    replace_once(
+        viewer,
+        '''      scene.setDisplacements(
+        detail.structuralValid ? detail.displacements : null,
+        detail.structuralValid && Number.isFinite(detail.maxDisplacementMm)
+          ? { maxDisplacement: Number(detail.maxDisplacementMm) } : null
+      );
+''',
+        '''      // filaSim's scalar-field renderer enters its result-colour path only
+      // while a displacement buffer is installed. Thermal-only results must
+      // therefore retain a correctly sized zero-displacement field instead of
+      // passing null; the STL remains undeformed while temperature colours,
+      // probing and the 3D legend become active.
+      const displayDisplacements = detail.structuralValid
+        ? detail.displacements
+        : new Float32Array(detail.displacements.length);
+      scene.setDisplacements(
+        displayDisplacements,
+        detail.structuralValid && Number.isFinite(detail.maxDisplacementMm)
+          ? { maxDisplacement: Number(detail.maxDisplacementMm) }
+          : { maxDisplacement: 0 }
+      );
+''',
+        "annealing thermal-only 3D displacement bridge",
+    )
+
     patch_react_tabs(rail, panel, topbar)
 
     marker = source_root / ".enderslicer-annealing-cycle-v1"
@@ -51,6 +82,8 @@ def apply(source_root: pathlib.Path) -> None:
         (wasm, '"readinessCompleteTimeSeconds"'),
         (client, "readinessCompleteTimeSeconds"),
         (viewer, "Annealing temperature · 3D result"),
+        (viewer, "new Float32Array(detail.displacements.length)"),
+        (viewer, "maxDisplacement: 0"),
         (rail, ANNEALING_EVENT),
         (rail, '<span className="st-name">Anneal</span>'),
         (panel, "enderslicer-annealing-calculator-mount"),
