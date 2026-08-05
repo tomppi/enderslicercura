@@ -44,6 +44,7 @@ val filaSimActiveInputPaths = listOf(
     "scripts/filasim_annealing_core.py",
     "scripts/filasim_annealing_web.py",
     "app/src/main/filasim/android-bridge.js",
+    "app/src/main/filasim/filasim-worker-broker.js",
     "app/src/main/filasim/thermal-integrity.js",
     "app/src/main/filasim/thermal-integrity-guard.js",
     "app/src/main/filasim/thermal-integrity-workspace.js",
@@ -59,6 +60,7 @@ val filaSimActiveInputPaths = listOf(
     "app/src/main/filasim/annealing-calculator-03b-materials.js",
     "app/src/main/filasim/annealing-calculator-03c-partial-duration.js",
     "app/src/main/filasim/annealing-calculator-03d-thermal-only.js",
+    "app/src/main/filasim/annealing-calculator-03e-broker-cancel.js",
     "app/src/main/filasim/annealing-calculator-04-report.js",
 )
 val filaSimPatchSources = files(
