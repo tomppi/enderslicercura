@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feature/geometry-aware-annealing-calculator
+      - perf/fix-audit-findings
   pull_request:
     branches:
       - feature/thermal-integrity-simulation
@@ -80,13 +81,19 @@ jobs:
             scripts/filasim-annealing-3d-result-fix.py \
             scripts/filasim-annealing-partial-duration.py \
             scripts/filasim-annealing-short-duration-stability.py \
+            scripts/filasim-annealing-thermal-only.py \
             scripts/prepare-filasim-assets-with-thermal-integrity-v12.py \
             scripts/prepare-filasim-assets-with-annealing-v13.py \
             scripts/prepare-filasim-assets-with-pinch.py
+          node --check app/src/main/filasim/filasim-worker-broker.js
           node --check app/src/main/filasim/material-profile-source.js
           node --check app/src/main/filasim/thermal-material-profile-adapter.js
           node --check app/src/main/filasim/annealing-calculator-03c-partial-duration.js
+          node --check app/src/main/filasim/annealing-calculator-03d-thermal-only.js
+          node --check app/src/main/filasim/annealing-calculator-03e-broker-cancel.js
+          node --check scripts/test-filasim-worker-broker.mjs
           node --check scripts/test-annealing-calculator.mjs
+          node scripts/test-filasim-worker-broker.mjs
           node scripts/test-annealing-calculator.mjs
 
       - name: Patch exact pinned filaSim source
@@ -111,12 +118,14 @@ jobs:
           python3 scripts/filasim-annealing-3d-result-fix.py "$source"
           python3 scripts/filasim-annealing-partial-duration.py "$source"
           python3 scripts/filasim-annealing-short-duration-stability.py "$source"
+          python3 scripts/filasim-annealing-thermal-only.py "$source"
 
           test -f "$source/.enderslicer-annealing-cycle-v1"
           test -f "$source/.enderslicer-filasim-material-source-v1"
           test -f "$source/.enderslicer-annealing-3d-result-fix-v1"
           test -f "$source/.enderslicer-annealing-partial-duration-v1"
           test -f "$source/.enderslicer-annealing-short-duration-stability-v1"
+          test -f "$source/.enderslicer-annealing-thermal-only-v1"
           grep -q 'fixed_surface_enabled' "$source/crates/filasim-core/src/thermal.rs"
           grep -q 'readiness_complete_time_seconds' "$source/crates/filasim-core/src/thermal.rs"
           grep -q 'coldest material voxel' "$source/crates/filasim-core/src/thermal.rs"
@@ -130,8 +139,13 @@ jobs:
           grep -q 'let effective_dt = options.duration_seconds / steps as f64' "$source/crates/filasim-core/src/thermal.rs"
           grep -q 'readinessCompleteTimeSeconds' "$source/crates/filasim-wasm/src/lib.rs"
           grep -q 'initial_temperature_field_c: opts.initial_temperature_field_c.clone()' "$source/crates/filasim-wasm/src/lib.rs"
+          grep -q 'thermal_only: bool' "$source/crates/filasim-wasm/src/lib.rs"
+          grep -q 'if opts.thermal_only' "$source/crates/filasim-wasm/src/lib.rs"
+          grep -q 'include_visualization_fields' "$source/crates/filasim-wasm/src/lib.rs"
           grep -q 'fixedSurfaceEnabled' "$source/web/src/engine/EngineClient.ts"
           grep -q 'initialTemperatureFieldC' "$source/web/src/engine/EngineClient.ts"
+          grep -q 'thermalOnly' "$source/web/src/engine/EngineClient.ts"
+          grep -q 'includeVisualizationFields' "$source/web/src/engine/EngineClient.ts"
           grep -q 'const displayDisplacements = detail.structuralValid' "$source/web/src/viewer/Viewer.tsx"
           grep -q 'EnderSlicerFilaSimMaterialSource' "$source/web/src/store.ts"
           grep -q 'enderslicer-filasim-materials-changed' "$source/web/src/store.ts"
