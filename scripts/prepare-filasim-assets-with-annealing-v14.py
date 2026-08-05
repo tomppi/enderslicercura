@@ -14,6 +14,9 @@ HOT_OBJECT_TRANSFORMS = (
     pathlib.Path(__file__).with_name("filasim-nearby-hot-object-viewer.py"),
 )
 HOT_OBJECT_CORE_FRAGMENT = pathlib.Path(__file__).with_name("filasim-nearby-hot-object-core.rs")
+HOT_OBJECT_OBSERVER_TEST = pathlib.Path(__file__).with_name(
+    "test-nearby-hot-object-observer-guard.mjs"
+)
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
 HOT_OBJECT_OBSERVER_GUARD = (
     PROJECT_ROOT / "app/src/main/filasim/nearby-hot-object-observer-guard.js"
@@ -24,7 +27,13 @@ HOT_OBJECT_RUNTIME_PARTS = (
     PROJECT_ROOT / "app/src/main/filasim/nearby-hot-object-02-ui.js",
     PROJECT_ROOT / "app/src/main/filasim/nearby-hot-object-03-run.js",
 )
-for path in (V13, *HOT_OBJECT_TRANSFORMS, HOT_OBJECT_CORE_FRAGMENT, *HOT_OBJECT_RUNTIME_PARTS):
+for path in (
+    V13,
+    *HOT_OBJECT_TRANSFORMS,
+    HOT_OBJECT_CORE_FRAGMENT,
+    HOT_OBJECT_OBSERVER_TEST,
+    *HOT_OBJECT_RUNTIME_PARTS,
+):
     if not path.is_file():
         raise RuntimeError(f"Nearby Hot Object component is missing: {path}")
 
@@ -55,6 +64,10 @@ def patch_nearby_hot_object_runtime(target: pathlib.Path) -> None:
     # Nearby Hot Object workflow. Progress/cancellation and the 3D viewer remain
     # separate runtimes and continue to use the same stable IDs/events.
     _base_ui(target)
+    subprocess.run(
+        ["node", str(HOT_OBJECT_OBSERVER_TEST), str(HOT_OBJECT_OBSERVER_GUARD)],
+        check=True,
+    )
     target.write_text(
         "".join(path.read_text(encoding="utf-8") for path in HOT_OBJECT_RUNTIME_PARTS),
         encoding="utf-8",
