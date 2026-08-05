@@ -13,6 +13,7 @@ import java.nio.ByteOrder
 import java.nio.FloatBuffer
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
+import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.sqrt
 import kotlin.math.tan
@@ -24,6 +25,7 @@ class ModelSurfaceView(
     private val modelRenderer = ModelRenderer(printer)
     private val scaleDetector = ScaleGestureDetector(context, ScaleListener())
     private val gestureDetector = GestureDetector(context, GestureListener())
+    private var submittedMesh: StlMesh? = null
     private var previousX = 0f
     private var previousY = 0f
     private var previousFocusX = 0f
@@ -40,6 +42,8 @@ class ModelSurfaceView(
     }
 
     fun setMesh(mesh: StlMesh?) {
+        if (submittedMesh === mesh) return
+        submittedMesh = mesh
         queueEvent { modelRenderer.setMesh(mesh) }
         requestRender()
     }
@@ -145,10 +149,25 @@ class ModelSurfaceView(
 private class ModelRenderer(
     private val printer: PrinterDefinition,
 ) : GLSurfaceView.Renderer {
+    private data class MeshProgram(
+        val id: Int,
+        val position: Int,
+        val normal: Int,
+        val mvp: Int,
+        val model: Int,
+    )
+
+    private data class LineProgram(
+        val id: Int,
+        val position: Int,
+        val mvp: Int,
+        val color: Int,
+    )
+
     private var mesh: StlMesh? = null
     private var meshBuffer: FloatBuffer? = null
-    private var meshProgram = 0
-    private var lineProgram = 0
+    private var meshProgram: MeshProgram? = null
+    private var lineProgram: LineProgram? = null
     private var gridBuffer: FloatBuffer? = null
     private var gridVertexCount = 0
     private var viewportWidth = 1
@@ -209,8 +228,22 @@ private class ModelRenderer(
         GLES20.glDepthMask(true)
         GLES20.glDepthFunc(GLES20.GL_LESS)
         GLES20.glDisable(GLES20.GL_CULL_FACE)
-        meshProgram = createProgram(MESH_VERTEX_SHADER, MESH_FRAGMENT_SHADER)
-        lineProgram = createProgram(LINE_VERTEX_SHADER, LINE_FRAGMENT_SHADER)
+
+        val meshId = createProgram(MESH_VERTEX_SHADER, MESH_FRAGMENT_SHADER)
+        meshProgram = MeshProgram(
+            id = meshId,
+            position = requireAttribute(meshId, "aPosition"),
+            normal = requireAttribute(meshId, "aNormal"),
+            mvp = requireUniform(meshId, "uMvpMatrix"),
+            model = requireUniform(meshId, "uModelMatrix"),
+        )
+        val lineId = createProgram(LINE_VERTEX_SHADER, LINE_FRAGMENT_SHADER)
+        lineProgram = LineProgram(
+            id = lineId,
+            position = requireAttribute(lineId, "aPosition"),
+            mvp = requireUniform(lineId, "uMvpMatrix"),
+            color = requireUniform(lineId, "uColor"),
+        )
         buildGrid()
     }
 
@@ -252,25 +285,24 @@ private class ModelRenderer(
     )
 
     private fun drawGrid() {
+        val program = lineProgram ?: return
         val buffer = gridBuffer ?: return
-        GLES20.glUseProgram(lineProgram)
-        val position = GLES20.glGetAttribLocation(lineProgram, "aPosition")
-        val matrix = GLES20.glGetUniformLocation(lineProgram, "uMvpMatrix")
-        val color = GLES20.glGetUniformLocation(lineProgram, "uColor")
+        GLES20.glUseProgram(program.id)
 
         Matrix.multiplyMM(modelView, 0, view, 0, scene, 0)
         Matrix.multiplyMM(mvp, 0, projection, 0, modelView, 0)
 
         buffer.position(0)
-        GLES20.glEnableVertexAttribArray(position)
-        GLES20.glVertexAttribPointer(position, 3, GLES20.GL_FLOAT, false, 3 * 4, buffer)
-        GLES20.glUniformMatrix4fv(matrix, 1, false, mvp, 0)
-        GLES20.glUniform4f(color, 0.31f, 0.36f, 0.43f, 1f)
+        GLES20.glEnableVertexAttribArray(program.position)
+        GLES20.glVertexAttribPointer(program.position, 3, GLES20.GL_FLOAT, false, 3 * 4, buffer)
+        GLES20.glUniformMatrix4fv(program.mvp, 1, false, mvp, 0)
+        GLES20.glUniform4f(program.color, 0.31f, 0.36f, 0.43f, 1f)
         GLES20.glDrawArrays(GLES20.GL_LINES, 0, gridVertexCount)
-        GLES20.glDisableVertexAttribArray(position)
+        GLES20.glDisableVertexAttribArray(program.position)
     }
 
     private fun drawMesh() {
+        val program = meshProgram ?: return
         val currentMesh = mesh ?: return
         val buffer = meshBuffer ?: return
 
@@ -282,45 +314,58 @@ private class ModelRenderer(
         Matrix.multiplyMM(modelView, 0, view, 0, modelMatrix, 0)
         Matrix.multiplyMM(mvp, 0, projection, 0, modelView, 0)
 
-        GLES20.glUseProgram(meshProgram)
-        val position = GLES20.glGetAttribLocation(meshProgram, "aPosition")
-        val normal = GLES20.glGetAttribLocation(meshProgram, "aNormal")
-        val mvpLocation = GLES20.glGetUniformLocation(meshProgram, "uMvpMatrix")
-        val modelLocation = GLES20.glGetUniformLocation(meshProgram, "uModelMatrix")
-
+        GLES20.glUseProgram(program.id)
         buffer.position(0)
-        GLES20.glEnableVertexAttribArray(position)
-        GLES20.glVertexAttribPointer(position, 3, GLES20.GL_FLOAT, false, 6 * 4, buffer)
+        GLES20.glEnableVertexAttribArray(program.position)
+        GLES20.glVertexAttribPointer(program.position, 3, GLES20.GL_FLOAT, false, 6 * 4, buffer)
         buffer.position(3)
-        GLES20.glEnableVertexAttribArray(normal)
-        GLES20.glVertexAttribPointer(normal, 3, GLES20.GL_FLOAT, false, 6 * 4, buffer)
-        GLES20.glUniformMatrix4fv(mvpLocation, 1, false, mvp, 0)
-        GLES20.glUniformMatrix4fv(modelLocation, 1, false, modelMatrix, 0)
+        GLES20.glEnableVertexAttribArray(program.normal)
+        GLES20.glVertexAttribPointer(program.normal, 3, GLES20.GL_FLOAT, false, 6 * 4, buffer)
+        GLES20.glUniformMatrix4fv(program.mvp, 1, false, mvp, 0)
+        GLES20.glUniformMatrix4fv(program.model, 1, false, modelMatrix, 0)
         GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, currentMesh.triangleCount * 3)
-        GLES20.glDisableVertexAttribArray(position)
-        GLES20.glDisableVertexAttribArray(normal)
+        GLES20.glDisableVertexAttribArray(program.position)
+        GLES20.glDisableVertexAttribArray(program.normal)
     }
 
     private fun buildGrid() {
-        val values = ArrayList<Float>()
         val width = printer.widthMm.toFloat()
         val depth = printer.depthMm.toFloat()
-        var x = 0f
-        while (x <= width + 0.01f) {
-            values += x; values += 0f; values += GRID_Z
-            values += x; values += depth; values += GRID_Z
-            x += 10f
+        val xLines = floor(width / GRID_STEP_MM).toInt() + 1
+        val yLines = floor(depth / GRID_STEP_MM).toInt() + 1
+        val values = FloatArray((xLines + yLines) * 2 * 3)
+        var offset = 0
+        repeat(xLines) { index ->
+            val x = index * GRID_STEP_MM
+            values[offset++] = x
+            values[offset++] = 0f
+            values[offset++] = GRID_Z
+            values[offset++] = x
+            values[offset++] = depth
+            values[offset++] = GRID_Z
         }
-        var y = 0f
-        while (y <= depth + 0.01f) {
-            values += 0f; values += y; values += GRID_Z
-            values += width; values += y; values += GRID_Z
-            y += 10f
+        repeat(yLines) { index ->
+            val y = index * GRID_STEP_MM
+            values[offset++] = 0f
+            values[offset++] = y
+            values[offset++] = GRID_Z
+            values[offset++] = width
+            values[offset++] = y
+            values[offset++] = GRID_Z
         }
-        val array = FloatArray(values.size) { values[it] }
-        gridBuffer = floatBuffer(array)
-        gridVertexCount = array.size / 3
+        gridBuffer = floatBuffer(values)
+        gridVertexCount = values.size / 3
     }
+
+    private fun requireAttribute(program: Int, name: String): Int =
+        GLES20.glGetAttribLocation(program, name).also { location ->
+            check(location >= 0) { "OpenGL attribute $name is unavailable" }
+        }
+
+    private fun requireUniform(program: Int, name: String): Int =
+        GLES20.glGetUniformLocation(program, name).also { location ->
+            check(location >= 0) { "OpenGL uniform $name is unavailable" }
+        }
 
     private fun createProgram(vertex: String, fragment: String): Int {
         val vertexShader = compileShader(GLES20.GL_VERTEX_SHADER, vertex)
@@ -368,6 +413,7 @@ private class ModelRenderer(
         const val MIN_ZOOM = 0.08f
         const val MAX_ZOOM = 20f
         const val FIELD_OF_VIEW_DEGREES = 42f
+        const val GRID_STEP_MM = 10f
         const val GRID_Z = -0.08f
 
         const val MESH_VERTEX_SHADER = """
