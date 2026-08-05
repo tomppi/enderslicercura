@@ -1,12 +1,9 @@
 /*
- * Thermal Integrity bug-fix round 1 runtime guard.
+ * Thermal Integrity lifecycle and mutation safety guard.
  *
- * The thermal UI intentionally talks to filaSim's raw worker so exact typed
- * arrays can be reported. This guard supplies the lifecycle protection that a
- * normal EngineClient call would otherwise provide: one active thermal request,
- * invalidation when model/grid/load state changes, cooperative cancellation on
- * mutation, recovery from worker errors or React panel remounts, and protection
- * against MutationObserver feedback loops in the progress shell.
+ * The shared filaSim broker owns Worker interception. This runtime keeps the
+ * Thermal-specific overlap, invalidation and cancellation policy without
+ * adding another Worker proxy or another per-worker listener stack.
  */
 (() => {
   "use strict";
@@ -35,9 +32,13 @@
     "buildSim",
     "openProjectRestore",
   ]);
+  const broker = window.EnderSlicerFilaSimWorkerBroker;
+  if (!broker) {
+    console.error("Thermal Integrity worker broker is unavailable");
+    return;
+  }
 
   let activeRequestId = null;
-  let cancelFlag = null;
   let invalidationEpoch = 0;
 
   function recordsAddThermalGroup(records) {
@@ -100,13 +101,7 @@
   }
 
   function cancelForMutation() {
-    if (
-      activeRequestId !== null &&
-      cancelFlag &&
-      typeof Atomics !== "undefined"
-    ) {
-      Atomics.store(cancelFlag, 0, 1);
-    }
+    if (activeRequestId !== null) broker.cancelActive();
   }
 
   function rejectOverlappingRequest(worker, message) {
@@ -120,66 +115,42 @@
     });
   }
 
-  function installWorkerGuard() {
-    const ExistingWorker = window.Worker;
-    if (!ExistingWorker || ExistingWorker.__enderSlicerThermalBugfixRound1) return;
+  function onWorkerPost(detail) {
+    const message = detail.message;
+    if (message?.op === "thermalIntegrity" && Number.isSafeInteger(message.id)) {
+      if (activeRequestId !== null) {
+        detail.preventDefault();
+        rejectOverlappingRequest(detail.worker, message);
+        return;
+      }
+      activeRequestId = message.id;
+      dispatchRunState(true);
+    } else if (message && MUTATING_OPS.has(message.op)) {
+      cancelForMutation();
+      invalidate(`Thermal Integrity invalidated by filaSim operation: ${message.op}.`);
+    }
+  }
 
-    const WrappedWorker = new Proxy(ExistingWorker, {
-      construct(Target, args) {
-        const worker = Reflect.construct(Target, args);
-        const nativePost = worker.postMessage.bind(worker);
+  function onWorkerMessage({ message }) {
+    if (!message || message.id !== activeRequestId || message.progress) return;
+    activeRequestId = null;
+    dispatchRunState(false, message.ok ? "" : message.error);
+  }
 
-        worker.addEventListener("message", (event) => {
-          const message = event.data;
-          if (!message || message.id !== activeRequestId || message.progress) return;
-          activeRequestId = null;
-          dispatchRunState(false, message.ok ? "" : message.error);
-        });
-        worker.addEventListener("error", (event) => {
-          if (activeRequestId === null) return;
-          const error = event?.message || "filaSim worker crashed during Thermal Integrity.";
-          activeRequestId = null;
-          dispatchRunState(false, error);
-          invalidate(error);
-        });
-        worker.addEventListener("messageerror", () => {
-          if (activeRequestId === null) return;
-          const error = "filaSim returned an unreadable Thermal Integrity message.";
-          activeRequestId = null;
-          dispatchRunState(false, error);
-          invalidate(error);
-        });
+  function onWorkerError({ event }) {
+    if (activeRequestId === null) return;
+    const error = event?.message || "filaSim worker crashed during Thermal Integrity.";
+    activeRequestId = null;
+    dispatchRunState(false, error);
+    invalidate(error);
+  }
 
-        worker.postMessage = function postMessage(message, transferOrOptions) {
-          if (
-            message?.op === "setCancelBuffer" &&
-            typeof SharedArrayBuffer !== "undefined" &&
-            message.buf instanceof SharedArrayBuffer
-          ) {
-            cancelFlag = new Int32Array(message.buf);
-          }
-
-          if (message?.op === "thermalIntegrity" && Number.isSafeInteger(message.id)) {
-            if (activeRequestId !== null) {
-              rejectOverlappingRequest(worker, message);
-              return;
-            }
-            activeRequestId = message.id;
-            dispatchRunState(true);
-          } else if (message && MUTATING_OPS.has(message.op)) {
-            cancelForMutation();
-            invalidate(`Thermal Integrity invalidated by filaSim operation: ${message.op}.`);
-          }
-
-          if (arguments.length > 1) nativePost(message, transferOrOptions);
-          else nativePost(message);
-        };
-        return worker;
-      },
-    });
-
-    Object.defineProperty(WrappedWorker, "__enderSlicerThermalBugfixRound1", { value: true });
-    window.Worker = WrappedWorker;
+  function onWorkerMessageError() {
+    if (activeRequestId === null) return;
+    const error = "filaSim returned an unreadable Thermal Integrity message.";
+    activeRequestId = null;
+    dispatchRunState(false, error);
+    invalidate(error);
   }
 
   function syncUi() {
@@ -207,7 +178,10 @@
   );
 
   installMutationObserverGuard();
-  installWorkerGuard();
+  broker.on("post", onWorkerPost);
+  broker.on("message", onWorkerMessage);
+  broker.on("error", onWorkerError);
+  broker.on("messageerror", onWorkerMessageError);
   syncUi();
   window.addEventListener(UI_READY_EVENT, syncUi);
 })();
