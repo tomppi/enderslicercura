@@ -14,7 +14,7 @@ const windowObject = {
 const documentObject = {
   documentElement: {}, head: { appendChild() {} },
   getElementById() { return null; },
-  createElement() { return { id: "", textContent: "", style: {}, appendChild() {} }; },
+  createElement() { return { id: "", textContent: "", style: {}, dataset: {}, appendChild() {} }; },
   querySelectorAll() { return []; },
 };
 
@@ -23,11 +23,45 @@ globalThis.document = documentObject;
 globalThis.MutationObserver = FakeMutationObserver;
 globalThis.CustomEvent = class CustomEvent { constructor(type, options = {}) { this.type = type; this.detail = options.detail; } };
 globalThis.performance = { now: () => 0 };
+globalThis.localStorage = { getItem() { return null; }, setItem() {} };
+
+const materialSource = fs.readFileSync(
+  new URL("../app/src/main/filasim/material-profile-source.js", import.meta.url),
+  "utf8",
+);
+new vm.Script(materialSource, { filename: "material-profile-source.js" }).runInThisContext();
+
+const materialApi = windowObject.EnderSlicerMaterialProfileTestApi;
+assert.ok(materialApi, "material profile test API was not exposed");
+assert.equal(materialApi.inferFamily("eSUN PLA+ Black"), "PLA+");
+assert.equal(materialApi.inferFamily("Generic ASA"), "ASA");
+const customSnapshot = {
+  activeMaterialName: "Calibrated PLA",
+  source: "filaSim live material library",
+  print: null,
+  materials: [{
+    name: "Calibrated PLA", e0: 3725, nu: 0.34, density: 1.255,
+    strength: 54, strengthZ: 31, shrink: 0.0037, shrinkZ: 0.0019,
+    yieldStrength: 47, tLock: 62, cte: 101e-6,
+  }],
+};
+const resolved = materialApi.resolveMaterialFromSnapshot(customSnapshot, "Calibrated PLA");
+assert.equal(resolved.densityKgM3, 1255);
+assert.equal(resolved.youngsModulusMpa, 3725);
+assert.equal(resolved.poissonRatio, 0.34);
+assert.equal(resolved.referenceStrengthMpa, 31);
+assert.equal(resolved.alphaXyPerK, 101e-6);
+assert.equal(resolved.alphaZPerK, 110e-6, "missing Z CTE must be complemented, not overwrite XY CTE");
+assert.deepEqual(
+  [resolved.conductivityXWmK, resolved.conductivityYWmK, resolved.conductivityZWmK],
+  [0.18, 0.18, 0.13],
+);
 
 const parts = [
   "annealing-calculator-01-core.js",
   "annealing-calculator-02-ui.js",
   "annealing-calculator-03-cycle.js",
+  "annealing-calculator-03b-materials.js",
   "annealing-calculator-04-report.js",
 ];
 const source = parts.map((name) => fs.readFileSync(new URL(`../app/src/main/filasim/${name}`, import.meta.url), "utf8").trimEnd()).join("\n") + "\n";
@@ -39,4 +73,4 @@ assert.equal(api.formatDuration(3661), "1 h 1 min");
 assert.equal(api.validateCycleInputs({ ovenTemperatureC: 80, initialTemperatureC: 23, targetToleranceC: 2, handlingTemperatureC: 45, roomTemperatureC: 23 }), true);
 assert.throws(() => api.validateCycleInputs({ ovenTemperatureC: 80, initialTemperatureC: 79, targetToleranceC: 2, handlingTemperatureC: 45, roomTemperatureC: 23 }), /core target/);
 assert.throws(() => api.validateCycleInputs({ ovenTemperatureC: 80, initialTemperatureC: 23, targetToleranceC: 2, handlingTemperatureC: 20, roomTemperatureC: 23 }), /handling target/);
-console.log("Annealing calculator pure-function contracts passed");
+console.log("Annealing calculator and filaSim material-source contracts passed");
