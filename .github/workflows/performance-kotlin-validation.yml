@@ -57,6 +57,7 @@ jobs:
             -x prepareFilaSimAssets \
             -x prepareBumpMeshAssets \
             -x verifyBumpMeshAssets \
+            -x verifyCuraEngineExecutable \
             --stacktrace \
             --no-daemon
 
