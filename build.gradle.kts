@@ -9,6 +9,18 @@ val filaSimScript = layout.projectDirectory.file("scripts/prepare-filasim-assets
 val filaSimBaseScript = layout.projectDirectory.file("scripts/prepare-filasim-assets.py")
 val filaSimManifestFinalizer = layout.projectDirectory.file("scripts/finalize-filasim-apk-manifest.py")
 val filaSimBridge = layout.projectDirectory.file("app/src/main/filasim/android-bridge.js")
+val filaSimPatchSources = files(
+    fileTree(layout.projectDirectory.dir("scripts")) {
+        include("prepare-filasim-assets-with-thermal-integrity-v*.py")
+        include("prepare-filasim-assets-with-annealing-v*.py")
+        include("filasim-thermal-integrity-*.py")
+        include("filasim-annealing-*.py")
+        include("filasim_annealing*.py")
+    },
+    fileTree(layout.projectDirectory.dir("app/src/main/filasim")) {
+        include("*.js")
+    },
+)
 val filaSimAssetsDirectory = layout.projectDirectory.dir("app/src/main/assets/filasim")
 val bumpMeshVerifier = layout.projectDirectory.file("scripts/verify-bumpmesh-assets.py")
 val bumpMeshAssetsDirectory = layout.projectDirectory.dir("app/src/main/assets/bumpmesh")
@@ -23,6 +35,10 @@ project(":app") {
         inputs.file(filaSimBaseScript)
         inputs.file(filaSimManifestFinalizer)
         inputs.file(filaSimBridge)
+        // The launcher imports a deterministic transform chain. Tracking every
+        // source prevents Gradle from reusing stale thermal/annealing assets
+        // after an imported solver, UI, or report source changes.
+        inputs.files(filaSimPatchSources)
         outputs.dir(filaSimAssetsDirectory)
         workingDir(rootProject.projectDir)
         environment("NPM_CONFIG_ENGINE_STRICT", "true")
