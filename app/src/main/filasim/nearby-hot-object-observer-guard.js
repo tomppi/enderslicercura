@@ -32,27 +32,38 @@
     const WrappedMutationObserver = new Proxy(NativeMutationObserver, {
       construct(Target, args) {
         const callback = args[0];
+        const protectsInstaller = typeof callback === "function" && callback.name === CALLBACK_NAME;
         // installUi is called once directly before its observer is created. Keep
         // the mount identity that was already installed so mutations made by
         // that installation cannot immediately trigger a second installation.
-        let installedMount = document.getElementById(MOUNT_ID);
-        const guardedCallback =
-          typeof callback === "function" && callback.name === CALLBACK_NAME
-            ? (records, observer) => {
-                const currentMount = document.getElementById(MOUNT_ID) || mountFromRecords(records);
-                if (!currentMount) {
-                  // React reuses the same panel element for T and A. Reset when
-                  // the thermal id disappears so that the same DOM node can be
-                  // installed again when the user switches back to T.
-                  installedMount = null;
-                  return;
-                }
-                if (currentMount === installedMount) return;
-                installedMount = currentMount;
-                callback(records, observer);
+        let installedMount = protectsInstaller ? document.getElementById(MOUNT_ID) : null;
+        const guardedCallback = protectsInstaller
+          ? (records, observer) => {
+              const currentMount = document.getElementById(MOUNT_ID) || mountFromRecords(records);
+              if (!currentMount) {
+                // React reuses the same panel element for T and A. Reset when
+                // the thermal id disappears so that the same DOM node can be
+                // installed again when the user switches back to T.
+                installedMount = null;
+                return;
               }
-            : callback;
-        return Reflect.construct(Target, [guardedCallback]);
+              if (currentMount === installedMount) return;
+              installedMount = currentMount;
+              callback(records, observer);
+            }
+          : callback;
+        const observer = Reflect.construct(Target, [guardedCallback]);
+        if (protectsInstaller && typeof observer.observe === "function") {
+          const nativeObserve = observer.observe.bind(observer);
+          observer.observe = (target, options = {}) => {
+            // T <-> A can be reconciled by changing only the reused div's id,
+            // which produces no childList record. Observe just id attributes in
+            // addition to the caller's existing child-list configuration.
+            const attributeFilter = Array.from(new Set([...(options.attributeFilter || []), "id"]));
+            nativeObserve(target, { ...options, attributes: true, attributeFilter });
+          };
+        }
+        return observer;
       },
     });
 
