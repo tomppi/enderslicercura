@@ -3,9 +3,9 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
 
-const [nearbyGuardPath, annealingGuardPath] = process.argv.slice(2);
-if (!nearbyGuardPath || !annealingGuardPath) {
-  throw new Error("Nearby and Anneal observer guard paths are required");
+const [nearbyGuardPath, annealingGuardPath, workspaceTransformPath] = process.argv.slice(2);
+if (!nearbyGuardPath || !annealingGuardPath || !workspaceTransformPath) {
+  throw new Error("Nearby guard, Anneal guard and workspace transform paths are required");
 }
 
 class FakeMutationObserver {
@@ -60,8 +60,8 @@ function exerciseGuard(guardPath, mountId, label) {
   observer.callback(internalMutation, observer);
   assert.equal(installs, 1, `${label}: internal mutations must not recursively reinstall`);
 
-  // React reconciles T and A onto the same div. Switching away changes its id,
-  // and switching back restores the id without adding a new DOM node.
+  // The guards remain compatible with a reused node even though the React fix
+  // now gives T and A distinct keyed roots and normally replaces the subtree.
   currentMount = null;
   observer.callback(idMutation, observer);
   assert.equal(installs, 1, `${label}: switching away must only reset mount tracking`);
@@ -74,6 +74,24 @@ function exerciseGuard(guardPath, mountId, label) {
   assert.equal(installs, 2, `${label}: the remounted workspace must remain loop-free`);
 }
 
+function verifyKeyedWorkspaceRoots(transformPath) {
+  const source = fs.readFileSync(transformPath, "utf8");
+  const thermalKey = 'key="enderslicer-thermal-workspace"';
+  const annealingKey = 'key="enderslicer-annealing-workspace"';
+  assert.equal(
+    source.split(thermalKey).length - 1,
+    2,
+    "Thermal root key must exist in the replacement and generated-source contract",
+  );
+  assert.equal(
+    source.split(annealingKey).length - 1,
+    2,
+    "Anneal root key must exist in the replacement and generated-source contract",
+  );
+  assert.match(source, /\.enderslicer-workspace-tab-state-fix-v2/);
+  assert.notEqual(thermalKey, annealingKey, "T and A must never share a React reconciliation key");
+}
+
 exerciseGuard(
   nearbyGuardPath,
   "enderslicer-thermal-integrity-mount",
@@ -84,5 +102,6 @@ exerciseGuard(
   "enderslicer-annealing-calculator-mount",
   "Annealing A tab",
 );
+verifyKeyedWorkspaceRoots(workspaceTransformPath);
 
-console.log("T/A reused-panel id-change remount regression passed");
+console.log("T/A observer and keyed-root remount regression passed");
