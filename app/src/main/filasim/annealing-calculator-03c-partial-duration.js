@@ -1,5 +1,7 @@
   // Fixed-duration annealing semantics. Whole-part readiness and soak are
   // diagnostics, not prerequisites for returning the final temperature field.
+  const thresholdFractionCache = new WeakMap();
+
   function optionalFinite(value) {
     if (value === null || value === undefined) return null;
     const number = Number(value);
@@ -7,6 +9,14 @@
   }
 
   function materialVolumeAtThreshold(result, target, cooling = false) {
+    let resultCache = thresholdFractionCache.get(result);
+    if (!resultCache) {
+      resultCache = new Map();
+      thresholdFractionCache.set(result, resultCache);
+    }
+    const key = `${cooling ? "cooling" : "heating"}:${Number(target)}`;
+    if (resultCache.has(key)) return resultCache.get(key);
+
     let total = 0;
     let reached = 0;
     for (let index = 0; index < result.temperatures.length; index += 1) {
@@ -16,15 +26,21 @@
       const temperature = Number(result.temperatures[index]);
       if (cooling ? temperature <= target : temperature >= target) reached += fraction;
     }
-    return total > 0 ? reached / total : 0;
+    const fraction = total > 0 ? reached / total : 0;
+    resultCache.set(key, fraction);
+    return fraction;
   }
 
   const fixedDurationThermalOptionsBase = thermalOptions;
   thermalOptions = function fixedDurationThermalOptions(common, stage, initialField = null) {
     const options = fixedDurationThermalOptionsBase(common, stage);
     options.stopWhenReady = false;
+    // Keep chained voxel fields compact. A JavaScript number[] creates boxed
+    // values and can multiply peak memory before structured cloning to WASM.
     options.initialTemperatureFieldC = initialField
-      ? Array.from(initialField, (temperature) => Number(temperature))
+      ? (initialField instanceof Float32Array
+          ? initialField.slice()
+          : Float32Array.from(initialField, (temperature) => Number(temperature)))
       : null;
     return options;
   };
