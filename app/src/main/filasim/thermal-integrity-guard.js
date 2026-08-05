@@ -13,6 +13,7 @@
 
   const INVALIDATED_EVENT = "enderslicer-thermal-integrity-invalidated";
   const RUN_STATE_EVENT = "enderslicer-thermal-integrity-run-state";
+  const UI_READY_EVENT = "enderslicer-thermal-integrity-ui-ready";
   const THERMAL_GROUP_ID = "enderslicer-thermal-integrity";
   const MUTATING_OPS = new Set([
     "load",
@@ -208,5 +209,5 @@
   installMutationObserverGuard();
   installWorkerGuard();
   syncUi();
-  new MutationObserver(syncUi).observe(document.documentElement, { childList: true, subtree: true });
+  window.addEventListener(UI_READY_EVENT, syncUi);
 })();
