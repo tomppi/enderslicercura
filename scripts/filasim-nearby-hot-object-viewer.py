@@ -157,17 +157,14 @@ def apply(source_root: pathlib.Path) -> None:
 """
     insert_before_once(scene, "  // ---------- axis gizmo ----------\n", marker_methods, "nearby marker methods")
 
-    replace_once(
+    insert_before_once(
         scene,
-        """    canvas.addEventListener("pointermove", this.onPointerMove);
-    canvas.addEventListener("pointerdown", this.onPointerDown);
+        """    canvas.addEventListener("pointerup", this.onPointerUp);
 """,
-        """    canvas.addEventListener("pointermove", this.onPointerMove);
-    // Capture selection before OrbitControls and the normal viewer pointer
-    // handler. This composes with EnderSlicer's later Android touch transform
-    // without rewriting the original onPointerDown source block.
+        """    // Capture selection before OrbitControls and the normal viewer pointer
+    // handler. Anchoring this insertion to pointerup keeps the transform
+    // compatible with earlier features that may separate pointermove and pointerdown.
     canvas.addEventListener("pointerdown", this.onNearbyHotObjectPointerDown, true);
-    canvas.addEventListener("pointerdown", this.onPointerDown);
 """,
         "nearby-source pointer capture registration",
     )
