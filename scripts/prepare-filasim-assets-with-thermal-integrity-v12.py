@@ -3,6 +3,7 @@
 from __future__ import annotations
 import importlib.util
 import pathlib
+import shutil
 import subprocess
 import sys
 
@@ -10,7 +11,9 @@ V11 = pathlib.Path(__file__).with_name("prepare-filasim-assets-with-thermal-inte
 CONTRACT_FIX = pathlib.Path(__file__).with_name(
     "filasim-thermal-integrity-physical-contract-fix.py"
 )
-for path in (V11, CONTRACT_FIX):
+PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
+WORKER_BROKER_RUNTIME = PROJECT_ROOT / "app/src/main/filasim/filasim-worker-broker.js"
+for path in (V11, CONTRACT_FIX, WORKER_BROKER_RUNTIME):
     if not path.is_file():
         raise RuntimeError(f"Thermal Integrity v12 component is missing: {path}")
 
@@ -28,6 +31,9 @@ if marker not in thermal.THERMAL_MARKERS:
     thermal.THERMAL_MARKERS = (*thermal.THERMAL_MARKERS, marker)
 
 _base_ui = thermal.patch_thermal_ui_runtime
+_base_inject = thermal.BASE.inject_bridge
+WORKER_BROKER_NAME = "filasim-worker-broker.js"
+WORKER_BROKER_TAG = f'<script src="./{WORKER_BROKER_NAME}"></script>'
 
 
 def patch_ui_v12(target: pathlib.Path) -> None:
@@ -35,7 +41,7 @@ def patch_ui_v12(target: pathlib.Path) -> None:
     text = target.read_text(encoding="utf-8")
 
     # Replace the feature-local Worker proxy and request listener churn with the
-    # shared broker injected ahead of every Thermal/Anneal runtime by v13.
+    # shared broker packaged immediately before the Thermal lifecycle guard.
     worker_start = text.find("  function installWorkerAccess() {")
     worker_end = text.find("  function finite(", worker_start + 1)
     if worker_start < 0 or worker_end < 0:
@@ -96,15 +102,46 @@ def patch_ui_v12(target: pathlib.Path) -> None:
     subprocess.run(["node", "--check", str(target)], check=True)
 
 
+def inject_worker_broker_v12(index_file: pathlib.Path) -> None:
+    _base_inject(index_file)
+    target = index_file.with_name(WORKER_BROKER_NAME)
+    shutil.copyfile(WORKER_BROKER_RUNTIME, target)
+    subprocess.run(["node", "--check", str(target)], check=True)
+    broker = target.read_text(encoding="utf-8")
+    for contract in (
+        "EnderSlicerFilaSimWorkerBroker",
+        "pending = new Map",
+        "cancelActive",
+        "progressBuffers",
+    ):
+        if contract not in broker:
+            raise RuntimeError(f"Generated worker broker is missing {contract!r}")
+
+    text = index_file.read_text(encoding="utf-8")
+    text = text.replace(f"  {WORKER_BROKER_TAG}\n", "").replace(WORKER_BROKER_TAG, "")
+    if thermal.THERMAL_GUARD_TAG not in text:
+        raise RuntimeError("Thermal guard tag is missing before worker-broker injection")
+    text = text.replace(
+        thermal.THERMAL_GUARD_TAG,
+        f"{WORKER_BROKER_TAG}\n  {thermal.THERMAL_GUARD_TAG}",
+        1,
+    )
+    index_file.write_text(text, encoding="utf-8")
+    verified = index_file.read_text(encoding="utf-8")
+    if verified.count(WORKER_BROKER_TAG) != 1:
+        raise RuntimeError("Worker broker runtime tag was not retained exactly once")
+    if verified.index(WORKER_BROKER_TAG) >= verified.index(thermal.THERMAL_GUARD_TAG):
+        raise RuntimeError("Worker broker must load before the Thermal lifecycle guard")
+
+
 thermal.patch_thermal_ui_runtime = patch_ui_v12
-# The contract-fix suffix updates an obsolete unit-test expectation only; it
-# does not alter packaged runtime behavior, so the package marker remains the
-# physical-model-v1 runtime identity.
+thermal.BASE.inject_bridge = inject_worker_broker_v12
 thermal.THERMAL_PACKAGE_MARKER_TEXT = (
     "format=1\n"
     f"filasim={thermal.BASE.FILASIM_COMMIT}\n"
     "transforms=solver,hardening,audit-fixes,progress-v2,react-tab-v1,"
-    "bugfix-round1,bugfix-round2,linear-fast-path-v1,physical-model-v1\n"
+    "bugfix-round1,bugfix-round2,linear-fast-path-v1,physical-model-v1,"
+    "worker-broker-v1\n"
 )
 
 if __name__ == "__main__":
