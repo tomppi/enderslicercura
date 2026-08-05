@@ -41,7 +41,9 @@
     input("calibration-result").textContent += `\nSaved as “${name}”.`;
   }
   function loadCalibrationProfile() {
-    const index = Number(value("calibrationProfile"));
+    const rawIndex = value("calibrationProfile");
+    if (rawIndex === "") return;
+    const index = Number(rawIndex);
     if (!Number.isInteger(index)) return;
     const profile = readCalibrationProfiles()[index];
     if (!profile) return;
