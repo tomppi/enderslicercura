@@ -77,11 +77,14 @@ jobs:
             scripts/filasim_annealing_web.py \
             scripts/filasim-annealing-cycle.py \
             scripts/filasim-annealing-material-source.py \
+            scripts/filasim-annealing-3d-result-fix.py \
+            scripts/filasim-annealing-partial-duration.py \
             scripts/prepare-filasim-assets-with-thermal-integrity-v12.py \
             scripts/prepare-filasim-assets-with-annealing-v13.py \
             scripts/prepare-filasim-assets-with-pinch.py
           node --check app/src/main/filasim/material-profile-source.js
           node --check app/src/main/filasim/thermal-material-profile-adapter.js
+          node --check app/src/main/filasim/annealing-calculator-03c-partial-duration.js
           node --check scripts/test-annealing-calculator.mjs
           node scripts/test-annealing-calculator.mjs
 
@@ -104,17 +107,26 @@ jobs:
           python3 scripts/filasim-thermal-integrity-physical-contract-fix.py "$source"
           python3 scripts/filasim-annealing-cycle.py "$source"
           python3 scripts/filasim-annealing-material-source.py "$source"
+          python3 scripts/filasim-annealing-3d-result-fix.py "$source"
+          python3 scripts/filasim-annealing-partial-duration.py "$source"
 
           test -f "$source/.enderslicer-annealing-cycle-v1"
           test -f "$source/.enderslicer-filasim-material-source-v1"
+          test -f "$source/.enderslicer-annealing-3d-result-fix-v1"
+          test -f "$source/.enderslicer-annealing-partial-duration-v1"
           grep -q 'fixed_surface_enabled' "$source/crates/filasim-core/src/thermal.rs"
           grep -q 'readiness_complete_time_seconds' "$source/crates/filasim-core/src/thermal.rs"
           grep -q 'coldest material voxel' "$source/crates/filasim-core/src/thermal.rs"
           grep -q 'geometry_aware_annealing_thickness_test' "$source/crates/filasim-core/src/thermal.rs"
           grep -q 'thicker_part_takes_longer_for_its_coldest_voxel_to_reach_target' "$source/crates/filasim-core/src/thermal.rs"
           grep -q 'cooling_completion_uses_the_hottest_voxel' "$source/crates/filasim-core/src/thermal.rs"
+          grep -q 'partial_duration_nonuniform_initial_field' "$source/crates/filasim-core/src/thermal.rs"
+          grep -q 'initial_temperature_field_c' "$source/crates/filasim-core/src/thermal.rs"
           grep -q 'readinessCompleteTimeSeconds' "$source/crates/filasim-wasm/src/lib.rs"
+          grep -q 'initial_temperature_field_c: opts.initial_temperature_field_c.clone()' "$source/crates/filasim-wasm/src/lib.rs"
           grep -q 'fixedSurfaceEnabled' "$source/web/src/engine/EngineClient.ts"
+          grep -q 'initialTemperatureFieldC' "$source/web/src/engine/EngineClient.ts"
+          grep -q 'const displayDisplacements = detail.structuralValid' "$source/web/src/viewer/Viewer.tsx"
           grep -q 'EnderSlicerFilaSimMaterialSource' "$source/web/src/store.ts"
           grep -q 'enderslicer-filasim-materials-changed' "$source/web/src/store.ts"
           grep -q 'state.materials.map' "$source/web/src/store.ts"
