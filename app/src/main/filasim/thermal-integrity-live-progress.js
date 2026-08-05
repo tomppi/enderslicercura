@@ -9,6 +9,7 @@
 
   const STYLE_ID = "enderslicer-thermal-live-progress-style";
   const CHIP_ID = "ti-progress-solver";
+  const UI_READY_EVENT = "enderslicer-thermal-integrity-ui-ready";
   let progressCount = null;
   let progressData = null;
   let thermalRequestId = null;
@@ -73,7 +74,9 @@
     const residual = progressData[count - 1];
     const changing = count !== lastCount || residual !== lastResidual;
     chip.classList.toggle("ti-live-active", thermalRequestId !== null && changing);
-    chip.textContent = `Solver: ${count.toLocaleString()} residual samples · r=${formatResidual(residual)}`;
+    if (changing || thermalRequestId === null) {
+      chip.textContent = `Solver: ${count.toLocaleString()} residual samples · r=${formatResidual(residual)}`;
+    }
     lastCount = count;
     lastResidual = residual;
   }
@@ -134,5 +137,5 @@
 
   installWorkerAccess();
   ensureChip();
-  new MutationObserver(ensureChip).observe(document.documentElement, { childList: true, subtree: true });
+  window.addEventListener(UI_READY_EVENT, ensureChip);
 })();
