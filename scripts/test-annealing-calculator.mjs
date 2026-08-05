@@ -173,6 +173,7 @@ const parts = [
   "annealing-calculator-03a-workload-preflight.js",
   "annealing-calculator-03b-materials.js",
   "annealing-calculator-03c-partial-duration.js",
+  "annealing-calculator-03d-thermal-only.js",
   "annealing-calculator-04-report.js",
 ];
 const source = parts.map((name) => fs.readFileSync(new URL(`../app/src/main/filasim/${name}`, import.meta.url), "utf8").trimEnd()).join("\n") + "\n";
@@ -192,4 +193,6 @@ assert.doesNotMatch(source, /Array\.from\(initialField/);
 assert.match(source, /const thresholdFractionCache = new WeakMap\(\)/);
 assert.match(source, /const heatmapPalette = new Uint8ClampedArray/);
 assert.doesNotMatch(source, /image\.data\.set\(\[\.\.\.rgb, 255\]/);
-console.log("Annealing calculator, compact chained fields, cached diagnostics, heatmap allocation, voxel workload, observer guards and filaSim material-source contracts passed");
+assert.match(source, /options\.thermalOnly = true/);
+assert.match(source, /options\.includeVisualizationFields = stage === "heating"/);
+console.log("Annealing calculator, thermal-only stage path, compact chained fields, cached diagnostics, heatmap allocation, voxel workload, observer guards and filaSim material-source contracts passed");
