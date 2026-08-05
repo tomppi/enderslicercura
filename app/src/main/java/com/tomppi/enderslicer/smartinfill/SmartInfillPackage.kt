@@ -6,6 +6,7 @@ import com.tomppi.enderslicer.mesh.MeshTriangleLimits
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedInputStream
+import java.io.DataInputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
@@ -18,6 +19,9 @@ import java.util.zip.ZipInputStream
 
 private const val STL_HEADER_BYTES = 84L
 private const val STL_TRIANGLE_BYTES = 50L
+private const val STL_TRIANGLES_PER_BLOCK = 4_096
+private const val STL_BLOCK_BYTES = STL_TRIANGLES_PER_BLOCK * STL_TRIANGLE_BYTES.toInt()
+private val HEX_DIGITS = "0123456789abcdef".toCharArray()
 
 internal data class BinaryStlBounds(
     val minX: Double,
@@ -30,6 +34,11 @@ internal data class BinaryStlBounds(
     val centerX: Double get() = (minX + maxX) * 0.5
     val centerY: Double get() = (minY + maxY) * 0.5
 }
+
+private data class BinaryStlInspection(
+    val sha256: String,
+    val bounds: BinaryStlBounds,
+)
 
 /** One filaSim modifier volume and the Cura sparse-infill density it applies. */
 data class SmartInfillModifier(
@@ -85,14 +94,17 @@ data class SmartInfillPackage(
             binarySolidPattern = binarySolidPattern,
         )
 
+    private fun requireSourceSha(actual: String) {
+        require(actual == sourceSha256) {
+            "The model or its placement changed after Smart Infill was generated. Run Smart Infill again."
+        }
+    }
+
     fun requireMatchesSource(source: File) {
         require(source.isFile && source.length() >= STL_HEADER_BYTES) {
             "The displayed STL used for Smart Infill is unavailable"
         }
-        val actual = sha256(source)
-        require(actual == sourceSha256) {
-            "The model or its placement changed after Smart Infill was generated. Run Smart Infill again."
-        }
+        requireSourceSha(sha256(source))
     }
 
     /**
@@ -105,9 +117,15 @@ data class SmartInfillPackage(
         require(destination.mkdirs() || destination.isDirectory) {
             "Unable to create the Smart Infill staging directory"
         }
-        requireMatchesSource(analyzedSource)
+        require(analyzedSource.isFile && analyzedSource.length() >= STL_HEADER_BYTES) {
+            "The displayed STL used for Smart Infill is unavailable"
+        }
         val triangleLimit = MeshTriangleLimits.current()
-        val sourceBounds = binaryStlBounds(analyzedSource, triangleLimit)
+        // Hash, validate and measure bounds in one streaming pass. The old path
+        // hashed the full STL and then opened it again for a second full scan.
+        val sourceInspection = inspectBinaryStl(analyzedSource, triangleLimit)
+        requireSourceSha(sourceInspection.sha256)
+        val sourceBounds = sourceInspection.bounds
         return modifiers.mapIndexed { index, modifier ->
             requireValidBinaryStl(modifier.file, triangleLimit)
             val target = File(destination, "smart-infill-${index + 1}-${modifier.densityPercent}pct.stl")
@@ -130,38 +148,46 @@ data class SmartInfillPackage(
         translationY: Double,
         translationZ: Double,
     ) {
-        require(listOf(translationX, translationY, translationZ).all(Double::isFinite)) {
+        require(translationX.isFinite() && translationY.isFinite() && translationZ.isFinite()) {
             "Smart Infill source placement is not finite"
         }
         val size = source.length()
         val modified = source.lastModified()
-        RandomAccessFile(source, "r").use { input ->
-            FileOutputStream(target).use { output ->
+        DataInputStream(BufferedInputStream(source.inputStream(), STL_BLOCK_BYTES)).use { input ->
+            FileOutputStream(target).buffered(STL_BLOCK_BYTES).use { output ->
                 val header = ByteArray(STL_HEADER_BYTES.toInt())
                 input.readFully(header)
                 output.write(header)
                 val triangleCount = ByteBuffer.wrap(header, 80, 4)
                     .order(ByteOrder.LITTLE_ENDIAN)
                     .int
-                val triangle = ByteArray(STL_TRIANGLE_BYTES.toInt())
-                repeat(triangleCount) {
-                    input.readFully(triangle)
-                    val buffer = ByteBuffer.wrap(triangle).order(ByteOrder.LITTLE_ENDIAN)
-                    repeat(3) { vertex ->
-                        val offset = 12 + vertex * 12
-                        val x = buffer.getFloat(offset).toDouble() + translationX
-                        val y = buffer.getFloat(offset + 4).toDouble() + translationY
-                        val z = buffer.getFloat(offset + 8).toDouble() + translationZ
-                        require(listOf(x, y, z).all(Double::isFinite)) {
-                            "Smart Infill modifier translation produced a non-finite vertex"
+                require(triangleCount > 0) { "Smart Infill modifier triangle count is invalid" }
+
+                val block = ByteArray(STL_BLOCK_BYTES)
+                var remaining = triangleCount
+                while (remaining > 0) {
+                    val blockTriangles = minOf(remaining, STL_TRIANGLES_PER_BLOCK)
+                    val blockBytes = blockTriangles * STL_TRIANGLE_BYTES.toInt()
+                    input.readFully(block, 0, blockBytes)
+                    val buffer = ByteBuffer.wrap(block, 0, blockBytes).order(ByteOrder.LITTLE_ENDIAN)
+                    repeat(blockTriangles) { triangle ->
+                        val triangleOffset = triangle * STL_TRIANGLE_BYTES.toInt()
+                        repeat(3) { vertex ->
+                            val offset = triangleOffset + 12 + vertex * 12
+                            val x = buffer.getFloat(offset).toDouble() + translationX
+                            val y = buffer.getFloat(offset + 4).toDouble() + translationY
+                            val z = buffer.getFloat(offset + 8).toDouble() + translationZ
+                            require(x.isFinite() && y.isFinite() && z.isFinite()) {
+                                "Smart Infill modifier translation produced a non-finite vertex"
+                            }
+                            buffer.putFloat(offset, x.toFloat())
+                            buffer.putFloat(offset + 4, y.toFloat())
+                            buffer.putFloat(offset + 8, z.toFloat())
                         }
-                        buffer.putFloat(offset, x.toFloat())
-                        buffer.putFloat(offset + 4, y.toFloat())
-                        buffer.putFloat(offset + 8, z.toFloat())
                     }
-                    output.write(triangle)
+                    output.write(block, 0, blockBytes)
+                    remaining -= blockTriangles
                 }
-                output.fd.sync()
             }
         }
         check(target.length() == size && source.length() == size && source.lastModified() == modified) {
@@ -506,12 +532,13 @@ class SmartInfillPackageStore(private val context: Context) {
     }
 
     private fun cleanupOldPackages(activeId: String) {
-        packagesDirectory.listFiles().orEmpty()
+        val entries = packagesDirectory.listFiles().orEmpty()
+        entries
             .filter { it.isDirectory && it.name != activeId && !it.name.endsWith(".next") }
             .sortedByDescending(File::lastModified)
             .drop(MAX_RETAINED_PACKAGES - 1)
             .forEach(File::deleteRecursively)
-        packagesDirectory.listFiles().orEmpty()
+        entries
             .filter { it.name.endsWith(".next") }
             .forEach(File::deleteRecursively)
     }
@@ -563,40 +590,69 @@ class SmartInfillPackageStore(private val context: Context) {
     }
 }
 
-internal fun binaryStlBounds(file: File, maxTriangles: Int): BinaryStlBounds {
-    requireValidBinaryStl(file, maxTriangles)
+private fun inspectBinaryStl(file: File, maxTriangles: Int): BinaryStlInspection {
+    require(file.isFile && file.length() >= STL_HEADER_BYTES) { "Smart Infill modifier STL is missing or empty" }
+    val digest = MessageDigest.getInstance("SHA-256")
     var minX = Double.POSITIVE_INFINITY
     var minY = Double.POSITIVE_INFINITY
     var minZ = Double.POSITIVE_INFINITY
     var maxX = Double.NEGATIVE_INFINITY
     var maxY = Double.NEGATIVE_INFINITY
     var maxZ = Double.NEGATIVE_INFINITY
-    RandomAccessFile(file, "r").use { input ->
-        input.seek(STL_HEADER_BYTES)
-        val triangle = ByteArray(STL_TRIANGLE_BYTES.toInt())
-        val triangleCount = ((file.length() - STL_HEADER_BYTES) / STL_TRIANGLE_BYTES).toInt()
-        repeat(triangleCount) {
-            input.readFully(triangle)
-            val buffer = ByteBuffer.wrap(triangle).order(ByteOrder.LITTLE_ENDIAN)
-            repeat(3) { vertex ->
-                val offset = 12 + vertex * 12
-                val x = buffer.getFloat(offset).toDouble()
-                val y = buffer.getFloat(offset + 4).toDouble()
-                val z = buffer.getFloat(offset + 8).toDouble()
-                require(listOf(x, y, z).all(Double::isFinite)) {
-                    "Smart Infill STL contains a non-finite vertex"
+
+    DataInputStream(BufferedInputStream(file.inputStream(), STL_BLOCK_BYTES)).use { input ->
+        val header = ByteArray(STL_HEADER_BYTES.toInt())
+        input.readFully(header)
+        digest.update(header)
+        val triangleCount = ByteBuffer.wrap(header, 80, 4)
+            .order(ByteOrder.LITTLE_ENDIAN)
+            .int
+            .toLong() and 0xffffffffL
+        require(triangleCount in 1..maxTriangles.toLong()) {
+            "Smart Infill modifier triangle count is outside the configured limit"
+        }
+        require(file.length() == STL_HEADER_BYTES + triangleCount * STL_TRIANGLE_BYTES) {
+            "Smart Infill modifier is not a structurally valid binary STL"
+        }
+
+        val block = ByteArray(STL_BLOCK_BYTES)
+        var remaining = triangleCount
+        while (remaining > 0) {
+            val blockTriangles = minOf(remaining, STL_TRIANGLES_PER_BLOCK.toLong()).toInt()
+            val blockBytes = blockTriangles * STL_TRIANGLE_BYTES.toInt()
+            input.readFully(block, 0, blockBytes)
+            digest.update(block, 0, blockBytes)
+            val buffer = ByteBuffer.wrap(block, 0, blockBytes).order(ByteOrder.LITTLE_ENDIAN)
+            repeat(blockTriangles) { triangle ->
+                val triangleOffset = triangle * STL_TRIANGLE_BYTES.toInt()
+                repeat(3) { vertex ->
+                    val offset = triangleOffset + 12 + vertex * 12
+                    val x = buffer.getFloat(offset).toDouble()
+                    val y = buffer.getFloat(offset + 4).toDouble()
+                    val z = buffer.getFloat(offset + 8).toDouble()
+                    require(x.isFinite() && y.isFinite() && z.isFinite()) {
+                        "Smart Infill STL contains a non-finite vertex"
+                    }
+                    minX = minOf(minX, x)
+                    minY = minOf(minY, y)
+                    minZ = minOf(minZ, z)
+                    maxX = maxOf(maxX, x)
+                    maxY = maxOf(maxY, y)
+                    maxZ = maxOf(maxZ, z)
                 }
-                minX = minOf(minX, x)
-                minY = minOf(minY, y)
-                minZ = minOf(minZ, z)
-                maxX = maxOf(maxX, x)
-                maxY = maxOf(maxY, y)
-                maxZ = maxOf(maxZ, z)
             }
+            remaining -= blockTriangles
         }
     }
-    return BinaryStlBounds(minX, minY, minZ, maxX, maxY, maxZ)
+
+    return BinaryStlInspection(
+        sha256 = digestHex(digest.digest()),
+        bounds = BinaryStlBounds(minX, minY, minZ, maxX, maxY, maxZ),
+    )
 }
+
+internal fun binaryStlBounds(file: File, maxTriangles: Int): BinaryStlBounds =
+    inspectBinaryStl(file, maxTriangles).bounds
 
 internal fun requireValidBinaryStl(file: File, maxTriangles: Int) {
     require(file.isFile && file.length() >= STL_HEADER_BYTES) { "Smart Infill modifier STL is missing or empty" }
@@ -627,7 +683,17 @@ internal fun sha256(file: File): String {
             digest.update(buffer, 0, count)
         }
     }
-    return digest.digest().joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
+    return digestHex(digest.digest())
+}
+
+private fun digestHex(bytes: ByteArray): String {
+    val output = CharArray(bytes.size * 2)
+    bytes.forEachIndexed { index, byte ->
+        val value = byte.toInt() and 0xff
+        output[index * 2] = HEX_DIGITS[value ushr 4]
+        output[index * 2 + 1] = HEX_DIGITS[value and 0x0f]
+    }
+    return String(output)
 }
 
 private fun validateDensities(baseDensityPercent: Double, modifierDensities: List<Int>) {
