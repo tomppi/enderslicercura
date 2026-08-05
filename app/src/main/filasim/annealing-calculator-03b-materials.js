@@ -2,6 +2,8 @@
   // part, while later function declarations are already hoisted in this IIFE.
   const materialProfiles = window.EnderSlicerFilaSimProfiles;
   let resolvedFilaSimMaterial = null;
+  let materialUiInitialized = false;
+  let selectedMaterialName = null;
 
   function annealingDraftMaterialName() {
     try {
@@ -68,7 +70,7 @@
         `Only conductivity, heat capacity, missing Z-CTE, service limit and annealing schedule are complemented from ${resolved.family}.`;
     }
     const status = document.getElementById("ac-status");
-    if (status && !runInFlight) {
+    if (status && !runInFlight && !latest) {
       status.className = `ac-status ${resolved.status === "literature-seeded" ? "dim" : "ac-warning"}`;
       status.textContent = `${resolved.name}: filaSim profile + ${resolved.family} thermal complement (${resolved.status}). Validate the oven schedule and dimensional change with a coupon.`;
     }
@@ -83,14 +85,21 @@
     const draftName = annealingDraftMaterialName();
     const desired = preferActive ? snapshot.activeMaterialName : (draftName || select.value || snapshot.activeMaterialName);
     const selected = materialProfiles.populateSelect(select, materials, desired);
-    applyResolvedFilaSimMaterial(selected, !draftName);
+    const materialChanged = selected !== selectedMaterialName;
+    const resetComplements = materialUiInitialized ? materialChanged : !draftName;
+    applyResolvedFilaSimMaterial(selected, resetComplements);
+    materialUiInitialized = true;
+    selectedMaterialName = selected;
     return true;
   }
 
   const legacyApplyPreset = applyPreset;
   applyPreset = function applyFilaSimPreset(name) {
     if (!materialProfiles) return legacyApplyPreset(name);
-    return applyResolvedFilaSimMaterial(name, true);
+    const resolved = applyResolvedFilaSimMaterial(name, true);
+    materialUiInitialized = true;
+    selectedMaterialName = resolved?.name || name;
+    return resolved;
   };
 
   const legacyCollectCommon = collectCommon;
