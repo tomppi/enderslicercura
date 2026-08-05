@@ -5,16 +5,24 @@
   const MOUNT_ID = "enderslicer-thermal-integrity-mount";
   const CALLBACK_NAME = "installUi";
 
-  function nodeContainsThermalMount(node) {
-    if (!node || typeof node !== "object") return false;
-    if (node.id === MOUNT_ID) return true;
-    return typeof node.querySelector === "function" && Boolean(node.querySelector(`#${MOUNT_ID}`));
+  function mountFromNode(node) {
+    if (!node || typeof node !== "object") return null;
+    if (node.id === MOUNT_ID) return node;
+    return typeof node.querySelector === "function" ? node.querySelector(`#${MOUNT_ID}`) : null;
+  }
+
+  function mountFromRecords(records) {
+    for (const record of Array.from(records || [])) {
+      for (const node of Array.from(record?.addedNodes || [])) {
+        const mount = mountFromNode(node);
+        if (mount) return mount;
+      }
+    }
+    return null;
   }
 
   function recordsAddThermalMount(records) {
-    return Array.from(records || []).some((record) =>
-      Array.from(record?.addedNodes || []).some(nodeContainsThermalMount)
-    );
+    return Boolean(mountFromRecords(records));
   }
 
   function installObserverGuard() {
@@ -31,7 +39,7 @@
         const guardedCallback =
           typeof callback === "function" && callback.name === CALLBACK_NAME
             ? (records, observer) => {
-                const currentMount = document.getElementById(MOUNT_ID);
+                const currentMount = document.getElementById(MOUNT_ID) || mountFromRecords(records);
                 if (!currentMount) {
                   // React reuses the same panel element for T and A. Reset when
                   // the thermal id disappears so that the same DOM node can be
