@@ -170,6 +170,7 @@ const parts = [
   "annealing-calculator-03-cycle.js",
   "annealing-calculator-03a-workload-preflight.js",
   "annealing-calculator-03b-materials.js",
+  "annealing-calculator-03c-partial-duration.js",
   "annealing-calculator-04-report.js",
 ];
 const source = parts.map((name) => fs.readFileSync(new URL(`../app/src/main/filasim/${name}`, import.meta.url), "utf8").trimEnd()).join("\n") + "\n";
@@ -181,4 +182,7 @@ assert.equal(api.formatDuration(3661), "1 h 1 min");
 assert.equal(api.validateCycleInputs({ ovenTemperatureC: 80, initialTemperatureC: 23, targetToleranceC: 2, handlingTemperatureC: 45, roomTemperatureC: 23 }), true);
 assert.throws(() => api.validateCycleInputs({ ovenTemperatureC: 80, initialTemperatureC: 79, targetToleranceC: 2, handlingTemperatureC: 45, roomTemperatureC: 23 }), /core target/);
 assert.throws(() => api.validateCycleInputs({ ovenTemperatureC: 80, initialTemperatureC: 23, targetToleranceC: 2, handlingTemperatureC: 20, roomTemperatureC: 23 }), /handling target/);
-console.log("Annealing calculator, voxel workload, step budget, observer guards and filaSim material-source contracts passed");
+assert.match(source, /Simulate Oven Exposure & Cooling/);
+assert.match(source, /initialTemperatureFieldC/);
+assert.match(source, /partial temperature field is shown/);
+console.log("Annealing calculator, fixed-duration partial results, voxel workload, step budget, observer guards and filaSim material-source contracts passed");
