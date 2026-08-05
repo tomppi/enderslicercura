@@ -79,6 +79,7 @@ jobs:
             scripts/filasim-annealing-material-source.py \
             scripts/filasim-annealing-3d-result-fix.py \
             scripts/filasim-annealing-partial-duration.py \
+            scripts/filasim-annealing-short-duration-stability.py \
             scripts/prepare-filasim-assets-with-thermal-integrity-v12.py \
             scripts/prepare-filasim-assets-with-annealing-v13.py \
             scripts/prepare-filasim-assets-with-pinch.py
@@ -109,11 +110,13 @@ jobs:
           python3 scripts/filasim-annealing-material-source.py "$source"
           python3 scripts/filasim-annealing-3d-result-fix.py "$source"
           python3 scripts/filasim-annealing-partial-duration.py "$source"
+          python3 scripts/filasim-annealing-short-duration-stability.py "$source"
 
           test -f "$source/.enderslicer-annealing-cycle-v1"
           test -f "$source/.enderslicer-filasim-material-source-v1"
           test -f "$source/.enderslicer-annealing-3d-result-fix-v1"
           test -f "$source/.enderslicer-annealing-partial-duration-v1"
+          test -f "$source/.enderslicer-annealing-short-duration-stability-v1"
           grep -q 'fixed_surface_enabled' "$source/crates/filasim-core/src/thermal.rs"
           grep -q 'readiness_complete_time_seconds' "$source/crates/filasim-core/src/thermal.rs"
           grep -q 'coldest material voxel' "$source/crates/filasim-core/src/thermal.rs"
@@ -122,6 +125,9 @@ jobs:
           grep -q 'cooling_completion_uses_the_hottest_voxel' "$source/crates/filasim-core/src/thermal.rs"
           grep -q 'partial_duration_nonuniform_initial_field' "$source/crates/filasim-core/src/thermal.rs"
           grep -q 'initial_temperature_field_c' "$source/crates/filasim-core/src/thermal.rs"
+          grep -q 'minute_scale_duration_uses_uniform_timestep_partition' "$source/crates/filasim-core/src/thermal.rs"
+          grep -q 'NONLINEAR_ROUNDOFF_W_PER_SQRT_CELL' "$source/crates/filasim-core/src/thermal.rs"
+          grep -q 'let effective_dt = options.duration_seconds / steps as f64' "$source/crates/filasim-core/src/thermal.rs"
           grep -q 'readinessCompleteTimeSeconds' "$source/crates/filasim-wasm/src/lib.rs"
           grep -q 'initial_temperature_field_c: opts.initial_temperature_field_c.clone()' "$source/crates/filasim-wasm/src/lib.rs"
           grep -q 'fixedSurfaceEnabled' "$source/web/src/engine/EngineClient.ts"
