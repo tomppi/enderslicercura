@@ -4,17 +4,31 @@ from __future__ import annotations
 
 import importlib.util
 import pathlib
+import shutil
 import subprocess
 import sys
 
 V12 = pathlib.Path(__file__).with_name("prepare-filasim-assets-with-thermal-integrity-v12.py")
 ANNEALING_TRANSFORM = pathlib.Path(__file__).with_name("filasim-annealing-cycle.py")
+MATERIAL_TRANSFORM = pathlib.Path(__file__).with_name("filasim-annealing-material-source.py")
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
-ANNEALING_UI_PARTS = tuple(
-    PROJECT_ROOT / f"app/src/main/filasim/annealing-calculator-0{index}-{name}.js"
-    for index, name in ((1, "core"), (2, "ui"), (3, "cycle"), (4, "report"))
+MATERIAL_RUNTIME = PROJECT_ROOT / "app/src/main/filasim/material-profile-source.js"
+THERMAL_MATERIAL_ADAPTER = PROJECT_ROOT / "app/src/main/filasim/thermal-material-profile-adapter.js"
+ANNEALING_UI_PARTS = (
+    PROJECT_ROOT / "app/src/main/filasim/annealing-calculator-01-core.js",
+    PROJECT_ROOT / "app/src/main/filasim/annealing-calculator-02-ui.js",
+    PROJECT_ROOT / "app/src/main/filasim/annealing-calculator-03-cycle.js",
+    PROJECT_ROOT / "app/src/main/filasim/annealing-calculator-03b-materials.js",
+    PROJECT_ROOT / "app/src/main/filasim/annealing-calculator-04-report.js",
 )
-for path in (V12, ANNEALING_TRANSFORM, *ANNEALING_UI_PARTS):
+for path in (
+    V12,
+    ANNEALING_TRANSFORM,
+    MATERIAL_TRANSFORM,
+    MATERIAL_RUNTIME,
+    THERMAL_MATERIAL_ADAPTER,
+    *ANNEALING_UI_PARTS,
+):
     if not path.is_file():
         raise RuntimeError(f"Annealing v13 component is missing: {path}")
 
@@ -25,15 +39,32 @@ v12 = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(v12)
 thermal = v12.thermal
 
-marker = ".enderslicer-annealing-cycle-v1"
-if ANNEALING_TRANSFORM not in thermal.THERMAL_TRANSFORMS:
-    thermal.THERMAL_TRANSFORMS = (*thermal.THERMAL_TRANSFORMS, ANNEALING_TRANSFORM)
-if marker not in thermal.THERMAL_MARKERS:
-    thermal.THERMAL_MARKERS = (*thermal.THERMAL_MARKERS, marker)
+for transform in (ANNEALING_TRANSFORM, MATERIAL_TRANSFORM):
+    if transform not in thermal.THERMAL_TRANSFORMS:
+        thermal.THERMAL_TRANSFORMS = (*thermal.THERMAL_TRANSFORMS, transform)
+for marker in (
+    ".enderslicer-annealing-cycle-v1",
+    ".enderslicer-filasim-material-source-v1",
+):
+    if marker not in thermal.THERMAL_MARKERS:
+        thermal.THERMAL_MARKERS = (*thermal.THERMAL_MARKERS, marker)
 
+MATERIAL_UI_NAME = "material-profile-source.js"
+THERMAL_ADAPTER_NAME = "thermal-material-profile-adapter.js"
 ANNEALING_UI_NAME = "annealing-calculator.js"
+MATERIAL_UI_TAG = f'<script src="./{MATERIAL_UI_NAME}"></script>'
+THERMAL_ADAPTER_TAG = f'<script src="./{THERMAL_ADAPTER_NAME}"></script>'
 ANNEALING_UI_TAG = f'<script src="./{ANNEALING_UI_NAME}"></script>'
 _base_inject = thermal.BASE.inject_bridge
+
+
+def copy_checked(source: pathlib.Path, target: pathlib.Path, contracts: tuple[str, ...]) -> None:
+    shutil.copyfile(source, target)
+    subprocess.run(["node", "--check", str(target)], check=True)
+    verified = target.read_text(encoding="utf-8")
+    for contract in contracts:
+        if contract not in verified:
+            raise RuntimeError(f"Generated runtime {target.name} is missing {contract!r}")
 
 
 def build_annealing_runtime(target: pathlib.Path) -> None:
@@ -46,6 +77,7 @@ def build_annealing_runtime(target: pathlib.Path) -> None:
         "readinessTemperatureC",
         "Calculate Complete Oven Cycle",
         "Spool-specific dimensional calibration",
+        "filaSimMaterialProfile",
         "thermalOnly: true",
     ):
         if contract not in verified:
@@ -54,39 +86,56 @@ def build_annealing_runtime(target: pathlib.Path) -> None:
 
 def inject_annealing_runtime(index_file: pathlib.Path) -> None:
     _base_inject(index_file)
-    target = index_file.with_name(ANNEALING_UI_NAME)
-    build_annealing_runtime(target)
+    copy_checked(
+        MATERIAL_RUNTIME,
+        index_file.with_name(MATERIAL_UI_NAME),
+        ("EnderSlicerFilaSimProfiles", "resolveMaterialFromSnapshot", "SUPPLEMENTS"),
+    )
+    copy_checked(
+        THERMAL_MATERIAL_ADAPTER,
+        index_file.with_name(THERMAL_ADAPTER_NAME),
+        ("filaSim's live material library", "ti-material-source"),
+    )
+    build_annealing_runtime(index_file.with_name(ANNEALING_UI_NAME))
 
     text = index_file.read_text(encoding="utf-8")
-    text = text.replace(f"  {ANNEALING_UI_TAG}\n", "").replace(ANNEALING_UI_TAG, "")
+    for tag in (MATERIAL_UI_TAG, THERMAL_ADAPTER_TAG, ANNEALING_UI_TAG):
+        text = text.replace(f"  {tag}\n", "").replace(tag, "")
+    chain = (
+        f"{thermal.THERMAL_UI_TAG}\n"
+        f"  {MATERIAL_UI_TAG}\n"
+        f"  {THERMAL_ADAPTER_TAG}\n"
+        f"  {ANNEALING_UI_TAG}"
+    )
     if thermal.THERMAL_UI_TAG in text:
-        text = text.replace(
-            thermal.THERMAL_UI_TAG,
-            f"{thermal.THERMAL_UI_TAG}\n  {ANNEALING_UI_TAG}",
-            1,
-        )
+        text = text.replace(thermal.THERMAL_UI_TAG, chain, 1)
     elif "</body>" in text:
-        text = text.replace("</body>", f"  {ANNEALING_UI_TAG}\n</body>", 1)
+        text = text.replace("</body>", f"  {chain}\n</body>", 1)
     else:
-        raise RuntimeError("Unable to inject annealing runtime into index.html")
+        raise RuntimeError("Unable to inject material and annealing runtimes into index.html")
     index_file.write_text(text, encoding="utf-8")
 
     verified = index_file.read_text(encoding="utf-8")
-    if verified.count(ANNEALING_UI_TAG) != 1:
-        raise RuntimeError("Annealing runtime tag was not retained exactly once")
-    if verified.index(ANNEALING_UI_TAG) <= verified.index(thermal.THERMAL_UI_TAG):
-        raise RuntimeError("Annealing runtime must load after Thermal Integrity runtime")
+    for tag in (MATERIAL_UI_TAG, THERMAL_ADAPTER_TAG, ANNEALING_UI_TAG):
+        if verified.count(tag) != 1:
+            raise RuntimeError(f"Runtime tag was not retained exactly once: {tag}")
+    order = [
+        verified.index(thermal.THERMAL_UI_TAG),
+        verified.index(MATERIAL_UI_TAG),
+        verified.index(THERMAL_ADAPTER_TAG),
+        verified.index(ANNEALING_UI_TAG),
+    ]
+    if order != sorted(order) or len(set(order)) != len(order):
+        raise RuntimeError("Thermal, material-source, adapter and annealing runtime order is invalid")
 
 
 thermal.BASE.inject_bridge = inject_annealing_runtime
-# The v12 physical contract-fix transform only corrects an obsolete test
-# expectation. It does not change the packaged runtime identity, so the marker
-# remains physical-model-v1 plus this annealing runtime revision.
 thermal.THERMAL_PACKAGE_MARKER_TEXT = (
     "format=1\n"
     f"filasim={thermal.BASE.FILASIM_COMMIT}\n"
     "transforms=solver,hardening,audit-fixes,progress-v2,react-tab-v1,"
-    "bugfix-round1,bugfix-round2,linear-fast-path-v1,physical-model-v1,annealing-v1\n"
+    "bugfix-round1,bugfix-round2,linear-fast-path-v1,physical-model-v1,"
+    "annealing-v2,filasim-material-source-v1\n"
 )
 
 if __name__ == "__main__":
