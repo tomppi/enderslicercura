@@ -32,27 +32,38 @@
     const WrappedMutationObserver = new Proxy(NativeMutationObserver, {
       construct(Target, args) {
         const callback = args[0];
+        const protectsInstaller = typeof callback === "function" && CALLBACK_NAMES.has(callback.name);
         // Both Anneal installers run once before creating their observers. Save
         // the mount that was already handled so their own DOM updates do not
         // recursively trigger installation again.
-        let installedMount = document.getElementById(MOUNT_ID);
-        const guardedCallback =
-          typeof callback === "function" && CALLBACK_NAMES.has(callback.name)
-            ? (records, observer) => {
-                const currentMount = document.getElementById(MOUNT_ID) || mountFromRecords(records);
-                if (!currentMount) {
-                  // T and A are reconciled onto the same React DOM element. The
-                  // id disappearing means Anneal is inactive; clear the identity
-                  // so the reused node is installed when A becomes active again.
-                  installedMount = null;
-                  return;
-                }
-                if (currentMount === installedMount) return;
-                installedMount = currentMount;
-                callback(records, observer);
+        let installedMount = protectsInstaller ? document.getElementById(MOUNT_ID) : null;
+        const guardedCallback = protectsInstaller
+          ? (records, observer) => {
+              const currentMount = document.getElementById(MOUNT_ID) || mountFromRecords(records);
+              if (!currentMount) {
+                // T and A are reconciled onto the same React DOM element. The
+                // id disappearing means Anneal is inactive; clear the identity
+                // so the reused node is installed when A becomes active again.
+                installedMount = null;
+                return;
               }
-            : callback;
-        return Reflect.construct(Target, [guardedCallback]);
+              if (currentMount === installedMount) return;
+              installedMount = currentMount;
+              callback(records, observer);
+            }
+          : callback;
+        const observer = Reflect.construct(Target, [guardedCallback]);
+        if (protectsInstaller && typeof observer.observe === "function") {
+          const nativeObserve = observer.observe.bind(observer);
+          observer.observe = (target, options = {}) => {
+            // React may switch T <-> A by changing only this reused div's id.
+            // Watch just id attributes in addition to the caller's child-list
+            // settings; mount identity filtering still blocks feedback loops.
+            const attributeFilter = Array.from(new Set([...(options.attributeFilter || []), "id"]));
+            nativeObserve(target, { ...options, attributes: true, attributeFilter });
+          };
+        }
+        return observer;
       },
     });
 
