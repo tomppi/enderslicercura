@@ -20,6 +20,7 @@ const documentObject = {
   getElementById() { return null; },
   createElement() { return { id: "", textContent: "", style: {}, dataset: {}, appendChild() {} }; },
   querySelectorAll() { return []; },
+  addEventListener() {},
 };
 
 globalThis.window = windowObject;
@@ -107,6 +108,45 @@ assert.equal(
   "Thermal source-note mutations must not retrigger material synchronization",
 );
 
+const stepBudgetRuntime = fs.readFileSync(
+  new URL("../app/src/main/filasim/annealing-step-budget-guard.js", import.meta.url),
+  "utf8",
+);
+new vm.Script(stepBudgetRuntime, { filename: "annealing-step-budget-guard.js" }).runInThisContext();
+const stepBudgetApi = windowObject.EnderSlicerAnnealingStepBudgetTestApi;
+assert.ok(stepBudgetApi, "Annealing step-budget test API was not exposed");
+assert.equal(stepBudgetApi.maxStageSteps, 2000);
+const defaultBudget = stepBudgetApi.planStageBudget({
+  maxHeatingHours: 12,
+  maxCoolingHours: 12,
+  requestedTimeStepSeconds: 20,
+  simulateCooling: true,
+});
+assert.equal(defaultBudget.minimumTimeStepSeconds, 22);
+assert.equal(defaultBudget.effectiveTimeStepSeconds, 22);
+assert.equal(defaultBudget.adjusted, true);
+assert.equal(defaultBudget.heatingSteps, 1964);
+assert.equal(defaultBudget.coolingSteps, 1964);
+assert.ok(defaultBudget.heatingSteps <= 2000 && defaultBudget.coolingSteps <= 2000);
+const alreadyValidBudget = stepBudgetApi.planStageBudget({
+  maxHeatingHours: 12,
+  maxCoolingHours: 12,
+  requestedTimeStepSeconds: 30,
+  simulateCooling: true,
+});
+assert.equal(alreadyValidBudget.effectiveTimeStepSeconds, 30);
+assert.equal(alreadyValidBudget.adjusted, false);
+assert.equal(alreadyValidBudget.heatingSteps, 1440);
+const heatingOnlyBudget = stepBudgetApi.planStageBudget({
+  maxHeatingHours: 4,
+  maxCoolingHours: 12,
+  requestedTimeStepSeconds: 5,
+  simulateCooling: false,
+});
+assert.equal(heatingOnlyBudget.minimumTimeStepSeconds, 8);
+assert.equal(heatingOnlyBudget.coolingSteps, 0);
+assert.equal(heatingOnlyBudget.heatingSteps, 1800);
+
 const parts = [
   "annealing-calculator-01-core.js",
   "annealing-calculator-02-ui.js",
@@ -123,4 +163,4 @@ assert.equal(api.formatDuration(3661), "1 h 1 min");
 assert.equal(api.validateCycleInputs({ ovenTemperatureC: 80, initialTemperatureC: 23, targetToleranceC: 2, handlingTemperatureC: 45, roomTemperatureC: 23 }), true);
 assert.throws(() => api.validateCycleInputs({ ovenTemperatureC: 80, initialTemperatureC: 79, targetToleranceC: 2, handlingTemperatureC: 45, roomTemperatureC: 23 }), /core target/);
 assert.throws(() => api.validateCycleInputs({ ovenTemperatureC: 80, initialTemperatureC: 23, targetToleranceC: 2, handlingTemperatureC: 20, roomTemperatureC: 23 }), /handling target/);
-console.log("Annealing calculator, observer guards and filaSim material-source contracts passed");
+console.log("Annealing calculator, step budget, observer guards and filaSim material-source contracts passed");
