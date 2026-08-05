@@ -40,6 +40,22 @@ class FakeMutationObserver {
   disconnect() {}
 }
 
+const brokerListeners = new Map();
+const fakeBroker = {
+  on(type, callback) {
+    const listeners = brokerListeners.get(type) || [];
+    listeners.push(callback);
+    brokerListeners.set(type, listeners);
+    return () => {};
+  },
+  cancelActive() { return true; },
+  cancelArray() { return null; },
+  progressBuffers() { return { count: null, data: null }; },
+  request() { return Promise.reject(new Error("no worker in observer test")); },
+  currentWorker() { return null; },
+  terminateCurrent() { return false; },
+};
+
 const document = {
   documentElement: new FakeElement("root"),
   addEventListener() {},
@@ -61,6 +77,7 @@ const context = {
     }
   },
   Element: FakeElement,
+  Error,
   Int32Array,
   MessageEvent: class MessageEvent {
     constructor(type, init = {}) {
@@ -70,6 +87,7 @@ const context = {
   },
   MutationObserver: FakeMutationObserver,
   Number,
+  Promise,
   Proxy,
   Reflect,
   Set,
@@ -78,6 +96,7 @@ const context = {
   document,
 };
 context.window = {
+  EnderSlicerFilaSimWorkerBroker: fakeBroker,
   MutationObserver: FakeMutationObserver,
   Worker: undefined,
   addEventListener() {},
@@ -129,17 +148,23 @@ assert.doesNotMatch(
   /new MutationObserver\(ensureUi\)/,
   "workspace progress mutations must not directly call ensureUi",
 );
+assert.match(workspaceSource, /broker\.request\("voxelInfo"\)/);
+assert.doesNotMatch(workspaceSource, /new Proxy\(ExistingWorker/);
 assert.doesNotMatch(
   source,
   /new MutationObserver\(syncUi\)\.observe/,
   "the lifecycle guard must consume the shared mount event instead of observing the document",
 );
 assert.match(source, /window\.addEventListener\(UI_READY_EVENT, syncUi\)/);
+assert.match(source, /broker\.on\("post", onWorkerPost\)/);
+assert.doesNotMatch(source, /new Proxy\(ExistingWorker/);
 assert.doesNotMatch(
   liveSource,
   /new MutationObserver\(ensureChip\)\.observe/,
   "live progress must consume the shared mount event instead of observing the document",
 );
 assert.match(liveSource, /window\.addEventListener\(UI_READY_EVENT, ensureChip\)/);
+assert.match(liveSource, /broker\.progressBuffers\(\)/);
+assert.doesNotMatch(liveSource, /new Proxy\(ExistingWorker/);
 
-console.log("Thermal MutationObserver feedback-loop and shared mount-event contracts passed");
+console.log("Thermal MutationObserver feedback-loop, shared broker and mount-event contracts passed");
