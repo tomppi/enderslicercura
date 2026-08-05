@@ -79,12 +79,14 @@ def inject_annealing_runtime(index_file: pathlib.Path) -> None:
 
 
 thermal.BASE.inject_bridge = inject_annealing_runtime
+# The v12 physical contract-fix transform only corrects an obsolete test
+# expectation. It does not change the packaged runtime identity, so the marker
+# remains physical-model-v1 plus this annealing runtime revision.
 thermal.THERMAL_PACKAGE_MARKER_TEXT = (
     "format=1\n"
     f"filasim={thermal.BASE.FILASIM_COMMIT}\n"
     "transforms=solver,hardening,audit-fixes,progress-v2,react-tab-v1,"
-    "bugfix-round1,bugfix-round2,linear-fast-path-v1,physical-model-v1,"
-    "physical-contract-fix-v1,annealing-v1\n"
+    "bugfix-round1,bugfix-round2,linear-fast-path-v1,physical-model-v1,annealing-v1\n"
 )
 
 if __name__ == "__main__":
