@@ -2,6 +2,7 @@ package com.tomppi.enderslicer.engine
 
 import com.tomppi.enderslicer.BuildConfig
 import java.io.File
+import java.io.RandomAccessFile
 import kotlin.math.ceil
 
 object GcodeSanitizer {
@@ -160,7 +161,7 @@ object GcodeSanitizer {
         val estimatedSeconds = lastElapsed?.let { ceil(it).toInt() }
         val temporary = File(file.parentFile, "${file.name}.validated")
         temporary.delete()
-        temporary.outputStream().buffered().writer(Charsets.UTF_8).buffered().use { writer ->
+        temporary.outputStream().bufferedWriter(Charsets.UTF_8).use { writer ->
             var insertedMarkers = false
             file.bufferedReader().useLines { lines ->
                 lines.forEach { originalLine ->
@@ -198,15 +199,16 @@ object GcodeSanitizer {
             }
         }
         check(temporary.length() > 0L) { "Validated G-code output is empty" }
-        if (file.exists()) file.delete()
-        check(temporary.renameTo(file) || temporary.copyTo(file, overwrite = true).let { temporary.delete(); true }) {
-            "Unable to replace generated G-code with the validated output"
-        }
-        if (temperatureCalibration && finalNozzleTarget(file) != 0.0) {
+        if (temperatureCalibration && !endsWithShutdownCommand(temporary)) {
+            temporary.delete()
             throw UnsafeGcodeException(
                 "Temperature calibration did not finish with the hotend target disabled. " +
                     "The G-code was not made available for export.",
             )
+        }
+        if (file.exists()) file.delete()
+        check(temporary.renameTo(file) || temporary.copyTo(file, overwrite = true).let { temporary.delete(); true }) {
+            "Unable to replace generated G-code with the validated output"
         }
 
         return Summary(
@@ -223,17 +225,16 @@ object GcodeSanitizer {
         )
     }
 
-    private fun finalNozzleTarget(file: File): Double? {
-        var target: Double? = null
-        file.bufferedReader().useLines { lines ->
-            lines.forEach { line ->
-                val command = GcodeCommand.parse(line) ?: return@forEach
-                if (command.opcode == "M104" || command.opcode == "M109") {
-                    target = command.value('S') ?: command.value('R') ?: target
-                }
-            }
+    private fun endsWithShutdownCommand(file: File): Boolean {
+        val expected = (TEMPERATURE_CALIBRATION_SHUTDOWN_COMMAND + PRINTER_LINE_ENDING)
+            .toByteArray(Charsets.UTF_8)
+        if (!file.isFile || file.length() < expected.size) return false
+        val actual = ByteArray(expected.size)
+        RandomAccessFile(file, "r").use { input ->
+            input.seek(file.length() - expected.size)
+            input.readFully(actual)
         }
-        return target
+        return actual.contentEquals(expected)
     }
 
     private fun format(value: Double): String = "%.5f".format(java.util.Locale.US, value).trimEnd('0').trimEnd('.')
