@@ -44,4 +44,8 @@ def append_once(path: pathlib.Path, marker: str, body: str) -> None:
     text = path.read_text(encoding="utf-8")
     if marker in text:
         return
-    path.write_text(text.rstrip() + "\n\n" + body.strip() + "\n", encoding="utf-8")
+    # Persist the marker in the generated Rust text, not only in the Python
+    # guard. This makes the transform demonstrably idempotent across repeated
+    # Gradle and CI preparation runs.
+    addition = f"// {marker}\n{body.strip()}\n"
+    path.write_text(text.rstrip() + "\n\n" + addition, encoding="utf-8")
