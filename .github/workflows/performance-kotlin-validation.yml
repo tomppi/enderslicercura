@@ -3,7 +3,7 @@ name: Performance Kotlin Validation
 on:
   push:
     branches:
-      - perf/fix-audit-findings-stage1
+      - 'perf/fix-audit-findings-stage*'
   workflow_dispatch:
 
 permissions:
