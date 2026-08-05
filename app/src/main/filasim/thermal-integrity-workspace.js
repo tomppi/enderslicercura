@@ -10,6 +10,7 @@
 
   const GROUP_ID = "enderslicer-thermal-integrity";
   const STYLE_ID = "enderslicer-thermal-integrity-workspace-style";
+  const UI_READY_EVENT = "enderslicer-thermal-integrity-ui-ready";
   const PREFLIGHT_ID_START = -1_500_000_000;
   const ENGINE_OPS = new Set([
     "load",
@@ -29,6 +30,7 @@
   let runActive = false;
   let runStartedAt = 0;
   let elapsedTimer = null;
+  let mountedGroup = null;
   let progressState = { phase: "Idle", progress: 0, detail: "" };
 
   function installWorkerAccess() {
@@ -294,16 +296,39 @@
     worker.postMessage({ id, op: "voxelInfo" });
   }
 
+  function nodeContainsThermalGroup(node) {
+    return node instanceof Element &&
+      (node.id === GROUP_ID || Boolean(node.querySelector?.(`#${GROUP_ID}`)));
+  }
+
+  function recordsAddThermalGroup(records) {
+    return Array.from(records || []).some((record) =>
+      Array.from(record?.addedNodes || []).some(nodeContainsThermalGroup)
+    );
+  }
+
   function ensureUi() {
     installStyle();
     const group = document.getElementById(GROUP_ID);
     if (!group) return false;
+    const remounted = mountedGroup !== group;
+    mountedGroup = group;
     ensureProgressUi(group);
     renderProgress();
+    if (remounted) {
+      window.dispatchEvent(new CustomEvent(UI_READY_EVENT, { detail: { group } }));
+    }
     return true;
+  }
+
+  function handleMountMutations(records) {
+    if (recordsAddThermalGroup(records)) ensureUi();
   }
 
   installWorkerAccess();
   ensureUi();
-  new MutationObserver(ensureUi).observe(document.documentElement, { childList: true, subtree: true });
+  new MutationObserver(handleMountMutations).observe(document.documentElement, {
+    childList: true,
+    subtree: true,
+  });
 })();
