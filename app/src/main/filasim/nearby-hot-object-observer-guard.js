@@ -24,14 +24,24 @@
     const WrappedMutationObserver = new Proxy(NativeMutationObserver, {
       construct(Target, args) {
         const callback = args[0];
+        // installUi is called once directly before its observer is created. Keep
+        // the mount identity that was already installed so mutations made by
+        // that installation cannot immediately trigger a second installation.
+        let installedMount = document.getElementById(MOUNT_ID);
         const guardedCallback =
           typeof callback === "function" && callback.name === CALLBACK_NAME
             ? (records, observer) => {
-                // React adding the dedicated thermal mount is the only change
-                // that requires installation. Mutations made inside the panel
-                // must not call installUi again or the WebView enters a feedback
-                // loop and freezes when the T station is opened.
-                if (recordsAddThermalMount(records)) callback(records, observer);
+                const currentMount = document.getElementById(MOUNT_ID);
+                if (!currentMount) {
+                  // React reuses the same panel element for T and A. Reset when
+                  // the thermal id disappears so that the same DOM node can be
+                  // installed again when the user switches back to T.
+                  installedMount = null;
+                  return;
+                }
+                if (currentMount === installedMount) return;
+                installedMount = currentMount;
+                callback(records, observer);
               }
             : callback;
         return Reflect.construct(Target, [guardedCallback]);
