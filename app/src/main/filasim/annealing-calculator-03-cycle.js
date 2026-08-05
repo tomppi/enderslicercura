@@ -1,3 +1,42 @@
+  const HEATMAP_PALETTE_SIZE = 256;
+  const heatmapPalette = new Uint8ClampedArray(HEATMAP_PALETTE_SIZE * 3);
+  let heatmapPaletteReady = false;
+  let heatmapScratch = null;
+  let heatmapScratchContext = null;
+  let heatmapImage = null;
+
+  function ensureHeatmapPalette() {
+    if (heatmapPaletteReady) return;
+    for (let index = 0; index < HEATMAP_PALETTE_SIZE; index += 1) {
+      const [red, green, blue] = colorFor(index, 0, HEATMAP_PALETTE_SIZE - 1);
+      const offset = index * 3;
+      heatmapPalette[offset] = red;
+      heatmapPalette[offset + 1] = green;
+      heatmapPalette[offset + 2] = blue;
+    }
+    heatmapPaletteReady = true;
+  }
+
+  function heatmapPaletteIndex(value, minimum, maximum) {
+    if (!(maximum > minimum)) return 0;
+    const normalized = (Number(value) - minimum) / (maximum - minimum);
+    return Math.max(0, Math.min(
+      HEATMAP_PALETTE_SIZE - 1,
+      Math.round(normalized * (HEATMAP_PALETTE_SIZE - 1)),
+    ));
+  }
+
+  function ensureHeatmapSurface(context, width, height) {
+    if (!heatmapScratch) heatmapScratch = document.createElement("canvas");
+    if (heatmapScratch.width !== width || heatmapScratch.height !== height || !heatmapImage) {
+      heatmapScratch.width = width;
+      heatmapScratch.height = height;
+      heatmapScratchContext = heatmapScratch.getContext("2d");
+      heatmapImage = context.createImageData(width, height);
+    }
+    return { image: heatmapImage, scratch: heatmapScratch, scratchContext: heatmapScratchContext };
+  }
+
   function progress(stage, raw) {
     let data = raw;
     if (typeof data === "string") {
@@ -217,28 +256,38 @@
 
   function drawHeatmap() {
     if (!latest) return;
+    ensureHeatmapPalette();
     const canvas = input("heatmap");
     const context = canvas.getContext("2d");
     const stats = latest.heating.stats;
     const { nx, ny, nz } = stats;
     const z = Math.floor((Number(nz) - 1) / 2);
-    const image = context.createImageData(nx, ny);
+    const { image, scratch, scratchContext } = ensureHeatmapSurface(context, nx, ny);
+    const pixels = image.data;
     for (let row = 0; row < ny; row += 1) {
       for (let x = 0; x < nx; x += 1) {
         const y = ny - 1 - row;
         const cell = (z * ny + y) * nx + x;
         const pixel = (row * nx + x) * 4;
         if (latest.heating.materialFraction[cell] <= 1e-7) {
-          image.data.set([15, 15, 18, 255], pixel);
+          pixels[pixel] = 15;
+          pixels[pixel + 1] = 15;
+          pixels[pixel + 2] = 18;
+          pixels[pixel + 3] = 255;
         } else {
-          const rgb = colorFor(latest.heating.temperatures[cell], stats.minimumTemperatureC, stats.maximumTemperatureC);
-          image.data.set([...rgb, 255], pixel);
+          const paletteIndex = heatmapPaletteIndex(
+            latest.heating.temperatures[cell],
+            stats.minimumTemperatureC,
+            stats.maximumTemperatureC,
+          ) * 3;
+          pixels[pixel] = heatmapPalette[paletteIndex];
+          pixels[pixel + 1] = heatmapPalette[paletteIndex + 1];
+          pixels[pixel + 2] = heatmapPalette[paletteIndex + 2];
+          pixels[pixel + 3] = 255;
         }
       }
     }
-    const scratch = document.createElement("canvas");
-    scratch.width = nx; scratch.height = ny;
-    scratch.getContext("2d").putImageData(image, 0, 0);
+    scratchContext.putImageData(image, 0, 0);
     context.imageSmoothingEnabled = false;
     context.clearRect(0, 0, canvas.width, canvas.height);
     context.drawImage(scratch, 0, 30, canvas.width, canvas.height - 60);
