@@ -1,0 +1,2 @@
+Performance audit branch validation trigger.
+The dedicated Kotlin, Thermal/Annealing, and APK workflows must pass on this commit.
