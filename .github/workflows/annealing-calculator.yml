@@ -94,10 +94,18 @@ jobs:
           node --check app/src/main/filasim/thermal-integrity-workspace.js
           node --check app/src/main/filasim/thermal-integrity-live-progress.js
           node --check app/src/main/filasim/thermal-material-profile-adapter.js
-          node --check app/src/main/filasim/annealing-calculator-01-core.js
-          node --check app/src/main/filasim/annealing-calculator-03c-partial-duration.js
-          node --check app/src/main/filasim/annealing-calculator-03d-thermal-only.js
-          node --check app/src/main/filasim/annealing-calculator-03e-broker-cancel.js
+          cat \
+            app/src/main/filasim/annealing-calculator-01-core.js \
+            app/src/main/filasim/annealing-calculator-02-ui.js \
+            app/src/main/filasim/annealing-calculator-03-cycle.js \
+            app/src/main/filasim/annealing-calculator-03a-workload-preflight.js \
+            app/src/main/filasim/annealing-calculator-03b-materials.js \
+            app/src/main/filasim/annealing-calculator-03c-partial-duration.js \
+            app/src/main/filasim/annealing-calculator-03d-thermal-only.js \
+            app/src/main/filasim/annealing-calculator-03e-broker-cancel.js \
+            app/src/main/filasim/annealing-calculator-04-report.js \
+            > "$RUNNER_TEMP/annealing-calculator.js"
+          node --check "$RUNNER_TEMP/annealing-calculator.js"
           node --check scripts/test-filasim-worker-broker.mjs
           node --check scripts/test-thermal-observer-guard.mjs
           node --check scripts/test-annealing-calculator.mjs
