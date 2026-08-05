@@ -76,9 +76,12 @@ jobs:
             scripts/filasim_annealing_core.py \
             scripts/filasim_annealing_web.py \
             scripts/filasim-annealing-cycle.py \
+            scripts/filasim-annealing-material-source.py \
             scripts/prepare-filasim-assets-with-thermal-integrity-v12.py \
             scripts/prepare-filasim-assets-with-annealing-v13.py \
             scripts/prepare-filasim-assets-with-pinch.py
+          node --check app/src/main/filasim/material-profile-source.js
+          node --check app/src/main/filasim/thermal-material-profile-adapter.js
           node --check scripts/test-annealing-calculator.mjs
           node scripts/test-annealing-calculator.mjs
 
@@ -100,8 +103,10 @@ jobs:
           python3 scripts/filasim-thermal-integrity-physical-model-v1.py "$source"
           python3 scripts/filasim-thermal-integrity-physical-contract-fix.py "$source"
           python3 scripts/filasim-annealing-cycle.py "$source"
+          python3 scripts/filasim-annealing-material-source.py "$source"
 
           test -f "$source/.enderslicer-annealing-cycle-v1"
+          test -f "$source/.enderslicer-filasim-material-source-v1"
           grep -q 'fixed_surface_enabled' "$source/crates/filasim-core/src/thermal.rs"
           grep -q 'readiness_complete_time_seconds' "$source/crates/filasim-core/src/thermal.rs"
           grep -q 'coldest material voxel' "$source/crates/filasim-core/src/thermal.rs"
@@ -110,6 +115,10 @@ jobs:
           grep -q 'cooling_completion_uses_the_hottest_voxel' "$source/crates/filasim-core/src/thermal.rs"
           grep -q 'readinessCompleteTimeSeconds' "$source/crates/filasim-wasm/src/lib.rs"
           grep -q 'fixedSurfaceEnabled' "$source/web/src/engine/EngineClient.ts"
+          grep -q 'EnderSlicerFilaSimMaterialSource' "$source/web/src/store.ts"
+          grep -q 'enderslicer-filasim-materials-changed' "$source/web/src/store.ts"
+          grep -q 'state.materials.map' "$source/web/src/store.ts"
+          grep -q 'state.setMaterial(material)' "$source/web/src/store.ts"
           grep -q 'enderslicer-annealing-workspace' "$source/web/src/ui/StepRail.tsx"
           grep -q '<span className="st-name">Anneal</span>' "$source/web/src/ui/StepRail.tsx"
           grep -q 'enderslicer-annealing-calculator-mount' "$source/web/src/ui/StepPanel.tsx"
@@ -133,6 +142,8 @@ jobs:
           test -f dist/index.html
           grep -R -q 'enderslicer-annealing-workspace' dist/assets
           grep -R -q 'enderslicer-annealing-calculator-mount' dist/assets
+          grep -R -q 'EnderSlicerFilaSimMaterialSource' dist/assets
+          grep -R -q 'enderslicer-filasim-materials-changed' dist/assets
 
       - name: Publish annealing check status
         if: always()
