@@ -22,7 +22,7 @@ object StlMeshWriter {
      * already rounded after placement.
      */
     fun writeBinary(mesh: StlMesh, destination: File) {
-        validateVertices(mesh.interleavedVertices, mesh.triangleCount)
+        validateShape(mesh.interleavedVertices, mesh.triangleCount)
         writeBinaryVertices(mesh.interleavedVertices, mesh.triangleCount, destination)
 
         val sourceVertices = mesh.slicingSourceInterleavedVertices
@@ -33,7 +33,7 @@ object StlMeshWriter {
         transformFile.delete()
 
         if (sourceVertices != null && transform != null) {
-            validateVertices(sourceVertices, mesh.triangleCount)
+            validateShape(sourceVertices, mesh.triangleCount)
             writeBinaryVertices(sourceVertices, mesh.triangleCount, sourceFile)
             transformFile.writeText(
                 JSONObject()
@@ -90,6 +90,13 @@ object StlMeshWriter {
             var index = 0
             repeat(triangleCount) {
                 requireBytes(STL_TRIANGLE_BYTES.toInt())
+                // Validate while traversing the values already needed for
+                // serialization instead of scanning the entire mesh first.
+                repeat(FLOATS_PER_TRIANGLE) { offset ->
+                    require(vertices[index + offset].isFinite()) {
+                        "STL mesh contains a non-finite value"
+                    }
+                }
                 buffer.putFloat(vertices[index + 3])
                 buffer.putFloat(vertices[index + 4])
                 buffer.putFloat(vertices[index + 5])
@@ -100,7 +107,7 @@ object StlMeshWriter {
                     buffer.putFloat(vertices[base + 2])
                 }
                 buffer.putShort(0.toShort())
-                index += 18
+                index += FLOATS_PER_TRIANGLE
             }
             if (buffer.position() > 0) flush()
             channel.force(true)
@@ -117,12 +124,11 @@ object StlMeshWriter {
         }
     }
 
-    private fun validateVertices(vertices: FloatArray, triangleCount: Int) {
+    private fun validateShape(vertices: FloatArray, triangleCount: Int) {
         require(triangleCount > 0) { "Cannot write an empty STL mesh" }
-        require(vertices.size == Math.multiplyExact(triangleCount, 18)) {
+        require(vertices.size == Math.multiplyExact(triangleCount, FLOATS_PER_TRIANGLE)) {
             "STL mesh vertex data does not match its triangle count"
         }
-        require(vertices.all(Float::isFinite)) { "STL mesh contains a non-finite value" }
     }
 
     private fun sourceFileFor(destination: File): File = File(
@@ -136,6 +142,7 @@ object StlMeshWriter {
     )
 
     private const val WRITE_BUFFER_BYTES = 64 * 1024
+    private const val FLOATS_PER_TRIANGLE = 18
     private const val STL_HEADER_BYTES = 84L
     private const val STL_TRIANGLE_BYTES = 50L
 }
