@@ -15,7 +15,11 @@ HOT_OBJECT_TRANSFORMS = (
 )
 HOT_OBJECT_CORE_FRAGMENT = pathlib.Path(__file__).with_name("filasim-nearby-hot-object-core.rs")
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
+HOT_OBJECT_OBSERVER_GUARD = (
+    PROJECT_ROOT / "app/src/main/filasim/nearby-hot-object-observer-guard.js"
+)
 HOT_OBJECT_RUNTIME_PARTS = (
+    HOT_OBJECT_OBSERVER_GUARD,
     PROJECT_ROOT / "app/src/main/filasim/nearby-hot-object-01-core.js",
     PROJECT_ROOT / "app/src/main/filasim/nearby-hot-object-02-ui.js",
     PROJECT_ROOT / "app/src/main/filasim/nearby-hot-object-03-run.js",
@@ -58,6 +62,9 @@ def patch_nearby_hot_object_runtime(target: pathlib.Path) -> None:
     subprocess.run(["node", "--check", str(target)], check=True)
     text = target.read_text(encoding="utf-8")
     for contract in (
+        "Prevent Nearby Hot Object MutationObserver feedback loops",
+        "EnderSlicerNearbyObserverTestApi",
+        "recordsAddThermalMount",
         "Nearby Hot Object",
         "Select nearest point on model",
         "sourceTargetMm",
@@ -68,6 +75,12 @@ def patch_nearby_hot_object_runtime(target: pathlib.Path) -> None:
     ):
         if contract not in text:
             raise RuntimeError(f"Nearby Hot Object runtime is missing {contract!r}")
+    guard_marker = "Prevent Nearby Hot Object MutationObserver feedback loops"
+    runtime_marker = "Android-only nearby hot object thermal workspace"
+    if text.index(guard_marker) > text.index(runtime_marker):
+        raise RuntimeError(
+            "Nearby Hot Object observer guard must load before the runtime creates its observer"
+        )
     for forbidden in (
         "Total contact-heater power",
         "Contact-heater orientation",
@@ -85,8 +98,8 @@ thermal.THERMAL_PACKAGE_MARKER_TEXT = (
     "bugfix-round1,bugfix-round2,linear-fast-path-v1,physical-model-v1,"
     "annealing-v8,filasim-material-source-v1,observer-guard-v1,step-budget-v2,"
     "3d-result-fix-v1,partial-duration-v1,short-duration-stability-v1,"
-    "nearby-hot-object-thermal-v1,nearby-hot-object-api-v1,"
-    "nearby-hot-object-viewer-v1\n"
+    "nearby-hot-object-observer-guard-v1,nearby-hot-object-thermal-v1,"
+    "nearby-hot-object-api-v1,nearby-hot-object-viewer-v1\n"
 )
 
 if __name__ == "__main__":
