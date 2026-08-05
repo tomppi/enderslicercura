@@ -14,6 +14,7 @@ MATERIAL_TRANSFORM = pathlib.Path(__file__).with_name("filasim-annealing-materia
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
 MATERIAL_RUNTIME = PROJECT_ROOT / "app/src/main/filasim/material-profile-source.js"
 THERMAL_MATERIAL_ADAPTER = PROJECT_ROOT / "app/src/main/filasim/thermal-material-profile-adapter.js"
+ANNEALING_OBSERVER_GUARD = PROJECT_ROOT / "app/src/main/filasim/annealing-calculator-observer-guard.js"
 ANNEALING_UI_PARTS = (
     PROJECT_ROOT / "app/src/main/filasim/annealing-calculator-01-core.js",
     PROJECT_ROOT / "app/src/main/filasim/annealing-calculator-02-ui.js",
@@ -27,6 +28,7 @@ for path in (
     MATERIAL_TRANSFORM,
     MATERIAL_RUNTIME,
     THERMAL_MATERIAL_ADAPTER,
+    ANNEALING_OBSERVER_GUARD,
     *ANNEALING_UI_PARTS,
 ):
     if not path.is_file():
@@ -51,9 +53,11 @@ for marker in (
 
 MATERIAL_UI_NAME = "material-profile-source.js"
 THERMAL_ADAPTER_NAME = "thermal-material-profile-adapter.js"
+ANNEALING_OBSERVER_GUARD_NAME = "annealing-calculator-observer-guard.js"
 ANNEALING_UI_NAME = "annealing-calculator.js"
 MATERIAL_UI_TAG = f'<script src="./{MATERIAL_UI_NAME}"></script>'
 THERMAL_ADAPTER_TAG = f'<script src="./{THERMAL_ADAPTER_NAME}"></script>'
+ANNEALING_OBSERVER_GUARD_TAG = f'<script src="./{ANNEALING_OBSERVER_GUARD_NAME}"></script>'
 ANNEALING_UI_TAG = f'<script src="./{ANNEALING_UI_NAME}"></script>'
 _base_inject = thermal.BASE.inject_bridge
 
@@ -94,17 +98,38 @@ def inject_annealing_runtime(index_file: pathlib.Path) -> None:
     copy_checked(
         THERMAL_MATERIAL_ADAPTER,
         index_file.with_name(THERMAL_ADAPTER_NAME),
-        ("filaSim's live material library", "ti-material-source"),
+        (
+            "filaSim's live material library",
+            "ti-material-source",
+            "recordsAddThermalGroup",
+            "syncThermalMaterialOnMount",
+        ),
+    )
+    copy_checked(
+        ANNEALING_OBSERVER_GUARD,
+        index_file.with_name(ANNEALING_OBSERVER_GUARD_NAME),
+        (
+            "recordsAddAnnealingMount",
+            "installFilaSimMaterialUi",
+            "must not call installUi again",
+        ),
     )
     build_annealing_runtime(index_file.with_name(ANNEALING_UI_NAME))
 
     text = index_file.read_text(encoding="utf-8")
-    for tag in (MATERIAL_UI_TAG, THERMAL_ADAPTER_TAG, ANNEALING_UI_TAG):
+    tags = (
+        MATERIAL_UI_TAG,
+        THERMAL_ADAPTER_TAG,
+        ANNEALING_OBSERVER_GUARD_TAG,
+        ANNEALING_UI_TAG,
+    )
+    for tag in tags:
         text = text.replace(f"  {tag}\n", "").replace(tag, "")
     chain = (
         f"{thermal.THERMAL_UI_TAG}\n"
         f"  {MATERIAL_UI_TAG}\n"
         f"  {THERMAL_ADAPTER_TAG}\n"
+        f"  {ANNEALING_OBSERVER_GUARD_TAG}\n"
         f"  {ANNEALING_UI_TAG}"
     )
     if thermal.THERMAL_UI_TAG in text:
@@ -116,17 +141,20 @@ def inject_annealing_runtime(index_file: pathlib.Path) -> None:
     index_file.write_text(text, encoding="utf-8")
 
     verified = index_file.read_text(encoding="utf-8")
-    for tag in (MATERIAL_UI_TAG, THERMAL_ADAPTER_TAG, ANNEALING_UI_TAG):
+    for tag in tags:
         if verified.count(tag) != 1:
             raise RuntimeError(f"Runtime tag was not retained exactly once: {tag}")
     order = [
         verified.index(thermal.THERMAL_UI_TAG),
         verified.index(MATERIAL_UI_TAG),
         verified.index(THERMAL_ADAPTER_TAG),
+        verified.index(ANNEALING_OBSERVER_GUARD_TAG),
         verified.index(ANNEALING_UI_TAG),
     ]
     if order != sorted(order) or len(set(order)) != len(order):
-        raise RuntimeError("Thermal, material-source, adapter and annealing runtime order is invalid")
+        raise RuntimeError(
+            "Thermal, material-source, adapter, Anneal observer guard and runtime order is invalid"
+        )
 
 
 thermal.BASE.inject_bridge = inject_annealing_runtime
@@ -135,7 +163,7 @@ thermal.THERMAL_PACKAGE_MARKER_TEXT = (
     f"filasim={thermal.BASE.FILASIM_COMMIT}\n"
     "transforms=solver,hardening,audit-fixes,progress-v2,react-tab-v1,"
     "bugfix-round1,bugfix-round2,linear-fast-path-v1,physical-model-v1,"
-    "annealing-v2,filasim-material-source-v1\n"
+    "annealing-v3,filasim-material-source-v1,observer-guard-v1\n"
 )
 
 if __name__ == "__main__":
