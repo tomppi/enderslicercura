@@ -21,12 +21,11 @@
   const STORAGE_KEY = "enderslicer.annealingPlanner.v1";
   const CALIBRATION_KEY = "enderslicer.annealingCalibration.v1";
   const REPORT_KEY = "enderslicer.annealingLatestReport.v1";
-  const REQUEST_START = -1_800_000_000;
-  const ENGINE_OPS = new Set([
-    "load", "loadMesh", "setMaterial", "setResolution", "setVoxelSize", "setBcs",
-    "voxelInfo", "solve", "optimize", "buildSim", "thermalIntegrity",
-    "thermalIntegrityPreflight", "transformMatrix", "setCancelBuffer",
-  ]);
+  const broker = window.EnderSlicerFilaSimWorkerBroker;
+  if (!broker) {
+    console.error("Annealing worker broker is unavailable");
+    return;
+  }
 
   const PRESETS = Object.freeze({
     PLA: Object.freeze({
@@ -73,7 +72,6 @@
 
   let engineWorker = null;
   let cancelFlag = null;
-  let nextRequestId = REQUEST_START;
   let runInFlight = false;
   let latest = null;
   let observer = null;
@@ -81,67 +79,20 @@
   let runStartedAt = 0;
 
   function installWorkerAccess() {
-    const ExistingWorker = window.Worker;
-    if (!ExistingWorker || ExistingWorker.__enderSlicerAnnealingPlanner) return;
-    const WrappedWorker = new Proxy(ExistingWorker, {
-      construct(Target, args) {
-        const worker = Reflect.construct(Target, args);
-        const nativePost = worker.postMessage.bind(worker);
-        worker.postMessage = function postMessage(message, transferOrOptions) {
-          if (message?.op === "setCancelBuffer" &&
-              typeof SharedArrayBuffer !== "undefined" &&
-              message.buf instanceof SharedArrayBuffer) {
-            cancelFlag = new Int32Array(message.buf);
-          }
-          if (message && Number.isSafeInteger(message.id) && ENGINE_OPS.has(message.op)) {
-            engineWorker = worker;
-          }
-          if (arguments.length > 1) nativePost(message, transferOrOptions);
-          else nativePost(message);
-        };
-        return worker;
-      },
+    engineWorker = broker.currentWorker();
+    cancelFlag = broker.cancelArray();
+    broker.on("worker", ({ worker }) => {
+      engineWorker = worker;
+      cancelFlag = broker.cancelArray();
     });
-    Object.defineProperty(WrappedWorker, "__enderSlicerAnnealingPlanner", { value: true });
-    window.Worker = WrappedWorker;
+    broker.on("post", ({ message }) => {
+      if (message?.op === "setCancelBuffer") cancelFlag = broker.cancelArray();
+      if (message && Number.isSafeInteger(message.id)) engineWorker = broker.currentWorker();
+    });
   }
 
   function request(op, payload = {}, onProgress = null) {
-    const worker = engineWorker;
-    if (!worker) {
-      return Promise.reject(new Error("filaSim is not ready. Wait for the model to finish loading."));
-    }
-    const id = nextRequestId--;
-    return new Promise((resolve, reject) => {
-      const cleanup = () => {
-        worker.removeEventListener("message", onMessage);
-        worker.removeEventListener("error", onError);
-        worker.removeEventListener("messageerror", onMessageError);
-      };
-      const onMessage = (event) => {
-        const message = event.data;
-        if (!message || message.id !== id) return;
-        if (message.progress) {
-          onProgress?.(message.data);
-          return;
-        }
-        cleanup();
-        if (message.ok) resolve(message.data);
-        else reject(new Error(message.error || `${op} failed`));
-      };
-      const onError = (event) => {
-        cleanup();
-        reject(new Error(event?.message || `${op} worker failed`));
-      };
-      const onMessageError = () => {
-        cleanup();
-        reject(new Error(`${op} returned an unreadable worker message`));
-      };
-      worker.addEventListener("message", onMessage);
-      worker.addEventListener("error", onError);
-      worker.addEventListener("messageerror", onMessageError);
-      worker.postMessage({ id, op, ...payload });
-    });
+    return broker.request(op, payload, onProgress);
   }
 
   function input(id) {
