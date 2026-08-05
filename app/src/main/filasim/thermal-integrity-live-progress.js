@@ -10,8 +10,11 @@
   const STYLE_ID = "enderslicer-thermal-live-progress-style";
   const CHIP_ID = "ti-progress-solver";
   const UI_READY_EVENT = "enderslicer-thermal-integrity-ui-ready";
-  let progressCount = null;
-  let progressData = null;
+  const broker = window.EnderSlicerFilaSimWorkerBroker;
+  if (!broker) {
+    console.error("Thermal Integrity worker broker is unavailable");
+    return;
+  }
   let thermalRequestId = null;
   let pollTimer = null;
   let lastCount = -1;
@@ -56,6 +59,7 @@
   function renderLiveProgress() {
     const chip = ensureChip();
     if (!chip) return;
+    const { count: progressCount, data: progressData } = broker.progressBuffers();
     if (!progressCount || !progressData) {
       chip.classList.remove("ti-live-active");
       chip.textContent = "Solver: live residual unavailable";
@@ -93,49 +97,28 @@
     renderLiveProgress();
   }
 
-  function installWorkerAccess() {
-    const ExistingWorker = window.Worker;
-    if (!ExistingWorker || ExistingWorker.__enderSlicerThermalLiveProgress) return;
-    const WrappedWorker = new Proxy(ExistingWorker, {
-      construct(Target, args) {
-        const worker = Reflect.construct(Target, args);
-        const nativePost = worker.postMessage.bind(worker);
-
-        worker.addEventListener("message", (event) => {
-          const message = event.data;
-          if (!message || message.id !== thermalRequestId || message.progress) return;
-          thermalRequestId = null;
-          stopPolling();
-        });
-
-        worker.postMessage = function postMessage(message, transferOrOptions) {
-          if (
-            message?.op === "setProgressBuffer" &&
-            typeof SharedArrayBuffer !== "undefined" &&
-            message.buf instanceof SharedArrayBuffer
-          ) {
-            progressCount = new Int32Array(message.buf, 0, 1);
-            progressData = new Float32Array(message.buf, 4, (message.buf.byteLength - 4) >> 2);
-            renderLiveProgress();
-          }
-          if (message?.op === "thermalIntegrity" && Number.isSafeInteger(message.id)) {
-            thermalRequestId = message.id;
-            lastCount = -1;
-            lastResidual = Number.NaN;
-            if (progressCount) Atomics.store(progressCount, 0, 0);
-            startPolling();
-          }
-          if (arguments.length > 1) nativePost(message, transferOrOptions);
-          else nativePost(message);
-        };
-        return worker;
-      },
-    });
-    Object.defineProperty(WrappedWorker, "__enderSlicerThermalLiveProgress", { value: true });
-    window.Worker = WrappedWorker;
+  function onWorkerPost({ message }) {
+    if (message?.op === "setProgressBuffer") {
+      renderLiveProgress();
+      return;
+    }
+    if (message?.op !== "thermalIntegrity" || !Number.isSafeInteger(message.id)) return;
+    thermalRequestId = message.id;
+    lastCount = -1;
+    lastResidual = Number.NaN;
+    const { count } = broker.progressBuffers();
+    if (count) Atomics.store(count, 0, 0);
+    startPolling();
   }
 
-  installWorkerAccess();
+  function onWorkerMessage({ message }) {
+    if (!message || message.id !== thermalRequestId || message.progress) return;
+    thermalRequestId = null;
+    stopPolling();
+  }
+
+  broker.on("post", onWorkerPost);
+  broker.on("message", onWorkerMessage);
   ensureChip();
   window.addEventListener(UI_READY_EVENT, ensureChip);
 })();
