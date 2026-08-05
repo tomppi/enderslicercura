@@ -86,7 +86,7 @@ def apply(source_root: pathlib.Path) -> None:
         "nearby-source marker disposal",
     )
 
-    marker_methods = r'''
+    marker_methods = r"""
   setNearbyHotObjectPickMode(on: boolean) {
     this.nearbyHotObjectPickMode = on;
     if (this.canvas) this.canvas.style.cursor = on ? "crosshair" : "";
@@ -139,33 +139,50 @@ def apply(source_root: pathlib.Path) -> None:
     );
   }
 
-'''
+  private onNearbyHotObjectPointerDown = (ev: PointerEvent) => {
+    if (!this.nearbyHotObjectPickMode || !this.mesh || ev.button !== 0) return;
+    const hit = this.rayTri(ev);
+    const normal = hit && hit.faceIndex != null ? this.triNormalOf(hit.faceIndex) : null;
+    if (!hit || !normal) return;
+    this.nearbyHotObjectPickMode = false;
+    this.canvas.style.cursor = "";
+    ev.preventDefault();
+    ev.stopImmediatePropagation();
+    this.callbacks.onNearbyHotObjectPick?.(
+      [hit.point.x, hit.point.y, hit.point.z],
+      [normal.x, normal.y, normal.z]
+    );
+  };
+
+"""
     insert_before_once(scene, "  // ---------- axis gizmo ----------\n", marker_methods, "nearby marker methods")
 
     replace_once(
         scene,
-        """  private onPointerDown = (ev: PointerEvent) => {
-    if (!this.mesh) return;
-    if (ev.pointerType === "touch") {
+        """    canvas.addEventListener("pointermove", this.onPointerMove);
+    canvas.addEventListener("pointerdown", this.onPointerDown);
 """,
-        """  private onPointerDown = (ev: PointerEvent) => {
-    if (!this.mesh) return;
-    if (this.nearbyHotObjectPickMode && ev.button === 0) {
-      const hit = this.rayTri(ev);
-      const normal = hit && hit.faceIndex != null ? this.triNormalOf(hit.faceIndex) : null;
-      if (hit && normal) {
-        this.nearbyHotObjectPickMode = false;
-        this.canvas.style.cursor = "";
-        this.callbacks.onNearbyHotObjectPick?.(
-          [hit.point.x, hit.point.y, hit.point.z],
-          [normal.x, normal.y, normal.z]
-        );
-      }
-      return;
-    }
-    if (ev.pointerType === "touch") {
+        """    canvas.addEventListener("pointermove", this.onPointerMove);
+    // Capture selection before OrbitControls and the normal viewer pointer
+    // handler. This composes with EnderSlicer's later Android touch transform
+    // without rewriting the original onPointerDown source block.
+    canvas.addEventListener("pointerdown", this.onNearbyHotObjectPointerDown, true);
+    canvas.addEventListener("pointerdown", this.onPointerDown);
 """,
-        "nearby-source pointer interception",
+        "nearby-source pointer capture registration",
+    )
+    replace_once(
+        scene,
+        """    this.callouts.dispose();
+    this.canvas?.removeEventListener("wheel", this.onWheel);
+""",
+        """    this.callouts.dispose();
+    this.canvas?.removeEventListener(
+      "pointerdown", this.onNearbyHotObjectPointerDown, true
+    );
+    this.canvas?.removeEventListener("wheel", this.onWheel);
+""",
+        "nearby-source pointer capture disposal",
     )
 
     replace_once(
@@ -263,6 +280,9 @@ const NEARBY_CLEAR_EVENT = "{CLEAR_EVENT}";
     marker.write_text(MARKER + "\n", encoding="utf-8")
     for path, contract in (
         (scene, "setNearbyHotObjectMarker"),
+        (scene, "onNearbyHotObjectPointerDown"),
+        (scene, 'addEventListener("pointerdown", this.onNearbyHotObjectPointerDown, true)'),
+        (scene, 'removeEventListener(\n      "pointerdown", this.onNearbyHotObjectPointerDown, true'),
         (viewer, PICK_EVENT),
         (rail, "Hot object"),
         (panel, "Nearby Hot Object"),
