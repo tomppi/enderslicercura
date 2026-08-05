@@ -208,7 +208,7 @@ assert.match(source, /Simulate Oven Exposure & Cooling/);
 assert.match(source, /initialTemperatureFieldC/);
 assert.match(source, /partial temperature field is shown/);
 assert.match(source, /Float32Array\.from|initialField\.slice/);
-assert.doesNotMatch(source, /Array\.from\(initialField/);
+assert.doesNotMatch(source, /(?:^|[^A-Za-z0-9_])Array\.from\(initialField/m);
 assert.match(source, /const thresholdFractionCache = new WeakMap\(\)/);
 assert.match(source, /const heatmapPalette = new Uint8ClampedArray/);
 assert.doesNotMatch(source, /image\.data\.set\(\[\.\.\.rgb, 255\]/);
