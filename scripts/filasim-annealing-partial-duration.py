@@ -247,7 +247,7 @@ mod partial_duration_v1_tests {
         """  ambientTemperatureC: number;
   initialTemperatureC: number;
   /** Optional exact cell temperatures for a chained transient stage. */
-  initialTemperatureFieldC?: number[] | null;
+  initialTemperatureFieldC?: ArrayLike<number> | null;
   cooledTemperatureC: number;
 """,
         "TypeScript initial field option",
@@ -258,7 +258,7 @@ mod partial_duration_v1_tests {
         (thermal, "fixed_duration_preserves_first_readiness_completion_time"),
         (thermal, test_marker),
         (wasm, "initial_temperature_field_c: opts.initial_temperature_field_c.clone()"),
-        (client, "initialTemperatureFieldC?: number[] | null"),
+        (client, "initialTemperatureFieldC?: ArrayLike<number> | null"),
     ):
         if contract not in path.read_text(encoding="utf-8"):
             raise RuntimeError(f"Partial-annealing contract {contract!r} is missing from {path}")
