@@ -18,6 +18,7 @@ ANNEALING_SHORT_DURATION_STABILITY = pathlib.Path(__file__).with_name(
 )
 ANNEALING_THERMAL_ONLY = pathlib.Path(__file__).with_name("filasim-annealing-thermal-only.py")
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
+WORKER_BROKER_RUNTIME = PROJECT_ROOT / "app/src/main/filasim/filasim-worker-broker.js"
 MATERIAL_RUNTIME = PROJECT_ROOT / "app/src/main/filasim/material-profile-source.js"
 THERMAL_MATERIAL_ADAPTER = PROJECT_ROOT / "app/src/main/filasim/thermal-material-profile-adapter.js"
 ANNEALING_OBSERVER_GUARD = PROJECT_ROOT / "app/src/main/filasim/annealing-calculator-observer-guard.js"
@@ -30,6 +31,7 @@ ANNEALING_UI_PARTS = (
     PROJECT_ROOT / "app/src/main/filasim/annealing-calculator-03b-materials.js",
     PROJECT_ROOT / "app/src/main/filasim/annealing-calculator-03c-partial-duration.js",
     PROJECT_ROOT / "app/src/main/filasim/annealing-calculator-03d-thermal-only.js",
+    PROJECT_ROOT / "app/src/main/filasim/annealing-calculator-03e-broker-cancel.js",
     PROJECT_ROOT / "app/src/main/filasim/annealing-calculator-04-report.js",
 )
 for path in (
@@ -40,6 +42,7 @@ for path in (
     ANNEALING_PARTIAL_DURATION,
     ANNEALING_SHORT_DURATION_STABILITY,
     ANNEALING_THERMAL_ONLY,
+    WORKER_BROKER_RUNTIME,
     MATERIAL_RUNTIME,
     THERMAL_MATERIAL_ADAPTER,
     ANNEALING_OBSERVER_GUARD,
@@ -77,11 +80,13 @@ for marker in (
     if marker not in thermal.THERMAL_MARKERS:
         thermal.THERMAL_MARKERS = (*thermal.THERMAL_MARKERS, marker)
 
+WORKER_BROKER_NAME = "filasim-worker-broker.js"
 MATERIAL_UI_NAME = "material-profile-source.js"
 THERMAL_ADAPTER_NAME = "thermal-material-profile-adapter.js"
 ANNEALING_OBSERVER_GUARD_NAME = "annealing-calculator-observer-guard.js"
 ANNEALING_STEP_BUDGET_GUARD_NAME = "annealing-step-budget-guard.js"
 ANNEALING_UI_NAME = "annealing-calculator.js"
+WORKER_BROKER_TAG = f'<script src="./{WORKER_BROKER_NAME}"></script>'
 MATERIAL_UI_TAG = f'<script src="./{MATERIAL_UI_NAME}"></script>'
 THERMAL_ADAPTER_TAG = f'<script src="./{THERMAL_ADAPTER_NAME}"></script>'
 ANNEALING_OBSERVER_GUARD_TAG = f'<script src="./{ANNEALING_OBSERVER_GUARD_NAME}"></script>'
@@ -117,6 +122,7 @@ def build_annealing_runtime(target: pathlib.Path) -> None:
         "120 million solid-cell steps",
         "thermalOnly = true",
         "includeVisualizationFields = stage === \"heating\"",
+        "terminateCurrent()",
     ):
         if contract not in verified:
             raise RuntimeError(f"Generated annealing runtime is missing {contract!r}")
@@ -124,6 +130,11 @@ def build_annealing_runtime(target: pathlib.Path) -> None:
 
 def inject_annealing_runtime(index_file: pathlib.Path) -> None:
     _base_inject(index_file)
+    copy_checked(
+        WORKER_BROKER_RUNTIME,
+        index_file.with_name(WORKER_BROKER_NAME),
+        ("EnderSlicerFilaSimWorkerBroker", "pending = new Map", "cancelActive", "progressBuffers"),
+    )
     copy_checked(
         MATERIAL_RUNTIME,
         index_file.with_name(MATERIAL_UI_NAME),
@@ -163,6 +174,7 @@ def inject_annealing_runtime(index_file: pathlib.Path) -> None:
 
     text = index_file.read_text(encoding="utf-8")
     tags = (
+        WORKER_BROKER_TAG,
         MATERIAL_UI_TAG,
         THERMAL_ADAPTER_TAG,
         ANNEALING_OBSERVER_GUARD_TAG,
@@ -171,6 +183,13 @@ def inject_annealing_runtime(index_file: pathlib.Path) -> None:
     )
     for tag in tags:
         text = text.replace(f"  {tag}\n", "").replace(tag, "")
+    if thermal.THERMAL_GUARD_TAG not in text:
+        raise RuntimeError("Thermal guard tag is missing before worker-broker injection")
+    text = text.replace(
+        thermal.THERMAL_GUARD_TAG,
+        f"{WORKER_BROKER_TAG}\n  {thermal.THERMAL_GUARD_TAG}",
+        1,
+    )
     chain = (
         f"{thermal.THERMAL_UI_TAG}\n"
         f"  {MATERIAL_UI_TAG}\n"
@@ -192,6 +211,8 @@ def inject_annealing_runtime(index_file: pathlib.Path) -> None:
         if verified.count(tag) != 1:
             raise RuntimeError(f"Runtime tag was not retained exactly once: {tag}")
     order = [
+        verified.index(WORKER_BROKER_TAG),
+        verified.index(thermal.THERMAL_GUARD_TAG),
         verified.index(thermal.THERMAL_UI_TAG),
         verified.index(MATERIAL_UI_TAG),
         verified.index(THERMAL_ADAPTER_TAG),
@@ -201,7 +222,7 @@ def inject_annealing_runtime(index_file: pathlib.Path) -> None:
     ]
     if order != sorted(order) or len(set(order)) != len(order):
         raise RuntimeError(
-            "Thermal, material-source, adapter, Anneal observer guard, step-budget guard and runtime order is invalid"
+            "Worker broker, Thermal, material-source, adapter and Anneal runtime order is invalid"
         )
 
 
@@ -213,7 +234,7 @@ thermal.THERMAL_PACKAGE_MARKER_TEXT = (
     "bugfix-round1,bugfix-round2,linear-fast-path-v1,physical-model-v1,"
     "annealing-v8,filasim-material-source-v1,observer-guard-v1,step-budget-v2,"
     "3d-result-fix-v1,partial-duration-v1,short-duration-stability-v1,"
-    "thermal-only-v1\n"
+    "thermal-only-v1,worker-broker-v1\n"
 )
 
 if __name__ == "__main__":
