@@ -11,73 +11,18 @@
   const GROUP_ID = "enderslicer-thermal-integrity";
   const STYLE_ID = "enderslicer-thermal-integrity-workspace-style";
   const UI_READY_EVENT = "enderslicer-thermal-integrity-ui-ready";
-  const PREFLIGHT_ID_START = -1_500_000_000;
-  const ENGINE_OPS = new Set([
-    "load",
-    "loadMesh",
-    "setResolution",
-    "setVoxelSize",
-    "setBcs",
-    "voxelInfo",
-    "thermalIntegrity",
-    "transformMatrix",
-  ]);
+  const broker = window.EnderSlicerFilaSimWorkerBroker;
+  if (!broker) {
+    console.error("Thermal Integrity worker broker is unavailable");
+    return;
+  }
 
-  let engineWorker = null;
-  let cancelFlag = null;
   let activeRequestId = null;
-  let nextPreflightId = PREFLIGHT_ID_START;
   let runActive = false;
   let runStartedAt = 0;
   let elapsedTimer = null;
   let mountedGroup = null;
   let progressState = { phase: "Idle", progress: 0, detail: "" };
-
-  function installWorkerAccess() {
-    const ExistingWorker = window.Worker;
-    if (!ExistingWorker || ExistingWorker.__enderSlicerThermalWorkspace) return;
-
-    const WrappedWorker = new Proxy(ExistingWorker, {
-      construct(Target, args) {
-        const worker = Reflect.construct(Target, args);
-        const nativePost = worker.postMessage.bind(worker);
-
-        worker.addEventListener("message", (event) => {
-          const message = event.data;
-          if (!message || message.id !== activeRequestId) return;
-          if (message.progress) {
-            handleProgressMessage(message.data);
-            return;
-          }
-          finishRun(message.ok, message.error);
-        });
-
-        worker.postMessage = function postMessage(message, transferOrOptions) {
-          if (
-            message?.op === "setCancelBuffer" &&
-            typeof SharedArrayBuffer !== "undefined" &&
-            message.buf instanceof SharedArrayBuffer
-          ) {
-            cancelFlag = new Int32Array(message.buf);
-          }
-          if (message && Number.isSafeInteger(message.id) && ENGINE_OPS.has(message.op)) {
-            engineWorker = worker;
-          }
-          if (message?.op === "thermalIntegrity" && Number.isSafeInteger(message.id)) {
-            activeRequestId = message.id;
-            beginRun(false);
-            setProgress("Thermal solver started", 0.08, "The worker accepted the analysis request.");
-          }
-          if (arguments.length > 1) nativePost(message, transferOrOptions);
-          else nativePost(message);
-        };
-        return worker;
-      },
-    });
-
-    Object.defineProperty(WrappedWorker, "__enderSlicerThermalWorkspace", { value: true });
-    window.Worker = WrappedWorker;
-  }
 
   function installStyle() {
     if (document.getElementById(STYLE_ID)) return;
@@ -210,7 +155,7 @@
       elapsedTimer = window.setInterval(renderProgress, 500);
     }
     const cancel = document.getElementById("ti-cancel");
-    if (cancel) cancel.disabled = !cancelFlag;
+    if (cancel) cancel.disabled = !broker.cancelArray();
     if (fromButton) {
       setProgress("Preflight", 0.01, "Reading the current voxel grid and capturing the model pose…");
     }
@@ -258,42 +203,49 @@
   function updateCancelAvailability() {
     const chip = document.getElementById("ti-progress-cancel");
     if (!chip) return;
-    chip.textContent = cancelFlag
+    chip.textContent = broker.cancelArray()
       ? "Cancel: available at solver checkpoints"
       : "Cancel: unavailable until threaded WASM initializes";
   }
 
   function cancelRun() {
-    if (!cancelFlag || typeof Atomics === "undefined") {
+    if (!broker.cancelActive()) {
       setProgress("Cancellation unavailable", progressState.progress, "Threaded WASM has not exposed its shared cancel flag.");
       return;
     }
-    Atomics.store(cancelFlag, 0, 1);
     const cancel = document.getElementById("ti-cancel");
     if (cancel) cancel.disabled = true;
     setProgress("Cancelling", progressState.progress, "Waiting for the active solver iteration to stop safely…");
   }
 
   function requestVoxelInfo() {
-    const worker = engineWorker;
-    if (!worker) return;
-    const id = nextPreflightId--;
-    const listener = (event) => {
-      const message = event.data;
-      if (!message || message.id !== id || message.progress) return;
-      worker.removeEventListener("message", listener);
-      if (!message.ok || !message.data) return;
-      const voxel = message.data;
-      const solid = Number(voxel.solid || 0);
+    broker.request("voxelInfo").then((voxel) => {
+      const solid = Number(voxel?.solid || 0);
       const text = `${solid.toLocaleString()} solid voxels · ${voxel.nx}×${voxel.ny}×${voxel.nz} · h=${Number(voxel.h).toFixed(3)} mm`;
       const chip = document.getElementById("ti-progress-grid");
       if (chip) chip.textContent = `Grid: ${text}`;
       if (progressState.phase === "Preflight") {
         setProgress("Preflight", progressState.progress, text);
       }
-    };
-    worker.addEventListener("message", listener);
-    worker.postMessage({ id, op: "voxelInfo" });
+    }).catch(() => {
+      // The main Thermal request owns preflight failures and user-facing errors.
+    });
+  }
+
+  function onWorkerPost({ message }) {
+    if (message?.op !== "thermalIntegrity" || !Number.isSafeInteger(message.id)) return;
+    activeRequestId = message.id;
+    beginRun(false);
+    setProgress("Thermal solver started", 0.08, "The worker accepted the analysis request.");
+  }
+
+  function onWorkerMessage({ message }) {
+    if (!message || message.id !== activeRequestId) return;
+    if (message.progress) {
+      handleProgressMessage(message.data);
+      return;
+    }
+    finishRun(message.ok, message.error);
   }
 
   function nodeContainsThermalGroup(node) {
@@ -325,7 +277,9 @@
     if (recordsAddThermalGroup(records)) ensureUi();
   }
 
-  installWorkerAccess();
+  broker.on("post", onWorkerPost);
+  broker.on("message", onWorkerMessage);
+  broker.on("worker", updateCancelAvailability);
   ensureUi();
   new MutationObserver(handleMountMutations).observe(document.documentElement, {
     childList: true,
