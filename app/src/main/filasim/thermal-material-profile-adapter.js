@@ -59,10 +59,12 @@
     const group = document.getElementById(GROUP_ID);
     if (group) {
       const material = resolved.filaSim;
-      sourceNote(group).textContent =
+      const text =
         `Material source: ${resolved.profileSource} · ${resolved.name}. ` +
         `filaSim supplies density, E, ν, strengths, shrink (${(Number(material.shrink || 0) * 100).toFixed(2)}% XY / ${(Number(material.shrinkZ || 0) * 100).toFixed(2)}% Z), locking temperature and CTE. ` +
         `Conductivity, heat capacity, through-layer CTE when absent, and service limit are ${resolved.family} complements.`;
+      const note = sourceNote(group);
+      if (note.textContent !== text) note.textContent = text;
     }
     return resolved;
   }
@@ -94,8 +96,26 @@
     return true;
   }
 
+  function nodeContainsThermalGroup(node) {
+    if (!node || typeof node !== "object") return false;
+    if (node.id === GROUP_ID) return true;
+    return typeof node.querySelector === "function" && Boolean(node.querySelector(`#${GROUP_ID}`));
+  }
+  function recordsAddThermalGroup(records) {
+    return Array.from(records || []).some((record) =>
+      Array.from(record?.addedNodes || []).some(nodeContainsThermalGroup)
+    );
+  }
+  function syncThermalMaterialOnMount(records) {
+    if (recordsAddThermalGroup(records)) sync(false);
+  }
+
+  window.EnderSlicerThermalMaterialObserverTestApi = Object.freeze({
+    recordsAddThermalGroup,
+  });
+
   window.addEventListener(profiles.eventName, () => sync(true));
   sync(false);
-  observer = new MutationObserver(() => sync(false));
+  observer = new MutationObserver(syncThermalMaterialOnMount);
   observer.observe(document.documentElement, { childList: true, subtree: true });
 })();
