@@ -4,14 +4,17 @@ from __future__ import annotations
 
 import importlib.util
 import pathlib
-import shutil
 import subprocess
 import sys
 
 V12 = pathlib.Path(__file__).with_name("prepare-filasim-assets-with-thermal-integrity-v12.py")
 ANNEALING_TRANSFORM = pathlib.Path(__file__).with_name("filasim-annealing-cycle.py")
-ANNEALING_UI = pathlib.Path(__file__).resolve().parents[1] / "app/src/main/filasim/annealing-calculator.js"
-for path in (V12, ANNEALING_TRANSFORM, ANNEALING_UI):
+PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
+ANNEALING_UI_PARTS = tuple(
+    PROJECT_ROOT / f"app/src/main/filasim/annealing-calculator-0{index}-{name}.js"
+    for index, name in ((1, "core"), (2, "ui"), (3, "cycle"), (4, "report"))
+)
+for path in (V12, ANNEALING_TRANSFORM, *ANNEALING_UI_PARTS):
     if not path.is_file():
         raise RuntimeError(f"Annealing v13 component is missing: {path}")
 
@@ -33,13 +36,26 @@ ANNEALING_UI_TAG = f'<script src="./{ANNEALING_UI_NAME}"></script>'
 _base_inject = thermal.BASE.inject_bridge
 
 
+def build_annealing_runtime(target: pathlib.Path) -> None:
+    source = "\n".join(path.read_text(encoding="utf-8").rstrip() for path in ANNEALING_UI_PARTS) + "\n"
+    target.write_text(source, encoding="utf-8")
+    subprocess.run(["node", "--check", str(target)], check=True)
+    verified = target.read_text(encoding="utf-8")
+    for contract in (
+        "coldest material voxel",
+        "readinessTemperatureC",
+        "Calculate Complete Oven Cycle",
+        "Spool-specific dimensional calibration",
+        "thermalOnly: true",
+    ):
+        if contract not in verified:
+            raise RuntimeError(f"Generated annealing runtime is missing {contract!r}")
+
+
 def inject_annealing_runtime(index_file: pathlib.Path) -> None:
     _base_inject(index_file)
     target = index_file.with_name(ANNEALING_UI_NAME)
-    shutil.copy2(ANNEALING_UI, target)
-    if target.read_bytes() != ANNEALING_UI.read_bytes():
-        raise RuntimeError("Copied annealing runtime did not verify byte-for-byte")
-    subprocess.run(["node", "--check", str(target)], check=True)
+    build_annealing_runtime(target)
 
     text = index_file.read_text(encoding="utf-8")
     text = text.replace(f"  {ANNEALING_UI_TAG}\n", "").replace(ANNEALING_UI_TAG, "")
