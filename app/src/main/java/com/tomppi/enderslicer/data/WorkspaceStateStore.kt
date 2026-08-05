@@ -197,7 +197,17 @@ class WorkspaceStateStore(private val filesDirectory: File) {
                 digest.update((part?.toString() ?: "<null>").toByteArray(Charsets.UTF_8))
                 digest.update(0.toByte())
             }
-            return digest.digest().joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
+            return digestHex(digest.digest())
+        }
+
+        private fun digestHex(bytes: ByteArray): String {
+            val output = CharArray(bytes.size * 2)
+            bytes.forEachIndexed { index, byte ->
+                val value = byte.toInt() and 0xff
+                output[index * 2] = HEX_DIGITS[value ushr 4]
+                output[index * 2 + 1] = HEX_DIGITS[value and 0x0f]
+            }
+            return String(output)
         }
 
         private fun JSONObject.optNullableString(key: String): String? =
@@ -212,5 +222,6 @@ class WorkspaceStateStore(private val filesDirectory: File) {
         private const val MAX_EVENT_LABEL_LENGTH = 512
         private const val MAX_PLANNED_EVENTS = 256
         private val FINGERPRINT_PATTERN = Regex("[0-9a-f]{64}")
+        private val HEX_DIGITS = "0123456789abcdef".toCharArray()
     }
 }
