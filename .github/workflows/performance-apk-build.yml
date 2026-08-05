@@ -1,0 +1,220 @@
+name: Performance APK Build
+
+on:
+  push:
+    branches:
+      - perf/fix-audit-findings
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  statuses: write
+
+concurrency:
+  group: performance-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  STATUS_CONTEXT: performance/android-apk
+  NODE_VERSION: 22.18.0
+  WASM_PACK_VERSION: 0.15.0
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      NPM_CONFIG_ENGINE_STRICT: "true"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Mark APK build pending
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          payload="$(jq -n \
+            --arg state pending \
+            --arg context "$STATUS_CONTEXT" \
+            --arg description "Performance APK build is running" \
+            --arg target_url "$target_url" \
+            '{state:$state,context:$context,description:$description,target_url:$target_url}')"
+          curl -fsS -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -d "$payload"
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Verify JavaScript toolchain
+        run: |
+          test "$(node --version)" = "v${NODE_VERSION}"
+          node --version
+          npm --version
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: .build/filasim-android -> target
+
+      - name: Install pinned wasm-pack
+        run: cargo install wasm-pack --locked --version "$WASM_PACK_VERSION"
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK and native build tools
+        run: |
+          yes | sdkmanager --licenses >/dev/null
+          sdkmanager \
+            "platforms;android-36" \
+            "build-tools;36.0.0" \
+            "ndk;28.2.13676358" \
+            "cmake;3.22.1" \
+            "cmake;3.31.6"
+          sudo apt-get update
+          sudo apt-get install -y ninja-build file binutils
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.4.1'
+
+      - name: Cache Conan packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.conan2/p
+          key: conan-curaengine-5.11-beta1-android-host-v6-${{ hashFiles('scripts/build-curaengine-android.sh', 'scripts/build-curaengine-host-tests.sh', 'native/curaengine/profiles/android-arm64') }}
+          restore-keys: |
+            conan-curaengine-5.11-beta1-android-host-v6-
+            conan-curaengine-5.11-beta1-android-arm64-v5-
+
+      - name: Fetch pinned Cura definitions
+        run: |
+          chmod +x scripts/fetch-cura-resources.sh
+          scripts/fetch-cura-resources.sh
+          grep -q 'Cura resources: 5.11.0-beta.1' app/src/main/assets/cura/definitions/version.txt
+
+      - name: Prepare BumpMesh assets
+        run: |
+          set -o pipefail
+          gradle :app:verifyBumpMeshAssets --stacktrace 2>&1 | tee bumpmesh-build.log
+          test -s app/src/main/assets/bumpmesh/index.html
+          test -s app/src/main/assets/bumpmesh/SHA256SUMS
+          (cd app/src/main/assets/bumpmesh && sha256sum --check SHA256SUMS)
+
+      - name: Prepare filaSim assets
+        run: |
+          set -o pipefail
+          gradle :app:prepareFilaSimAssets --stacktrace 2>&1 | tee filasim-build.log
+          test -s app/src/main/assets/filasim/index.html
+          test -s app/src/main/assets/filasim/android-bridge.js
+          test -s app/src/main/assets/filasim/SHA256SUMS
+          test -n "$(find app/src/main/assets/filasim -type f -name '*.wasm' -size +0c -print -quit)"
+          (cd app/src/main/assets/filasim && sha256sum --check SHA256SUMS)
+
+      - name: Build and package CuraEngine ARM64
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/28.2.13676358
+          APP_JNILIBS_DIR: ${{ github.workspace }}/app/src/main/jniLibs
+        run: |
+          chmod +x scripts/build-curaengine-android.sh
+          set -o pipefail
+          scripts/build-curaengine-android.sh 2>&1 | tee curaengine-android-build.log
+          test -s app/src/main/jniLibs/arm64-v8a/libcuraengine_exec.so
+          file app/src/main/jniLibs/arm64-v8a/libcuraengine_exec.so
+          readelf -d app/src/main/jniLibs/arm64-v8a/libcuraengine_exec.so | tee curaengine-needed.log
+          ! grep -q 'libc++_shared.so' curaengine-needed.log
+
+      - name: Build pinned host CuraEngine fixture
+        run: |
+          chmod +x scripts/build-curaengine-host-tests.sh
+          set -o pipefail
+          scripts/build-curaengine-host-tests.sh 2>&1 | tee curaengine-host-build.log
+          test -x .build/curaengine-host-tests/artifacts/CuraEngine
+          echo "CURAENGINE_HOST_BINARY=${GITHUB_WORKSPACE}/.build/curaengine-host-tests/artifacts/CuraEngine" >> "$GITHUB_ENV"
+
+      - name: Run JVM and real CuraEngine tests
+        run: |
+          set -o pipefail
+          gradle :app:testDebugUnitTest --stacktrace 2>&1 | tee unit-tests.log
+          test -n "$CURAENGINE_HOST_BINARY"
+          grep -R -q 'SmartInfillCuraEngineIntegrationTest' app/build/test-results/testDebugUnitTest
+          grep -R -q 'SmartInfillModifierShellIntegrationTest' app/build/test-results/testDebugUnitTest
+          grep -R -q 'GcodeCommandParserTest' app/build/test-results/testDebugUnitTest
+
+      - name: Build and verify debug APK
+        run: |
+          set -o pipefail
+          gradle :app:verifyDebugApkContents --stacktrace 2>&1 | tee apk-build.log
+          unzip -l app/build/outputs/apk/debug/app-debug.apk | tee apk-contents.log
+          sha256sum app/build/outputs/apk/debug/app-debug.apk | tee apk-sha256.log
+          grep -q 'lib/arm64-v8a/libcuraengine_exec.so' apk-contents.log
+          grep -q 'assets/cura/definitions/version.txt' apk-contents.log
+          grep -q 'assets/bumpmesh/index.html' apk-contents.log
+          grep -q 'assets/filasim/index.html' apk-contents.log
+          grep -Eq 'assets/filasim/.*\.wasm' apk-contents.log
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: enderslicercura-performance-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+
+      - name: Upload build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: enderslicercura-performance-build-logs
+          path: |
+            bumpmesh-build.log
+            filasim-build.log
+            curaengine-android-build.log
+            curaengine-host-build.log
+            curaengine-needed.log
+            unit-tests.log
+            apk-build.log
+            apk-contents.log
+            apk-sha256.log
+          if-no-files-found: ignore
+
+      - name: Publish APK build status
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          state=failure
+          description="Performance APK build failed"
+          if [ "$JOB_STATUS" = success ]; then
+            state=success
+            description="Performance APK build passed"
+          fi
+          target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          payload="$(jq -n \
+            --arg state "$state" \
+            --arg context "$STATUS_CONTEXT" \
+            --arg description "$description" \
+            --arg target_url "$target_url" \
+            '{state:$state,context:$context,description:$description,target_url:$target_url}')"
+          curl -fsS -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -d "$payload"
