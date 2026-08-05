@@ -6,6 +6,8 @@
   const GROUP_ID = "enderslicer-thermal-integrity";
   const SOURCE_ID = "ti-material-source";
   let observer = null;
+  let initialized = false;
+  let selectedMaterialName = null;
 
   function setValue(id, value) {
     const element = document.getElementById(`ti-${id}`);
@@ -70,16 +72,23 @@
     if (!group || !select) return false;
     const snapshot = profiles.getSnapshot();
     const materials = profiles.fdmMaterials(snapshot);
+    const draftName = draftMaterialName();
     const desired = preferActive
       ? snapshot.activeMaterialName
-      : (draftMaterialName() || select.value || snapshot.activeMaterialName);
+      : (draftName || select.value || snapshot.activeMaterialName);
     const selected = profiles.populateSelect(select, materials, desired);
-    applyMaterial(selected, !draftMaterialName());
+    const materialChanged = selected !== selectedMaterialName;
+    const resetComplements = initialized ? materialChanged : !draftName;
+    applyMaterial(selected, resetComplements);
+    initialized = true;
+    selectedMaterialName = selected;
     if (!select.dataset.filasimBound) {
       select.dataset.filasimBound = "true";
       select.addEventListener("change", () => {
         profiles.setActiveMaterial(select.value);
         applyMaterial(select.value, true);
+        initialized = true;
+        selectedMaterialName = select.value;
       });
     }
     return true;
