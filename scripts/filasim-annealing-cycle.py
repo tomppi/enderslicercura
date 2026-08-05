@@ -24,6 +24,15 @@ def apply(source_root: pathlib.Path) -> None:
             raise RuntimeError(f"Annealing transform target is missing: {path}")
 
     patch_thermal_core(thermal)
+
+    # Thermal Integrity already emits a large serde_json::json! statistics
+    # object. The two annealing readiness fields cross Rust's default macro
+    # expansion depth, so make the required limit explicit and deterministic.
+    recursion_limit = '#![recursion_limit = "256"]'
+    wasm_text = wasm.read_text(encoding="utf-8")
+    if recursion_limit not in wasm_text:
+        wasm.write_text(f"{recursion_limit}\n{wasm_text}", encoding="utf-8")
+
     patch_wasm(wasm)
     patch_client(client)
     patch_viewer(viewer)
@@ -37,6 +46,7 @@ def apply(source_root: pathlib.Path) -> None:
         (thermal, "readiness_complete_time_seconds"),
         (thermal, "coldest material voxel"),
         (thermal, "geometry_aware_annealing_thickness_test"),
+        (wasm, recursion_limit),
         (wasm, "fixed_surface_enabled: opts.fixed_surface_enabled"),
         (wasm, '"readinessCompleteTimeSeconds"'),
         (client, "readinessCompleteTimeSeconds"),
