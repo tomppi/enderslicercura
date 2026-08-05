@@ -14,8 +14,14 @@ class FakeMutationObserver {
   disconnect() {}
 }
 
+let currentThermalMount = null;
+const document = {
+  getElementById(id) {
+    return id === "enderslicer-thermal-integrity-mount" ? currentThermalMount : null;
+  },
+};
 const window = { MutationObserver: FakeMutationObserver };
-const context = vm.createContext({ window, console });
+const context = vm.createContext({ window, document, console });
 vm.runInContext(fs.readFileSync(guardPath, "utf8"), context, { filename: guardPath });
 
 let installs = 0;
@@ -31,27 +37,46 @@ const ordinaryNode = {
   },
 };
 observer.callback([{ addedNodes: [ordinaryNode] }], observer);
-assert.equal(installs, 0, "mutations inside the thermal panel must not reinstall the UI");
+assert.equal(installs, 0, "mutations without a thermal mount must not install the UI");
 
-const thermalMount = {
+const reusedPanelNode = {
   id: "enderslicer-thermal-integrity-mount",
   querySelector() {
     return null;
   },
 };
-observer.callback([{ addedNodes: [thermalMount] }], observer);
-assert.equal(installs, 1, "adding the React thermal mount must install the UI once");
-
-const parentContainingMount = {
-  id: "react-panel-parent",
-  querySelector(selector) {
-    return selector === "#enderslicer-thermal-integrity-mount" ? thermalMount : null;
-  },
-};
-observer.callback([{ addedNodes: [parentContainingMount] }], observer);
-assert.equal(installs, 2, "adding a subtree containing the mount must install the UI once");
+currentThermalMount = reusedPanelNode;
+observer.callback([{ addedNodes: [reusedPanelNode] }], observer);
+assert.equal(installs, 1, "opening T must install the Nearby Hot Object UI once");
 
 observer.callback([{ addedNodes: [ordinaryNode] }], observer);
-assert.equal(installs, 2, "later status/result mutations must remain ignored");
+assert.equal(installs, 1, "status and result mutations inside T must not reinstall the UI");
 
-console.log("Nearby Hot Object observer guard regression passed");
+// React switches T -> A by reusing the same div and changing its id. No new
+// thermal mount node is added, so the guard must notice that T disappeared and
+// clear its remembered mount identity.
+currentThermalMount = null;
+observer.callback([{ addedNodes: [ordinaryNode] }], observer);
+assert.equal(installs, 1, "switching away from T must not run the installer");
+
+// React then switches A -> T by assigning the thermal id back to that same DOM
+// node. This must be treated as a fresh mount even though object identity is the
+// same as the first T panel.
+currentThermalMount = reusedPanelNode;
+observer.callback([{ addedNodes: [ordinaryNode] }], observer);
+assert.equal(installs, 2, "returning from A to T on the reused panel must reinstall once");
+
+observer.callback([{ addedNodes: [ordinaryNode] }], observer);
+assert.equal(installs, 2, "later internal T mutations must remain ignored");
+
+const replacementMount = {
+  id: "enderslicer-thermal-integrity-mount",
+  querySelector() {
+    return null;
+  },
+};
+currentThermalMount = replacementMount;
+observer.callback([{ addedNodes: [replacementMount] }], observer);
+assert.equal(installs, 3, "a genuinely replaced thermal mount must install once");
+
+console.log("Nearby Hot Object observer guard and T/A remount regression passed");
