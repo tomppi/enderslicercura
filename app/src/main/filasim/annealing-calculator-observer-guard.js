@@ -24,14 +24,24 @@
     const WrappedMutationObserver = new Proxy(NativeMutationObserver, {
       construct(Target, args) {
         const callback = args[0];
+        // Both Anneal installers run once before creating their observers. Save
+        // the mount that was already handled so their own DOM updates do not
+        // recursively trigger installation again.
+        let installedMount = document.getElementById(MOUNT_ID);
         const guardedCallback =
           typeof callback === "function" && CALLBACK_NAMES.has(callback.name)
             ? (records, observer) => {
-                // React adding the dedicated mount is the only mutation that
-                // requires installation. Changes made inside the Anneal panel
-                // must not call installUi again, otherwise source/status text
-                // updates recursively retrigger the observer and freeze WebView.
-                if (recordsAddAnnealingMount(records)) callback(records, observer);
+                const currentMount = document.getElementById(MOUNT_ID);
+                if (!currentMount) {
+                  // T and A are reconciled onto the same React DOM element. The
+                  // id disappearing means Anneal is inactive; clear the identity
+                  // so the reused node is installed when A becomes active again.
+                  installedMount = null;
+                  return;
+                }
+                if (currentMount === installedMount) return;
+                installedMount = currentMount;
+                callback(records, observer);
               }
             : callback;
         return Reflect.construct(Target, [guardedCallback]);
