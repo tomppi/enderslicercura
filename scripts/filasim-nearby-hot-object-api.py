@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pathlib
+import re
 
 MARKER = "EnderSlicer nearby hot object API v1"
 
@@ -15,6 +16,21 @@ def replace_once(path: pathlib.Path, old: str, new: str, label: str) -> None:
     if count != 1:
         raise RuntimeError(f"Expected one {label} in {path}, found {count}")
     path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+
+def replace_regex_once(
+    path: pathlib.Path,
+    pattern: str,
+    replacement: str,
+    label: str,
+) -> None:
+    text = path.read_text(encoding="utf-8")
+    if replacement in text:
+        return
+    updated, count = re.subn(pattern, replacement, text, count=1, flags=re.MULTILINE | re.DOTALL)
+    if count != 1:
+        raise RuntimeError(f"Expected one {label} in {path}, found {count}")
+    path.write_text(updated, encoding="utf-8")
 
 
 def apply(source_root: pathlib.Path) -> None:
@@ -74,15 +90,16 @@ def apply(source_root: pathlib.Path) -> None:
             use_fixed_temperature_surface: opts.use_fixed_temperature_surface,
         };
 """
-    replace_once(
+    replace_regex_once(
         wasm,
-        """        let summary = filasim_core::thermal::thermal_boundary_summary(
-            &grid, &material_fraction, &thermal_options,
-        ).map_err(err)?;
-""",
+        r"^        let summary = filasim_core::thermal::thermal_boundary_summary\(.*?^        \.map_err\(err\)\?;\n",
         nearby_ctor + """        let summary = filasim_core::thermal::nearby_hot_object_preflight(
-            &grid, &material_fraction, &thermal_options, &nearby_source,
-        ).map_err(err)?;
+            &grid,
+            &material_fraction,
+            &thermal_options,
+            &nearby_source,
+        )
+        .map_err(err)?;
 """,
         "nearby-source preflight call",
     )
@@ -109,16 +126,17 @@ def apply(source_root: pathlib.Path) -> None:
 """,
         "nearby-source preflight JSON",
     )
-    replace_once(
+    replace_regex_once(
         wasm,
-        """        let thermal =
-            filasim_core::thermal::solve_thermal(&grid, &material_fraction, &thermal_options)
-                .map_err(err)?;
-""",
+        r"^        let thermal =\s*filasim_core::thermal::solve_thermal\(.*?^\s*\.map_err\(err\)\?;\n",
         nearby_ctor + """        let thermal =
             filasim_core::thermal::solve_nearby_hot_object(
-                &grid, &material_fraction, &thermal_options, &nearby_source,
-            ).map_err(err)?;
+                &grid,
+                &material_fraction,
+                &thermal_options,
+                &nearby_source,
+            )
+            .map_err(err)?;
 """,
         "nearby-source solve call",
     )
