@@ -116,6 +116,7 @@ new vm.Script(stepBudgetRuntime, { filename: "annealing-step-budget-guard.js" })
 const stepBudgetApi = windowObject.EnderSlicerAnnealingStepBudgetTestApi;
 assert.ok(stepBudgetApi, "Annealing step-budget test API was not exposed");
 assert.equal(stepBudgetApi.maxStageSteps, 2000);
+assert.equal(stepBudgetApi.maxTransientCellSteps, 120_000_000);
 const defaultBudget = stepBudgetApi.planStageBudget({
   maxHeatingHours: 12,
   maxCoolingHours: 12,
@@ -146,11 +147,28 @@ const heatingOnlyBudget = stepBudgetApi.planStageBudget({
 assert.equal(heatingOnlyBudget.minimumTimeStepSeconds, 8);
 assert.equal(heatingOnlyBudget.coolingSteps, 0);
 assert.equal(heatingOnlyBudget.heatingSteps, 1800);
+const uploadedModelBudget = stepBudgetApi.planStageBudget({
+  maxHeatingHours: 12,
+  maxCoolingHours: 12,
+  requestedTimeStepSeconds: 30,
+  simulateCooling: true,
+  solidCells: 180_032,
+});
+assert.equal(uploadedModelBudget.workloadStepLimit, 666);
+assert.equal(uploadedModelBudget.minimumTimeStepSeconds, 65);
+assert.equal(uploadedModelBudget.effectiveTimeStepSeconds, 65);
+assert.equal(uploadedModelBudget.adjustedForVoxelWorkload, true);
+assert.equal(uploadedModelBudget.heatingSteps, 665);
+assert.equal(uploadedModelBudget.coolingSteps, 665);
+assert.equal(uploadedModelBudget.heatingCellSteps, 119_721_280);
+assert.ok(uploadedModelBudget.heatingCellSteps <= stepBudgetApi.maxTransientCellSteps);
+assert.ok(uploadedModelBudget.coolingCellSteps <= stepBudgetApi.maxTransientCellSteps);
 
 const parts = [
   "annealing-calculator-01-core.js",
   "annealing-calculator-02-ui.js",
   "annealing-calculator-03-cycle.js",
+  "annealing-calculator-03a-workload-preflight.js",
   "annealing-calculator-03b-materials.js",
   "annealing-calculator-04-report.js",
 ];
@@ -163,4 +181,4 @@ assert.equal(api.formatDuration(3661), "1 h 1 min");
 assert.equal(api.validateCycleInputs({ ovenTemperatureC: 80, initialTemperatureC: 23, targetToleranceC: 2, handlingTemperatureC: 45, roomTemperatureC: 23 }), true);
 assert.throws(() => api.validateCycleInputs({ ovenTemperatureC: 80, initialTemperatureC: 79, targetToleranceC: 2, handlingTemperatureC: 45, roomTemperatureC: 23 }), /core target/);
 assert.throws(() => api.validateCycleInputs({ ovenTemperatureC: 80, initialTemperatureC: 23, targetToleranceC: 2, handlingTemperatureC: 20, roomTemperatureC: 23 }), /handling target/);
-console.log("Annealing calculator, step budget, observer guards and filaSim material-source contracts passed");
+console.log("Annealing calculator, voxel workload, step budget, observer guards and filaSim material-source contracts passed");
