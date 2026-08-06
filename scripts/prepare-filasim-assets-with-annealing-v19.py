@@ -15,12 +15,21 @@ ZONED_TRANSFORMS = (
 )
 ZONED_TEST = pathlib.Path(__file__).with_name("test-engine-bay-zoned-environment.mjs")
 ZONED_MAPPING_TEST = pathlib.Path(__file__).with_name("test-engine-bay-zoned-mapping.mjs")
+ZONED_RESULT_TEST = pathlib.Path(__file__).with_name("test-engine-bay-zoned-result-compat.mjs")
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
 ZONED_RUNTIME_PARTS = (
     PROJECT_ROOT / "app/src/main/filasim/nearby-hot-object-02m-engine-bay-zoned-environment.js",
     PROJECT_ROOT / "app/src/main/filasim/nearby-hot-object-02n-engine-bay-zoned-mapping-fix.js",
+    PROJECT_ROOT / "app/src/main/filasim/nearby-hot-object-02o-engine-bay-zoned-result-compat.js",
 )
-for path in (V18, *ZONED_TRANSFORMS, ZONED_TEST, ZONED_MAPPING_TEST, *ZONED_RUNTIME_PARTS):
+for path in (
+    V18,
+    *ZONED_TRANSFORMS,
+    ZONED_TEST,
+    ZONED_MAPPING_TEST,
+    ZONED_RESULT_TEST,
+    *ZONED_RUNTIME_PARTS,
+):
     if not path.is_file():
         raise RuntimeError(f"Zoned engine-bay filaSim component is missing: {path}")
 
@@ -61,6 +70,10 @@ def patch_zoned_environment_runtime(target: pathlib.Path) -> None:
         ["node", str(ZONED_MAPPING_TEST), str(ZONED_RUNTIME_PARTS[1])],
         check=True,
     )
+    subprocess.run(
+        ["node", str(ZONED_RESULT_TEST), str(ZONED_RUNTIME_PARTS[2])],
+        check=True,
+    )
     text = target.read_text(encoding="utf-8")
     runtime = "".join(path.read_text(encoding="utf-8") for path in ZONED_RUNTIME_PARTS)
     anchor = "  // Preserve installUi callback name for MutationObserver guard."
@@ -81,6 +94,9 @@ def patch_zoned_environment_runtime(target: pathlib.Path) -> None:
         "EnderSlicerZonedEnvironmentTestApi",
         "partZoneMeanTemperaturesInEngineBayCoordinates",
         "EnderSlicerZonedMappingTestApi",
+        "normalizeZonedEnvironmentResult",
+        "nearby-hot-object-plus-12-zone-engine-bay-v1",
+        "EnderSlicerZonedResultCompatTestApi",
         "installUi = function installUi()",
     ):
         if contract not in verified:
@@ -95,7 +111,8 @@ thermal.THERMAL_PACKAGE_MARKER_TEXT = v18.thermal.THERMAL_PACKAGE_MARKER_TEXT.re
     "engine-bay-zoned-environment-api-v1,"
     "engine-bay-zoned-environment-literals-v1,"
     "engine-bay-zoned-environment-runtime-v1,"
-    "engine-bay-zoned-coordinate-mapping-v1\n",
+    "engine-bay-zoned-coordinate-mapping-v1,"
+    "engine-bay-zoned-result-compat-v1\n",
 )
 
 if __name__ == "__main__":
