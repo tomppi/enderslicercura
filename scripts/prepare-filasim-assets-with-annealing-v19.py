@@ -11,6 +11,7 @@ V18 = pathlib.Path(__file__).with_name("prepare-filasim-assets-with-annealing-v1
 ZONED_TRANSFORMS = (
     pathlib.Path(__file__).with_name("filasim-engine-bay-zoned-environment-core.py"),
     pathlib.Path(__file__).with_name("filasim-engine-bay-zoned-environment-api.py"),
+    pathlib.Path(__file__).with_name("filasim-engine-bay-zoned-environment-literals.py"),
 )
 ZONED_TEST = pathlib.Path(__file__).with_name("test-engine-bay-zoned-environment.mjs")
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -32,6 +33,7 @@ for transform in ZONED_TRANSFORMS:
 for marker in (
     ".enderslicer-engine-bay-zoned-environment-core-v1",
     ".enderslicer-engine-bay-zoned-environment-api-v1",
+    ".enderslicer-engine-bay-zoned-environment-literals-v1",
 ):
     if marker not in thermal.THERMAL_MARKERS:
         thermal.THERMAL_MARKERS = (*thermal.THERMAL_MARKERS, marker)
@@ -46,7 +48,8 @@ def patch_zoned_environment_runtime(target: pathlib.Path) -> None:
             "node",
             str(ZONED_TEST),
             str(ZONED_RUNTIME),
-            *(str(path) for path in ZONED_TRANSFORMS),
+            str(ZONED_TRANSFORMS[0]),
+            str(ZONED_TRANSFORMS[1]),
         ],
         check=True,
     )
@@ -80,6 +83,7 @@ thermal.THERMAL_PACKAGE_MARKER_TEXT = v18.thermal.THERMAL_PACKAGE_MARKER_TEXT.re
     "engine-bay-shaped-envelope-runtime-v1,"
     "engine-bay-zoned-environment-core-v1,"
     "engine-bay-zoned-environment-api-v1,"
+    "engine-bay-zoned-environment-literals-v1,"
     "engine-bay-zoned-environment-runtime-v1\n",
 )
 
