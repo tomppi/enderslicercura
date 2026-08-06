@@ -16,6 +16,10 @@ val filaSimPatchSources = files(
         include("filasim-thermal-integrity-*.py")
         include("filasim-annealing-*.py")
         include("filasim_annealing*.py")
+        include("filasim-nearby-hot-object-*.py")
+        include("filasim-nearby-hot-object-*.rs")
+        include("test-nearby-hot-object-*.mjs")
+        include("test-workspace-tab-remount.mjs")
     },
     fileTree(layout.projectDirectory.dir("app/src/main/filasim")) {
         include("*.js")
