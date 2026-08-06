@@ -66,19 +66,21 @@
     } finally {
       applyingViewerPartPlacement = false;
     }
-    window.requestAnimationFrame(() => {
-      renderCombinedHeatSourceMarkers();
-      renderEnclosureBox();
-    });
+    // The viewer updates the mesh itself on every pointer move. Re-projecting
+    // both heat sources scans the complete triangle mesh, so do that only once
+    // when the gesture finishes instead of on every animation frame.
+    if (!detail.final) return;
+    window.requestAnimationFrame(renderCombinedHeatSourceMarkers);
+    const message = detail.fits === false
+      ? "The plastic object is larger than the available engine-bay cavity. It was centred at the nearest valid position; reduce the object or enlarge the calculation zone."
+      : detail.clamped
+        ? "Plastic-object placement reached the closed engine-bay boundary and was clamped inside it. Calculate again."
+        : "Plastic-object placement changed; calculate again.";
+    invalidate(message);
     const status = input("status");
-    if (status && detail.final) {
+    if (status) {
       status.className = detail.fits === false ? "ti-status ti-warning" : "ti-status dim";
-      status.textContent = detail.fits === false
-        ? "The plastic object is larger than the available engine-bay cavity. It was centred at the nearest valid position; reduce the object or enlarge the calculation zone."
-        : detail.clamped
-          ? "Plastic-object placement reached the closed engine-bay boundary and was clamped inside it. Calculate again."
-          : "Plastic-object placement changed; calculate again.";
-      invalidate(status.textContent);
+      status.textContent = message;
     }
   });
 
@@ -178,8 +180,6 @@
       group.querySelector(`#ti-${id}`)?.addEventListener("change", () => {
         if (applyingViewerPartPlacement) return;
         dispatchPartPlacement("none", true);
-        window.requestAnimationFrame(renderCombinedHeatSourceMarkers);
-        invalidate("Plastic-object placement changed; calculate again.");
       });
     }
     group.querySelector("#ti-drag-part-xy")?.addEventListener("click", () => {
@@ -197,15 +197,13 @@
     group.querySelector("#ti-center-part")?.addEventListener("click", () => {
       updatePartPlacementUi([0, 0, 0]);
       dispatchPartPlacement("none", true);
-      window.requestAnimationFrame(renderCombinedHeatSourceMarkers);
-      invalidate("Plastic object centred; calculate again.");
     });
   };
 
   const partPlacementInstallUiBase = installUi;
   installUi = function installUiWithPartPlacement() {
     const installed = partPlacementInstallUiBase();
-    if (installed) dispatchPartPlacement("none", true);
+    if (installed) dispatchPartPlacement("none", false);
     return installed;
   };
 
