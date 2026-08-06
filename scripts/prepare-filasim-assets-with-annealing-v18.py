@@ -20,11 +20,15 @@ SPATIAL_TEST = pathlib.Path(__file__).with_name(
 HINT_TEST = pathlib.Path(__file__).with_name(
     "test-engine-bay-survival-hint.mjs"
 )
+FAN_HOLD_TEST = pathlib.Path(__file__).with_name(
+    "test-engine-bay-paper-soak-fan-hold.mjs"
+)
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
 SPATIAL_RUNTIME_PARTS = (
     PROJECT_ROOT / "app/src/main/filasim/nearby-hot-object-02h-spatial-environment-ui.js",
     PROJECT_ROOT / "app/src/main/filasim/nearby-hot-object-02i-spatial-preset-run-fix.js",
     PROJECT_ROOT / "app/src/main/filasim/nearby-hot-object-02j-engine-bay-survival-hint.js",
+    PROJECT_ROOT / "app/src/main/filasim/nearby-hot-object-02k-paper-soak-fan-hold.js",
 )
 for path in (
     V17,
@@ -32,6 +36,7 @@ for path in (
     SPATIAL_TRANSFORM,
     SPATIAL_TEST,
     HINT_TEST,
+    FAN_HOLD_TEST,
     *SPATIAL_RUNTIME_PARTS,
 ):
     if not path.is_file():
@@ -72,6 +77,14 @@ def patch_spatial_environment_runtime(target: pathlib.Path) -> None:
         ],
         check=True,
     )
+    subprocess.run(
+        [
+            "node",
+            str(FAN_HOLD_TEST),
+            str(SPATIAL_RUNTIME_PARTS[3]),
+        ],
+        check=True,
+    )
     text = target.read_text(encoding="utf-8")
     runtime = "".join(path.read_text(encoding="utf-8") for path in SPATIAL_RUNTIME_PARTS)
     anchor = "  // Preserve installUi callback name for MutationObserver guard."
@@ -93,6 +106,9 @@ def patch_spatial_environment_runtime(target: pathlib.Path) -> None:
         "EnderSlicerThermalHintTestApi",
         "paper_suv_400s_soak",
         "decisionHint",
+        "EnderSlicerPaperSoakFanHoldTestApi",
+        "paperSoakStagePlan",
+        "PAPER_SOAK_FORCED_VENTILATION_ACH",
         "installUi = function installUi()",
     ):
         if contract not in verified:
@@ -106,7 +122,8 @@ thermal.THERMAL_PACKAGE_MARKER_TEXT = v17.thermal.THERMAL_PACKAGE_MARKER_TEXT.re
     "nearby-hot-object-spatial-environment-viewer-v2,"
     "nearby-hot-object-spatial-environment-ui-v2,"
     "nearby-hot-object-spatial-preset-run-fix-v2,"
-    "engine-bay-thermal-survival-hint-v1\n",
+    "engine-bay-thermal-survival-hint-v1,"
+    "engine-bay-paper-soak-fan-hold-v1\n",
 )
 
 if __name__ == "__main__":
