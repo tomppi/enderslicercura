@@ -16,10 +16,19 @@ PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
 DUAL_RUNTIME_PARTS = (
     PROJECT_ROOT / "app/src/main/filasim/nearby-hot-object-02d-engine-dual-source.js",
     PROJECT_ROOT / "app/src/main/filasim/nearby-hot-object-02e-engine-scenario-order-fix.js",
+    PROJECT_ROOT / "app/src/main/filasim/nearby-hot-object-02f-engine-scenario-analysis-mode.js",
 )
 DUAL_TEST = pathlib.Path(__file__).with_name("test-nearby-hot-object-dual-source.mjs")
 PRESET_ORDER_TEST = pathlib.Path(__file__).with_name("test-engine-scenario-preset-order.mjs")
-for path in (V15, *DUAL_TRANSFORMS, *DUAL_RUNTIME_PARTS, DUAL_TEST, PRESET_ORDER_TEST):
+ANALYSIS_MODE_TEST = pathlib.Path(__file__).with_name("test-engine-scenario-analysis-mode.mjs")
+for path in (
+    V15,
+    *DUAL_TRANSFORMS,
+    *DUAL_RUNTIME_PARTS,
+    DUAL_TEST,
+    PRESET_ORDER_TEST,
+    ANALYSIS_MODE_TEST,
+):
     if not path.is_file():
         raise RuntimeError(f"Dual-source filaSim component is missing: {path}")
 
@@ -47,6 +56,7 @@ def patch_dual_source_runtime(target: pathlib.Path) -> None:
     _base_ui(target)
     subprocess.run(["node", str(DUAL_TEST), str(DUAL_RUNTIME_PARTS[0])], check=True)
     subprocess.run(["node", str(PRESET_ORDER_TEST), str(DUAL_RUNTIME_PARTS[1])], check=True)
+    subprocess.run(["node", str(ANALYSIS_MODE_TEST), str(DUAL_RUNTIME_PARTS[2])], check=True)
     text = target.read_text(encoding="utf-8")
     runtime = "".join(path.read_text(encoding="utf-8") for path in DUAL_RUNTIME_PARTS)
     anchor = "  // Preserve installUi callback name for MutationObserver guard."
@@ -66,6 +76,7 @@ def patch_dual_source_runtime(target: pathlib.Path) -> None:
         "source2AbsorbedW",
         "two-source-piecewise-temperature-stage-coupling-v1",
         "Apply broad environment/source defaults first",
+        "ENGINE_SCENARIO_ANALYSIS",
         "installUi = function installUi()",
     ):
         if contract not in text:
@@ -77,7 +88,8 @@ thermal.THERMAL_PACKAGE_MARKER_TEXT = v15.thermal.THERMAL_PACKAGE_MARKER_TEXT.re
     "nearby-hot-object-installer-observer-contract-v1\n",
     "nearby-hot-object-installer-observer-contract-v1,"
     "nearby-hot-object-dual-source-core-v1,nearby-hot-object-dual-source-api-v1,"
-    "nearby-hot-object-engine-presets-v1,engine-scenario-preset-order-v1\n",
+    "nearby-hot-object-engine-presets-v1,engine-scenario-preset-order-v1,"
+    "engine-scenario-analysis-mode-v1\n",
 )
 
 if __name__ == "__main__":
