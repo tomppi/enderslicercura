@@ -78,11 +78,13 @@
     if (!profile) return;
     if (profile.scenario) {
       setValue("engineScenario", "custom");
+      applyEnvironmentPreset(profile.scenario.environmentMode);
+      applyEnclosureBoxPreset(profile.scenario.environmentMode);
+      applySourceType("source", profile.scenario.sourceType);
+      if (profile.scenario.source2Enabled) applySourceType("source2", profile.scenario.source2Type);
       Object.entries(profile.scenario).forEach(([key, presetValue]) => setValue(key, presetValue));
       const source2Enabled = document.getElementById("ti-source2Enabled");
       if (source2Enabled) source2Enabled.checked = Boolean(profile.scenario.source2Enabled);
-      applyEnvironmentPreset(profile.scenario.environmentMode);
-      applyEnclosureBoxPreset(profile.scenario.environmentMode);
       syncSource2Ui();
       syncEnvironmentUi();
       renderCombinedHeatSourceMarkers();
