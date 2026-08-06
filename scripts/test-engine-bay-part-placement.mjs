@@ -18,6 +18,7 @@ for (const token of [
   "solverEnvelopeOffsets",
   "partPlacementXMm",
   "viewerEnclosureOffsetXMm",
+  "saveDraftWithViewerEnclosureOffsets",
   "EnderSlicerPartPlacementTestApi",
 ]) {
   if (!runtime.includes(token)) throw new Error(`Part-placement runtime is missing ${token}`);
@@ -62,6 +63,7 @@ const context = {
       enclosureOffsetZMm: -5,
     };
   },
+  saveDraft(options) { context.persistedOptions = options; },
   restoreDraft() {},
   syncEnvironmentUi() {},
   bind() {},
@@ -124,6 +126,12 @@ if ([options.enclosureOffsetXMm, options.enclosureOffsetYMm, options.enclosureOf
 }
 if (options.viewerEnclosureOffsetXMm !== 15 || options.partPlacementZMm !== 25) {
   throw new Error("Viewer-space placement metadata was not preserved");
+}
+context.saveDraft(options);
+if (context.persistedOptions.enclosureOffsetXMm !== 15
+    || context.persistedOptions.enclosureOffsetYMm !== 2
+    || context.persistedOptions.enclosureOffsetZMm !== -5) {
+  throw new Error("Draft persistence did not restore viewer-space enclosure offsets");
 }
 
 console.log("Plastic-object world placement, inverse solver coordinates, and closed-envelope viewer contracts verified.");
