@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prepare format-8 filaSim with zoned dual-source engine-bay thermal analysis."""
+"""Prepare format-8 filaSim with shaped, zoned dual-source engine-bay thermal analysis."""
 
 from __future__ import annotations
 
