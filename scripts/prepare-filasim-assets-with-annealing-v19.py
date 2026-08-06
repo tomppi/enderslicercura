@@ -14,9 +14,13 @@ ZONED_TRANSFORMS = (
     pathlib.Path(__file__).with_name("filasim-engine-bay-zoned-environment-literals.py"),
 )
 ZONED_TEST = pathlib.Path(__file__).with_name("test-engine-bay-zoned-environment.mjs")
+ZONED_MAPPING_TEST = pathlib.Path(__file__).with_name("test-engine-bay-zoned-mapping.mjs")
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
-ZONED_RUNTIME = PROJECT_ROOT / "app/src/main/filasim/nearby-hot-object-02m-engine-bay-zoned-environment.js"
-for path in (V18, *ZONED_TRANSFORMS, ZONED_TEST, ZONED_RUNTIME):
+ZONED_RUNTIME_PARTS = (
+    PROJECT_ROOT / "app/src/main/filasim/nearby-hot-object-02m-engine-bay-zoned-environment.js",
+    PROJECT_ROOT / "app/src/main/filasim/nearby-hot-object-02n-engine-bay-zoned-mapping-fix.js",
+)
+for path in (V18, *ZONED_TRANSFORMS, ZONED_TEST, ZONED_MAPPING_TEST, *ZONED_RUNTIME_PARTS):
     if not path.is_file():
         raise RuntimeError(f"Zoned engine-bay filaSim component is missing: {path}")
 
@@ -47,14 +51,18 @@ def patch_zoned_environment_runtime(target: pathlib.Path) -> None:
         [
             "node",
             str(ZONED_TEST),
-            str(ZONED_RUNTIME),
+            str(ZONED_RUNTIME_PARTS[0]),
             str(ZONED_TRANSFORMS[0]),
             str(ZONED_TRANSFORMS[1]),
         ],
         check=True,
     )
+    subprocess.run(
+        ["node", str(ZONED_MAPPING_TEST), str(ZONED_RUNTIME_PARTS[1])],
+        check=True,
+    )
     text = target.read_text(encoding="utf-8")
-    runtime = ZONED_RUNTIME.read_text(encoding="utf-8")
+    runtime = "".join(path.read_text(encoding="utf-8") for path in ZONED_RUNTIME_PARTS)
     anchor = "  // Preserve installUi callback name for MutationObserver guard."
     if runtime not in text:
         if text.count(anchor) != 1:
@@ -71,6 +79,8 @@ def patch_zoned_environment_runtime(target: pathlib.Path) -> None:
         "runSteadyZonedEngineBay",
         "spatialEnvironmentEnabled",
         "EnderSlicerZonedEnvironmentTestApi",
+        "partZoneMeanTemperaturesInEngineBayCoordinates",
+        "EnderSlicerZonedMappingTestApi",
         "installUi = function installUi()",
     ):
         if contract not in verified:
@@ -84,7 +94,8 @@ thermal.THERMAL_PACKAGE_MARKER_TEXT = v18.thermal.THERMAL_PACKAGE_MARKER_TEXT.re
     "engine-bay-zoned-environment-core-v1,"
     "engine-bay-zoned-environment-api-v1,"
     "engine-bay-zoned-environment-literals-v1,"
-    "engine-bay-zoned-environment-runtime-v1\n",
+    "engine-bay-zoned-environment-runtime-v1,"
+    "engine-bay-zoned-coordinate-mapping-v1\n",
 )
 
 if __name__ == "__main__":
