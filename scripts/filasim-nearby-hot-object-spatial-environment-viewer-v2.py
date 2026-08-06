@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """Compatibility entry point for the spatial viewer transform.
 
-The v1 transform inserted its drag handlers before the axis-gizmo section, but
-looked for the constructor's listener registration as the end boundary. The
-constructor is earlier in SceneManager, so that boundary can never follow the
-handler. Patch only that boundary while retaining the reviewed implementation.
+The spatial implementation follows the marker-drag transform. This entry point
+adapts two anchors whose surrounding code was already changed by that earlier
+transform, while retaining the reviewed spatial implementation itself.
 """
 from __future__ import annotations
 
@@ -24,6 +23,7 @@ module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 
 _original_replace_between = module.replace_between
+_original_replace_once = module.replace_once
 
 
 def replace_between_fixed(path, start, end, replacement, label):
@@ -32,7 +32,19 @@ def replace_between_fixed(path, start, end, replacement, label):
     return _original_replace_between(path, start, end, replacement, label)
 
 
+def replace_once_fixed(path, old, new, label):
+    if label == "spatial viewer disposal":
+        old = """    this.callouts.dispose();
+"""
+        new = """    this.setNearbyHotObjectMarker(null);
+    this.setNearbyHotObjectEnclosureBox(null);
+    this.callouts.dispose();
+"""
+    return _original_replace_once(path, old, new, label)
+
+
 module.replace_between = replace_between_fixed
+module.replace_once = replace_once_fixed
 
 
 def apply(source_root: pathlib.Path) -> None:
