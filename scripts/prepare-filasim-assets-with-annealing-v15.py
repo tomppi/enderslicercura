@@ -14,13 +14,16 @@ ENCLOSURE_TRANSFORMS = (
 )
 ENCLOSURE_TEST = pathlib.Path(__file__).with_name("test-nearby-hot-object-enclosure.mjs")
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
-ENCLOSURE_RUNTIME_MODEL = PROJECT_ROOT / "app/src/main/filasim/nearby-hot-object-02a-enclosure-model.js"
+ENCLOSURE_RUNTIME_MODEL_PARTS = (
+    PROJECT_ROOT / "app/src/main/filasim/nearby-hot-object-02a-enclosure-model-01.js",
+    PROJECT_ROOT / "app/src/main/filasim/nearby-hot-object-02a-enclosure-model-02.js",
+)
 ENCLOSURE_RUNTIME_UI = PROJECT_ROOT / "app/src/main/filasim/nearby-hot-object-02b-enclosure-ui.js"
 HOT_OBJECT_RUNTIME_PARTS = (
     PROJECT_ROOT / "app/src/main/filasim/nearby-hot-object-observer-guard.js",
     PROJECT_ROOT / "app/src/main/filasim/nearby-hot-object-01-core.js",
     PROJECT_ROOT / "app/src/main/filasim/nearby-hot-object-02-ui.js",
-    ENCLOSURE_RUNTIME_MODEL,
+    *ENCLOSURE_RUNTIME_MODEL_PARTS,
     ENCLOSURE_RUNTIME_UI,
     PROJECT_ROOT / "app/src/main/filasim/nearby-hot-object-03-run.js",
 )
@@ -50,7 +53,10 @@ _base_ui = thermal.patch_thermal_ui_runtime
 
 def patch_enclosure_runtime(target: pathlib.Path) -> None:
     _base_ui(target)
-    subprocess.run(["node", str(ENCLOSURE_TEST), str(ENCLOSURE_RUNTIME_MODEL)], check=True)
+    subprocess.run(
+        ["node", str(ENCLOSURE_TEST), *(str(path) for path in ENCLOSURE_RUNTIME_MODEL_PARTS)],
+        check=True,
+    )
     target.write_text(
         "".join(path.read_text(encoding="utf-8") for path in HOT_OBJECT_RUNTIME_PARTS),
         encoding="utf-8",
