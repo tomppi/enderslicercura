@@ -15,10 +15,11 @@ SPATIAL_TEST = pathlib.Path(__file__).with_name(
     "test-nearby-hot-object-spatial-environment.mjs"
 )
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
-SPATIAL_RUNTIME = (
-    PROJECT_ROOT / "app/src/main/filasim/nearby-hot-object-02h-spatial-environment-ui.js"
+SPATIAL_RUNTIME_PARTS = (
+    PROJECT_ROOT / "app/src/main/filasim/nearby-hot-object-02h-spatial-environment-ui.js",
+    PROJECT_ROOT / "app/src/main/filasim/nearby-hot-object-02i-spatial-preset-run-fix.js",
 )
-for path in (V17, SPATIAL_TRANSFORM, SPATIAL_TEST, SPATIAL_RUNTIME):
+for path in (V17, SPATIAL_TRANSFORM, SPATIAL_TEST, *SPATIAL_RUNTIME_PARTS):
     if not path.is_file():
         raise RuntimeError(f"Spatial environment filaSim component is missing: {path}")
 
@@ -44,13 +45,13 @@ def patch_spatial_environment_runtime(target: pathlib.Path) -> None:
         [
             "node",
             str(SPATIAL_TEST),
-            str(SPATIAL_RUNTIME),
+            str(SPATIAL_RUNTIME_PARTS[0]),
             str(SPATIAL_TRANSFORM),
         ],
         check=True,
     )
     text = target.read_text(encoding="utf-8")
-    runtime = SPATIAL_RUNTIME.read_text(encoding="utf-8")
+    runtime = "".join(path.read_text(encoding="utf-8") for path in SPATIAL_RUNTIME_PARTS)
     anchor = "  // Preserve installUi callback name for MutationObserver guard."
     if runtime not in text:
         if text.count(anchor) != 1:
@@ -64,6 +65,8 @@ def patch_spatial_environment_runtime(target: pathlib.Path) -> None:
         "enclosureVolumeFromDimensions",
         "movable-source-automatic-nearest-surface",
         "entire-voxel-model",
+        "applyEnclosureBoxPresetPreservingVolume",
+        "runAnalysisWithAutomaticSourceProjection",
         "installUi = function installUi()",
     ):
         if contract not in verified:
@@ -75,7 +78,8 @@ thermal.THERMAL_PACKAGE_MARKER_TEXT = v17.thermal.THERMAL_PACKAGE_MARKER_TEXT.re
     "nearby-hot-object-marker-drag-ui-v1\n",
     "nearby-hot-object-marker-drag-ui-v1,"
     "nearby-hot-object-spatial-environment-viewer-v2,"
-    "nearby-hot-object-spatial-environment-ui-v2\n",
+    "nearby-hot-object-spatial-environment-ui-v2,"
+    "nearby-hot-object-spatial-preset-run-fix-v1\n",
 )
 
 if __name__ == "__main__":
