@@ -3,10 +3,11 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
 
-const runtimePath = process.argv[2];
-if (!runtimePath) throw new Error("Enclosure runtime path is required");
+const runtimePaths = process.argv.slice(2);
+if (!runtimePaths.length) throw new Error("Enclosure runtime paths are required");
 const window = {};
-vm.runInContext(fs.readFileSync(runtimePath, "utf8"), vm.createContext({ window, console }));
+const source = runtimePaths.map((runtimePath) => fs.readFileSync(runtimePath, "utf8")).join("\n");
+vm.runInContext(source, vm.createContext({ window, console }));
 const api = window.EnderSlicerNearbyEnclosureTestApi;
 assert.ok(api, "Enclosure test API must be exposed");
 for (const mode of ["open", "engine_running", "engine_heat_soak", "ventilated_enclosure", "sealed_enclosure", "custom"]) {
