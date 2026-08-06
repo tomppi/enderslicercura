@@ -8,8 +8,11 @@ import subprocess
 import sys
 
 V17 = pathlib.Path(__file__).with_name("prepare-filasim-assets-with-annealing-v17.py")
-SPATIAL_TRANSFORM = pathlib.Path(__file__).with_name(
+SPATIAL_TRANSFORM_SOURCE = pathlib.Path(__file__).with_name(
     "filasim-nearby-hot-object-spatial-environment-viewer.py"
+)
+SPATIAL_TRANSFORM = pathlib.Path(__file__).with_name(
+    "filasim-nearby-hot-object-spatial-environment-viewer-v2.py"
 )
 SPATIAL_TEST = pathlib.Path(__file__).with_name(
     "test-nearby-hot-object-spatial-environment.mjs"
@@ -19,7 +22,13 @@ SPATIAL_RUNTIME_PARTS = (
     PROJECT_ROOT / "app/src/main/filasim/nearby-hot-object-02h-spatial-environment-ui.js",
     PROJECT_ROOT / "app/src/main/filasim/nearby-hot-object-02i-spatial-preset-run-fix.js",
 )
-for path in (V17, SPATIAL_TRANSFORM, SPATIAL_TEST, *SPATIAL_RUNTIME_PARTS):
+for path in (
+    V17,
+    SPATIAL_TRANSFORM_SOURCE,
+    SPATIAL_TRANSFORM,
+    SPATIAL_TEST,
+    *SPATIAL_RUNTIME_PARTS,
+):
     if not path.is_file():
         raise RuntimeError(f"Spatial environment filaSim component is missing: {path}")
 
@@ -46,7 +55,7 @@ def patch_spatial_environment_runtime(target: pathlib.Path) -> None:
             "node",
             str(SPATIAL_TEST),
             str(SPATIAL_RUNTIME_PARTS[0]),
-            str(SPATIAL_TRANSFORM),
+            str(SPATIAL_TRANSFORM_SOURCE),
         ],
         check=True,
     )
