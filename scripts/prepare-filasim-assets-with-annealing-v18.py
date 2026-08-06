@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Marker-drag v17 plus automatic source projection and enclosure walls."""
+"""Marker drag, automatic source projection, enclosure walls and finite worlds."""
 from __future__ import annotations
 
 import importlib.util
@@ -54,7 +54,7 @@ def patch_spatial_environment_runtime(target: pathlib.Path) -> None:
         [
             "node",
             str(SPATIAL_TEST),
-            str(SPATIAL_RUNTIME_PARTS[0]),
+            *(str(path) for path in SPATIAL_RUNTIME_PARTS),
             str(SPATIAL_TRANSFORM_SOURCE),
         ],
         check=True,
@@ -74,7 +74,8 @@ def patch_spatial_environment_runtime(target: pathlib.Path) -> None:
         "enclosureVolumeFromDimensions",
         "movable-source-automatic-nearest-surface",
         "entire-voxel-model",
-        "applyEnclosureBoxPresetPreservingVolume",
+        "applyEnclosureBoxPresetWithFiniteWorld",
+        "ENCLOSURE_WORLD_PRESETS",
         "runAnalysisWithAutomaticSourceProjection",
         "installUi = function installUi()",
     ):
@@ -88,7 +89,7 @@ thermal.THERMAL_PACKAGE_MARKER_TEXT = v17.thermal.THERMAL_PACKAGE_MARKER_TEXT.re
     "nearby-hot-object-marker-drag-ui-v1,"
     "nearby-hot-object-spatial-environment-viewer-v2,"
     "nearby-hot-object-spatial-environment-ui-v2,"
-    "nearby-hot-object-spatial-preset-run-fix-v1\n",
+    "nearby-hot-object-spatial-preset-run-fix-v2\n",
 )
 
 if __name__ == "__main__":
