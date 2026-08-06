@@ -62,8 +62,8 @@ for (let z = 0; z <= 3; z += 1) {
     }
   }
 }
-if (occupied.size > 2) {
-  throw new Error(`A small part in a large bay must not be stretched across all zones: ${[...occupied]}`);
+if (occupied.size > 4 || [...occupied].some((zone) => zone % 3 !== 1)) {
+  throw new Error(`A small centered part may straddle lateral/vertical midplanes but must remain in the middle longitudinal column: ${[...occupied]}`);
 }
 
 console.log("Zoned part feedback uses the same engine-bay dimensions and offsets as Rust face zoning.");
