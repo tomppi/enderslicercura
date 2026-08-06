@@ -13,21 +13,34 @@ ENCLOSURE_TRANSFORMS = (
     pathlib.Path(__file__).with_name("filasim-nearby-hot-object-enclosure-api.py"),
 )
 ENCLOSURE_TEST = pathlib.Path(__file__).with_name("test-nearby-hot-object-enclosure.mjs")
+INSTALLER_OBSERVER_TEST = pathlib.Path(__file__).with_name(
+    "test-nearby-hot-object-installer-observer-contract.mjs"
+)
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
 ENCLOSURE_RUNTIME_MODEL_PARTS = (
     PROJECT_ROOT / "app/src/main/filasim/nearby-hot-object-02a-enclosure-model-01.js",
     PROJECT_ROOT / "app/src/main/filasim/nearby-hot-object-02a-enclosure-model-02.js",
 )
 ENCLOSURE_RUNTIME_UI = PROJECT_ROOT / "app/src/main/filasim/nearby-hot-object-02b-enclosure-ui.js"
+INSTALLER_OBSERVER_CONTRACT = (
+    PROJECT_ROOT / "app/src/main/filasim/nearby-hot-object-02c-installer-observer-contract.js"
+)
 HOT_OBJECT_RUNTIME_PARTS = (
     PROJECT_ROOT / "app/src/main/filasim/nearby-hot-object-observer-guard.js",
     PROJECT_ROOT / "app/src/main/filasim/nearby-hot-object-01-core.js",
     PROJECT_ROOT / "app/src/main/filasim/nearby-hot-object-02-ui.js",
     *ENCLOSURE_RUNTIME_MODEL_PARTS,
     ENCLOSURE_RUNTIME_UI,
+    INSTALLER_OBSERVER_CONTRACT,
     PROJECT_ROOT / "app/src/main/filasim/nearby-hot-object-03-run.js",
 )
-for path in (V14, *ENCLOSURE_TRANSFORMS, ENCLOSURE_TEST, *HOT_OBJECT_RUNTIME_PARTS):
+for path in (
+    V14,
+    *ENCLOSURE_TRANSFORMS,
+    ENCLOSURE_TEST,
+    INSTALLER_OBSERVER_TEST,
+    *HOT_OBJECT_RUNTIME_PARTS,
+):
     if not path.is_file():
         raise RuntimeError(f"Engine-bay/enclosure filaSim component is missing: {path}")
 
@@ -57,6 +70,10 @@ def patch_enclosure_runtime(target: pathlib.Path) -> None:
         ["node", str(ENCLOSURE_TEST), *(str(path) for path in ENCLOSURE_RUNTIME_MODEL_PARTS)],
         check=True,
     )
+    subprocess.run(
+        ["node", str(INSTALLER_OBSERVER_TEST), str(INSTALLER_OBSERVER_CONTRACT)],
+        check=True,
+    )
     target.write_text(
         "".join(path.read_text(encoding="utf-8") for path in HOT_OBJECT_RUNTIME_PARTS),
         encoding="utf-8",
@@ -72,6 +89,8 @@ def patch_enclosure_runtime(target: pathlib.Path) -> None:
         "totalExteriorAreaMm2",
         "MAX_ENVIRONMENT_COUPLING_STAGES = 24",
         "Built-in environment presets are editable starting assumptions",
+        "Preserve installUi callback name for MutationObserver guard",
+        "installUi = function installUi()",
     ):
         if contract not in text:
             raise RuntimeError(f"Engine-bay/enclosure runtime is missing {contract!r}")
@@ -89,7 +108,8 @@ thermal.THERMAL_PACKAGE_MARKER_TEXT = (
     "nearby-hot-object-api-v1,nearby-hot-object-viewer-v1,"
     "workspace-tab-state-fix-v2,workspace-tab-remount-test-v2,"
     "nearby-hot-object-enclosure-core-v1,nearby-hot-object-enclosure-api-v1,"
-    "nearby-hot-object-enclosure-runtime-v1\n"
+    "nearby-hot-object-enclosure-runtime-v1,"
+    "nearby-hot-object-installer-observer-contract-v1\n"
 )
 
 if __name__ == "__main__":
