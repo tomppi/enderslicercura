@@ -43,6 +43,7 @@ const context = {
   installUi: () => true,
   applyEnvironmentPreset: () => {},
   applyEnclosureBoxPreset: () => {},
+  applySourceType: () => {},
   syncSource2Ui: () => {},
   syncEnvironmentUi: () => {},
   renderCombinedHeatSourceMarkers: () => {},
@@ -74,6 +75,12 @@ if (paper.durationSeconds !== 400) throw new Error("paper soak duration must be 
 if (paper.fanHoldSeconds !== 30) throw new Error("paper fan hold must be 30 s");
 if (paper.earlyRadiationConvectionSeconds !== 120) throw new Error("early heat-transfer period must be 120 s");
 if (paper.publishedComponentAgreementC !== 10) throw new Error("published component agreement must be recorded as 10 °C");
+
+const defaultsIndex = source.indexOf("applyEnvironmentPreset(profile.scenario.environmentMode)");
+const specificIndex = source.indexOf("Object.entries(profile.scenario).forEach");
+if (defaultsIndex < 0 || specificIndex < 0 || defaultsIndex > specificIndex) {
+  throw new Error("generic environment defaults must be applied before paper-profile values");
+}
 
 const paperProfile = api.ENGINE_BAY_HINT_PROFILES.paper_suv_400s_soak;
 if (paperProfile.uncertaintyC !== 20) throw new Error("paper profile must include additional reduced-order uncertainty");
