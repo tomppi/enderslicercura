@@ -1,8 +1,8 @@
 /*
  * Android host adapter for the pinned filaSim web workspace.
  * The upstream application remains responsible for analysis and optimization;
- * this adapter only injects the displayed EnderSlicerCura STL and returns
- * graded/binary modifier ZIPs or a solid-topology replacement STL.
+ * this adapter injects the displayed EnderSlicerCura STL, returns validated
+ * optimizer outputs, and captures an auditable build-process thermal FEA report.
  */
 (() => {
   "use strict";
@@ -11,15 +11,329 @@
   if (!android) return;
 
   const CHUNK_BYTES = 256 * 1024;
+  const POSE_CAPTURE_TIMEOUT_MS = 2000;
   const APPLY_SMART_INFILL_LABEL = "Apply Smart Infill";
   const APPLY_SMART_INFILL_NOTE =
     "Transfers the optimized infill regions to EnderSlicer and returns to the model.";
+  const THERMAL_REPORT_GROUP_ID = "enderslicer-thermal-fea-report";
+  const THERMAL_REPORT_LABEL = "Save Thermal FEA Report";
+  const THERMAL_REPORT_NOTE =
+    "Saves exact solver values, build orientation, and model identity. Bed reactions are indicators, not an absolute pass/fail threshold.";
   let modelLoadStarted = false;
   let exporting = false;
   let exportUiObserver = null;
+  let latestBuildSimRaw = null;
 
   function normalizedText(element) {
     return String(element?.textContent || "").replace(/\s+/g, " ").trim();
+  }
+
+  function currentWorkspace() {
+    return document.querySelector("label.workspace select")?.value || "optimize";
+  }
+
+  function findGroup(label) {
+    const wanted = label.toLowerCase();
+    return Array.from(document.querySelectorAll(".panel .group")).find((group) => {
+      const heading = normalizedText(group.querySelector(".g-label span")).toLowerCase();
+      return heading === wanted;
+    }) || null;
+  }
+
+  function readMaterialName() {
+    return normalizedText(findGroup("Material")?.querySelector(".g-label b"));
+  }
+
+  function postNative(nativePostMessage, message, hasTransfer, transferOrOptions) {
+    if (hasTransfer) nativePostMessage(message, transferOrOptions);
+    else nativePostMessage(message);
+  }
+
+  /*
+   * Capture the exact request and response of filaSim's typed buildSim worker
+   * operation before React formats values for display. Immediately before a
+   * build run, query the worker's cumulative model transform and only then
+   * forward buildSim. The report is therefore bound to both source STL bytes
+   * and the exact orientation/placement actually solved.
+   *
+   * Report capture is fail-open: if the auxiliary pose query fails or times
+   * out, the original buildSim request is still forwarded unchanged. A report
+   * will simply not be offered for that run, so instrumentation can never block
+   * the actual FEA calculation.
+   */
+  function installBuildSimWorkerCapture() {
+    const NativeWorker = window.Worker;
+    if (!NativeWorker || NativeWorker.__enderSlicerThermalCapture) return;
+
+    const WrappedWorker = new Proxy(NativeWorker, {
+      construct(Target, args) {
+        const worker = Reflect.construct(Target, args);
+        const pendingBuildSim = new Map();
+        const pendingPose = new Map();
+        const nativePostMessage = worker.postMessage.bind(worker);
+        let nextPoseRequestId = -1;
+
+        function forwardWithoutReport(poseRequest, reason) {
+          latestBuildSimRaw = null;
+          console.error(`EnderSlicerCura thermal report capture disabled for this run: ${reason}`);
+          postNative(
+            nativePostMessage,
+            poseRequest.buildMessage,
+            poseRequest.hasTransfer,
+            poseRequest.transferOrOptions,
+          );
+        }
+
+        worker.postMessage = function postMessage(message, transferOrOptions) {
+          const hasTransfer = arguments.length > 1;
+          if (message?.op === "buildSim" && Number.isSafeInteger(message.id)) {
+            latestBuildSimRaw = null;
+            const poseRequestId = nextPoseRequestId--;
+            const poseRequest = {
+              buildMessage: message,
+              hasTransfer,
+              transferOrOptions,
+              opts: { ...(message.opts || {}) },
+              materialName: readMaterialName(),
+              requestedAtEpochMillis: Date.now(),
+              timeout: null,
+            };
+            poseRequest.timeout = setTimeout(() => {
+              const stillPending = pendingPose.get(poseRequestId);
+              if (!stillPending) return;
+              pendingPose.delete(poseRequestId);
+              forwardWithoutReport(stillPending, "model-transform query timed out");
+            }, POSE_CAPTURE_TIMEOUT_MS);
+            pendingPose.set(poseRequestId, poseRequest);
+            nativePostMessage({ id: poseRequestId, op: "transformMatrix" });
+            return;
+          }
+          postNative(nativePostMessage, message, hasTransfer, transferOrOptions);
+        };
+
+        worker.addEventListener("message", (event) => {
+          const message = event.data;
+          if (!message || !Number.isSafeInteger(message.id)) return;
+
+          const poseRequest = pendingPose.get(message.id);
+          if (poseRequest) {
+            pendingPose.delete(message.id);
+            clearTimeout(poseRequest.timeout);
+            const transform = message.ok && Array.isArray(message.data) ? message.data.slice() : null;
+            if (!transform || transform.length !== 12 || !transform.every(Number.isFinite)) {
+              forwardWithoutReport(poseRequest, "model-transform response was invalid");
+              return;
+            }
+            pendingBuildSim.set(poseRequest.buildMessage.id, {
+              opts: poseRequest.opts,
+              materialName: poseRequest.materialName,
+              modelTransform: transform,
+              requestedAtEpochMillis: poseRequest.requestedAtEpochMillis,
+            });
+            postNative(
+              nativePostMessage,
+              poseRequest.buildMessage,
+              poseRequest.hasTransfer,
+              poseRequest.transferOrOptions,
+            );
+            return;
+          }
+
+          if (message.progress) return;
+          const request = pendingBuildSim.get(message.id);
+          if (!request) return;
+          pendingBuildSim.delete(message.id);
+          if (!message.ok || !message.data?.stats) {
+            latestBuildSimRaw = null;
+            return;
+          }
+          const stats = message.data.stats;
+          latestBuildSimRaw = {
+            opts: request.opts,
+            materialName: request.materialName,
+            modelTransform: request.modelTransform,
+            stats: {
+              maxDisplacement: stats.maxDisplacement,
+              bondedMax: stats.bondedMax,
+              releasedMax: stats.releasedMax,
+              peakLift: stats.peakLift,
+              peakShear: stats.peakShear,
+              layers: stats.layers,
+              itersMax: stats.itersMax,
+              itersMean: stats.itersMean,
+              cells: stats.cells,
+              seconds: stats.seconds,
+              densityAware: stats.densityAware,
+              nx: stats.nx,
+              ny: stats.ny,
+              nz: stats.nz,
+              h: stats.h,
+            },
+            completedAtEpochMillis: Date.now(),
+          };
+        });
+        return worker;
+      },
+    });
+    Object.defineProperty(WrappedWorker, "__enderSlicerThermalCapture", { value: true });
+    window.Worker = WrappedWorker;
+  }
+
+  installBuildSimWorkerCapture();
+
+  function sameText(element, value) {
+    if (normalizedText(element) !== value) element.textContent = value;
+  }
+
+  function staleThermalResult() {
+    return Array.from(document.querySelectorAll(".panel .warnbanner")).some((element) => {
+      const text = normalizedText(element).toLowerCase();
+      return text.includes("settings changed") || text.includes("out of date") || text.includes("stale");
+    });
+  }
+
+  function finite(value, label) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) throw new Error(`filaSim returned a non-finite ${label}`);
+    return number;
+  }
+
+  function optionalFinite(value, label) {
+    if (value == null) return null;
+    return finite(value, label);
+  }
+
+  function collectThermalReport() {
+    if (currentWorkspace() !== "buildsim") {
+      throw new Error("Switch filaSim to Build Simulation first");
+    }
+    if (staleThermalResult()) {
+      throw new Error("The build-simulation result is stale; run the simulation again");
+    }
+    const raw = latestBuildSimRaw;
+    if (!raw?.opts || !raw?.stats || !Array.isArray(raw.modelTransform)) {
+      throw new Error("Run the complete build simulation before saving a report");
+    }
+    const materialName = String(raw.materialName || "").trim();
+    if (!materialName) throw new Error("Unable to identify the material used by the solver request");
+
+    const opts = raw.opts;
+    const stats = raw.stats;
+    const requestedState = String(opts.state || "");
+    if (requestedState !== "bonded" && requestedState !== "released") {
+      throw new Error("filaSim returned an unsupported build-simulation state");
+    }
+    return {
+      schemaVersion: 1,
+      analysisKind: "fdm-build-thermomechanical",
+      solverModel: "sequential-voxel-inherent-strain",
+      precisionSource: "raw-worker-response",
+      sourceName: String(android.sourceFileName()),
+      sourceSha256: String(android.sourceSha256()),
+      upstreamCommit: String(android.upstreamCommit()),
+      generatedAtEpochMillis: Date.now(),
+      pose: {
+        transform3x4: raw.modelTransform.map((value, index) => finite(value, `transform[${index}]`)),
+      },
+      material: {
+        name: materialName,
+        shrinkXyPercent: Math.abs(finite(opts.shrink, "XY shrink")) * 100,
+        shrinkZPercent: Math.abs(finite(opts.shrinkZ, "Z shrink")) * 100,
+        yieldStrengthMpa: optionalFinite(opts.yieldStrength, "yield strength"),
+        lockingTemperatureC: optionalFinite(opts.tLock, "locking temperature"),
+      },
+      process: {
+        bedTemperatureC: optionalFinite(opts.tBed, "bed temperature"),
+        chamberTemperatureC: optionalFinite(opts.tChamber, "chamber temperature"),
+        finalTemperatureC: optionalFinite(opts.tFinal, "final temperature"),
+        thermalDecayMm: optionalFinite(opts.decayMm, "thermal decay depth"),
+        requestedState,
+        densityAware: Boolean(stats.densityAware),
+      },
+      mesh: {
+        voxelSizeMm: finite(stats.h, "voxel size"),
+        nx: finite(stats.nx, "grid X dimension"),
+        ny: finite(stats.ny, "grid Y dimension"),
+        nz: finite(stats.nz, "grid Z dimension"),
+        activeCells: finite(stats.cells, "active cell count"),
+        buildLayers: finite(stats.layers, "build layer count"),
+      },
+      results: {
+        bondedWarpMm: Math.abs(finite(stats.bondedMax, "bonded warp")),
+        releasedWarpMm: Math.abs(finite(stats.releasedMax, "released warp")),
+        peakLiftMpa: Math.abs(finite(stats.peakLift, "bed lift traction")),
+        peakShearMpa: Math.abs(finite(stats.peakShear, "bed shear traction")),
+        solverSeconds: finite(stats.seconds, "solver time"),
+        meanIterationsPerLayer: finite(stats.itersMean, "mean iteration count"),
+        maxIterationsPerLayer: finite(stats.itersMax, "maximum iteration count"),
+      },
+      confidence: {
+        level: "experimental-literature-seeded",
+        calibratedToPrinter: false,
+      },
+    };
+  }
+
+  function thermalResultReady() {
+    return currentWorkspace() === "buildsim" && Boolean(latestBuildSimRaw?.stats);
+  }
+
+  function syncThermalReportUi() {
+    const existing = document.getElementById(THERMAL_REPORT_GROUP_ID);
+    if (!thermalResultReady()) {
+      existing?.remove();
+      return false;
+    }
+
+    const panel = document.querySelector(".panel");
+    if (!panel) return false;
+    const group = existing || document.createElement("div");
+    if (!existing) {
+      group.id = THERMAL_REPORT_GROUP_ID;
+      group.className = "group";
+
+      const heading = document.createElement("div");
+      heading.className = "g-label";
+      const title = document.createElement("span");
+      title.textContent = "EnderSlicer report";
+      heading.appendChild(title);
+
+      const button = document.createElement("button");
+      button.className = "primary";
+      button.textContent = THERMAL_REPORT_LABEL;
+      button.addEventListener("click", () => {
+        try {
+          const payload = JSON.stringify(collectThermalReport());
+          if (!android.captureThermalReport(payload)) {
+            throw new Error("Android rejected the thermal FEA report");
+          }
+        } catch (error) {
+          console.error("EnderSlicerCura thermal FEA report capture failed", error);
+          alert(`Unable to save the thermal FEA report: ${error?.message || error}`);
+        }
+      });
+
+      const note = document.createElement("div");
+      note.className = "dim small";
+      note.textContent = THERMAL_REPORT_NOTE;
+
+      group.appendChild(heading);
+      group.appendChild(button);
+      group.appendChild(note);
+      panel.appendChild(group);
+    }
+
+    const button = group.querySelector("button");
+    if (button) {
+      const stale = staleThermalResult();
+      button.disabled = stale;
+      button.title = stale
+        ? "Settings changed after the solve; run Build Simulation again"
+        : "Save exact raw-worker values and model transform in a native report";
+    }
+    const note = group.querySelector(".dim");
+    if (note) sameText(note, THERMAL_REPORT_NOTE);
+    return true;
   }
 
   /**
@@ -66,10 +380,14 @@
     return true;
   }
 
-  function installAndroidExportUi() {
+  function installAndroidHostUi() {
     simplifyModifierExportUi();
+    syncThermalReportUi();
     if (exportUiObserver) return;
-    exportUiObserver = new MutationObserver(() => simplifyModifierExportUi());
+    exportUiObserver = new MutationObserver(() => {
+      simplifyModifierExportUi();
+      syncThermalReportUi();
+    });
     exportUiObserver.observe(document.documentElement, {
       childList: true,
       characterData: true,
@@ -209,7 +527,7 @@
   };
 
   const startAndroidHost = () => {
-    installAndroidExportUi();
+    installAndroidHostUi();
     setTimeout(loadModelFromAndroid, 250);
   };
   if (document.readyState === "loading") {
