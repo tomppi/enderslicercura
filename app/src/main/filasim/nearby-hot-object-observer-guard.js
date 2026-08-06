@@ -1,9 +1,9 @@
-/* Prevent Anneal workspace MutationObserver feedback loops on Android. */
+/* Prevent Nearby Hot Object MutationObserver feedback loops on Android. */
 (() => {
   "use strict";
 
-  const MOUNT_ID = "enderslicer-annealing-calculator-mount";
-  const CALLBACK_NAMES = new Set(["installUi", "installFilaSimMaterialUi"]);
+  const MOUNT_ID = "enderslicer-thermal-integrity-mount";
+  const CALLBACK_NAME = "installUi";
 
   function mountFromNode(node) {
     if (!node || typeof node !== "object") return null;
@@ -21,33 +21,32 @@
     return null;
   }
 
-  function recordsAddAnnealingMount(records) {
+  function recordsAddThermalMount(records) {
     return Boolean(mountFromRecords(records));
   }
 
   function installObserverGuard() {
     const NativeMutationObserver = window.MutationObserver;
-    if (!NativeMutationObserver || NativeMutationObserver.__enderSlicerAnnealingObserverGuard) return;
+    if (!NativeMutationObserver || NativeMutationObserver.__enderSlicerNearbyObserverGuard) return;
 
     const WrappedMutationObserver = new Proxy(NativeMutationObserver, {
       construct(Target, args) {
         const callback = args[0];
-        const protectsInstaller = typeof callback === "function" && CALLBACK_NAMES.has(callback.name);
-        // Both Anneal installers run once before creating their observers. Save
-        // the mount that was already handled so their own DOM updates do not
-        // recursively trigger installation again.
+        const protectsInstaller = typeof callback === "function" && callback.name === CALLBACK_NAME;
+        // installUi is called once directly before its observer is created. Keep
+        // the mount identity that was already installed so mutations made by
+        // that installation cannot immediately trigger a second installation.
         let installedMount = protectsInstaller ? document.getElementById(MOUNT_ID) : null;
         const guardedCallback = protectsInstaller
           ? (records, observer) => {
               const currentMount = document.getElementById(MOUNT_ID) || mountFromRecords(records);
               if (!currentMount) {
-                // T and A are reconciled onto the same React DOM element. The
-                // id disappearing means Anneal is inactive; clear the identity
-                // so the reused node is installed when A becomes active again.
+                // React reuses the same panel element for T and A. Reset when
+                // the thermal id disappears so that the same DOM node can be
+                // installed again when the user switches back to T.
                 installedMount = null;
                 return;
               }
-              // Mutations produced by the installed UI must not call installUi again.
               if (currentMount === installedMount) return;
               installedMount = currentMount;
               callback(records, observer);
@@ -57,9 +56,9 @@
         if (protectsInstaller && typeof observer.observe === "function") {
           const nativeObserve = observer.observe.bind(observer);
           observer.observe = (target, options = {}) => {
-            // React may switch T <-> A by changing only this reused div's id.
-            // Watch just id attributes in addition to the caller's child-list
-            // settings; mount identity filtering still blocks feedback loops.
+            // T <-> A can be reconciled by changing only the reused div's id,
+            // which produces no childList record. Observe just id attributes in
+            // addition to the caller's existing child-list configuration.
             const attributeFilter = Array.from(new Set([...(options.attributeFilter || []), "id"]));
             nativeObserve(target, { ...options, attributes: true, attributeFilter });
           };
@@ -68,14 +67,14 @@
       },
     });
 
-    Object.defineProperty(WrappedMutationObserver, "__enderSlicerAnnealingObserverGuard", {
+    Object.defineProperty(WrappedMutationObserver, "__enderSlicerNearbyObserverGuard", {
       value: true,
     });
     window.MutationObserver = WrappedMutationObserver;
   }
 
-  window.EnderSlicerAnnealingObserverTestApi = Object.freeze({
-    recordsAddAnnealingMount,
+  window.EnderSlicerNearbyObserverTestApi = Object.freeze({
+    recordsAddThermalMount,
   });
 
   installObserverGuard();

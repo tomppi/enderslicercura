@@ -126,6 +126,33 @@ val meshStepVersion = "0.1.0"
 val bumpMeshAssetFormat = 2
 val bumpMeshOutput = layout.projectDirectory.dir("src/main/assets/bumpmesh")
 val bumpMeshAndroidBridge = layout.projectDirectory.file("src/main/bumpmesh/android-bridge.js")
+val bumpMeshRequiredRuntimePaths = listOf(
+    ".source-version",
+    "index.html",
+    "style.css",
+    "LICENSE",
+    "android-bridge.js",
+    "js/main.js",
+    "js/stepWorker.js",
+    "js/threeCompat.js",
+    "vendor/three/build/three.module.js",
+    "vendor/three/LICENSE",
+    "vendor/fflate/esm/browser.js",
+    "vendor/fflate/LICENSE",
+    "vendor/meshstep/dist/index.js",
+    "vendor/meshstep/src/index.ts",
+    "vendor/meshstep/LICENSE",
+)
+val bumpMeshRequiredRuntimeFiles = bumpMeshRequiredRuntimePaths.map { relativePath ->
+    bumpMeshOutput.file(relativePath)
+}
+val bumpMeshExpectedMarker = buildString {
+    appendLine("format=$bumpMeshAssetFormat")
+    appendLine("BumpMesh=$bumpMeshCommit")
+    appendLine("three=$threeVersion")
+    appendLine("fflate=$fflateVersion")
+    appendLine("meshstep=$meshStepVersion")
+}
 
 val prepareBumpMeshAssets by tasks.registering {
     group = "build setup"
@@ -136,22 +163,25 @@ val prepareBumpMeshAssets by tasks.registering {
     inputs.property("meshStepVersion", meshStepVersion)
     inputs.property("bumpMeshAssetFormat", bumpMeshAssetFormat)
     inputs.file(bumpMeshAndroidBridge)
-    outputs.file(bumpMeshOutput.file(".source-version"))
+    outputs.files(bumpMeshRequiredRuntimeFiles)
+    outputs.upToDateWhen {
+        val marker = bumpMeshOutput.file(".source-version").asFile
+        marker.isFile &&
+            marker.readText() == bumpMeshExpectedMarker &&
+            bumpMeshRequiredRuntimeFiles.all { runtimeFile ->
+                runtimeFile.asFile.isFile && runtimeFile.asFile.length() > 0L
+            }
+    }
 
     doLast {
         val outputDirectory = bumpMeshOutput.asFile
         val marker = File(outputDirectory, ".source-version")
-        val expectedMarker = buildString {
-            appendLine("format=$bumpMeshAssetFormat")
-            appendLine("BumpMesh=$bumpMeshCommit")
-            appendLine("three=$threeVersion")
-            appendLine("fflate=$fflateVersion")
-            appendLine("meshstep=$meshStepVersion")
-        }
+        val expectedMarker = bumpMeshExpectedMarker
         if (
             marker.isFile && marker.readText() == expectedMarker &&
-            File(outputDirectory, "index.html").isFile &&
-            File(outputDirectory, "android-bridge.js").isFile
+            bumpMeshRequiredRuntimeFiles.all { runtimeFile ->
+                runtimeFile.asFile.isFile && runtimeFile.asFile.length() > 0L
+            }
         ) {
             return@doLast
         }

@@ -92,7 +92,6 @@ def apply_thermal_transforms_v9(source_root: pathlib.Path) -> None:
         (worker, "progress: true"),
         (protocol, "thermalIntegrity"),
         (rail, "enderslicer-thermal-workspace"),
-        (rail, "Thermal Integrity — service-temperature"),
         (rail, "if (!s.model && thermalActive)"),
         (panel, "enderslicer-thermal-integrity-mount"),
         (panel, "if (!s.model && thermalActive)"),
@@ -103,6 +102,22 @@ def apply_thermal_transforms_v9(source_root: pathlib.Path) -> None:
             raise RuntimeError(
                 f"Thermal-integrity v9 contract {marker!r} is missing from {path}"
             )
+
+    # Later feature transforms may intentionally replace the visible Thermal
+    # Integrity station while retaining its event, mount and solver contracts.
+    # Accept either the legacy label or the Nearby Hot Object replacement, but
+    # require exactly one known workflow identity rather than dropping this
+    # validation altogether.
+    workflow_labels = (
+        "Thermal Integrity — service-temperature",
+        "Nearby Hot Object — radiative and ambient heating",
+    )
+    rail_text = rail.read_text(encoding="utf-8") if rail.is_file() else ""
+    if not any(label in rail_text for label in workflow_labels):
+        raise RuntimeError(
+            "Thermal-integrity v9 workflow label is missing from "
+            f"{rail}; expected one of {workflow_labels!r}"
+        )
 
 
 # The v8 Android export hook resolves this module global at call time.
