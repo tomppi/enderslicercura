@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Marker drag, automatic source projection, enclosure walls and finite worlds."""
+"""Marker drag, finite worlds and conservative engine-bay thermal hints."""
 from __future__ import annotations
 
 import importlib.util
@@ -17,16 +17,21 @@ SPATIAL_TRANSFORM = pathlib.Path(__file__).with_name(
 SPATIAL_TEST = pathlib.Path(__file__).with_name(
     "test-nearby-hot-object-spatial-environment.mjs"
 )
+HINT_TEST = pathlib.Path(__file__).with_name(
+    "test-engine-bay-survival-hint.mjs"
+)
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
 SPATIAL_RUNTIME_PARTS = (
     PROJECT_ROOT / "app/src/main/filasim/nearby-hot-object-02h-spatial-environment-ui.js",
     PROJECT_ROOT / "app/src/main/filasim/nearby-hot-object-02i-spatial-preset-run-fix.js",
+    PROJECT_ROOT / "app/src/main/filasim/nearby-hot-object-02j-engine-bay-survival-hint.js",
 )
 for path in (
     V17,
     SPATIAL_TRANSFORM_SOURCE,
     SPATIAL_TRANSFORM,
     SPATIAL_TEST,
+    HINT_TEST,
     *SPATIAL_RUNTIME_PARTS,
 ):
     if not path.is_file():
@@ -54,8 +59,16 @@ def patch_spatial_environment_runtime(target: pathlib.Path) -> None:
         [
             "node",
             str(SPATIAL_TEST),
-            *(str(path) for path in SPATIAL_RUNTIME_PARTS),
+            *(str(path) for path in SPATIAL_RUNTIME_PARTS[:2]),
             str(SPATIAL_TRANSFORM_SOURCE),
+        ],
+        check=True,
+    )
+    subprocess.run(
+        [
+            "node",
+            str(HINT_TEST),
+            str(SPATIAL_RUNTIME_PARTS[2]),
         ],
         check=True,
     )
@@ -77,6 +90,9 @@ def patch_spatial_environment_runtime(target: pathlib.Path) -> None:
         "applyEnclosureBoxPresetWithFiniteWorld",
         "ENCLOSURE_WORLD_PRESETS",
         "runAnalysisWithAutomaticSourceProjection",
+        "EnderSlicerThermalHintTestApi",
+        "paper_suv_400s_soak",
+        "decisionHint",
         "installUi = function installUi()",
     ):
         if contract not in verified:
@@ -89,7 +105,8 @@ thermal.THERMAL_PACKAGE_MARKER_TEXT = v17.thermal.THERMAL_PACKAGE_MARKER_TEXT.re
     "nearby-hot-object-marker-drag-ui-v1,"
     "nearby-hot-object-spatial-environment-viewer-v2,"
     "nearby-hot-object-spatial-environment-ui-v2,"
-    "nearby-hot-object-spatial-preset-run-fix-v2\n",
+    "nearby-hot-object-spatial-preset-run-fix-v2,"
+    "engine-bay-thermal-survival-hint-v1\n",
 )
 
 if __name__ == "__main__":
