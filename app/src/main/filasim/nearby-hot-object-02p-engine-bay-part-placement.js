@@ -146,6 +146,17 @@
     return options;
   };
 
+  const partPlacementSaveDraftBase = saveDraft;
+  saveDraft = function saveDraftWithViewerEnclosureOffsets(options) {
+    const persisted = {
+      ...options,
+      enclosureOffsetXMm: Number(options.viewerEnclosureOffsetXMm),
+      enclosureOffsetYMm: Number(options.viewerEnclosureOffsetYMm),
+      enclosureOffsetZMm: Number(options.viewerEnclosureOffsetZMm),
+    };
+    return partPlacementSaveDraftBase(persisted);
+  };
+
   const partPlacementRestoreDraftBase = restoreDraft;
   restoreDraft = function restoreDraftWithPartPlacement() {
     partPlacementRestoreDraftBase();
