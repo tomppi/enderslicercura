@@ -172,10 +172,12 @@ internal class SliceArtifactPublisher(
             )
         }
 
-        fun acquireLease(artifactFile: File): Closeable = synchronized(ARTIFACT_LOCK) {
-            val id = completedArtifactId(artifactFile) ?: return@synchronized Closeable { }
-            val directory = artifactFile.parentFile
-                ?: return@synchronized Closeable { }
+        fun acquireLease(artifactFile: File, expectedId: String? = null): Closeable = synchronized(ARTIFACT_LOCK) {
+            require(isCompleteGcode(artifactFile, expectedId)) {
+                "The slice artifact is incomplete, stale, or does not match the expected result"
+            }
+            val id = requireNotNull(completedArtifactId(artifactFile))
+            val directory = requireNotNull(artifactFile.parentFile)
             val lease = File(directory, "$LEASE_FILE_PREFIX${UUID.randomUUID()}")
             check(lease.createNewFile()) { "Unable to lease the slice artifact" }
             lease.writeText(id)

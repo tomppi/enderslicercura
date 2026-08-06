@@ -22,38 +22,66 @@ class OctoPrintSecretStore(context: Context) {
     )
 
     fun saveConfig(config: OctoPrintConfig) {
-        preferences.edit()
+        val oldOrigin = preferences.getString(KEY_API_KEY_ORIGIN, null)
+        val editor = preferences.edit()
             .putString(KEY_BASE_URL, config.baseUrl)
             .putString(KEY_USERNAME, config.username)
             .putString(KEY_SNAPSHOT_URL, config.snapshotUrlOverride)
             .putInt(KEY_POLL_SECONDS, config.pollIntervalSeconds.coerceIn(1, 30))
-            .apply()
+        if (oldOrigin != null && oldOrigin != config.baseUrl) {
+            editor.remove(KEY_ENCRYPTED_API_KEY).remove(KEY_API_KEY_ORIGIN)
+        }
+        check(editor.commit()) { "Unable to persist OctoPrint configuration" }
     }
 
-    fun hasApiKey(): Boolean = preferences.contains(KEY_ENCRYPTED_API_KEY)
+    fun saveConfiguration(config: OctoPrintConfig, apiKey: String) {
+        require(config.isConfigured) { "OctoPrint server configuration is incomplete" }
+        require(apiKey.isNotBlank()) { "OctoPrint API key cannot be empty" }
+        check(
+            preferences.edit()
+                .putString(KEY_BASE_URL, config.baseUrl)
+                .putString(KEY_USERNAME, config.username)
+                .putString(KEY_SNAPSHOT_URL, config.snapshotUrlOverride)
+                .putInt(KEY_POLL_SECONDS, config.pollIntervalSeconds.coerceIn(1, 30))
+                .putString(KEY_ENCRYPTED_API_KEY, encrypt(apiKey.trim()))
+                .putString(KEY_API_KEY_ORIGIN, config.baseUrl)
+                .putLong(KEY_CONFIGURATION_GENERATION, preferences.getLong(KEY_CONFIGURATION_GENERATION, 0L) + 1L)
+                .commit(),
+        ) { "Unable to atomically persist OctoPrint credentials" }
+    }
+
+    fun hasApiKey(): Boolean = loadApiKey() != null
 
     fun loadApiKey(): String? {
         val encoded = preferences.getString(KEY_ENCRYPTED_API_KEY, null) ?: return null
+        val origin = preferences.getString(KEY_API_KEY_ORIGIN, null)
+        val configuredOrigin = preferences.getString(KEY_BASE_URL, "").orEmpty()
+        if (origin.isNullOrBlank() || origin != configuredOrigin) {
+            preferences.edit().remove(KEY_ENCRYPTED_API_KEY).remove(KEY_API_KEY_ORIGIN).commit()
+            return null
+        }
         return runCatching { decrypt(encoded) }
-            .onFailure { preferences.edit().remove(KEY_ENCRYPTED_API_KEY).apply() }
+            .onFailure {
+                preferences.edit().remove(KEY_ENCRYPTED_API_KEY).remove(KEY_API_KEY_ORIGIN).commit()
+            }
             .getOrNull()
             ?.takeIf(String::isNotBlank)
     }
 
     fun saveApiKey(apiKey: String) {
-        require(apiKey.isNotBlank()) { "OctoPrint API key cannot be empty" }
-        preferences.edit().putString(KEY_ENCRYPTED_API_KEY, encrypt(apiKey.trim())).apply()
+        val config = loadConfig()
+        saveConfiguration(config, apiKey)
     }
 
     fun clearApiKey() {
-        preferences.edit().remove(KEY_ENCRYPTED_API_KEY).apply()
+        check(preferences.edit().remove(KEY_ENCRYPTED_API_KEY).remove(KEY_API_KEY_ORIGIN).commit()) {
+            "Unable to clear the OctoPrint API key"
+        }
     }
 
     fun clearAll() {
-        preferences.edit().clear().apply()
-        runCatching {
-            keyStore().deleteEntry(KEY_ALIAS)
-        }
+        check(preferences.edit().clear().commit()) { "Unable to clear OctoPrint configuration" }
+        runCatching { keyStore().deleteEntry(KEY_ALIAS) }
     }
 
     private fun encrypt(value: String): String {
@@ -111,6 +139,8 @@ class OctoPrintSecretStore(context: Context) {
         const val KEY_SNAPSHOT_URL = "snapshot_url"
         const val KEY_POLL_SECONDS = "poll_seconds"
         const val KEY_ENCRYPTED_API_KEY = "encrypted_api_key"
+        const val KEY_API_KEY_ORIGIN = "api_key_origin"
+        const val KEY_CONFIGURATION_GENERATION = "configuration_generation"
         const val DEFAULT_POLL_SECONDS = 3
     }
 }

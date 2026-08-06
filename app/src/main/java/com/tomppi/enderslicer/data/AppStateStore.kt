@@ -4,8 +4,14 @@ import android.content.Context
 import com.tomppi.enderslicer.model.SlicerSettings
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.BufferedInputStream
+import java.io.BufferedOutputStream
+import java.io.DataInputStream
+import java.io.DataOutputStream
 import java.io.File
+import java.io.FileOutputStream
 import java.io.InputStream
+import java.security.MessageDigest
 
 class AppStateStore(context: Context) {
     data class SavedImport(
@@ -17,7 +23,9 @@ class AppStateStore(context: Context) {
     private val appContext = context.applicationContext
     private val preferences = appContext.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
     private val stateDirectory = File(appContext.filesDir, "persistent-state").apply { mkdirs() }
-    private val importFile = File(stateDirectory, "current-cura-import.bin")
+    private val legacyImportFile = File(stateDirectory, "current-cura-import.bin")
+    private val importBundle = File(stateDirectory, "current-cura-import.bundle")
+    private val materializedImport = File(stateDirectory, "current-cura-import.materialized")
 
     fun stageImport(input: InputStream): File {
         val temporary = File(stateDirectory, "current-cura-import.tmp")
@@ -46,55 +54,143 @@ class AppStateStore(context: Context) {
         }
     }
 
+    @Synchronized
     fun commitImport(staged: File, kind: String, displayName: String) {
         require(kind == KIND_PROJECT || kind == KIND_PROFILE) { "Unsupported Cura import kind: $kind" }
-        require(staged.isFile && staged.length() > 0L) { "The staged Cura configuration is unavailable" }
-        val next = File(stateDirectory, "current-cura-import.next")
-        val backup = File(stateDirectory, "current-cura-import.previous")
+        require(staged.isFile && staged.length() in 1..MAX_CURA_IMPORT_BYTES) {
+            "The staged Cura configuration is unavailable"
+        }
+        val next = File(stateDirectory, "current-cura-import.bundle.next")
+        val backup = File(stateDirectory, "current-cura-import.bundle.previous")
         next.delete()
         backup.delete()
+        val payloadSha = sha256(staged)
+        val metadata = JSONObject()
+            .put("version", IMPORT_BUNDLE_VERSION)
+            .put("kind", kind)
+            .put("displayName", displayName.take(MAX_IMPORT_NAME_CHARS))
+            .put("payloadBytes", staged.length())
+            .put("payloadSha256", payloadSha)
+            .toString()
+            .toByteArray(Charsets.UTF_8)
+        require(metadata.size <= MAX_IMPORT_METADATA_BYTES) { "Cura import metadata is too large" }
 
-        check(staged.renameTo(next) || staged.copyTo(next, overwrite = true).let { staged.delete(); true }) {
-            "Unable to stage the imported Cura configuration for commit"
-        }
         try {
-            if (importFile.exists()) {
-                check(
-                    importFile.renameTo(backup) ||
-                        importFile.copyTo(backup, overwrite = true).let { importFile.delete(); true },
-                ) { "Unable to preserve the previous Cura configuration" }
+            FileOutputStream(next).use { fileOutput ->
+                val output = DataOutputStream(BufferedOutputStream(fileOutput))
+                output.write(IMPORT_BUNDLE_MAGIC)
+                output.writeInt(metadata.size)
+                output.writeLong(staged.length())
+                output.write(metadata)
+                staged.inputStream().buffered().use { input -> input.copyTo(output) }
+                output.flush()
+                fileOutput.fd.sync()
+            }
+            check(next.isFile && next.length() > staged.length()) { "Unable to stage the Cura import bundle" }
+            if (importBundle.exists()) {
+                check(importBundle.renameTo(backup)) { "Unable to preserve the previous Cura import bundle" }
             }
             try {
-                check(
-                    next.renameTo(importFile) ||
-                        next.copyTo(importFile, overwrite = true).let { next.delete(); true },
-                ) { "Unable to persist the imported Cura configuration" }
-                check(
-                    preferences.edit()
-                        .putString(KEY_IMPORT_KIND, kind)
-                        .putString(KEY_IMPORT_NAME, displayName)
-                        .commit(),
-                ) { "Unable to persist the Cura configuration metadata" }
+                check(next.renameTo(importBundle)) { "Unable to publish the Cura import bundle" }
             } catch (error: Throwable) {
-                importFile.delete()
-                if (backup.exists()) {
-                    backup.renameTo(importFile) ||
-                        backup.copyTo(importFile, overwrite = true).let { backup.delete(); true }
-                }
+                importBundle.delete()
+                if (backup.exists()) backup.renameTo(importBundle)
                 throw error
             }
             backup.delete()
+            materializedImport.delete()
+            legacyImportFile.delete()
+            staged.delete()
+            preferences.edit().remove(KEY_IMPORT_KIND).remove(KEY_IMPORT_NAME).commit()
         } finally {
             next.delete()
-            if (backup.exists() && importFile.exists()) backup.delete()
+            if (backup.exists() && importBundle.exists()) backup.delete()
         }
     }
 
+    @Synchronized
     fun savedImport(): SavedImport? {
+        recoverImportBundle()
+        if (importBundle.isFile) return materializeBundle()
+
+        // One-time compatibility with the pre-bundle format.
         val kind = preferences.getString(KEY_IMPORT_KIND, null) ?: return null
         val displayName = preferences.getString(KEY_IMPORT_NAME, null) ?: "Restored Cura configuration"
-        if (!importFile.isFile || importFile.length() == 0L) return null
-        return SavedImport(kind, displayName, importFile)
+        if (!legacyImportFile.isFile || legacyImportFile.length() == 0L) return null
+        return SavedImport(kind, displayName, legacyImportFile)
+    }
+
+    private fun recoverImportBundle() {
+        val next = File(stateDirectory, "current-cura-import.bundle.next")
+        val backup = File(stateDirectory, "current-cura-import.bundle.previous")
+        if (!importBundle.exists()) {
+            when {
+                next.isFile -> next.renameTo(importBundle)
+                backup.isFile -> backup.renameTo(importBundle)
+            }
+        }
+        if (importBundle.isFile) {
+            next.delete()
+            backup.delete()
+        }
+    }
+
+    private fun materializeBundle(): SavedImport {
+        DataInputStream(BufferedInputStream(importBundle.inputStream())).use { input ->
+            val magic = ByteArray(IMPORT_BUNDLE_MAGIC.size).also(input::readFully)
+            require(magic.contentEquals(IMPORT_BUNDLE_MAGIC)) { "Saved Cura import bundle has an invalid header" }
+            val metadataSize = input.readInt()
+            val payloadSize = input.readLong()
+            require(metadataSize in 1..MAX_IMPORT_METADATA_BYTES) { "Saved Cura import metadata is invalid" }
+            require(payloadSize in 1..MAX_CURA_IMPORT_BYTES) { "Saved Cura import payload is invalid" }
+            val metadata = JSONObject(ByteArray(metadataSize).also(input::readFully).toString(Charsets.UTF_8))
+            require(metadata.getInt("version") == IMPORT_BUNDLE_VERSION) { "Unsupported Cura import bundle version" }
+            require(metadata.getLong("payloadBytes") == payloadSize) { "Saved Cura import length metadata is inconsistent" }
+            val expectedSha = metadata.getString("payloadSha256")
+            require(expectedSha.matches(Regex("[0-9a-f]{64}"))) { "Saved Cura import fingerprint is invalid" }
+            val kind = metadata.getString("kind")
+            require(kind == KIND_PROJECT || kind == KIND_PROFILE) { "Saved Cura import kind is invalid" }
+            val displayName = metadata.getString("displayName").take(MAX_IMPORT_NAME_CHARS)
+
+            val existingMatches = materializedImport.isFile && materializedImport.length() == payloadSize &&
+                runCatching { sha256(materializedImport) == expectedSha }.getOrDefault(false)
+            if (!existingMatches) {
+                val next = File(stateDirectory, "current-cura-import.materialized.next")
+                next.delete()
+                val digest = MessageDigest.getInstance("SHA-256")
+                FileOutputStream(next).use { output ->
+                    val buffer = ByteArray(128 * 1024)
+                    var remaining = payloadSize
+                    while (remaining > 0L) {
+                        val count = input.read(buffer, 0, minOf(buffer.size.toLong(), remaining).toInt())
+                        require(count > 0) { "Saved Cura import bundle ended unexpectedly" }
+                        output.write(buffer, 0, count)
+                        digest.update(buffer, 0, count)
+                        remaining -= count.toLong()
+                    }
+                    output.fd.sync()
+                }
+                require(digest.digest().joinToString("") { "%02x".format(it.toInt() and 0xff) } == expectedSha) {
+                    "Saved Cura import payload fingerprint does not match"
+                }
+                materializedImport.delete()
+                check(next.renameTo(materializedImport)) { "Unable to materialize the saved Cura import" }
+            }
+            return SavedImport(kind, displayName, materializedImport)
+        }
+    }
+
+    private fun sha256(file: File): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        file.inputStream().buffered().use { input ->
+            val buffer = ByteArray(128 * 1024)
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                digest.update(buffer, 0, count)
+            }
+        }
+        return digest.digest().joinToString("") { "%02x".format(it.toInt() and 0xff) }
     }
 
     fun clearSavedSettings() {
@@ -381,6 +477,10 @@ class AppStateStore(context: Context) {
     companion object {
         const val KIND_PROJECT = "project"
         const val KIND_PROFILE = "profile"
+        private const val IMPORT_BUNDLE_VERSION = 1
+        private const val MAX_IMPORT_METADATA_BYTES = 64 * 1024
+        private const val MAX_IMPORT_NAME_CHARS = 512
+        private val IMPORT_BUNDLE_MAGIC = "ESCIMP2\n".toByteArray(Charsets.US_ASCII)
 
         private const val PREFERENCES_NAME = "enderslicer-state"
         private const val KEY_IMPORT_KIND = "import-kind"

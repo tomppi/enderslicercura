@@ -264,7 +264,7 @@ class OctoPrintRepository(
         action: OctoPrintUploadAction,
     ) {
         val source = path?.let(::File)
-        if (source == null || !source.isFile) {
+        if (source == null || !SliceArtifactPublisher.isCompleteGcode(source)) {
             setError(IllegalStateException("Slice the model before sending G-code to OctoPrint"))
             return
         }
@@ -551,8 +551,7 @@ class OctoPrintRepository(
 
     private fun activateConfiguration(config: OctoPrintConfig, key: String, info: OctoPrintServerInfo) {
         resetSession()
-        store.saveApiKey(key)
-        store.saveConfig(config)
+        store.saveConfiguration(config, key)
         cachedServerInfo = info
         lastStaticRefreshMillis = System.currentTimeMillis()
         _state.value = OctoPrintUiState(

@@ -782,7 +782,7 @@ private fun HardenedSetupPage(
 ) {
     var baseUrl by rememberSaveable(state.config.baseUrl) { mutableStateOf(state.config.baseUrl) }
     var username by rememberSaveable(state.config.username) { mutableStateOf(state.config.username) }
-    var apiKey by rememberSaveable { mutableStateOf("") }
+    var apiKey by remember { mutableStateOf("") }
     var snapshotUrl by rememberSaveable(state.config.snapshotUrlOverride) { mutableStateOf(state.config.snapshotUrlOverride) }
     var pollSeconds by rememberSaveable(state.config.pollIntervalSeconds) { mutableStateOf(state.config.pollIntervalSeconds.toString()) }
     var confirmClear by remember { mutableStateOf(false) }
@@ -792,6 +792,7 @@ private fun HardenedSetupPage(
         username = state.config.username
         snapshotUrl = state.config.snapshotUrlOverride
         pollSeconds = state.config.pollIntervalSeconds.toString()
+        apiKey = ""
     }
 
     Column(
@@ -799,7 +800,17 @@ private fun HardenedSetupPage(
         verticalArrangement = Arrangement.spacedBy(9.dp),
     ) {
         Text("OctoPrint server", style = MaterialTheme.typography.titleLarge)
-        OutlinedTextField(baseUrl, { baseUrl = it }, label = { Text("Server URL or IP address") }, placeholder = { Text("http://octopi.local") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(
+            baseUrl,
+            { value ->
+                if (value != baseUrl) apiKey = ""
+                baseUrl = value
+            },
+            label = { Text("Server URL or IP address") },
+            placeholder = { Text("http://octopi.local") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
         OutlinedTextField(username, { username = it }, label = { Text("OctoPrint username (recommended)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
         OutlinedTextField(
             apiKey,
@@ -863,6 +874,7 @@ private fun HardenedSetupPage(
                         snapshotUrl,
                         pollSeconds.toIntOrNull() ?: 3,
                     )
+                    apiKey = ""
                 },
                 enabled = baseUrl.isNotBlank() && apiKey.isNotBlank(),
                 modifier = Modifier.weight(1f),
@@ -900,6 +912,7 @@ private fun HardenedSetupPage(
             onDismiss = { confirmClear = false },
             onConfirm = {
                 confirmClear = false
+                apiKey = ""
                 viewModel.clearConfiguration()
             },
         )

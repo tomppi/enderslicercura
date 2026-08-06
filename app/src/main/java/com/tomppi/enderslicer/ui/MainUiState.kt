@@ -2,12 +2,14 @@ package com.tomppi.enderslicer.ui
 
 import com.tomppi.enderslicer.engine.GcodeLayerPreview
 import com.tomppi.enderslicer.engine.LayerEvent
+import com.tomppi.enderslicer.engine.SliceArtifactPublisher
 import com.tomppi.enderslicer.model.ModelPlacement
 import com.tomppi.enderslicer.model.PrinterDefinition
 import com.tomppi.enderslicer.model.SlicerSettings
 import com.tomppi.enderslicer.profile.CuraComputedValue
 import com.tomppi.enderslicer.profile.CuraEngineProfile
 import com.tomppi.enderslicer.viewer.StlMesh
+import java.io.File
 
 data class MainUiState(
     val printer: PrinterDefinition,
@@ -41,4 +43,10 @@ data class MainUiState(
     val warnings: List<String> = emptyList(),
     val statusMessage: String = "Import an STL to begin",
     val isBusy: Boolean = false,
-)
+) {
+    fun hasCurrentGcode(): Boolean {
+        val expectedId = sliceResultId ?: return false
+        val file = gcodePath?.let(::File) ?: return false
+        return SliceArtifactPublisher.isCompleteGcode(file, expectedId)
+    }
+}

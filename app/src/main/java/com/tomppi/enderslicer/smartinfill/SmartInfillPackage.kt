@@ -176,6 +176,8 @@ class SmartInfillPackageStore(private val context: Context) {
     private val root = File(context.filesDir, "smart-infill").apply { mkdirs() }
     private val packagesDirectory = File(root, "packages").apply { mkdirs() }
     private val activeFile = File(root, "active-package.txt")
+    private val activeNextFile = File(root, "active-package.next")
+    private val activePreviousFile = File(root, "active-package.previous")
     private val loadWarningFile = File(root, "load-warning.txt")
 
     fun importPackage(zipUri: Uri, metadataJson: String, sourceSha256: String): SmartInfillPackage {
@@ -238,6 +240,7 @@ class SmartInfillPackageStore(private val context: Context) {
     }
 
     fun loadActive(): SmartInfillPackage? {
+        recoverActivePointer()
         if (!activeFile.isFile) return null
         val id = activeFile.readText().trim()
         if (!SAFE_ID.matches(id)) {
@@ -268,6 +271,8 @@ class SmartInfillPackageStore(private val context: Context) {
 
     fun clearActive() {
         activeFile.delete()
+        activeNextFile.delete()
+        activePreviousFile.delete()
     }
 
     fun clearAll() {
@@ -276,15 +281,58 @@ class SmartInfillPackageStore(private val context: Context) {
         packagesDirectory.listFiles().orEmpty().forEach { it.deleteRecursively() }
     }
 
+    @Synchronized
     fun activate(packageValue: SmartInfillPackage) {
         require(packageValue.directory.parentFile?.canonicalFile == packagesDirectory.canonicalFile) {
             "Smart Infill package is outside private storage"
         }
         validatePatternContract(packageValue.mode, packageValue.pattern, packageValue.binarySolidPattern)
-        val next = File(root, "active-package.next")
-        writeSynced(next, packageValue.id)
-        activeFile.delete()
-        check(next.renameTo(activeFile)) { "Unable to activate the Smart Infill package" }
+        activeNextFile.delete()
+        activePreviousFile.delete()
+        writeSynced(activeNextFile, packageValue.id)
+        try {
+            if (activeFile.exists()) {
+                check(activeFile.renameTo(activePreviousFile)) { "Unable to preserve the active Smart Infill pointer" }
+            }
+            try {
+                check(activeNextFile.renameTo(activeFile)) { "Unable to activate the Smart Infill package" }
+            } catch (error: Throwable) {
+                activeFile.delete()
+                if (activePreviousFile.exists()) activePreviousFile.renameTo(activeFile)
+                throw error
+            }
+            activePreviousFile.delete()
+        } finally {
+            activeNextFile.delete()
+            if (activeFile.exists()) activePreviousFile.delete()
+        }
+    }
+
+    @Synchronized
+    private fun recoverActivePointer() {
+        if (activeFile.isFile) {
+            activeNextFile.delete()
+            activePreviousFile.delete()
+            return
+        }
+        val candidate = when {
+            activeNextFile.isFile -> activeNextFile
+            activePreviousFile.isFile -> activePreviousFile
+            else -> return
+        }
+        val id = runCatching { candidate.readText().trim() }.getOrNull()
+        val valid = id != null && SAFE_ID.matches(id) && runCatching {
+            loadPackage(File(packagesDirectory, id))
+        }.isSuccess
+        if (valid) {
+            check(candidate.renameTo(activeFile) || candidate.copyTo(activeFile, overwrite = true).let { candidate.delete(); true }) {
+                "Unable to recover the active Smart Infill pointer"
+            }
+        } else {
+            candidate.delete()
+        }
+        activeNextFile.delete()
+        activePreviousFile.delete()
     }
 
     private fun loadPackage(directory: File): SmartInfillPackage {

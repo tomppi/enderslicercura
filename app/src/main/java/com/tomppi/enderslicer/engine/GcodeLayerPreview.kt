@@ -88,6 +88,7 @@ object GcodeLayerPreviewParser {
         var z = 0.0
         var e = 0.0
         var feedRateMmPerMinute = 0.0
+        var speedFactor = 1.0
 
         var minX = Float.POSITIVE_INFINITY
         var minY = Float.POSITIVE_INFINITY
@@ -132,6 +133,10 @@ object GcodeLayerPreviewParser {
                 }
 
                 val command = GcodeCommand.parse(rawLine) ?: return@forEach
+                GcodeCommandPolicy.speedFactor(command)?.let { factor ->
+                    speedFactor = factor
+                    return@forEach
+                }
                 if (modalState.apply(command)) return@forEach
                 when (command.opcode) {
                     "G92" -> {
@@ -158,7 +163,7 @@ object GcodeLayerPreviewParser {
                         if (currentLayerNumber == null || deltaE <= 0.0) return@forEach
                         if (startX == nextX && startY == nextY) return@forEach
 
-                        val speed = max(feedRateMmPerMinute / 60.0, 0.0).toFloat()
+                        val speed = max(feedRateMmPerMinute / 60.0 * speedFactor, 0.0).toFloat()
                         currentLayerZ = nextZ.toFloat()
                         minX = minOf(minX, startX.toFloat(), nextX.toFloat())
                         minY = minOf(minY, startY.toFloat(), nextY.toFloat())

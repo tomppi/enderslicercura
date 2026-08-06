@@ -2,6 +2,9 @@ package com.tomppi.enderslicer.profile
 
 import com.tomppi.enderslicer.calibration.CalibrationSliceState
 import com.tomppi.enderslicer.engine.PrinterEnvelope
+import com.tomppi.enderslicer.nonplanar.CurviSlicerFieldStorage
+import com.tomppi.enderslicer.nonplanar.CurviSlicerPipeline
+import com.tomppi.enderslicer.nonplanar.CurviSlicerRuntime
 import com.tomppi.enderslicer.smartinfill.SmartInfillCuraContract
 import com.tomppi.enderslicer.smartinfill.SmartInfillModifier
 import com.tomppi.enderslicer.smartinfill.requireValidBinaryStl
@@ -27,6 +30,16 @@ internal object CuraResolvedSettingsWriter {
         require(modelFile.isFile && modelFile.length() > 0L) {
             "Resolved Cura STL is missing or empty: ${modelFile.absolutePath}"
         }
+        val curviSnapshot = CurviSlicerRuntime.snapshot()
+        val stagedForCurvi = modelTransform === CURVI_STAGED_IDENTITY
+        require(!stagedForCurvi || curviSnapshot != null) {
+            "The resolved model was staged for CurviSlicer but CurviSlicer is no longer active"
+        }
+        require(curviSnapshot == null || stagedForCurvi) {
+            "CurviSlicer resolved requests must explicitly stage displayed geometry"
+        }
+        val effectiveModelTransform = if (stagedForCurvi) null else modelTransform
+
         val effectiveSmartInfillModifiers = smartInfillModifiers
             .sortedBy(SmartInfillModifier::densityPercent)
         if (effectiveSmartInfillModifiers.isNotEmpty()) {
@@ -55,13 +68,33 @@ internal object CuraResolvedSettingsWriter {
                 ?.takeIf(String::isNotBlank)
                 ?: PrinterEnvelope.DEFAULT_GCODE_FLAVOR,
         )
-        printerEnvelope.requireBinaryStlFits(modelFile, modelTransform)
+        printerEnvelope.requireBinaryStlFits(modelFile, effectiveModelTransform)
         effectiveSmartInfillModifiers.forEach { modifier ->
             require(modifier.file.parentFile?.canonicalFile == modelDirectory.canonicalFile) {
                 "Smart Infill modifier was not staged inside the CuraEngine request"
             }
             requireValidBinaryStl(modifier.file, Int.MAX_VALUE)
             printerEnvelope.requireBinaryStlFits(modifier.file)
+        }
+
+        val curviPrepared = curviSnapshot?.let { snapshot ->
+            CurviSlicerPipeline.prepareAndWarp(
+                modelFile = modelFile,
+                settings = snapshot.settings,
+                layerHeightMm = requiredResolvedNumber(resolved, "layer_height"),
+                nozzleDiameterMm = requiredResolvedNumber(resolved, "machine_nozzle_size"),
+            )
+        }
+        if (curviPrepared != null) {
+            if (effectiveSmartInfillModifiers.isNotEmpty()) {
+                require(curviPrepared.settings.warpSmartInfillModifiers) {
+                    "CurviSlicer must warp Smart Infill modifiers so density regions remain aligned"
+                }
+                effectiveSmartInfillModifiers.forEach { modifier -> curviPrepared.warpModifier(modifier.file) }
+            }
+            printerEnvelope.requireBinaryStlFits(modelFile)
+            effectiveSmartInfillModifiers.forEach { modifier -> printerEnvelope.requireBinaryStlFits(modifier.file) }
+            CurviSlicerFieldStorage.write(modelDirectory, curviPrepared)
         }
         printerEnvelope.writeTo(File(modelDirectory, PrinterEnvelope.METADATA_FILE_NAME))
 
@@ -71,11 +104,10 @@ internal object CuraResolvedSettingsWriter {
         val enginePositionY = -machineCenterY
         val enginePositionZ = 0.0
 
-        val effectiveTransform = modelTransform
-        val linear = effectiveTransform?.linear ?: IDENTITY
-        val affineTranslationX = effectiveTransform?.translationXmm ?: 0.0
-        val affineTranslationY = effectiveTransform?.translationYmm ?: 0.0
-        val affineTranslationZ = effectiveTransform?.translationZmm ?: 0.0
+        val linear = effectiveModelTransform?.linear ?: IDENTITY
+        val affineTranslationX = effectiveModelTransform?.translationXmm ?: 0.0
+        val affineTranslationY = effectiveModelTransform?.translationYmm ?: 0.0
+        val affineTranslationZ = effectiveModelTransform?.translationZmm ?: 0.0
 
         val calibrationOverrides = CalibrationSliceState.engineOverrides()
         val extruderValues = JSONObject(resolved.extruderValues)
@@ -108,8 +140,14 @@ internal object CuraResolvedSettingsWriter {
             enginePositionZ = enginePositionZ,
         )
 
+        val globalValues = LinkedHashMap(resolved.globalValues)
+        if (curviSnapshot != null) {
+            globalValues["machine_end_gcode"] = CurviSlicerRuntime.markMachineEndGcode(
+                globalValues["machine_end_gcode"].orEmpty(),
+            )
+        }
         val root = JSONObject()
-            .put("global", JSONObject(resolved.globalValues))
+            .put("global", JSONObject(globalValues))
             .put("extruder.0", extruderValues)
             .put(modelFileName, modelValues)
 
@@ -124,15 +162,9 @@ internal object CuraResolvedSettingsWriter {
                 .put("support_mesh", false)
                 .put("anti_overhang_mesh", false)
                 .put("cutting_mesh", false)
-            // Enforce the modifier contract at the final serialization boundary
-            // as well as during dependency resolution. This prevents callers
-            // constructing Result directly from reintroducing inherited shells.
             SmartInfillCuraContract.modifierShellNeutralValues.forEach { (key, value) ->
                 values.put(key, value.toInt())
             }
-            // filaSim receives the already transformed/displayed STL, so
-            // modifier geometry is in final printer coordinates. Do not apply
-            // the source model's 3MF affine a second time.
             applyTransform(
                 values = values,
                 linear = IDENTITY,
@@ -160,6 +192,19 @@ internal object CuraResolvedSettingsWriter {
         require(stagedDisplayedFile.isFile && stagedDisplayedFile.length() > 0L) {
             "The transformed STL is unavailable for resolved source staging"
         }
+        if (CurviSlicerRuntime.snapshot() != null) {
+            val displayedStamp = fileStamp(stagedDisplayedFile)
+            removePreStagedRequestModel(destination)
+            copyFile(stagedDisplayedFile, destination)
+            check(destination.isFile && destination.length() == displayedStamp.length) {
+                "Unable to stage displayed STL geometry for CurviSlicer"
+            }
+            check(fileStamp(stagedDisplayedFile) == displayedStamp) {
+                "The displayed STL changed while it was being staged for CurviSlicer"
+            }
+            return CURVI_STAGED_IDENTITY
+        }
+
         val sourceFile = File(
             stagedDisplayedFile.parentFile,
             "${stagedDisplayedFile.nameWithoutExtension}.slice-source.stl",
@@ -188,6 +233,16 @@ internal object CuraResolvedSettingsWriter {
             "The STL transform changed while it was being staged"
         }
         return stagedSource.transform
+    }
+
+    private fun removePreStagedRequestModel(destination: File) {
+        if (!destination.exists()) return
+        require(destination.isFile) {
+            "Resolved Cura request model destination is not a file: ${destination.absolutePath}"
+        }
+        check(destination.delete()) {
+            "Unable to replace the pre-staged Cura request model: ${destination.absolutePath}"
+        }
     }
 
     private fun applyTransform(
@@ -229,6 +284,16 @@ internal object CuraResolvedSettingsWriter {
         return value
     }
 
+    private fun requiredResolvedNumber(resolved: CuraSliceSettingsResolver.Result, key: String): Double {
+        val raw = resolved.modelValues[key]
+            ?: resolved.extruderValues[key]
+            ?: resolved.globalValues[key]
+            ?: error("Resolved Cura setting is missing: $key")
+        val value = raw.toDoubleOrNull() ?: error("Resolved Cura setting is not numeric: $key=$raw")
+        require(value.isFinite() && value > 0.0) { "Resolved Cura setting is invalid: $key=$raw" }
+        return value
+    }
+
     private fun requiredBoolean(values: Map<String, String>, key: String): Boolean {
         val raw = values[key] ?: error("Resolved Cura setting is missing: $key")
         return raw.toBooleanStrictOrNull()
@@ -244,5 +309,11 @@ internal object CuraResolvedSettingsWriter {
         1.0, 0.0, 0.0,
         0.0, 1.0, 0.0,
         0.0, 0.0, 1.0,
+    )
+    private val CURVI_STAGED_IDENTITY = StlSliceTransform(
+        linear = IDENTITY,
+        translationXmm = 0.0,
+        translationYmm = 0.0,
+        translationZmm = 0.0,
     )
 }

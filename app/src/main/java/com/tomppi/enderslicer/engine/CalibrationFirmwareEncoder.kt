@@ -76,6 +76,18 @@ class CalibrationFirmwareEncoder private constructor(
 
     fun hotendOffCommand(): String = "M104 S0"
 
+    internal fun isFirmwareRetract(command: GcodeCommand.Parsed): Boolean = when (dialect) {
+        FirmwareDialect.REPRAP_FIRMWARE -> command.opcode == "G10" && command.parameterLetters.isEmpty()
+        FirmwareDialect.MARLIN -> command.opcode == "G10"
+        FirmwareDialect.KLIPPER, FirmwareDialect.GENERIC -> false
+    }
+
+    internal fun isFirmwareUnretract(command: GcodeCommand.Parsed): Boolean = when (dialect) {
+        FirmwareDialect.REPRAP_FIRMWARE -> command.opcode == "G11" && command.parameterLetters.isEmpty()
+        FirmwareDialect.MARLIN -> command.opcode == "G11"
+        FirmwareDialect.KLIPPER, FirmwareDialect.GENERIC -> false
+    }
+
     private fun retractionCommands(lengthMm: Double, speedMmPerSecond: Double): List<String> {
         require(lengthMm in 0.0..100.0) { "Retraction length is outside 0..100 mm" }
         require(speedMmPerSecond in 0.1..1000.0) { "Retraction speed is outside 0.1..1000 mm/s" }
