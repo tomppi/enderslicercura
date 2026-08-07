@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Zoned engine bay plus movable object, vehicle-axis and React-safe UI fixes."""
+"""Zoned engine bay plus movable object, vehicle-axis and React-isolated UI fixes."""
 from __future__ import annotations
 
 import importlib.util
@@ -105,8 +105,9 @@ def patch_part_placement_runtime(target: pathlib.Path) -> None:
         "solverEnvelopeOffsets",
         "EnderSlicerPartPlacementTestApi",
         "Y/depth runs front -> rear",
-        "installUiWithoutCrossRootReparent",
-        "scheduleReactSafeThermalInstall",
+        "installUiInReactIsolatedShadowRoot",
+        "appendNearbyHotObjectIntoShadow",
+        "__enderSlicerThermalShadowLookup",
         "EnderSlicerNearbyReactSafeMountTestApi",
         "installUi = function installUi()",
     ):
@@ -121,12 +122,12 @@ thermal.THERMAL_PACKAGE_MARKER_TEXT = v19.thermal.THERMAL_PACKAGE_MARKER_TEXT.re
     "engine-bay-zone-vehicle-axis-v1,"
     "engine-bay-part-placement-viewer-v1,"
     "engine-bay-part-placement-runtime-v1,"
-    "nearby-hot-object-react-safe-remount-v1\n",
+    "nearby-hot-object-react-shadow-isolation-v2\n",
 )
 
 if __name__ == "__main__":
     try:
         raise SystemExit(thermal.BASE.main())
     except Exception as error:
-        print(f"engine-bay movable/react-safe filaSim v20 asset preparation failed: {error}", file=sys.stderr)
+        print(f"engine-bay movable/react-isolated filaSim v20 asset preparation failed: {error}", file=sys.stderr)
         raise
