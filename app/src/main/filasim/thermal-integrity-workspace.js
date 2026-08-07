@@ -82,7 +82,7 @@
     const style = document.createElement("style");
     style.id = STYLE_ID;
     style.textContent = `
-      #${GROUP_ID} .ti-actions { grid-template-columns:1.25fr .75fr 1fr !important; }
+      #${GROUP_ID} .ti-run-actions { grid-template-columns:1.25fr .75fr 1fr !important; }
       #${GROUP_ID} .ti-progress-shell {
         margin-top:8px; padding:8px; border-radius:6px;
         background:rgba(255,255,255,.055);
@@ -103,31 +103,51 @@
         font-size:10px; overflow-wrap:anywhere;
       }
       @media (max-width:520px) {
-        #${GROUP_ID} .ti-actions { grid-template-columns:1fr 1fr !important; }
-        #${GROUP_ID} #ti-save { grid-column:1 / -1; }
+        #${GROUP_ID} .ti-run-actions { grid-template-columns:1fr 1fr !important; }
+        #${GROUP_ID} .ti-run-actions #ti-save { grid-column:1 / -1; }
       }
     `;
     document.head.appendChild(style);
   }
 
+  function solverActionRow(group) {
+    const run = document.getElementById("ti-run");
+    const save = document.getElementById("ti-save");
+    if (!run || !save || !group.contains(run) || !group.contains(save)) return null;
+    const actions = run.parentElement;
+    if (!actions || save.parentElement !== actions || !actions.classList.contains("ti-actions")) return null;
+    actions.classList.add("ti-run-actions");
+    return { actions, run, save };
+  }
+
   function ensureProgressUi(group) {
-    const actions = group.querySelector(".ti-actions");
-    if (!actions) return;
+    const row = solverActionRow(group);
+    if (!row) return;
+    const { actions, run, save } = row;
 
     let cancel = document.getElementById("ti-cancel");
+    if (cancel && cancel.parentElement !== actions) {
+      cancel.remove();
+      cancel = null;
+    }
     if (!cancel) {
       cancel = document.createElement("button");
       cancel.id = "ti-cancel";
       cancel.type = "button";
       cancel.textContent = "Cancel";
       cancel.disabled = true;
-      const save = document.getElementById("ti-save");
-      actions.insertBefore(cancel, save || null);
+      actions.insertBefore(cancel, save);
       cancel.addEventListener("click", cancelRun);
     }
 
-    if (!document.getElementById("ti-progress-shell")) {
-      const shell = document.createElement("div");
+    const container = actions.parentElement;
+    let shell = document.getElementById("ti-progress-shell");
+    if (shell && shell.parentElement !== container) {
+      shell.remove();
+      shell = null;
+    }
+    if (!shell && container) {
+      shell = document.createElement("div");
       shell.id = "ti-progress-shell";
       shell.className = "ti-progress-shell";
       shell.hidden = true;
@@ -144,11 +164,11 @@
         </div>
       `;
       const status = document.getElementById("ti-status");
-      actions.parentElement?.insertBefore(shell, status || actions.nextSibling);
+      const reference = status?.parentElement === container ? status : actions.nextSibling;
+      container.insertBefore(shell, reference || null);
     }
 
-    const run = document.getElementById("ti-run");
-    if (run && run.dataset.tiProgressBound !== "1") {
+    if (run.dataset.tiProgressBound !== "1") {
       run.dataset.tiProgressBound = "1";
       run.addEventListener(
         "click",

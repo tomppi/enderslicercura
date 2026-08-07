@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prepare the validated format-8 filaSim runtime with nearby hot object and annealing."""
+"""Prepare format-8 filaSim with shaped, zoned and movable-object engine-bay analysis."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import runpy
 import sys
 
 THERMAL_PREPARER = pathlib.Path(__file__).with_name(
-    "prepare-filasim-assets-with-annealing-v14.py"
+    "prepare-filasim-assets-with-annealing-v20.py"
 )
 FINALIZER = pathlib.Path(__file__).with_name("finalize-filasim-apk-manifest.py")
 
