@@ -2,6 +2,9 @@
   // coordinate system used by Rust boundary-face zoning. The first zoned
   // runtime divided a small printed part across all 12 zones by its own bounds,
   // which erased enclosure offsets and overstated local part-to-air coupling.
+  // Engine-bay axes are X = left/right width, Y = front/rear depth, Z = height.
+  // Zone order remains longitudinal front/middle/rear fastest, then lateral
+  // left/right, then lower/upper.
   let activeZonedMappingOptions = null;
 
   function engineBayZoneForActiveCell(x, y, z, activeBounds, options, hMm) {
@@ -34,8 +37,9 @@
       0.999_999_999,
       Math.max(0, (value - offsetMm[axis] + sizeMm[axis] * 0.5) / sizeMm[axis]),
     ));
-    const longitudinal = Math.min(2, Math.floor(normalized[0] * 3));
-    const lateral = normalized[1] >= 0.5 ? 1 : 0;
+    // Y/depth runs front -> rear. X/width runs left -> right.
+    const longitudinal = Math.min(2, Math.floor(normalized[1] * 3));
+    const lateral = normalized[0] >= 0.5 ? 1 : 0;
     const vertical = normalized[2] >= 0.5 ? 1 : 0;
     return longitudinal + 3 * lateral + 6 * vertical;
   }
