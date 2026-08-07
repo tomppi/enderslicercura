@@ -17,12 +17,18 @@ ZONE_AXIS_TEST = pathlib.Path(__file__).with_name("test-engine-bay-zone-axis.mjs
 REACT_SAFE_TEST = pathlib.Path(__file__).with_name(
     "test-nearby-hot-object-react-safe-remount.mjs"
 )
+PROGRESS_ACTION_ROW_TEST = pathlib.Path(__file__).with_name(
+    "test-nearby-hot-object-progress-action-row.mjs"
+)
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
 PLACEMENT_RUNTIME = (
     PROJECT_ROOT / "app/src/main/filasim/nearby-hot-object-02p-engine-bay-part-placement.js"
 )
 REACT_SAFE_RUNTIME = (
     PROJECT_ROOT / "app/src/main/filasim/nearby-hot-object-02q-react-safe-remount.js"
+)
+PROGRESS_WORKSPACE_RUNTIME = (
+    PROJECT_ROOT / "app/src/main/filasim/thermal-integrity-workspace.js"
 )
 for path in (
     V19,
@@ -31,8 +37,10 @@ for path in (
     PLACEMENT_TEST,
     ZONE_AXIS_TEST,
     REACT_SAFE_TEST,
+    PROGRESS_ACTION_ROW_TEST,
     PLACEMENT_RUNTIME,
     REACT_SAFE_RUNTIME,
+    PROGRESS_WORKSPACE_RUNTIME,
 ):
     if not path.is_file():
         raise RuntimeError(f"Engine-bay v20 component is missing: {path}")
@@ -83,6 +91,10 @@ def patch_part_placement_runtime(target: pathlib.Path) -> None:
         ["node", str(REACT_SAFE_TEST), str(REACT_SAFE_RUNTIME)],
         check=True,
     )
+    subprocess.run(
+        ["node", str(PROGRESS_ACTION_ROW_TEST), str(PROGRESS_WORKSPACE_RUNTIME)],
+        check=True,
+    )
     text = target.read_text(encoding="utf-8")
     runtime = (
         PLACEMENT_RUNTIME.read_text(encoding="utf-8")
@@ -122,7 +134,8 @@ thermal.THERMAL_PACKAGE_MARKER_TEXT = v19.thermal.THERMAL_PACKAGE_MARKER_TEXT.re
     "engine-bay-zone-vehicle-axis-v1,"
     "engine-bay-part-placement-viewer-v1,"
     "engine-bay-part-placement-runtime-v1,"
-    "nearby-hot-object-react-shadow-isolation-v2\n",
+    "nearby-hot-object-react-shadow-isolation-v2,"
+    "nearby-hot-object-progress-action-row-v1\n",
 )
 
 if __name__ == "__main__":
