@@ -39,6 +39,10 @@ const MAX_NEWTON_STEP_C: f64 = 250.0;
 const MIN_LINE_SEARCH_ALPHA: f64 = 1.0 / 1024.0;
 const NONLINEAR_ABS_TOL_C: f64 = 1e-4;
 const NONLINEAR_REL_TOL: f64 = 1e-7;
+/// Absolute residual bound at which a machine-precision fixed point (zero
+/// Newton step) is accepted as converged. 1e-6 W is negligible relative to
+/// user-scale heat loads and comfortably above L2 roundoff accumulation.
+const NONLINEAR_STAGNATION_ACCEPT_RESIDUAL_W: f64 = 1e-6;
 ''',
         "nonlinear solver limits",
     )
@@ -292,7 +296,13 @@ fn solve_nonlinear_temperature(
             return Err(format!("{context} produced a non-finite Newton update"));
         }
         if raw_delta == 0.0 {
-            if current_residual <= residual_target {
+            // A zero Newton step is a fixed point of the discrete operator to
+            // machine precision. When the residual is physically negligible we
+            // accept it instead of failing a converged solve whose L2 roundoff
+            // floor can land slightly above the residual target.
+            if current_residual <= residual_target
+                || current_residual <= NONLINEAR_STAGNATION_ACCEPT_RESIDUAL_W
+            {
                 return Ok(NonlinearSolve {
                     values: previous,
                     linear_iterations: total_linear_iterations,
@@ -472,6 +482,72 @@ struct LinearSolve {
         assert_eq!(result.time_steps, 10);
         assert!(result.peak_temperature_c.is_finite());
         assert!(result.history.chunks_exact(3).all(|point| point[1].is_finite()));
+    }
+
+    #[test]
+    fn transient_machine_precision_fixed_point_is_accepted_not_stagnated() {
+        // A zero Newton step means the discrete operator is at a fixed point to
+        // machine precision. When the L2 residual is physically negligible the
+        // solve must be accepted, not reported as "stagnated" because the
+        // roundoff floor happens to sit slightly above the residual target.
+        let grid = VoxelGrid::solid_box(40, 40, 12, 1.0);
+        let material = vec![1.0; grid.cell_count()];
+        let mut options = base_options();
+        options.transient = true;
+        options.duration_seconds = 12.0;
+        options.time_step_seconds = 4.0;
+        options.ambient_temperature_c = 23.0;
+        options.initial_temperature_c = 23.0;
+        options.cooled_temperature_c = 23.0;
+        options.convection_w_m2_k = 8.0;
+        options.emissivity = 0.9;
+        options.heat_power_w = 0.0;
+        options.fixed_surface_enabled = false;
+        let source = NearbyHotObjectOptions {
+            target_mm: [
+                grid.origin[0] + grid.nx as f64 * grid.h * 0.5,
+                grid.origin[1] + grid.ny as f64 * grid.h * 0.5,
+                grid.origin[2] + grid.nz as f64 * grid.h,
+            ],
+            outward_normal: [0.0, 0.0, 1.0],
+            gap_mm: 5.0,
+            diameter_mm: 40.0,
+            source_temperature_c: 180.0,
+            source_emissivity: 0.9,
+            source_part_emissivity: 0.9,
+            secondary_enabled: false,
+            secondary_target_mm: [0.0; 3],
+            secondary_outward_normal: [0.0; 3],
+            secondary_gap_mm: 5.0,
+            secondary_diameter_mm: 40.0,
+            secondary_temperature_c: 23.0,
+            secondary_emissivity: 0.9,
+            secondary_part_emissivity: 0.9,
+            use_fixed_temperature_surface: false,
+        };
+        let result = solve_nearby_hot_object(&grid, &material, &options, &source);
+        match result {
+            Ok(solved) => {
+                assert!(solved.maximum_temperature_c.is_finite());
+                assert!(solved.maximum_temperature_c < MAX_SUPPORTED_TEMPERATURE_C);
+            }
+            Err(error) => {
+                assert!(
+                    !error.contains("stagnated"),
+                    "converged nearby hot object solve reported stagnation: {error}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn stagnation_accept_band_is_above_roundoff_and_below_heat_scale() {
+        let active_cells = 56_629usize;
+        let roundoff_floor = NONLINEAR_ABS_RESIDUAL_W.max(
+            NONLINEAR_ROUNDOFF_W_PER_SQRT_CELL * (active_cells as f64).sqrt(),
+        );
+        assert!(roundoff_floor < NONLINEAR_STAGNATION_ACCEPT_RESIDUAL_W);
+        assert!(NONLINEAR_STAGNATION_ACCEPT_RESIDUAL_W <= 1e-6);
     }
 
     #[test]
