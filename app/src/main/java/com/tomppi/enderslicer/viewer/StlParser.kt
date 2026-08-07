@@ -110,6 +110,9 @@ object StlParser {
                         ny = 0f
                         nz = 0f
                     }
+                    require(nx.isFinite() && ny.isFinite() && nz.isFinite()) {
+                        "STL triangle normal is non-finite"
+                    }
 
                     fun writeVertex(x: Float, y: Float, z: Float) {
                         floats[out++] = x
@@ -175,6 +178,9 @@ object StlParser {
                     val nxf = nx.toFloat()
                     val nyf = ny.toFloat()
                     val nzf = nz.toFloat()
+                    require(nxf.isFinite() && nyf.isFinite() && nzf.isFinite()) {
+                        "ASCII STL triangle normal is non-finite"
+                    }
 
                     fun writeVertex(x: Double, y: Double, z: Double) {
                         val xf = (x - source.originX).toFloat()

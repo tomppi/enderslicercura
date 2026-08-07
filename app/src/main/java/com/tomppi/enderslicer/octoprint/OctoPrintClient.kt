@@ -87,9 +87,33 @@ class OctoPrintClient(
     )
 
     fun fetchWebcamSnapshot(url: String): ByteArray {
-        val resolved = resolveServerUrl(url) ?: error("Invalid OctoPrint webcam snapshot URL")
+        val resolved = resolveWebcamSnapshotUrl(url) ?: error("Invalid OctoPrint webcam snapshot URL")
         return fetchWebcamSnapshot(resolved, redirectCount = 0)
     }
+
+    internal fun resolveWebcamSnapshotUrl(value: String): URI? {
+        val resolved = resolveServerUrl(value) ?: return null
+        return rewriteLoopbackHost(resolved)
+    }
+
+    private fun rewriteLoopbackHost(uri: URI): URI {
+        val host = uri.host ?: return uri
+        if (!isLoopbackHost(host)) return uri
+        return runCatching {
+            URI(
+                uri.scheme,
+                uri.userInfo,
+                base.host,
+                uri.port,
+                uri.path,
+                uri.query,
+                uri.fragment,
+            )
+        }.getOrNull() ?: uri
+    }
+
+    private fun isLoopbackHost(host: String): Boolean =
+        host.equals("localhost", ignoreCase = true) || host == "127.0.0.1" || host == "::1"
 
     private fun fetchWebcamSnapshot(url: URI, redirectCount: Int): ByteArray {
         require(redirectCount <= MAX_SNAPSHOT_REDIRECTS) { "Too many webcam redirects" }
@@ -104,7 +128,7 @@ class OctoPrintClient(
                 require(next.scheme.equals("http", true) || next.scheme.equals("https", true)) {
                     "Webcam redirect must use HTTP or HTTPS"
                 }
-                return fetchWebcamSnapshot(next, redirectCount + 1)
+                return fetchWebcamSnapshot(rewriteLoopbackHost(next), redirectCount + 1)
             }
             if (code !in 200..299) throw httpError(connection, code)
             val declared = connection.contentLengthLong

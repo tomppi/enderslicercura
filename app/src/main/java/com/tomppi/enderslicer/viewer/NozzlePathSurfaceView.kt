@@ -139,11 +139,11 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
     private var solidProgram = 0
     private var viewportWidth = 1
     private var viewportHeight = 1
-    private var yaw = DEFAULT_YAW
-    private var pitch = DEFAULT_PITCH
-    private var zoom = DEFAULT_ZOOM
-    private var panX = 0f
-    private var panY = 0f
+    @Volatile private var yaw = DEFAULT_YAW
+    @Volatile private var pitch = DEFAULT_PITCH
+    @Volatile private var zoom = DEFAULT_ZOOM
+    @Volatile private var panX = 0f
+    @Volatile private var panY = 0f
 
     private val projection = FloatArray(16)
     private val view = FloatArray(16)
@@ -154,7 +154,7 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
     fun setPath(value: GcodeNozzlePath) {
         if (path === value) return
         path = value
-        selectedMoveIndex = selectedMoveIndex.coerceIn(0, value.moveCount - 1)
+        selectedMoveIndex = if (value.moveCount <= 0) 0 else selectedMoveIndex.coerceIn(0, value.moveCount - 1)
         buildPathBuffers(value)
         buildGrid(value)
         buildMarker()
@@ -163,6 +163,7 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
 
     fun setSelectedMove(value: Int) {
         val current = path ?: return
+        if (current.moveCount <= 0) return
         val safe = value.coerceIn(0, current.moveCount - 1)
         if (safe == selectedMoveIndex) return
         selectedMoveIndex = safe

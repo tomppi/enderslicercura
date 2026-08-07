@@ -36,6 +36,7 @@ import com.tomppi.enderslicer.profile.ImportedCuraConfig
 import com.tomppi.enderslicer.viewer.StlMesh
 import com.tomppi.enderslicer.viewer.StlMeshWriter
 import com.tomppi.enderslicer.viewer.StlParser
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -1160,10 +1161,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 profileSource = config.source,
                 importedRawSettingCount = concreteCount,
                 curaVersion = config.curaVersion,
-                settingVersion = config.settingVersion,
+                settingVersion = config.settingVersion ?: "25",
                 engineProfile = config.engineProfile,
-                startGcode = config.startGcode ?: current.startGcode,
-                endGcode = config.endGcode ?: current.endGcode,
+                startGcode = config.startGcode ?: initialStartGcode,
+                endGcode = config.endGcode ?: initialEndGcode,
                 mesh = transformed ?: current.mesh,
                 modelPlacement = autoPlacement ?: current.modelPlacement,
                 importedSceneTransformAvailable = scene?.affine != null,
@@ -1177,7 +1178,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 sliceLogPath = null,
                 sliceDurationMilliseconds = null,
                 warnings = warnings,
-                isBusy = false,
                 statusMessage = statusMessage
                     ?: buildString {
                         append("Imported $concreteCount concrete Cura values$definitionLabel")
@@ -1187,6 +1187,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
         withContext(Dispatchers.IO) { persistCurrentWorkspace(_uiState.value) }
+        _uiState.update { it.copy(isBusy = false) }
     }
 
     private fun materializeModel(uri: Uri, maxTriangles: Int): File {
@@ -1242,6 +1243,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun showOperationFailure(error: Throwable) {
+        if (error is CancellationException) throw error
         _uiState.update { current ->
             current.copy(
                 isBusy = false,
@@ -1251,6 +1253,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun showSliceFailure(error: Throwable) {
+        if (error is CancellationException) throw error
         _uiState.update { current ->
             current.copy(
                 isBusy = false,

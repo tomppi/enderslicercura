@@ -101,7 +101,14 @@ object GcodeLayerEventProcessor {
                         parsedCommand != null && firmware.isFirmwareUnretract(parsedCommand) -> {
                             firmwareRetracted = false
                             if (deferredRetraction.isNotEmpty()) {
-                                deferredRetraction.forEach(::writeEvent)
+            if (deferredRetraction.isNotEmpty()) {
+                if (firmwareRetracted) {
+                    writer.write("G11 ; enderslicercura unretract before deferred retraction calibration")
+                    writer.newLine()
+                    firmwareRetracted = false
+                }
+                deferredRetraction.forEach(::writeEvent)
+            }
                                 deferredRetraction.clear()
                             }
                         }

@@ -354,6 +354,7 @@ class CuraEngineRunner(private val context: Context) {
             check(mkdirs() || isDirectory) { "Unable to create the CuraEngine request directory" }
         }
         cleanupOldWorkspaces(root)
+        cleanupOldLogs()
         val directory = File(root, id)
         check(directory.mkdir()) { "Unable to create an isolated CuraEngine workspace" }
         return Workspace(id, directory)
@@ -364,6 +365,13 @@ class CuraEngineRunner(private val context: Context) {
         root.listFiles().orEmpty()
             .filter { it.isDirectory && it.lastModified() in 1 until cutoff }
             .forEach(File::deleteRecursively)
+    }
+
+    private fun cleanupOldLogs() {
+        val cutoff = System.currentTimeMillis() - STALE_WORKSPACE_AGE_MILLIS
+        File(context.filesDir, "logs").listFiles().orEmpty()
+            .filter { it.isFile && it.name.startsWith("curaengine-") && it.lastModified() in 1 until cutoff }
+            .forEach(File::delete)
     }
 
     private fun requestLog(id: String): File = File(context.filesDir, "logs/curaengine-$id.log").apply {

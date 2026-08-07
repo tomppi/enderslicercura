@@ -2,7 +2,9 @@ package com.tomppi.enderslicer.engine
 
 import java.io.Closeable
 import java.io.File
+import java.util.Collections
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 
 /** Publishes completed slices by atomically renaming a fully prepared directory. */
 internal class SliceArtifactPublisher(
@@ -47,6 +49,7 @@ internal class SliceArtifactPublisher(
         val finalDirectory = File(rootDirectory, id)
         check(!finalDirectory.exists()) { "Slice artifact already exists: $id" }
         val publishingDirectory = File(rootDirectory, ".$id-publishing-${System.nanoTime()}")
+        activePublishingDirectories += publishingDirectory
         check(publishingDirectory.mkdir()) { "Unable to create the slice publication directory" }
 
         try {
@@ -80,6 +83,8 @@ internal class SliceArtifactPublisher(
         } catch (error: Throwable) {
             publishingDirectory.deleteRecursively()
             throw error
+        } finally {
+            activePublishingDirectories -= publishingDirectory
         }
     }
 
@@ -112,6 +117,7 @@ internal class SliceArtifactPublisher(
     private fun cleanupAbandonedPublishingDirectories() {
         rootDirectory.listFiles().orEmpty()
             .filter { it.isDirectory && it.name.startsWith('.') && "-publishing-" in it.name }
+            .filterNot { it in activePublishingDirectories }
             .forEach(File::deleteRecursively)
     }
 
@@ -221,5 +227,6 @@ internal class SliceArtifactPublisher(
         private val ARTIFACT_LOCK = Any()
         private val ARTIFACT_FILE_NAMES = setOf(GCODE_FILE_NAME, BASE_GCODE_FILE_NAME)
         private val ID_PATTERN = Regex("[A-Za-z0-9._-]{1,128}")
+        private val activePublishingDirectories = Collections.newSetFromMap(ConcurrentHashMap<File, Boolean>())
     }
 }

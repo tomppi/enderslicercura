@@ -119,15 +119,6 @@ object GcodeNozzlePathParser {
                         val retainedSourceIndex = sourceIndex
                         val keep = shouldRetain(retainedSourceIndex, sourceMoveCount, maxMoves)
                         sourceIndex++
-                        if (!keep) return@forEach
-
-                        val kind = if (deltaE > EXTRUSION_EPSILON) {
-                            extrusionMoves++
-                            GcodeNozzlePath.Kind.EXTRUSION
-                        } else {
-                            travelMoves++
-                            GcodeNozzlePath.Kind.TRAVEL
-                        }
                         val sx = startX.toFloat()
                         val sy = startY.toFloat()
                         val sz = startZ.toFloat()
@@ -140,6 +131,15 @@ object GcodeNozzlePathParser {
                         maxX = maxOf(maxX, sx, ex)
                         maxY = maxOf(maxY, sy, ey)
                         maxZ = maxOf(maxZ, sz, ez)
+                        if (!keep) return@forEach
+
+                        val kind = if (deltaE > EXTRUSION_EPSILON) {
+                            extrusionMoves++
+                            GcodeNozzlePath.Kind.EXTRUSION
+                        } else {
+                            travelMoves++
+                            GcodeNozzlePath.Kind.TRAVEL
+                        }
                         accumulator.add(
                             sx, sy, sz, ex, ey, ez,
                             (feedRateMmPerMinute / 60.0 * speedFactor).coerceAtLeast(0.0).toFloat(),

@@ -436,14 +436,23 @@ private fun HardenedWebcamCard(state: OctoPrintUiState) {
             Text("Webcam", style = MaterialTheme.typography.titleMedium)
             val currentBitmap = bitmap
             if (currentBitmap == null) {
-                Text(
-                    if (state.config.snapshotUrlOverride.isNotBlank() || state.webcam.snapshotUrl != null) {
-                        "Waiting for a webcam snapshot…"
-                    } else {
-                        "No snapshot URL is available. Add one on the Setup page."
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                )
+                val webcamError = state.webcamError
+                if (webcamError != null) {
+                    Text(
+                        webcamError,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                } else {
+                    Text(
+                        if (state.config.snapshotUrlOverride.isNotBlank() || state.webcam.snapshotUrl != null) {
+                            "Waiting for a webcam snapshot…"
+                        } else {
+                            "No snapshot URL is available. Add one on the Setup page."
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
             } else {
                 Image(
                     bitmap = currentBitmap.asImageBitmap(),

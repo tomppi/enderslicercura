@@ -76,11 +76,35 @@ class WorkspaceStateStore(private val filesDirectory: File) {
 
     @Synchronized
     fun load(): Snapshot? {
-        if (!workspaceFile.isFile || workspaceFile.length() == 0L) return null
+        val backup = File(stateDirectory, "current-workspace.previous")
+        val staged = File(stateDirectory, "current-workspace.next")
+        if ((!workspaceFile.isFile || workspaceFile.length() == 0L) && backup.isFile && backup.length() > 0L) {
+            if (workspaceFile.exists()) workspaceFile.delete()
+            backup.renameTo(workspaceFile) ||
+                backup.copyTo(workspaceFile, overwrite = true).let { backup.delete(); true }
+        }
+        if (!workspaceFile.isFile || workspaceFile.length() == 0L) {
+            if (staged.isFile && staged.length() > 0L) {
+                staged.renameTo(workspaceFile) ||
+                    staged.copyTo(workspaceFile, overwrite = true).let { staged.delete(); true }
+            }
+            if (!workspaceFile.isFile || workspaceFile.length() == 0L) return null
+        }
         require(workspaceFile.length() <= MAX_WORKSPACE_BYTES) {
             "Saved workspace descriptor exceeds its safety limit"
         }
-        val snapshot = decode(JSONObject(workspaceFile.readText()))
+        val snapshot = runCatching {
+            decode(JSONObject(workspaceFile.readText()))
+        }.getOrElse { error ->
+            if (backup.isFile && backup.length() > 0L) {
+                workspaceFile.delete()
+                backup.renameTo(workspaceFile) ||
+                    backup.copyTo(workspaceFile, overwrite = true).let { backup.delete(); true }
+                decode(JSONObject(workspaceFile.readText()))
+            } else {
+                throw error
+            }
+        }
         validate(snapshot)
         return snapshot
     }

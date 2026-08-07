@@ -173,11 +173,11 @@ private class LayerPreviewRenderer : GLSurfaceView.Renderer {
     private var gridVertexCount = 0
     private var viewportWidth = 1
     private var viewportHeight = 1
-    private var yaw = DEFAULT_YAW
-    private var pitch = DEFAULT_PITCH
-    private var zoom = DEFAULT_ZOOM
-    private var panX = 0f
-    private var panY = 0f
+    @Volatile private var yaw = DEFAULT_YAW
+    @Volatile private var pitch = DEFAULT_PITCH
+    @Volatile private var zoom = DEFAULT_ZOOM
+    @Volatile private var panX = 0f
+    @Volatile private var panY = 0f
 
     private val projection = FloatArray(16)
     private val view = FloatArray(16)
@@ -190,15 +190,16 @@ private class LayerPreviewRenderer : GLSurfaceView.Renderer {
         preview = value
         buildPathBuffers(value)
         buildGrid(value)
-        selectedLayerIndex = selectedLayerIndex.coerceIn(value.layers.indices)
+        selectedLayerIndex = if (value.layers.indices.isEmpty()) 0 else selectedLayerIndex.coerceIn(value.layers.indices)
         buildCurrentLayerRibbons()
         resetCamera()
     }
 
     fun setSelectedLayer(value: Int) {
         val current = preview ?: return
-        val changed = selectedLayerIndex != value.coerceIn(current.layers.indices)
-        selectedLayerIndex = value.coerceIn(current.layers.indices)
+        val bounded = if (current.layers.indices.isEmpty()) 0 else value.coerceIn(current.layers.indices)
+        val changed = selectedLayerIndex != bounded
+        selectedLayerIndex = bounded
         if (changed) buildCurrentLayerRibbons()
     }
 

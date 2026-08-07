@@ -489,7 +489,7 @@ class OctoPrintRepository(
         } else {
             webcamJob?.cancel()
             webcamJob = null
-            _state.update { it.copy(webcamFrame = null) }
+            _state.update { it.copy(webcamFrame = null, webcamError = null) }
         }
     }
 
@@ -497,7 +497,7 @@ class OctoPrintRepository(
         val config = _state.value.config.copy(snapshotUrlOverride = value.trim())
         store.saveConfig(config)
         webcamRequestId++
-        _state.update { it.copy(config = config, webcamFrame = null) }
+        _state.update { it.copy(config = config, webcamFrame = null, webcamError = null) }
         if (webcamVisible) restartWebcamPolling()
     }
 
@@ -553,7 +553,7 @@ class OctoPrintRepository(
         resetSession()
         store.saveConfiguration(config, key)
         cachedServerInfo = info
-        lastStaticRefreshMillis = System.currentTimeMillis()
+        lastStaticRefreshMillis = 0L
         _state.value = OctoPrintUiState(
             config = config,
             hasApiKey = true,
@@ -690,11 +690,13 @@ class OctoPrintRepository(
                     withContext(Dispatchers.IO) { requireClient().fetchWebcamSnapshot(snapshotUrl) }
                 }.onSuccess { bytes ->
                     if (isCurrent(requestGeneration) && requestId == webcamRequestId) {
-                        _state.update { it.copy(webcamFrame = bytes) }
+                        _state.update { it.copy(webcamFrame = bytes, webcamError = null) }
                     }
                 }.onFailure { error ->
                     if (error is OctoPrintClient.OctoPrintHttpException && error.statusCode == 401) {
                         handleSessionError(error, requestGeneration, forbiddenMeansInvalidKey = false)
+                    } else if (isCurrent(requestGeneration) && requestId == webcamRequestId) {
+                        _state.update { it.copy(webcamError = "Webcam snapshot failed: ${error.message ?: error::class.java.simpleName}") }
                     }
                 }
                 delay(WEBCAM_POLL_MILLIS)

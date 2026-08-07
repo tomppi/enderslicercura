@@ -17,7 +17,13 @@ internal object CuraExpressionResolver {
         val global = linkedMapOf<String, String>()
         val extruder = linkedMapOf<String, String>()
         val expressions = mutableListOf<Expression>()
-        val variables = linkedMapOf<String, Double>()
+        val globalVariables = linkedMapOf<String, Double>()
+        val extruderVariables = linkedMapOf<String, Double>()
+
+        fun variables(scope: Scope): MutableMap<String, Double> = when (scope) {
+            Scope.GLOBAL -> globalVariables
+            Scope.EXTRUDER -> extruderVariables
+        }
 
         fun collect(scope: Scope, input: Map<String, String>, output: MutableMap<String, String>) {
             input.forEach { (key, rawValue) ->
@@ -26,7 +32,7 @@ internal object CuraExpressionResolver {
                     expressions += Expression(scope, key, value.removePrefix("=").trim())
                 } else {
                     output[key] = rawValue
-                    value.toDoubleOrNull()?.let { variables[key] = it }
+                    value.toDoubleOrNull()?.let { variables(scope)[key] = it }
                 }
             }
         }
@@ -41,6 +47,7 @@ internal object CuraExpressionResolver {
             val iterator = unresolved.iterator()
             while (iterator.hasNext()) {
                 val expression = iterator.next()
+                val variables = variables(expression.scope)
                 val result = ArithmeticParser(expression.text, variables).parse() ?: continue
                 val formatted = format(result)
                 when (expression.scope) {

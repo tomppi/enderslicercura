@@ -197,7 +197,7 @@ private class Parser(private val tokens: List<Token>) {
     private fun parseNot(): CuraExpression {
         if (match(TokenType.NOT)) {
             if (match(TokenType.IN)) error("Unexpected 'not in' without a left operand")
-            return UnaryExpr(TokenType.NOT, parseNot())
+            return UnaryExpr(TokenType.NOT, parseComparison())
         }
         return parseComparison()
     }

@@ -115,6 +115,7 @@ data class OctoPrintUiState(
     val freeBytes: Long? = null,
     val webcam: OctoPrintWebcamConfig = OctoPrintWebcamConfig(),
     val webcamFrame: ByteArray? = null,
+    val webcamError: String? = null,
     val isRefreshing: Boolean = false,
     val isFileListRefreshing: Boolean = false,
     val isUploading: Boolean = false,

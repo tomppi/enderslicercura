@@ -58,7 +58,11 @@ object CuraProjectParser {
         val materialContainerIds = extruder?.ini?.get("containers")
             ?.values
             ?.map(String::trim)
-            ?.filter { it.contains("material", ignoreCase = true) }
+            ?.filter { id ->
+                id.isNotBlank() &&
+                    !id.startsWith("empty_", ignoreCase = true) &&
+                    id !in definitionIds
+            }
             .orEmpty()
         val materialValues = parseMaterialValues(
             entries = entries,

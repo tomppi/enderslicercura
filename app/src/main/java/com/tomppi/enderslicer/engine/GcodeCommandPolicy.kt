@@ -91,9 +91,21 @@ internal object GcodeCommandPolicy {
         val command = rawLine.substringBefore(';').trim()
         if (command.isEmpty()) return
         val flavor = gcodeFlavor.lowercase(Locale.US)
-        val safe = "klipper" in flavor && (
-            KLIPPER_PRESSURE_ADVANCE.matches(command) || KLIPPER_RETRACTION.matches(command)
-        )
+        val pressureAdvance = KLIPPER_PRESSURE_ADVANCE.matchEntire(command)
+        val retraction = if (pressureAdvance == null) KLIPPER_RETRACTION.matchEntire(command) else null
+        val safe = "klipper" in flavor && when {
+            pressureAdvance != null -> {
+                val advance = pressureAdvance.groupValues[1].toDoubleOrNull()
+                advance != null && advance.isFinite() && advance in KLIPPER_ADVANCE_MIN..KLIPPER_ADVANCE_MAX
+            }
+            retraction != null -> {
+                val length = retraction.groupValues[1].toDoubleOrNull()
+                val speed = retraction.groupValues[2].toDoubleOrNull()
+                length != null && length.isFinite() && length in KLIPPER_RETRACT_LENGTH_MIN..KLIPPER_RETRACT_LENGTH_MAX &&
+                    speed != null && speed.isFinite() && speed in KLIPPER_RETRACT_SPEED_MIN..KLIPPER_RETRACT_SPEED_MAX
+            }
+            else -> false
+        }
         require(safe) {
             "Unsupported textual or malformed command at line $lineNumber; " +
                 "the G-code was not made available for export"
@@ -134,7 +146,7 @@ internal object GcodeCommandPolicy {
     fun speedFactor(command: GcodeCommand.Parsed): Double? {
         if (command.opcode != "M220") return null
         val percent = requireNotNull(command.value('S')) { "M220 requires an S percentage" }
-        require(command.hasOnlyParameters(setOf('S'))) { "M220 contains unsupported parameters" }
+        require(command.hasOnlyParameters(setOf('S', 'T'))) { "M220 contains unsupported parameters" }
         require(percent.isFinite() && percent in 1.0..999.0) { "M220 speed factor is outside 1..999%" }
         return percent / 100.0
     }
@@ -222,8 +234,12 @@ internal object GcodeCommandPolicy {
                     bounded(letter, 0.0, if (letter == 'J') 1.0 else 100_000.0)
                 }
             }
-            207 -> {
+             207 -> {
                 only('F', 'R', 'S', 'T', 'W', 'Z')
+                command.parameterLetters.forEach { bounded(it, 0.0, 100_000.0) }
+            }
+            201, 203 -> {
+                only('X', 'Y', 'Z', 'E')
                 command.parameterLetters.forEach { bounded(it, 0.0, 100_000.0) }
             }
             208 -> {
@@ -336,12 +352,18 @@ internal object GcodeCommandPolicy {
         "([A-Za-z])([+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+))?",
     )
     private val KLIPPER_PRESSURE_ADVANCE = Regex(
-        "^SET_PRESSURE_ADVANCE\\s+ADVANCE=[+]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)$",
+        "^SET_PRESSURE_ADVANCE\\s+ADVANCE=[+]?(\\d+(?:\\.\\d*)?|\\.\\d+)$",
         RegexOption.IGNORE_CASE,
     )
     private val KLIPPER_RETRACTION = Regex(
-        "^SET_RETRACTION\\s+RETRACT_LENGTH=[+]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)\\s+" +
-            "RETRACT_SPEED=[+]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)$",
+        "^SET_RETRACTION\\s+RETRACT_LENGTH=[+]?(\\d+(?:\\.\\d*)?|\\.\\d+)\\s+" +
+            "RETRACT_SPEED=[+]?(\\d+(?:\\.\\d*)?|\\.\\d+)$",
         RegexOption.IGNORE_CASE,
     )
+    private const val KLIPPER_ADVANCE_MIN = 0.0
+    private const val KLIPPER_ADVANCE_MAX = 100.0
+    private const val KLIPPER_RETRACT_LENGTH_MIN = 0.0
+    private const val KLIPPER_RETRACT_LENGTH_MAX = 200.0
+    private const val KLIPPER_RETRACT_SPEED_MIN = 0.0
+    private const val KLIPPER_RETRACT_SPEED_MAX = 500.0
 }

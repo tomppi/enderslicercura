@@ -36,7 +36,9 @@ class UiWorkflowStatePersistenceTest {
         assertTrue(events.contains("rememberSaveable(layer.number, type)"))
         assertTrue(calibration.contains("var start by rememberSaveable(type)"))
         assertTrue(meshLimit.contains("var valueText by rememberSaveable(currentLimit)"))
-        assertTrue(machine.contains("var text by rememberSaveable(value)"))
+        assertTrue(machine.contains("var text by rememberSaveable"))
+        assertFalse(machine.contains("rememberSaveable(value)"))
+        assertTrue(machine.contains("onFocusChanged"))
         assertTrue(octoPrint.contains("var baseUrl by rememberSaveable(state.config.baseUrl)"))
         assertTrue(octoPrint.contains("var command by rememberSaveable"))
     }

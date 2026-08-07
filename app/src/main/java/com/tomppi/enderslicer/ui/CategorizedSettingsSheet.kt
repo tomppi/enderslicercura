@@ -20,6 +20,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -27,6 +28,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.unit.dp
 import com.tomppi.enderslicer.model.SlicerSettings
 
@@ -738,8 +740,14 @@ private fun NumberField(
     decimals: Int = 2,
     onValue: (Double) -> Unit,
 ) {
-    var text by remember(value) {
+    var isFocused by remember { mutableStateOf(false) }
+    var text by remember {
         mutableStateOf(if (decimals == 0) value.toInt().toString() else value.toString().trimEnd('0').trimEnd('.'))
+    }
+    LaunchedEffect(value, isFocused) {
+        if (!isFocused) {
+            text = if (decimals == 0) value.toInt().toString() else value.toString().trimEnd('0').trimEnd('.')
+        }
     }
     Column {
         OutlinedTextField(
@@ -750,7 +758,9 @@ private fun NumberField(
             },
             label = { Text(label) },
             singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .onFocusChanged { isFocused = it.isFocused },
         )
         SettingSource(source)
     }

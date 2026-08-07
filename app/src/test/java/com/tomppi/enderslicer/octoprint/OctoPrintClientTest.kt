@@ -229,4 +229,47 @@ class OctoPrintClientTest {
             OctoPrintJson.parseFiles(JSONObject("{\"free\":\"unknown\",\"files\":[]}" )).second,
         )
     }
+
+    @Test
+    fun rewritesLoopbackWebcamSnapshotToConfiguredServerHost() {
+        val client = OctoPrintClient("http://octopi.local")
+        assertEquals(
+            "http://octopi.local:8080/webcam/?action=snapshot",
+            client.resolveWebcamSnapshotUrl("http://localhost:8080/webcam/?action=snapshot")?.toString(),
+        )
+        assertEquals(
+            "http://octopi.local:8080/webcam/?action=snapshot",
+            client.resolveWebcamSnapshotUrl("http://127.0.0.1:8080/webcam/?action=snapshot")?.toString(),
+        )
+        assertEquals(
+            "http://octopi.local/webcam/?action=snapshot",
+            client.resolveWebcamSnapshotUrl("/webcam/?action=snapshot")?.toString(),
+        )
+    }
+
+    @Test
+    fun preservesNonLoopbackWebcamSnapshotHost() {
+        val client = OctoPrintClient("http://octopi.local")
+        assertEquals(
+            "http://192.168.1.50:8080/webcam/?action=snapshot",
+            client.resolveWebcamSnapshotUrl("http://192.168.1.50:8080/webcam/?action=snapshot")?.toString(),
+        )
+    }
+
+    @Test
+    fun keepsLoopbackRewriteWhenServerUsesPathPrefix() {
+        val client = OctoPrintClient("https://printer.example/octoprint")
+        assertEquals(
+            "https://printer.example:8080/webcam/?action=snapshot",
+            client.resolveWebcamSnapshotUrl("https://localhost:8080/webcam/?action=snapshot")?.toString(),
+        )
+    }
+
+    @Test
+    fun webcamErrorIsExposedInUiState() {
+        val state = OctoPrintUiState(webcamError = "Webcam snapshot failed: Connection refused")
+        assertEquals("Webcam snapshot failed: Connection refused", state.webcamError)
+        val cleared = state.copy(webcamFrame = byteArrayOf(1), webcamError = null)
+        assertNull(cleared.webcamError)
+    }
 }

@@ -153,11 +153,11 @@ private class ModelRenderer(
     private var gridVertexCount = 0
     private var viewportWidth = 1
     private var viewportHeight = 1
-    private var yaw = DEFAULT_YAW
-    private var pitch = DEFAULT_PITCH
-    private var zoom = DEFAULT_ZOOM
-    private var panX = 0f
-    private var panY = 0f
+    @Volatile private var yaw = DEFAULT_YAW
+    @Volatile private var pitch = DEFAULT_PITCH
+    @Volatile private var zoom = DEFAULT_ZOOM
+    @Volatile private var panX = 0f
+    @Volatile private var panY = 0f
 
     private val projection = FloatArray(16)
     private val view = FloatArray(16)

@@ -38,8 +38,9 @@ internal object StlModelPlacement {
             .order(ByteOrder.LITTLE_ENDIAN)
             .int
             .toLong() and 0xffffffffL
-        if (triangleCount !in 1L..MAX_TRIANGLES.toLong()) return false
-        return 84L + triangleCount * 50L <= bytes.size.toLong()
+        if (triangleCount < 1L) return false
+        val expectedSize = 84L + triangleCount * 50L
+        return expectedSize == bytes.size.toLong()
     }
 
     private fun binaryMinimumZ(bytes: ByteArray): Double {
