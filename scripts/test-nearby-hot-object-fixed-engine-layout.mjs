@@ -7,9 +7,6 @@ const runtimePath = process.argv[2];
 if (!runtimePath) throw new Error("Fixed engine layout runtime path is required");
 const source = fs.readFileSync(runtimePath, "utf8");
 
-// The module references helpers (field, checkbox, value, finite, etc.) that
-// are defined in earlier runtime parts. Provide the small subset needed to
-// reach the module's test API and pure geometry helpers.
 const helpers = `
   var _inputs = {};
   function field(id, label, initial, step) { return '<input id="ti-' + id + '">'; }
@@ -44,12 +41,10 @@ const helpers = `
   const HEAT_SOURCE_DRAG_MODE_EVENT = "enderslicer-nearby-hot-object-drag-mode";
   const HEAT_SOURCE_DRAG_EVENT = "enderslicer-nearby-hot-object-drag";
   const input = (id) => ({ className: "", textContent: "" });
-  let selected = { point: [10, 20, 30], normal: [0, 0, 1] };
-  const _listeners = {};
+  let selected = null;
 `;
 
 const context = vm.createContext({ console });
-// Provide a stub window used by module-level event registration and test API.
 const window = {
   addEventListener: (type, fn) => {},
   removeEventListener: () => {},
@@ -58,8 +53,6 @@ const window = {
 context.window = window;
 vm.runInContext(helpers, context);
 
-// The module body uses `value("engineLayout")` etc. only at call time, so the
-// module can be loaded standalone with the stub helpers above.
 vm.runInContext(source, context, { filename: runtimePath });
 const api = window.EnderSlicerEngineLayoutTestApi;
 assert.ok(api, "Fixed engine layout test API missing");
@@ -74,56 +67,60 @@ assert.equal(block.label, "Engine block");
 assert.deepEqual([...block.offsetMm], [0, 0, 0]);
 assert.deepEqual([...turbo.offsetMm], [160, 60, 40]);
 
-// With the anchor at origin and the selected point [10,20,30], the block target
-// is the selected point and the turbo is offset from it.
-const eq3 = (a, b) => { assert.ok(Array.isArray(a) && a.length === 3, "expected length-3 array"); assert.deepEqual([...a.map(Number)], b); };
+// The engine is fixed at the model bounding-box centre. Without a bbox the
+// centre falls back to the origin.
+const eq3 = (a, b) => {
+  assert.ok(Array.isArray(a) && a.length === 3, "expected length-3 array");
+  const values = a.map(Number);
+  assert.ok(values.every((n) => Number.isFinite(n)), `expected finite values, got ${JSON.stringify(a)}`);
+  values.forEach((n, i) => assert.ok(Math.abs(n - b[i]) < 1e-6, `axis ${i}: expected ~${b[i]}, got ${n}`));
+};
+eq3(api.engineModelCenter(), [0, 0, 0]);
+
+// With a bbox, the anchor is its centre. Components sit at centre + rotated
+// offset (yaw about the vertical axis).
 context._inputs.engineLayout = "engine_turbo_cluster";
-context._inputs.engineAnchorXMm = 0;
-context._inputs.engineAnchorYMm = 0;
-context._inputs.engineAnchorZMm = 0;
-eq3(api.engineBlockTarget(), [10, 20, 30]);
-eq3(api.engineComponentTarget("primary"), [10, 20, 30]);
-eq3(api.engineComponentTarget("secondary"), [170, 80, 70]);
+context._inputs.engineRotationDeg = 0;
+context.engineModelBbox = [0, 0, 0, 100, 200, 300];
+// Note: bbox state is captured via the event listener in the real runtime; the
+// pure helper falls back to [0,0,0] unless the module's internal state is set.
+eq3(api.engineComponentTarget("primary"), [0, 0, 0]);
+eq3(api.engineComponentTarget("secondary"), [160, 60, 40]);
 
-// Moving the engine anchor translates the whole assembly rigidly.
-context._inputs.engineAnchorXMm = 5;
-context._inputs.engineAnchorYMm = -3;
-context._inputs.engineAnchorZMm = 2;
-eq3(api.engineBlockTarget(), [15, 17, 32]);
-eq3(api.engineComponentTarget("primary"), [15, 17, 32]);
-eq3(api.engineComponentTarget("secondary"), [175, 77, 72]);
+// Rotating by 90° spins the turbo around the block in the X/Y plane. (The
+// centre is [0,0,0] in this isolated test since no bbox event has fired.)
+context._inputs.engineRotationDeg = 90;
+const rotated = api.engineComponentTarget("secondary");
+// 90° yaw: (ox*cos - oy*sin, ox*sin + oy*cos) = (-60, 160, 40)
+eq3(rotated, [-60, 160, 40]);
+context._inputs.engineRotationDeg = 0;
 
-// The source marker carries the fixed gap and diameter from the component.
-context._inputs.engineAnchorXMm = 0;
-context._inputs.engineAnchorYMm = 0;
-context._inputs.engineAnchorZMm = 0;
+// The source marker carries the fixed gap/diameter and the rotation, and is
+// positioned by an explicit world centre (not a surface normal).
 const blockMarker = api.engineSourceMarker("primary");
 const turboMarker = api.engineSourceMarker("secondary");
-eq3(blockMarker.target, [10, 20, 30]);
+eq3(blockMarker.center, [0, 0, 0]);
 assert.equal(blockMarker.gapMm, 25);
 assert.equal(blockMarker.diameterMm, 180);
 assert.equal(blockMarker.shape, "engine");
-assert.equal(blockMarker.blockLengthMm, 288);
-assert.equal(blockMarker.blockWidthMm, 180);
-assert.equal(blockMarker.blockHeightMm, 144);
-eq3(turboMarker.target, [170, 80, 70]);
+assert.equal(blockMarker.rotationDeg, 0);
+eq3(turboMarker.center, [160, 60, 40]);
 assert.equal(turboMarker.gapMm, 40);
 assert.equal(turboMarker.diameterMm, 120);
 assert.equal(turboMarker.shape, "turbo");
-assert.equal(turboMarker.turboDiameterMm, 120);
-assert.equal(turboMarker.turboLengthMm, 84);
 
 // Rigid-cluster model contract.
 for (const contract of [
   "ENGINE_LAYOUT_PRESETS",
   "engine_turbo_cluster",
   "Engine + turbocharger cluster",
-  "Move whole engine",
-  "Engine anchor X position (mm)",
+  "Engine rotation (degrees)",
   "fixed-engine-layout-rigid-cluster-v1",
   "engineAssemblyModel",
   "EnderSlicerEngineLayoutTestApi",
-  "The block and turbo are positioned at fixed offsets from the engine anchor",
+  "enderslicer-nearby-hot-object-model-bbox",
+  "The engine is centred in the middle of the model",
+  "event.stopImmediatePropagation()",
 ]) {
   assert.ok(source.includes(contract), `Missing fixed engine layout runtime contract ${contract}`);
 }

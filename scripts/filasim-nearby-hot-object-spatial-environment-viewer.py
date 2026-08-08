@@ -121,12 +121,14 @@ def apply(source_root: pathlib.Path) -> None:
     | {
         target?: [number, number, number];
         normal?: [number, number, number];
+        center?: [number, number, number];
         gapMm: number;
         diameterMm: number;
         sourceId?: number;
         label?: string;
         autoPlace?: boolean;
         shape?: "sphere" | "engine" | "turbo";
+        rotationDeg?: number;
         blockLengthMm?: number;
         blockWidthMm?: number;
         blockHeightMm?: number;
@@ -137,12 +139,14 @@ def apply(source_root: pathlib.Path) -> None:
         markers: Array<{
           target?: [number, number, number];
           normal?: [number, number, number];
+          center?: [number, number, number];
           gapMm: number;
           diameterMm: number;
           sourceId?: number;
           label?: string;
           autoPlace?: boolean;
           shape?: "sphere" | "engine" | "turbo";
+          rotationDeg?: number;
           blockLengthMm?: number;
           blockWidthMm?: number;
           blockHeightMm?: number;
@@ -167,7 +171,9 @@ def apply(source_root: pathlib.Path) -> None:
       const radius = Math.max(0.05, Number(entry.diameterMm) * 0.5);
       const requestedGap = Math.max(0, Number(entry.gapMm));
       let center: THREE.Vector3 | null = null;
-      if (Array.isArray(entry.target) && Array.isArray(entry.normal)) {
+      if (Array.isArray(entry.center) && entry.center.length === 3) {
+        center = new THREE.Vector3(...entry.center);
+      } else if (Array.isArray(entry.target) && Array.isArray(entry.normal)) {
         const target = new THREE.Vector3(...entry.target);
         const normal = new THREE.Vector3(...entry.normal);
         if (normal.lengthSq() > 1e-12) {
@@ -179,12 +185,21 @@ def apply(source_root: pathlib.Path) -> None:
       if (!center) center = this.defaultNearbySourceCenter(sourceId, radius, requestedGap);
       if (!center) return;
       this.nearbyHotObjectCenters.set(sourceId, center.clone());
+      let target: THREE.Vector3;
+      let normal: THREE.Vector3;
+      let gap: number;
       const projected = this.nearestSurfaceForNearbySource(center);
-      if (!projected) return;
-      const target = projected.point;
-      const normal = projected.normal;
-      const distance = center.distanceTo(target);
-      const gap = Math.max(0, distance - radius);
+      if (projected) {
+        target = projected.point;
+        normal = projected.normal;
+        gap = Math.max(0, center.distanceTo(target) - radius);
+      } else {
+        // No mesh surface available: fall back to a purely positional marker
+        // (fixed engine placed without a picked model point).
+        target = center.clone();
+        normal = new THREE.Vector3(0, 0, 1);
+        gap = Math.max(0, requestedGap);
+      }
       const sourceSurface = center.clone().addScaledVector(normal, -radius);
       const primary = sourceId !== 2;
       const pointColor = primary ? 0xffd166 : 0xb5d8ff;
@@ -242,7 +257,17 @@ def apply(source_root: pathlib.Path) -> None:
       const blockHeightMm = Math.max(0.1, Number(entry.blockHeightMm ?? entry.diameterMm));
       const turboDiameterMm = Math.max(0.1, Number(entry.turboDiameterMm ?? entry.diameterMm));
       const turboLengthMm = Math.max(0.1, Number(entry.turboLengthMm ?? Math.max(0.1, entry.diameterMm)));
-      const forward = normal.clone();
+      // Fixed engine shapes are oriented by an explicit world-space yaw so they
+      // do not point at the printed part; a plain movable source keeps pointing
+      // along its surface normal.
+      const rotationDeg = Number(entry.rotationDeg);
+      let forward: THREE.Vector3;
+      if (Number.isFinite(rotationDeg)) {
+        const yaw = rotationDeg * Math.PI / 180;
+        forward = new THREE.Vector3(Math.cos(yaw), Math.sin(yaw), 0);
+      } else {
+        forward = normal.clone();
+      }
       const right = new THREE.Vector3(1, 0, 0);
       if (Math.abs(right.dot(forward)) > 0.98) right.set(0, 0, 1);
       const up = new THREE.Vector3().crossVectors(right, forward).normalize();
@@ -334,7 +359,8 @@ def apply(source_root: pathlib.Path) -> None:
       group.add(point, line, gapGuide, sourceMesh);
       this.nearbyHotObjectMarker.add(group);
 
-      const hadExplicitProjection = Array.isArray(entry.target) && Array.isArray(entry.normal);
+      const hadExplicitProjection = (Array.isArray(entry.target) && Array.isArray(entry.normal))
+        || Array.isArray(entry.center);
       if (!hadExplicitProjection && !this.nearbyHotObjectAutoNotified.has(sourceId)) {
         this.nearbyHotObjectAutoNotified.add(sourceId);
         queueMicrotask(() => this.callbacks.onNearbyHotObjectDrag?.(
@@ -623,6 +649,7 @@ const NEARBY_CLEAR_EVENT = "enderslicer-nearby-hot-object-clear";
         """const NEARBY_DRAG_EVENT = "enderslicer-nearby-hot-object-drag";
 const NEARBY_ENCLOSURE_BOX_EVENT = "enderslicer-nearby-hot-object-enclosure-box";
 const NEARBY_CLEAR_EVENT = "enderslicer-nearby-hot-object-clear";
+const NEARBY_MODEL_BBOX_EVENT = "enderslicer-nearby-hot-object-model-bbox";
 """,
         "enclosure box event constant",
     )
@@ -674,6 +701,24 @@ const NEARBY_CLEAR_EVENT = "enderslicer-nearby-hot-object-clear";
         "enclosure box event cleanup",
     )
 
+    replace_once(
+        viewer,
+        """    sceneEvents.onModelLoaded = (m) => {
+      scene.setNearbyHotObjectMarker(null);
+      window.dispatchEvent(new CustomEvent(NEARBY_CLEAR_EVENT));
+      scene.setModel(m);
+    };""",
+        """    sceneEvents.onModelLoaded = (m) => {
+      scene.setNearbyHotObjectMarker(null);
+      window.dispatchEvent(new CustomEvent(NEARBY_CLEAR_EVENT));
+      window.dispatchEvent(new CustomEvent(NEARBY_MODEL_BBOX_EVENT, {
+        detail: m?.bbox ?? null,
+      }));
+      scene.setModel(m);
+    };""",
+        "model-bbox dispatch on load",
+    )
+
     for path, contract in (
         (scene, "nearestSurfaceForNearbySource"),
         (scene, "setNearbyHotObjectEnclosureBox"),
@@ -681,6 +726,7 @@ const NEARBY_CLEAR_EVENT = "enderslicer-nearby-hot-object-clear";
         (scene, 'nearbyHotObjectDragAxis: "xy" | "z"'),
         (scene, "new THREE.Vector3(0, 0, 1)"),
         (viewer, "NEARBY_ENCLOSURE_BOX_EVENT"),
+        (viewer, "NEARBY_MODEL_BBOX_EVENT"),
         (viewer, "clearNearbyHotObjectState"),
     ):
         if contract not in path.read_text(encoding="utf-8"):

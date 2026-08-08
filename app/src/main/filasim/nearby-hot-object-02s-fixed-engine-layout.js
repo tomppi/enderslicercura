@@ -1,10 +1,11 @@
   // Fixed engine assembly with hot-component layout presets. The engine is a
   // rigid cluster of hot components (engine block plus a closely coupled
   // turbocharger) defined at fixed world-space offsets from an engine anchor.
-  // The whole engine is placed once (free X/Y/Z anchor controls or a single
-  // drag) and every component moves with it, so the two sources never separate.
-  // The block maps to the existing primary source and the turbo to the existing
-  // secondary source, reusing the calibrated two-source radiative exchange.
+  // The engine anchor is FIXED at the model's bounding-box centre so the
+  // engine always sits in the middle of the bay; it cannot be dragged around.
+  // Only rotation (yaw) is adjustable. The block maps to the existing primary
+  // source and the turbo to the existing secondary source, reusing the
+  // calibrated two-source radiative exchange.
   const ENGINE_LAYOUT_PRESETS = Object.freeze({
     custom: Object.freeze({ label: "Custom engine layout", components: [] }),
     engine_turbo_cluster: Object.freeze({
@@ -35,7 +36,8 @@
     }),
   });
 
-  let engineAnchorMm = [0, 0, 0];
+  const ENGINE_BBOX_EVENT = "enderslicer-nearby-hot-object-model-bbox";
+  let engineModelBbox = null;
 
   function engineLayoutName() {
     return value("engineLayout") || "custom";
@@ -61,37 +63,47 @@
       .join("");
   }
 
-  function engineAnchorVector() {
+  function engineRotationDeg() {
+    return finite(value("engineRotationDeg"), "engine rotation", -360, 360);
+  }
+
+  function engineModelCenter() {
+    if (!Array.isArray(engineModelBbox) || engineModelBbox.length !== 6) return [0, 0, 0];
     return [
-      finite(value("engineAnchorXMm"), "engine X position", -100000, 100000),
-      finite(value("engineAnchorYMm"), "engine Y position", -100000, 100000),
-      finite(value("engineAnchorZMm"), "engine Z position", -100000, 100000),
+      (Number(engineModelBbox[0]) + Number(engineModelBbox[3])) * 0.5,
+      (Number(engineModelBbox[1]) + Number(engineModelBbox[4])) * 0.5,
+      (Number(engineModelBbox[2]) + Number(engineModelBbox[5])) * 0.5,
     ];
   }
 
-  function engineBlockTarget() {
-    if (!selected || !Array.isArray(selected.point) || selected.point.length !== 3) return null;
-    const anchor = engineAnchorVector();
-    return selected.point.map((coordinate, axis) => Number(coordinate) + Number(anchor[axis]));
-  }
-
+  // Fixed world-space component centre: the model centre plus the rotated
+  // layout offset. Rotation spins the whole cluster around the engine centre.
   function engineComponentTarget(slot) {
     const component = engineLayoutComponent(slot);
-    const blockTarget = engineBlockTarget();
-    if (!component || !blockTarget) return null;
-    return blockTarget.map((coordinate, axis) => Number(coordinate) + Number(component.offsetMm[axis]));
+    const centre = engineModelCenter();
+    if (!component) return null;
+    const yaw = engineRotationDeg() * Math.PI / 180;
+    const cos = Math.cos(yaw);
+    const sin = Math.sin(yaw);
+    const ox = Number(component.offsetMm[0]);
+    const oy = Number(component.offsetMm[1]);
+    const oz = Number(component.offsetMm[2]);
+    return [
+      centre[0] + ox * cos - oy * sin,
+      centre[1] + ox * sin + oy * cos,
+      centre[2] + oz,
+    ];
   }
 
   function engineSourceMarker(slot) {
     const component = engineLayoutComponent(slot);
-    if (!component || !selected?.normal) return null;
     const target = engineComponentTarget(slot);
-    if (!target) return null;
+    if (!component || !target) return null;
     const base = {
-      target,
-      normal: selected.normal.map(Number),
+      center: target,
       gapMm: Number(component.gapMm),
       diameterMm: Number(component.diameterMm),
+      rotationDeg: engineRotationDeg(),
     };
     if (slot === "primary") {
       return {
@@ -119,15 +131,9 @@
         <select id="ti-engineLayout">${engineLayoutOptions()}</select>
       </label>
       <div id="ti-engine-layout-fields" class="ti-hidden">
-        <div class="ti-status dim"><b>Fixed engine assembly.</b> The block and turbo are positioned at fixed offsets from the engine anchor. Move the engine as one unit below; drag either source sphere to re-position the whole engine.</div>
+        <div class="ti-status dim"><b>Fixed engine assembly.</b> The engine is centred in the middle of the model. Its position is fixed; only the rotation below is adjustable. Rotating spins the whole block + turbo cluster together.</div>
         <div class="ti-grid">
-          ${field("engineAnchorXMm", "Engine anchor X position (mm)", 0, 1)}
-          ${field("engineAnchorYMm", "Engine anchor Y position (mm)", 0, 1)}
-          ${field("engineAnchorZMm", "Engine anchor Z position (mm)", 0, 1)}
-        </div>
-        <div class="ti-actions">
-          <button id="ti-drag-engine" type="button">Move whole engine</button>
-          <button id="ti-centre-engine" type="button">Centre engine on part</button>
+          ${field("engineRotationDeg", "Engine rotation (degrees)", 0, 1)}
         </div>
         <div id="ti-engine-layout-detail" class="ti-status dim">No engine layout selected.</div>
       </div>
@@ -147,8 +153,9 @@
     }
     const preset = ENGINE_LAYOUT_PRESETS[engineLayoutName()];
     const parts = engineLayoutComponents().map((component) => {
-      const offset = component.offsetMm.map((n) => format(n, 1)).join(", ");
-      return `${component.label} @ +${offset} mm · ${format(component.temperatureC, 0)} °C · ${format(component.diameterMm, 0)} mm`;
+      const target = engineComponentTarget(component.slot);
+      const position = target ? `@ ${target.map((n) => format(n, 1)).join(", ")} mm` : "@ —";
+      return `${component.label} ${position} · ${format(component.temperatureC, 0)} °C · ${format(component.diameterMm, 0)} mm`;
     });
     detail.textContent = `${preset.label}: ${parts.join(" | ")}`;
   }
@@ -184,27 +191,6 @@
     renderCombinedHeatSourceMarkers();
   }
 
-  function centreEngine() {
-    setValue("engineAnchorXMm", 0);
-    setValue("engineAnchorYMm", 0);
-    setValue("engineAnchorZMm", 0);
-    renderCombinedHeatSourceMarkers();
-  }
-
-  function beginEngineDrag() {
-    if (!selected) {
-      const status = input("status");
-      status.className = "ti-status ti-warning";
-      status.textContent = "Select or place the engine block point before dragging the engine.";
-      return;
-    }
-    renderCombinedHeatSourceMarkers();
-    window.dispatchEvent(new CustomEvent(HEAT_SOURCE_DRAG_MODE_EVENT, { detail: 1 }));
-    const status = input("status");
-    status.className = "ti-status dim";
-    status.textContent = "Drag the orange engine block sphere in the 3D viewer. The whole engine moves together.";
-  }
-
   const engineLayoutCollectOptionsBase = collectOptions;
   collectOptions = function collectOptionsWithFixedEngineLayout() {
     const options = engineLayoutCollectOptionsBase();
@@ -212,12 +198,18 @@
     if (!engineLayoutActive()) return options;
     const block = engineLayoutComponent("primary");
     const turbo = engineLayoutComponent("secondary");
-    const blockTarget = engineBlockTarget();
+    const blockTarget = engineComponentTarget("primary");
     if (!block || !blockTarget) {
-      throw new Error("Select the model point nearest the engine block first.");
+      throw new Error("Unable to position the engine block at the model centre.");
     }
-    options.sourceTargetMm = blockTarget.map(Number);
-    options.sourceNormal = selected.normal.map(Number);
+    // The engine is fixed in viewer/world space (it stays put while the printed
+    // part is moved by 02p). Convert the world-space component centres to the
+    // fixed solver voxel-grid frame, mirroring 02p's placement translation.
+    const placement = (typeof partPlacementVector === "function") ? partPlacementVector() : [0, 0, 0];
+    const toSolver = (typeof thermalPointFromViewer === "function")
+      ? (point) => thermalPointFromViewer(point, placement)
+      : (point) => point.map(Number);
+    options.sourceTargetMm = toSolver(blockTarget);
     options.sourceGapMm = Number(block.gapMm);
     options.sourceDiameterMm = Number(block.diameterMm);
     options.sourceTemperatureC = Number(options.sourceTemperatureC);
@@ -225,15 +217,15 @@
       const turboTarget = engineComponentTarget("secondary");
       if (!turboTarget) throw new Error("Unable to position the engine turbocharger.");
       options.source2Enabled = true;
-      options.source2TargetMm = turboTarget.map(Number);
-      options.source2Normal = selected.normal.map(Number);
+      options.source2TargetMm = toSolver(turboTarget);
       options.source2GapMm = Number(turbo.gapMm);
       options.source2DiameterMm = Number(turbo.diameterMm);
       options.source2TemperatureC = Number(options.source2TemperatureC);
     } else {
       options.source2Enabled = false;
     }
-    options.engineAnchorMm = engineAnchorVector().map(Number);
+    options.engineRotationDeg = engineRotationDeg();
+    options.engineAnchorMm = engineModelCenter().map(Number);
     options.engineAssemblyModel = "fixed-engine-layout-rigid-cluster-v1";
     return options;
   };
@@ -259,10 +251,10 @@
     engineLayoutRenderSelectionBase();
     if (!engineLayoutActive()) return;
     const box = document.getElementById("ti-source-selection");
-    if (!box || !selected) return;
-    const blockTarget = engineBlockTarget();
-    const p = blockTarget?.map((n) => Number(n).toFixed(2)).join(", ");
-    box.textContent = `Engine block anchor: ${p} mm (engine placement + selected point). The turbo is offset from this anchor.`;
+    if (!box) return;
+    const centre = engineModelCenter();
+    const c = centre.map((n) => Number(n).toFixed(2)).join(", ");
+    box.textContent = `Engine is fixed at the model centre (${c} mm) and rotates around it. The block and turbo move as one rigid cluster.`;
   };
 
   const engineLayoutBindBase = bind;
@@ -272,17 +264,10 @@
       applyEngineLayout(event.target.value);
       invalidate("Engine layout changed; calculate again.");
     });
-    group.querySelector("#ti-drag-engine")?.addEventListener("click", beginEngineDrag);
-    group.querySelector("#ti-centre-engine")?.addEventListener("click", () => {
-      centreEngine();
-      invalidate("Engine centred; calculate again.");
+    group.querySelector("#ti-engineRotationDeg")?.addEventListener("change", () => {
+      renderCombinedHeatSourceMarkers();
+      invalidate("Engine rotation changed; calculate again.");
     });
-    for (const id of ["engineAnchorXMm", "engineAnchorYMm", "engineAnchorZMm"]) {
-      group.querySelector(`#ti-${id}`)?.addEventListener("change", () => {
-        renderCombinedHeatSourceMarkers();
-        invalidate("Engine position changed; calculate again.");
-      });
-    }
   };
 
   const engineLayoutRestoreDraftBase = restoreDraft;
@@ -298,13 +283,13 @@
     const preset = ENGINE_LAYOUT_PRESETS[latest.options.engineLayout];
     input("kpis").insertAdjacentHTML("beforeend", [
       kpi("Engine layout", preset?.label || latest.options.engineLayout),
-      kpi("Engine anchor", latest.options.engineAnchorMm
-        ? latest.options.engineAnchorMm.map((n) => format(n, 1)).join(", ")
+      kpi("Engine rotation", latest.options.engineRotationDeg != null
+        ? `${format(Number(latest.options.engineRotationDeg), 1)}°`
         : "—"),
-      kpi("Engine movement", "Rigid assembly (block + turbo stay fixed together)"),
+      kpi("Engine movement", "Fixed at model centre (rotation only)"),
     ].join(""));
     const note = input("result-note");
-    note.textContent += `\n${preset?.description || "Fixed engine assembly layout."} The layout offsets, temperatures, sizes and emissivities are editable engineering starting assumptions, not vehicle-specific measured values.`;
+    note.textContent += `\n${preset?.description || "Fixed engine assembly layout."} The engine is centred in the model and only rotates; the layout offsets, temperatures, sizes and emissivities are editable engineering starting assumptions, not vehicle-specific measured values.`;
   };
 
   const engineLayoutCollectReportBase = collectReport;
@@ -317,6 +302,7 @@
         label: preset?.label || latest.options.engineLayout,
         model: latest.options.engineAssemblyModel || "fixed-engine-layout-rigid-cluster-v1",
         anchorMm: latest.options.engineAnchorMm || [0, 0, 0],
+        rotationDeg: Number(latest.options.engineRotationDeg ?? 0),
         components: engineLayoutComponents().map((component) => ({
           slot: component.slot,
           label: component.label,
@@ -332,14 +318,21 @@
     return report;
   };
 
-  // A drag on either source sphere moves the whole engine: re-derive the
-  // secondary marker from the primary so the cluster never separates.
+  // The engine is fixed at the model centre; dragging a source sphere is
+  // ignored so the rigid cluster never moves or points toward the part.
   window.addEventListener(HEAT_SOURCE_DRAG_EVENT, (event) => {
     if (!engineLayoutActive()) return;
-    const sourceId = Number(event?.detail?.sourceId);
-    if (sourceId !== 1 && sourceId !== 2) return;
+    event.stopImmediatePropagation();
     renderCombinedHeatSourceMarkers();
-    invalidate("Engine moved; calculate again.");
+  });
+
+  window.addEventListener(ENGINE_BBOX_EVENT, (event) => {
+    const bbox = event?.detail;
+    if (Array.isArray(bbox) && bbox.length === 6) engineModelBbox = bbox.map(Number);
+    if (engineLayoutActive()) {
+      renderCombinedHeatSourceMarkers();
+      syncEngineLayoutUi();
+    }
   });
 
   window.EnderSlicerEngineLayoutTestApi = Object.freeze({
@@ -347,8 +340,8 @@
     engineLayoutActive,
     engineLayoutComponents,
     engineLayoutComponent,
-    engineAnchorVector,
-    engineBlockTarget,
+    engineModelCenter,
+    engineRotationDeg,
     engineComponentTarget,
     engineSourceMarker,
   });
