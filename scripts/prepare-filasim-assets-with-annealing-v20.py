@@ -23,12 +23,18 @@ REACT_SAFE_TEST = pathlib.Path(__file__).with_name(
 PROGRESS_ACTION_ROW_TEST = pathlib.Path(__file__).with_name(
     "test-nearby-hot-object-progress-action-row.mjs"
 )
+ENGINE_LAYOUT_TEST = pathlib.Path(__file__).with_name(
+    "test-nearby-hot-object-fixed-engine-layout.mjs"
+)
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
 PLACEMENT_RUNTIME = (
     PROJECT_ROOT / "app/src/main/filasim/nearby-hot-object-02p-engine-bay-part-placement.js"
 )
 REACT_SAFE_RUNTIME = (
     PROJECT_ROOT / "app/src/main/filasim/nearby-hot-object-02q-react-safe-remount.js"
+)
+ENGINE_LAYOUT_RUNTIME = (
+    PROJECT_ROOT / "app/src/main/filasim/nearby-hot-object-02s-fixed-engine-layout.js"
 )
 PROGRESS_WORKSPACE_RUNTIME = (
     PROJECT_ROOT / "app/src/main/filasim/thermal-integrity-workspace.js"
@@ -42,8 +48,10 @@ for path in (
     ZONE_AXIS_TEST,
     REACT_SAFE_TEST,
     PROGRESS_ACTION_ROW_TEST,
+    ENGINE_LAYOUT_TEST,
     PLACEMENT_RUNTIME,
     REACT_SAFE_RUNTIME,
+    ENGINE_LAYOUT_RUNTIME,
     PROGRESS_WORKSPACE_RUNTIME,
 ):
     if not path.is_file():
@@ -102,10 +110,15 @@ def patch_part_placement_runtime(target: pathlib.Path) -> None:
         ["node", str(PROGRESS_ACTION_ROW_TEST), str(PROGRESS_WORKSPACE_RUNTIME)],
         check=True,
     )
+    subprocess.run(
+        ["node", str(ENGINE_LAYOUT_TEST), str(ENGINE_LAYOUT_RUNTIME)],
+        check=True,
+    )
     text = target.read_text(encoding="utf-8")
     runtime = (
         PLACEMENT_RUNTIME.read_text(encoding="utf-8")
         + REACT_SAFE_RUNTIME.read_text(encoding="utf-8")
+        + ENGINE_LAYOUT_RUNTIME.read_text(encoding="utf-8")
     )
     anchor = "  // Preserve installUi callback name for MutationObserver guard."
     if runtime not in text:
@@ -129,6 +142,11 @@ def patch_part_placement_runtime(target: pathlib.Path) -> None:
         "__enderSlicerThermalShadowLookup",
         "EnderSlicerNearbyReactSafeMountTestApi",
         "installUi = function installUi()",
+        "ENGINE_LAYOUT_PRESETS",
+        "engine_turbo_cluster",
+        "Engine + turbocharger cluster",
+        "Move whole engine",
+        "EnderSlicerEngineLayoutTestApi",
     ):
         if contract not in verified:
             raise RuntimeError(f"Engine-bay v20 runtime is missing {contract!r}")
@@ -142,7 +160,8 @@ thermal.THERMAL_PACKAGE_MARKER_TEXT = v19.thermal.THERMAL_PACKAGE_MARKER_TEXT.re
     "engine-bay-part-placement-viewer-v1,"
     "engine-bay-part-placement-runtime-v1,"
     "nearby-hot-object-react-shadow-isolation-v2,"
-    "nearby-hot-object-progress-action-row-v1\n",
+    "nearby-hot-object-progress-action-row-v1,"
+    "nearby-hot-object-fixed-engine-layout-v1\n",
 )
 
 if __name__ == "__main__":
