@@ -126,6 +126,12 @@ def apply(source_root: pathlib.Path) -> None:
         sourceId?: number;
         label?: string;
         autoPlace?: boolean;
+        shape?: "sphere" | "engine" | "turbo";
+        blockLengthMm?: number;
+        blockWidthMm?: number;
+        blockHeightMm?: number;
+        turboDiameterMm?: number;
+        turboLengthMm?: number;
       }
     | {
         markers: Array<{
@@ -136,6 +142,12 @@ def apply(source_root: pathlib.Path) -> None:
           sourceId?: number;
           label?: string;
           autoPlace?: boolean;
+          shape?: "sphere" | "engine" | "turbo";
+          blockLengthMm?: number;
+          blockWidthMm?: number;
+          blockHeightMm?: number;
+          turboDiameterMm?: number;
+          turboLengthMm?: number;
         }>;
       }
     | null
@@ -224,8 +236,44 @@ def apply(source_root: pathlib.Path) -> None:
         wireframe: true,
         depthWrite: false,
       });
-      const sourceMesh = new THREE.Mesh(sourceGeo, sourceMat);
+      const sourceShape = String(entry.shape ?? "sphere");
+      const blockLengthMm = Math.max(0.1, Number(entry.blockLengthMm ?? entry.diameterMm));
+      const blockWidthMm = Math.max(0.1, Number(entry.blockWidthMm ?? entry.diameterMm));
+      const blockHeightMm = Math.max(0.1, Number(entry.blockHeightMm ?? entry.diameterMm));
+      const turboDiameterMm = Math.max(0.1, Number(entry.turboDiameterMm ?? entry.diameterMm));
+      const turboLengthMm = Math.max(0.1, Number(entry.turboLengthMm ?? Math.max(0.1, entry.diameterMm)));
+      const forward = normal.clone();
+      const right = new THREE.Vector3(1, 0, 0);
+      if (Math.abs(right.dot(forward)) > 0.98) right.set(0, 0, 1);
+      const up = new THREE.Vector3().crossVectors(right, forward).normalize();
+      right.crossVectors(forward, up).normalize();
+      const basis = new THREE.Matrix4().makeBasis(right, up, forward);
+      let sourceGeometry: THREE.BufferGeometry;
+      let sourceTransform: (mesh: THREE.Mesh) => void;
+      if (sourceShape === "engine") {
+        // Engine block: a rectangular box with the long axis along the surface
+        // normal, sized from the effective radiating dimensions.
+        sourceGeometry = new THREE.BoxGeometry(blockWidthMm, blockHeightMm, blockLengthMm);
+        sourceTransform = (mesh) => mesh.quaternion.setFromRotationMatrix(basis);
+      } else if (sourceShape === "turbo") {
+        // Turbocharger: a short cylinder (housing) with a compressor snout, its
+        // axis aligned to the surface normal.
+        sourceGeometry = new THREE.CylinderGeometry(
+          turboDiameterMm * 0.5,
+          turboDiameterMm * 0.5,
+          turboLengthMm,
+          24,
+          1,
+          false,
+        );
+        sourceTransform = (mesh) => mesh.quaternion.setFromRotationMatrix(basis);
+      } else {
+        sourceGeometry = sourceGeo;
+        sourceTransform = () => {};
+      }
+      const sourceMesh = new THREE.Mesh(sourceGeometry, sourceMat);
       sourceMesh.position.copy(center);
+      sourceTransform(sourceMesh);
       sourceMesh.renderOrder = 1003;
       sourceMesh.userData = {
         nearbyMarkerType: "source",
@@ -234,15 +282,57 @@ def apply(source_root: pathlib.Path) -> None:
         nearbyNormal: [normal.x, normal.y, normal.z],
         nearbyGapMm: gap,
         nearbyDiameterMm: Number(entry.diameterMm),
+        nearbyShape: sourceShape,
       };
+      if (sourceShape === "turbo") {
+        // Compressor / turbine snout: a short cap on the outward face so the
+        // turbo reads as a two-stage housing rather than a plain drum.
+        const snoutGeo = new THREE.CylinderGeometry(
+          turboDiameterMm * 0.3,
+          turboDiameterMm * 0.3,
+          Math.max(0.1, turboLengthMm * 0.4),
+          18,
+          1,
+          false,
+        );
+        const snoutMat = new THREE.MeshStandardMaterial({
+          color: sourceColor,
+          emissive: emissiveColor,
+          emissiveIntensity: 0.5,
+          transparent: true,
+          opacity: 0.42,
+          wireframe: true,
+          depthWrite: false,
+        });
+        const snout = new THREE.Mesh(snoutGeo, snoutMat);
+        snout.position.set(0, 0, (turboLengthMm + Math.max(0.1, turboLengthMm * 0.4)) * 0.5);
+        snout.quaternion.setFromRotationMatrix(basis);
+        snout.renderOrder = 1003;
+        snout.userData = {
+          nearbyMarkerType: "source",
+          nearbySourceId: sourceId,
+          nearbyTarget: [target.x, target.y, target.z],
+          nearbyNormal: [normal.x, normal.y, normal.z],
+          nearbyGapMm: gap,
+          nearbyDiameterMm: Number(entry.diameterMm),
+          nearbyShape: "turbo",
+        };
+        sourceMesh.add(snout);
+        this.nearbyHotObjectMarkerDisposables.push(
+          pointGeo, pointMat, lineGeo, lineMat, gapGeo, gapMat,
+          sourceGeometry, sourceMat, snoutGeo, snoutMat,
+        );
+      } else {
+        this.nearbyHotObjectMarkerDisposables.push(
+          pointGeo, pointMat, lineGeo, lineMat, gapGeo, gapMat,
+          sourceGeometry, sourceMat,
+        );
+      }
 
       const group = new THREE.Group();
       group.userData = { nearbySourceId: sourceId };
       group.add(point, line, gapGuide, sourceMesh);
       this.nearbyHotObjectMarker.add(group);
-      this.nearbyHotObjectMarkerDisposables.push(
-        pointGeo, pointMat, lineGeo, lineMat, gapGeo, gapMat, sourceGeo, sourceMat,
-      );
 
       const hadExplicitProjection = Array.isArray(entry.target) && Array.isArray(entry.normal);
       if (!hadExplicitProjection && !this.nearbyHotObjectAutoNotified.has(sourceId)) {

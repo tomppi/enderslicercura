@@ -87,11 +87,26 @@
     if (!component || !selected?.normal) return null;
     const target = engineComponentTarget(slot);
     if (!target) return null;
-    return {
+    const base = {
       target,
       normal: selected.normal.map(Number),
       gapMm: Number(component.gapMm),
       diameterMm: Number(component.diameterMm),
+    };
+    if (slot === "primary") {
+      return {
+        ...base,
+        shape: "engine",
+        blockLengthMm: Number(component.blockLengthMm ?? component.diameterMm * 1.6),
+        blockWidthMm: Number(component.blockWidthMm ?? component.diameterMm),
+        blockHeightMm: Number(component.blockHeightMm ?? component.diameterMm * 0.8),
+      };
+    }
+    return {
+      ...base,
+      shape: "turbo",
+      turboDiameterMm: Number(component.turboDiameterMm ?? component.diameterMm),
+      turboLengthMm: Number(component.turboLengthMm ?? component.diameterMm * 0.7),
     };
   }
 

@@ -102,9 +102,16 @@ const turboMarker = api.engineSourceMarker("secondary");
 eq3(blockMarker.target, [10, 20, 30]);
 assert.equal(blockMarker.gapMm, 25);
 assert.equal(blockMarker.diameterMm, 180);
+assert.equal(blockMarker.shape, "engine");
+assert.equal(blockMarker.blockLengthMm, 288);
+assert.equal(blockMarker.blockWidthMm, 180);
+assert.equal(blockMarker.blockHeightMm, 144);
 eq3(turboMarker.target, [170, 80, 70]);
 assert.equal(turboMarker.gapMm, 40);
 assert.equal(turboMarker.diameterMm, 120);
+assert.equal(turboMarker.shape, "turbo");
+assert.equal(turboMarker.turboDiameterMm, 120);
+assert.equal(turboMarker.turboLengthMm, 84);
 
 // Rigid-cluster model contract.
 for (const contract of [
