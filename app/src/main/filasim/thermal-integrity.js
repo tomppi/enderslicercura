@@ -176,7 +176,10 @@
   }
 
   function field(id, label, value, step = "any") {
-    return `<label class="ti-field"><span>${label}</span><input id="ti-${id}" type="number" value="${value}" step="${step}"></label>`;
+    // Android WebView number inputs can drop keystrokes while the IME is
+    // composing; a decimal text input shows the decimal keypad and accepts
+    // every key. Values are still validated on read.
+    return `<label class="ti-field"><span>${label}</span><input id="ti-${id}" type="text" inputmode="decimal" autocomplete="off" spellcheck="false" value="${value}"></label>`;
   }
 
   function checkbox(id, label, on) {

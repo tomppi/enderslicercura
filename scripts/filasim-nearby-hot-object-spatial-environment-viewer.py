@@ -129,6 +129,8 @@ def apply(source_root: pathlib.Path) -> None:
         autoPlace?: boolean;
         shape?: "sphere" | "engine" | "turbo";
         rotationDeg?: number;
+        pitchDeg?: number;
+        rollDeg?: number;
         blockLengthMm?: number;
         blockWidthMm?: number;
         blockHeightMm?: number;
@@ -147,6 +149,8 @@ def apply(source_root: pathlib.Path) -> None:
           autoPlace?: boolean;
           shape?: "sphere" | "engine" | "turbo";
           rotationDeg?: number;
+          pitchDeg?: number;
+          rollDeg?: number;
           blockLengthMm?: number;
           blockWidthMm?: number;
           blockHeightMm?: number;
@@ -257,22 +261,44 @@ def apply(source_root: pathlib.Path) -> None:
       const blockHeightMm = Math.max(0.1, Number(entry.blockHeightMm ?? entry.diameterMm));
       const turboDiameterMm = Math.max(0.1, Number(entry.turboDiameterMm ?? entry.diameterMm));
       const turboLengthMm = Math.max(0.1, Number(entry.turboLengthMm ?? Math.max(0.1, entry.diameterMm)));
-      // Fixed engine shapes are oriented by an explicit world-space yaw so they
-      // do not point at the printed part; a plain movable source keeps pointing
-      // along its surface normal.
+      // Fixed engine shapes are oriented by explicit world-space yaw, pitch and
+      // roll so they do not point at the printed part; a plain movable source
+      // keeps pointing along its surface normal. The basis is built from the
+      // three Euler angles in the same order as the engine-layout module
+      // (yaw about Z, then pitch about Y, then roll about X).
       const rotationDeg = Number(entry.rotationDeg);
+      let basis: THREE.Matrix4;
       let forward: THREE.Vector3;
       if (Number.isFinite(rotationDeg)) {
         const yaw = rotationDeg * Math.PI / 180;
-        forward = new THREE.Vector3(Math.cos(yaw), Math.sin(yaw), 0);
+        const pitch = Number(entry.pitchDeg ?? 0) * Math.PI / 180;
+        const roll = Number(entry.rollDeg ?? 0) * Math.PI / 180;
+        const cy = Math.cos(yaw);
+        const sy = Math.sin(yaw);
+        const cp = Math.cos(pitch);
+        const sp = Math.sin(pitch);
+        const cr = Math.cos(roll);
+        const sr = Math.sin(roll);
+        forward = new THREE.Vector3(cp * cy, cp * sy, -sp);
+        const right = new THREE.Vector3(
+          -sr * sp * cy + cr * -sy,
+          -sr * sp * sy + cr * cy,
+          -sr * cp,
+        );
+        const up = new THREE.Vector3(
+          cr * sp * cy + sr * -sy,
+          cr * sp * sy + sr * cy,
+          cr * cp,
+        );
+        basis = new THREE.Matrix4().makeBasis(right, up, forward);
       } else {
         forward = normal.clone();
+        const right = new THREE.Vector3(1, 0, 0);
+        if (Math.abs(right.dot(forward)) > 0.98) right.set(0, 0, 1);
+        const up = new THREE.Vector3().crossVectors(right, forward).normalize();
+        right.crossVectors(forward, up).normalize();
+        basis = new THREE.Matrix4().makeBasis(right, up, forward);
       }
-      const right = new THREE.Vector3(1, 0, 0);
-      if (Math.abs(right.dot(forward)) > 0.98) right.set(0, 0, 1);
-      const up = new THREE.Vector3().crossVectors(right, forward).normalize();
-      right.crossVectors(forward, up).normalize();
-      const basis = new THREE.Matrix4().makeBasis(right, up, forward);
       let sourceGeometry: THREE.BufferGeometry;
       let sourceTransform: (mesh: THREE.Mesh) => void;
       if (sourceShape === "engine") {

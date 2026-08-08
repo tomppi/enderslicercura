@@ -110,7 +110,11 @@
   function checked(id) { return Boolean(input(id).checked); }
   function setValue(id, next) { const el = document.getElementById(`ti-${id}`); if (el) el.value = String(next); }
   function field(id, label, initial, step = "any") {
-    return `<label class="ti-field"><span>${label}</span><input id="ti-${id}" type="number" value="${initial}" step="${step}"></label>`;
+    // Android WebView number inputs can drop keystrokes (only the 7/8/9/0 row
+    // registering) because Chromium applies step/min/max validation while the
+    // IME is composing. Use a decimal text input so the device shows a decimal
+    // keypad and accepts every key; validation still happens in collectOptions.
+    return `<label class="ti-field"><span>${label}</span><input id="ti-${id}" type="text" inputmode="decimal" autocomplete="off" spellcheck="false" value="${initial}"></label>`;
   }
   function checkbox(id, label, on) {
     return `<label class="ti-check"><input id="ti-${id}" type="checkbox"${on ? " checked" : ""}><span>${label}</span></label>`;

@@ -67,6 +67,14 @@
     return finite(value("engineRotationDeg"), "engine rotation", -360, 360);
   }
 
+  function enginePitchDeg() {
+    return finite(value("enginePitchDeg"), "engine pitch", -90, 90);
+  }
+
+  function engineRollDeg() {
+    return finite(value("engineRollDeg"), "engine roll", -180, 180);
+  }
+
   function engineModelCenter() {
     if (!Array.isArray(engineModelBbox) || engineModelBbox.length !== 6) return [0, 0, 0];
     return [
@@ -76,22 +84,40 @@
     ];
   }
 
+  // Rotate a vector by yaw (Z), then pitch (Y), then roll (X) in degrees,
+  // applied in the fixed engine's local frame so the whole cluster rotates as
+  // a rigid body about the model centre.
+  function engineRotateVector(offset) {
+    const yaw = engineRotationDeg() * Math.PI / 180;
+    const pitch = enginePitchDeg() * Math.PI / 180;
+    const roll = engineRollDeg() * Math.PI / 180;
+    const cx = Math.cos(roll);
+    const sx = Math.sin(roll);
+    const cy = Math.cos(yaw);
+    const sy = Math.sin(yaw);
+    const cp = Math.cos(pitch);
+    const sp = Math.sin(pitch);
+    let [x, y, z] = offset.map(Number);
+    // Yaw about Z.
+    [x, y] = [x * cy - y * sy, x * sy + y * cy];
+    // Pitch about Y.
+    [x, z] = [x * cp + z * sp, -x * sp + z * cp];
+    // Roll about X.
+    [y, z] = [y * cx - z * sx, y * sx + z * cx];
+    return [x, y, z];
+  }
+
   // Fixed world-space component centre: the model centre plus the rotated
   // layout offset. Rotation spins the whole cluster around the engine centre.
   function engineComponentTarget(slot) {
     const component = engineLayoutComponent(slot);
     const centre = engineModelCenter();
     if (!component) return null;
-    const yaw = engineRotationDeg() * Math.PI / 180;
-    const cos = Math.cos(yaw);
-    const sin = Math.sin(yaw);
-    const ox = Number(component.offsetMm[0]);
-    const oy = Number(component.offsetMm[1]);
-    const oz = Number(component.offsetMm[2]);
+    const rotated = engineRotateVector(component.offsetMm);
     return [
-      centre[0] + ox * cos - oy * sin,
-      centre[1] + ox * sin + oy * cos,
-      centre[2] + oz,
+      centre[0] + rotated[0],
+      centre[1] + rotated[1],
+      centre[2] + rotated[2],
     ];
   }
 
@@ -104,6 +130,8 @@
       gapMm: Number(component.gapMm),
       diameterMm: Number(component.diameterMm),
       rotationDeg: engineRotationDeg(),
+      pitchDeg: enginePitchDeg(),
+      rollDeg: engineRollDeg(),
     };
     if (slot === "primary") {
       return {
@@ -133,7 +161,9 @@
       <div id="ti-engine-layout-fields" class="ti-hidden">
         <div class="ti-status dim"><b>Fixed engine assembly.</b> The engine is centred in the middle of the model. Its position is fixed; only the rotation below is adjustable. Rotating spins the whole block + turbo cluster together.</div>
         <div class="ti-grid">
-          ${field("engineRotationDeg", "Engine rotation (degrees)", 0, 1)}
+          ${field("engineRotationDeg", "Engine yaw / rotation (degrees)", 0, 1)}
+          ${field("enginePitchDeg", "Engine pitch (degrees)", 0, 1)}
+          ${field("engineRollDeg", "Engine roll (degrees)", 0, 1)}
           ${field("forcedConvectionWm2K", "Forced-air cooling (W/m²K)", 0, 1)}
         </div>
         <div class="ti-status dim">Forced-air cooling adds a fan/ram-air convection coefficient on every exposed face of the part. 0 = natural convection only; typical cooling fans add 20-60 W/m²K.</div>
@@ -234,6 +264,8 @@
       options.source2Enabled = false;
     }
     options.engineRotationDeg = engineRotationDeg();
+    options.enginePitchDeg = enginePitchDeg();
+    options.engineRollDeg = engineRollDeg();
     options.engineAnchorMm = engineModelCenter().map(Number);
     options.engineAssemblyModel = "fixed-engine-layout-rigid-cluster-v1";
     options.forcedConvectionWm2K = finite(
@@ -283,6 +315,14 @@
       renderCombinedHeatSourceMarkers();
       invalidate("Engine rotation changed; calculate again.");
     });
+    group.querySelector("#ti-enginePitchDeg")?.addEventListener("change", () => {
+      renderCombinedHeatSourceMarkers();
+      invalidate("Engine pitch changed; calculate again.");
+    });
+    group.querySelector("#ti-engineRollDeg")?.addEventListener("change", () => {
+      renderCombinedHeatSourceMarkers();
+      invalidate("Engine roll changed; calculate again.");
+    });
   };
 
   const engineLayoutRestoreDraftBase = restoreDraft;
@@ -298,8 +338,11 @@
     const preset = ENGINE_LAYOUT_PRESETS[latest.options.engineLayout];
     input("kpis").insertAdjacentHTML("beforeend", [
       kpi("Engine layout", preset?.label || latest.options.engineLayout),
-      kpi("Engine rotation", latest.options.engineRotationDeg != null
+      kpi("Engine yaw", latest.options.engineRotationDeg != null
         ? `${format(Number(latest.options.engineRotationDeg), 1)}°`
+        : "—"),
+      kpi("Engine pitch / roll", latest.options.enginePitchDeg != null
+        ? `${format(Number(latest.options.enginePitchDeg), 1)}° / ${format(Number(latest.options.engineRollDeg ?? 0), 1)}°`
         : "—"),
       kpi("Engine movement", "Fixed at model centre (rotation only)"),
     ].join(""));
@@ -318,6 +361,8 @@
         model: latest.options.engineAssemblyModel || "fixed-engine-layout-rigid-cluster-v1",
         anchorMm: latest.options.engineAnchorMm || [0, 0, 0],
         rotationDeg: Number(latest.options.engineRotationDeg ?? 0),
+        pitchDeg: Number(latest.options.enginePitchDeg ?? 0),
+        rollDeg: Number(latest.options.engineRollDeg ?? 0),
         components: engineLayoutComponents().map((component) => ({
           slot: component.slot,
           label: component.label,

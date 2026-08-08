@@ -95,6 +95,20 @@ const rotated = api.engineComponentTarget("secondary");
 eq3(rotated, [-60, 160, 40]);
 context._inputs.engineRotationDeg = 0;
 
+// Pitch tilts the turbo in the X/Z plane: 90° pitch maps +X -> -Z, +Z -> +X.
+context._inputs.enginePitchDeg = 90;
+const pitched = api.engineComponentTarget("secondary");
+// Pitch 90° about Y: x' = z, z' = -x  (160, 60, 40) -> (40, 60, -160)
+eq3(pitched, [40, 60, -160]);
+context._inputs.enginePitchDeg = 0;
+
+// Roll spins around X: 90° roll maps +Y -> +Z, +Z -> -Y.
+context._inputs.engineRollDeg = 90;
+const rolled = api.engineComponentTarget("secondary");
+// Roll 90° about X: y' = -z, z' = y  (160, 60, 40) -> (160, -40, 60)
+eq3(rolled, [160, -40, 60]);
+context._inputs.engineRollDeg = 0;
+
 // The source marker carries the fixed gap/diameter and the rotation, and is
 // positioned by an explicit world centre (not a surface normal).
 const blockMarker = api.engineSourceMarker("primary");
@@ -114,7 +128,7 @@ for (const contract of [
   "ENGINE_LAYOUT_PRESETS",
   "engine_turbo_cluster",
   "Engine + turbocharger cluster",
-  "Engine rotation (degrees)",
+  "Engine yaw / rotation (degrees)",
   "fixed-engine-layout-rigid-cluster-v1",
   "engineAssemblyModel",
   "EnderSlicerEngineLayoutTestApi",
@@ -127,6 +141,10 @@ for (const contract of [
   "source2TurboDiameterMm",
   "forcedConvectionWm2K",
   "Forced-air cooling (W/m²K)",
+  "enginePitchDeg",
+  "engineRollDeg",
+  "Engine pitch (degrees)",
+  "Engine roll (degrees)",
 ]) {
   assert.ok(source.includes(contract), `Missing fixed engine layout runtime contract ${contract}`);
 }

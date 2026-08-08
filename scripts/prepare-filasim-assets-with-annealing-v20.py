@@ -145,7 +145,8 @@ def patch_part_placement_runtime(target: pathlib.Path) -> None:
         "ENGINE_LAYOUT_PRESETS",
         "engine_turbo_cluster",
         "Engine + turbocharger cluster",
-        "Engine rotation (degrees)",
+        "Engine yaw / rotation (degrees)",
+        "Engine pitch (degrees)",
         "EnderSlicerEngineLayoutTestApi",
     ):
         if contract not in verified:

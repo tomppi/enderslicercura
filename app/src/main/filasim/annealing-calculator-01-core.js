@@ -168,7 +168,10 @@
     return number;
   }
   function field(id, label, defaultValue, step = "any", suffix = "") {
-    return `<label class="ac-field"><span>${label}</span><div class="ac-input"><input id="ac-${id}" type="number" value="${defaultValue}" step="${step}">${suffix ? `<em>${suffix}</em>` : ""}</div></label>`;
+    // Android WebView number inputs can drop keystrokes while the IME is
+    // composing; a decimal text input shows the decimal keypad and accepts
+    // every key. Values are still validated on read.
+    return `<label class="ac-field"><span>${label}</span><div class="ac-input"><input id="ac-${id}" type="text" inputmode="decimal" autocomplete="off" spellcheck="false" value="${defaultValue}">${suffix ? `<em>${suffix}</em>` : ""}</div></label>`;
   }
   function checkbox(id, label, on) {
     return `<label class="ac-check"><input id="ac-${id}" type="checkbox"${on ? " checked" : ""}><span>${label}</span></label>`;
