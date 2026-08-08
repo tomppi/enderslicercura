@@ -306,6 +306,120 @@ pub fn thermal_boundary_summary(""",
         "ThermalSystem calibrated fields",
     )
 
+    # ---- ThermalOptions forced convection field -----------------------------
+    replace_once(
+        thermal,
+        """    pub cooled_temperature_c: f64,
+    pub convection_w_m2_k: f64,
+    pub emissivity: f64,""",
+        """    pub cooled_temperature_c: f64,
+    pub convection_w_m2_k: f64,
+    /// Additional forced-air convection coefficient (W/m²K) from a cooling fan,
+    /// ram airflow or active ventilation. Added to the natural/environment
+    /// convection on every exposed face.
+    pub forced_convection_w_m2_k: f64,
+    pub emissivity: f64,""",
+        "ThermalOptions forced-convection field",
+    )
+
+    # ---- boundary_environment adds forced convection ------------------------
+    replace_once(
+        thermal,
+        """    if !options.spatial_environment_enabled {
+        return (
+            options.ambient_temperature_c,
+            options.ambient_temperature_c,
+            options.convection_w_m2_k,
+            options.emissivity,
+        );
+    }
+    let zone = boundary.environment_zone.min(11);
+    (
+        options.environment_air_temperatures_c[zone],
+        options.environment_wall_temperatures_c[zone],
+        options.environment_convection_w_m2_k[zone],
+        effective_emissivity(
+            options.emissivity,
+            options.environment_wall_emissivities[zone],
+        ),
+    )
+}""",
+        """    if !options.spatial_environment_enabled {
+        return (
+            options.ambient_temperature_c,
+            options.ambient_temperature_c,
+            options.convection_w_m2_k + options.forced_convection_w_m2_k,
+            options.emissivity,
+        );
+    }
+    let zone = boundary.environment_zone.min(11);
+    (
+        options.environment_air_temperatures_c[zone],
+        options.environment_wall_temperatures_c[zone],
+        options.environment_convection_w_m2_k[zone] + options.forced_convection_w_m2_k,
+        effective_emissivity(
+            options.emissivity,
+            options.environment_wall_emissivities[zone],
+        ),
+    )
+}""",
+        "boundary_environment forced convection",
+    )
+
+    # ---- validate forced convection coefficient -----------------------------
+    replace_once(
+        thermal,
+        """        return Err("convection coefficient must be within 0..100000 W/(m²·K)".into());
+    }
+    if !options.emissivity.is_finite() || !(0.0..=1.0).contains(&options.emissivity) {""",
+        """        return Err("convection coefficient must be within 0..100000 W/(m²·K)".into());
+    }
+    if !options.forced_convection_w_m2_k.is_finite()
+        || !(0.0..=100_000.0).contains(&options.forced_convection_w_m2_k)
+    {
+        return Err("forced convection coefficient must be within 0..100000 W/(m²·K)".into());
+    }
+    if !options.emissivity.is_finite() || !(0.0..=1.0).contains(&options.emissivity) {""",
+        "validate forced convection",
+    )
+
+    # ---- Test ThermalOptions constructors gain the forced-convection field --
+    text = thermal.read_text(encoding="utf-8")
+    old_test_conv = "            convection_w_m2_k: 0.0,"
+    if "forced_convection_w_m2_k: 0.0," not in text:
+        # Every test-only ThermalOptions literal sets a fixed convection and a
+        # fixed emissivity; the calibrated field is threaded into all of them.
+        for value in ("0.0", "8.0", "18.0"):
+            old = f"            convection_w_m2_k: {value},"
+            new = f"            convection_w_m2_k: {value},\n            forced_convection_w_m2_k: 0.0,"
+            text = text.replace(old, new)
+        thermal.write_text(text, encoding="utf-8")
+
+    # ---- Test NearbyHotObjectOptions constructors gain shape fields ---------
+    text = thermal.read_text(encoding="utf-8")
+    old_test_source = """            part_conductivity_t_slope_per_k: 0.0,
+            part_emissivity_t_slope_per_k: 0.0,
+        };"""
+    new_test_source = """            part_conductivity_t_slope_per_k: 0.0,
+            part_emissivity_t_slope_per_k: 0.0,
+            source_shape: "sphere".into(),
+            source_block_length_mm: 0.0,
+            source_block_width_mm: 0.0,
+            source_block_height_mm: 0.0,
+            source_turbo_diameter_mm: 0.0,
+            source_turbo_length_mm: 0.0,
+            secondary_shape: "sphere".into(),
+            secondary_block_length_mm: 0.0,
+            secondary_block_width_mm: 0.0,
+            secondary_block_height_mm: 0.0,
+            secondary_turbo_diameter_mm: 0.0,
+            secondary_turbo_length_mm: 0.0,
+        };"""
+    if new_test_source not in text:
+        if old_test_source not in text:
+            raise RuntimeError("Unable to locate test NearbyHotObjectOptions constructor tail")
+        thermal.write_text(text.replace(old_test_source, new_test_source), encoding="utf-8")
+
     # ---- NearbyHotObjectOptions fields ------------------------------------
     replace_once(
         thermal,
@@ -320,6 +434,25 @@ pub fn thermal_boundary_summary(""",
     pub part_conductivity_t_slope_per_k: f64,
     /// Temperature dependence of part emissivity (per °C, reference 23 °C).
     pub part_emissivity_t_slope_per_k: f64,
+    /// Radiating geometry of the primary source: "sphere", "engine" (box) or
+    /// "turbo" (cylinder). The view factor uses the shape's mean projected
+    /// area instead of the sphere's disk so a block/turbo radiates the correct
+    /// solid angle.
+    pub source_shape: String,
+    /// Primary engine-block dimensions (mm) when `source_shape == "engine"`.
+    pub source_block_length_mm: f64,
+    pub source_block_width_mm: f64,
+    pub source_block_height_mm: f64,
+    /// Primary turbo dimensions (mm) when `source_shape == "turbo"`.
+    pub source_turbo_diameter_mm: f64,
+    pub source_turbo_length_mm: f64,
+    /// Secondary source geometry mirror of the primary shape fields.
+    pub secondary_shape: String,
+    pub secondary_block_length_mm: f64,
+    pub secondary_block_width_mm: f64,
+    pub secondary_block_height_mm: f64,
+    pub secondary_turbo_diameter_mm: f64,
+    pub secondary_turbo_length_mm: f64,
 }""",
         "NearbyHotObjectOptions calibrated fields",
     )
@@ -804,8 +937,98 @@ fn refresh_conductivity_t_factors(system: &ThermalSystem) {
     *system.conductivity_t_factor.borrow_mut() = factor;
 }
 
+/// Effective projected radius (mm) of a radiating source shape. The view
+/// factor uses the mean projected area of the shape (Cauchy's surface-area
+/// theorem: mean projected area = surface area / 4):
+/// - sphere (default): πR² -> R, preserving the existing diffuse-sphere model.
+/// - engine (box L×W×H): (LW + LH + WH) / 2.
+/// - turbo (cylinder D×L): (π(D/2)² + π(D/2)L) / 2.
+/// The effective radius keeps the view factor consistent with the shape's
+/// projected solid angle so a block/turbo radiates the correct area.
+fn source_effective_radius(
+    shape: &str,
+    diameter_mm: f64,
+    block_length_mm: f64,
+    block_width_mm: f64,
+    block_height_mm: f64,
+    turbo_diameter_mm: f64,
+    turbo_length_mm: f64,
+) -> f64 {
+    match shape {
+        "engine" => {
+            let l = block_length_mm.max(0.1);
+            let w = block_width_mm.max(0.1);
+            let h = block_height_mm.max(0.1);
+            ((l * w + l * h + w * h) / (2.0 * std::f64::consts::PI)).sqrt()
+        }
+        "turbo" => {
+            let d = turbo_diameter_mm.max(0.1);
+            let len = turbo_length_mm.max(0.1);
+            let r = d * 0.5;
+            ((r * r + r * len) / 2.0).sqrt()
+        }
+        _ => diameter_mm.max(0.1) * 0.5,
+    }
+}
+
 """,
         "calibrated helper functions",
+    )
+
+    # ---- build_nearby_hot_object_system: shape-aware source radius ----------
+    replace_once(
+        thermal,
+        """    let radius = source.diameter_mm * 0.5;
+    let center_distance = source.gap_mm + radius;
+    let source_center = [
+        source.target_mm[0] + normal[0] * center_distance,
+        source.target_mm[1] + normal[1] * center_distance,
+        source.target_mm[2] + normal[2] * center_distance,
+    ];""",
+        """    let radius = source_effective_radius(
+        &source.source_shape,
+        source.diameter_mm,
+        source.source_block_length_mm,
+        source.source_block_width_mm,
+        source.source_block_height_mm,
+        source.source_turbo_diameter_mm,
+        source.source_turbo_length_mm,
+    );
+    let center_distance = source.gap_mm + radius;
+    let source_center = [
+        source.target_mm[0] + normal[0] * center_distance,
+        source.target_mm[1] + normal[1] * center_distance,
+        source.target_mm[2] + normal[2] * center_distance,
+    ];""",
+        "primary source shape-aware radius",
+    )
+
+    # ---- configure_secondary_source: shape-aware radius --------------------
+    replace_once(
+        thermal,
+        """    let radius = source.secondary_diameter_mm * 0.5;
+    let center_distance = source.secondary_gap_mm + radius;
+    let center = [
+        source.secondary_target_mm[0] + normal[0] * center_distance,
+        source.secondary_target_mm[1] + normal[1] * center_distance,
+        source.secondary_target_mm[2] + normal[2] * center_distance,
+    ];""",
+        """    let radius = source_effective_radius(
+        &source.secondary_shape,
+        source.secondary_diameter_mm,
+        source.secondary_block_length_mm,
+        source.secondary_block_width_mm,
+        source.secondary_block_height_mm,
+        source.secondary_turbo_diameter_mm,
+        source.secondary_turbo_length_mm,
+    );
+    let center_distance = source.secondary_gap_mm + radius;
+    let center = [
+        source.secondary_target_mm[0] + normal[0] * center_distance,
+        source.secondary_target_mm[1] + normal[1] * center_distance,
+        source.secondary_target_mm[2] + normal[2] * center_distance,
+    ];""",
+        "secondary source shape-aware radius",
     )
 
     # ---- linear_system: boundary branch with AO + radiosity + gap ----------
@@ -1298,7 +1521,19 @@ fn effective_diagonal(system: &ThermalSystem, i: usize) -> f64 {
     #[serde(rename = "sourcePartConductivityTSlopePerK")]
     source_part_conductivity_t_slope_per_k: f64,
     #[serde(rename = "sourcePartEmissivityTSlopePerK")]
-    source_part_emissivity_t_slope_per_k: f64,""",
+    source_part_emissivity_t_slope_per_k: f64,
+    source_shape: String,
+    source_block_length_mm: f64,
+    source_block_width_mm: f64,
+    source_block_height_mm: f64,
+    source_turbo_diameter_mm: f64,
+    source_turbo_length_mm: f64,
+    source2_shape: String,
+    source2_block_length_mm: f64,
+    source2_block_width_mm: f64,
+    source2_block_height_mm: f64,
+    source2_turbo_diameter_mm: f64,
+    source2_turbo_length_mm: f64,""",
         "WASM slope opts fields",
     )
 
@@ -1311,9 +1546,67 @@ fn effective_diagonal(system: &ThermalSystem, i: usize) -> f64 {
             source_emissivity: 0.9,
             source_part_emissivity: 0.9,
             source_part_conductivity_t_slope_per_k: 0.0,
-            source_part_emissivity_t_slope_per_k: 0.0,""",
+            source_part_emissivity_t_slope_per_k: 0.0,
+            source_shape: "sphere".into(),
+            source_block_length_mm: 0.0,
+            source_block_width_mm: 0.0,
+            source_block_height_mm: 0.0,
+            source_turbo_diameter_mm: 0.0,
+            source_turbo_length_mm: 0.0,""",
         "WASM slope opts defaults",
     )
+
+    replace_once(
+        wasm,
+        """            source2_part_emissivity: 0.9,
+            use_fixed_temperature_surface: false,""",
+        """            source2_part_emissivity: 0.9,
+            source2_shape: "sphere".into(),
+            source2_block_length_mm: 0.0,
+            source2_block_width_mm: 0.0,
+            source2_block_height_mm: 0.0,
+            source2_turbo_diameter_mm: 0.0,
+            source2_turbo_length_mm: 0.0,
+            use_fixed_temperature_surface: false,""",
+        "WASM secondary shape opts defaults",
+    )
+
+    # ---- WASM forced-convection opts field ---------------------------------
+    replace_once(
+        wasm,
+        """    #[serde(rename = "convectionWm2K")]
+    convection: f64,
+    emissivity: f64,""",
+        """    #[serde(rename = "convectionWm2K")]
+    convection: f64,
+    #[serde(rename = "forcedConvectionWm2K")]
+    forced_convection_w_m2_k: f64,
+    emissivity: f64,""",
+        "WASM forced-convection opts field",
+    )
+    replace_once(
+        wasm,
+        """            convection: 8.0,
+            emissivity: 0.9,""",
+        """            convection: 8.0,
+            forced_convection_w_m2_k: 0.0,
+            emissivity: 0.9,""",
+        "WASM forced-convection opts default",
+    )
+    # Both ThermalOptions constructor sites in lib.rs.
+    text = wasm.read_text(encoding="utf-8")
+    old_conv = """            convection_w_m2_k: opts.convection,
+            emissivity: opts.emissivity,"""
+    new_conv = """            convection_w_m2_k: opts.convection,
+            forced_convection_w_m2_k: opts.forced_convection_w_m2_k,
+            emissivity: opts.emissivity,"""
+    if new_conv not in text:
+        conv_count = text.count(old_conv)
+        if conv_count != 2:
+            raise RuntimeError(
+                f"Expected two ThermalOptions constructors in {wasm}, found {conv_count}"
+            )
+        wasm.write_text(text.replace(old_conv, new_conv), encoding="utf-8")
 
     # Both NearbyHotObjectOptions constructor sites in lib.rs.
     text = wasm.read_text(encoding="utf-8")
@@ -1326,6 +1619,18 @@ fn effective_diagonal(system: &ThermalSystem, i: usize) -> f64 {
             use_fixed_temperature_surface: opts.use_fixed_temperature_surface,
             part_conductivity_t_slope_per_k: opts.source_part_conductivity_t_slope_per_k / 100.0,
             part_emissivity_t_slope_per_k: opts.source_part_emissivity_t_slope_per_k / 100.0,
+            source_shape: opts.source_shape.clone(),
+            source_block_length_mm: opts.source_block_length_mm,
+            source_block_width_mm: opts.source_block_width_mm,
+            source_block_height_mm: opts.source_block_height_mm,
+            source_turbo_diameter_mm: opts.source_turbo_diameter_mm,
+            source_turbo_length_mm: opts.source_turbo_length_mm,
+            secondary_shape: opts.source2_shape.clone(),
+            secondary_block_length_mm: opts.source2_block_length_mm,
+            secondary_block_width_mm: opts.source2_block_width_mm,
+            secondary_block_height_mm: opts.source2_block_height_mm,
+            secondary_turbo_diameter_mm: opts.source2_turbo_diameter_mm,
+            secondary_turbo_length_mm: opts.source2_turbo_length_mm,
         };"""
     count = text.count(old_ctor)
     if new_ctor not in text:
@@ -1368,6 +1673,18 @@ mod calibrated_hot_object_physics_tests {
             use_fixed_temperature_surface: false,
             part_conductivity_t_slope_per_k: 0.0,
             part_emissivity_t_slope_per_k: 0.0,
+            source_shape: "sphere".into(),
+            source_block_length_mm: 0.0,
+            source_block_width_mm: 0.0,
+            source_block_height_mm: 0.0,
+            source_turbo_diameter_mm: 0.0,
+            source_turbo_length_mm: 0.0,
+            secondary_shape: "sphere".into(),
+            secondary_block_length_mm: 0.0,
+            secondary_block_width_mm: 0.0,
+            secondary_block_height_mm: 0.0,
+            secondary_turbo_diameter_mm: 0.0,
+            secondary_turbo_length_mm: 0.0,
         }
     }
 
@@ -1383,6 +1700,7 @@ mod calibrated_hot_object_physics_tests {
             initial_temperature_field_c: None,
             cooled_temperature_c: 23.0,
             convection_w_m2_k: 8.0,
+            forced_convection_w_m2_k: 0.0,
             emissivity: 0.9,
             spatial_environment_enabled: false,
             environment_size_mm: [800.0, 600.0, 500.0],
@@ -1418,6 +1736,7 @@ mod calibrated_hot_object_physics_tests {
             initial_temperature_field_c: None,
             cooled_temperature_c: 20.0,
             convection_w_m2_k: 0.0,
+            forced_convection_w_m2_k: 0.0,
             emissivity: 0.0,
             spatial_environment_enabled: false,
             environment_size_mm: [800.0, 600.0, 500.0],
@@ -1571,6 +1890,74 @@ mod calibrated_hot_object_physics_tests {
                 assert!(*factor > 0.0 && *factor <= RADIOSITY_COUPLING_LIMIT);
             }
         }
+    }
+
+    #[test]
+    fn source_shape_effective_radius_matches_mean_projected_area() {
+        // Sphere (default) keeps the diffuse-sphere radius.
+        assert_eq!(
+            source_effective_radius("sphere", 180.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+            90.0
+        );
+        // Engine block (180×144×288 box): mean projected area = (LW+LH+WH)/2,
+        // r_eff = sqrt((180*144 + 180*288 + 144*288) / (2π)).
+        let box_eff = source_effective_radius("engine", 180.0, 288.0, 180.0, 144.0, 0.0, 0.0);
+        let expected: f64 =
+            ((180.0_f64 * 144.0 + 180.0 * 288.0 + 144.0 * 288.0) / (2.0 * std::f64::consts::PI)).sqrt();
+        assert!((box_eff - expected).abs() < 1e-9);
+        assert!(box_eff > 90.0, "a box must radiate a larger solid angle than a sphere: {box_eff}");
+        // Turbo (120 dia × 84 long cylinder): r_eff = sqrt((r² + rL)/2).
+        let cyl_eff = source_effective_radius("turbo", 120.0, 0.0, 0.0, 0.0, 120.0, 84.0);
+        assert!((cyl_eff - ((60.0_f64 * 60.0 + 60.0 * 84.0) / 2.0).sqrt()).abs() < 1e-9);
+    }
+
+    #[test]
+    fn engine_box_shape_increases_absorbed_heat_vs_sphere() {
+        let grid = VoxelGrid::solid_box(24, 24, 10, 1.0);
+        let material = vec![1.0; grid.cell_count()];
+        let options = transient_options(&grid);
+        let warm_field = vec![120.0; grid.cell_count()];
+        let mut source = hot_source(&grid);
+        source.source_shape = "sphere".into();
+        let sphere_system = build_nearby_hot_object_system(&grid, &material, &options, &source).unwrap();
+        let sphere_absorbed = primary_source_absorbed_w(&sphere_system, &warm_field);
+        source.source_shape = "engine".into();
+        source.source_block_length_mm = 288.0;
+        source.source_block_width_mm = 180.0;
+        source.source_block_height_mm = 144.0;
+        let box_system = build_nearby_hot_object_system(&grid, &material, &options, &source).unwrap();
+        let box_absorbed = primary_source_absorbed_w(&box_system, &warm_field);
+        assert!(box_absorbed.is_finite() && sphere_absorbed.is_finite());
+        assert!(
+            box_absorbed > sphere_absorbed,
+            "a block source must absorb more heat than a sphere: {box_absorbed} vs {sphere_absorbed}"
+        );
+    }
+
+    #[test]
+    fn forced_convection_increases_steady_heat_rejection() {
+        let grid = VoxelGrid::solid_box(16, 16, 8, 1.0);
+        let material = vec![1.0; grid.cell_count()];
+        let mut options = base_options();
+        options.transient = false;
+        options.ambient_temperature_c = 23.0;
+        options.initial_temperature_c = 23.0;
+        options.cooled_temperature_c = 23.0;
+        options.convection_w_m2_k = 8.0;
+        options.forced_convection_w_m2_k = 0.0;
+        options.emissivity = 0.9;
+        options.heat_power_w = 4.0;
+        options.fixed_surface_enabled = false;
+        let natural = solve_thermal(&grid, &material, &options).unwrap();
+        options.forced_convection_w_m2_k = 40.0;
+        let forced = solve_thermal(&grid, &material, &options).unwrap();
+        assert!(forced.maximum_temperature_c < natural.maximum_temperature_c);
+        assert!(
+            natural.maximum_temperature_c - forced.maximum_temperature_c > 1.0,
+            "forced convection must cool the part noticeably: natural {:.2} C vs forced {:.2} C",
+            natural.maximum_temperature_c,
+            forced.maximum_temperature_c
+        );
     }
 }
 

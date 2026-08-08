@@ -121,6 +121,12 @@ for (const contract of [
   "enderslicer-nearby-hot-object-model-bbox",
   "The engine is centred in the middle of the model",
   "event.stopImmediatePropagation()",
+  "sourceShape",
+  "sourceBlockLengthMm",
+  "source2Shape",
+  "source2TurboDiameterMm",
+  "forcedConvectionWm2K",
+  "Forced-air cooling (W/m²K)",
 ]) {
   assert.ok(source.includes(contract), `Missing fixed engine layout runtime contract ${contract}`);
 }

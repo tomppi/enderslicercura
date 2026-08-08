@@ -134,7 +134,9 @@
         <div class="ti-status dim"><b>Fixed engine assembly.</b> The engine is centred in the middle of the model. Its position is fixed; only the rotation below is adjustable. Rotating spins the whole block + turbo cluster together.</div>
         <div class="ti-grid">
           ${field("engineRotationDeg", "Engine rotation (degrees)", 0, 1)}
+          ${field("forcedConvectionWm2K", "Forced-air cooling (W/m²K)", 0, 1)}
         </div>
+        <div class="ti-status dim">Forced-air cooling adds a fan/ram-air convection coefficient on every exposed face of the part. 0 = natural convection only; typical cooling fans add 20-60 W/m²K.</div>
         <div id="ti-engine-layout-detail" class="ti-status dim">No engine layout selected.</div>
       </div>
     `);
@@ -213,6 +215,10 @@
     options.sourceGapMm = Number(block.gapMm);
     options.sourceDiameterMm = Number(block.diameterMm);
     options.sourceTemperatureC = Number(options.sourceTemperatureC);
+    options.sourceShape = "engine";
+    options.sourceBlockLengthMm = Number(block.blockLengthMm ?? block.diameterMm * 1.6);
+    options.sourceBlockWidthMm = Number(block.blockWidthMm ?? block.diameterMm);
+    options.sourceBlockHeightMm = Number(block.blockHeightMm ?? block.diameterMm * 0.8);
     if (turbo) {
       const turboTarget = engineComponentTarget("secondary");
       if (!turboTarget) throw new Error("Unable to position the engine turbocharger.");
@@ -221,12 +227,21 @@
       options.source2GapMm = Number(turbo.gapMm);
       options.source2DiameterMm = Number(turbo.diameterMm);
       options.source2TemperatureC = Number(options.source2TemperatureC);
+      options.source2Shape = "turbo";
+      options.source2TurboDiameterMm = Number(turbo.turboDiameterMm ?? turbo.diameterMm);
+      options.source2TurboLengthMm = Number(turbo.turboLengthMm ?? turbo.diameterMm * 0.7);
     } else {
       options.source2Enabled = false;
     }
     options.engineRotationDeg = engineRotationDeg();
     options.engineAnchorMm = engineModelCenter().map(Number);
     options.engineAssemblyModel = "fixed-engine-layout-rigid-cluster-v1";
+    options.forcedConvectionWm2K = finite(
+      value("forcedConvectionWm2K"),
+      "forced-air cooling",
+      0,
+      100000,
+    );
     return options;
   };
 
