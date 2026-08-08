@@ -428,15 +428,25 @@ private fun HardenedStatusPage(
 @Composable
 private fun HardenedWebcamCard(state: OctoPrintUiState) {
     val bytes = state.webcamFrame
+    var decodeFinished by remember(bytes) { mutableStateOf(false) }
     val bitmap by produceState<Bitmap?>(initialValue = null, key1 = bytes) {
-        value = withContext(Dispatchers.Default) { bytes?.let(::decodeHardenedWebcamBitmap) }
+        if (bytes == null) {
+            decodeFinished = false
+        } else {
+            value = withContext(Dispatchers.Default) { decodeHardenedWebcamBitmap(bytes) }
+            decodeFinished = true
+        }
     }
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
             Text("Webcam", style = MaterialTheme.typography.titleMedium)
             val currentBitmap = bitmap
             if (currentBitmap == null) {
-                val webcamError = state.webcamError
+                val webcamError = state.webcamError ?: if (bytes != null && decodeFinished) {
+                    "Webcam snapshot could not be decoded as an image."
+                } else {
+                    null
+                }
                 if (webcamError != null) {
                     Text(
                         webcamError,

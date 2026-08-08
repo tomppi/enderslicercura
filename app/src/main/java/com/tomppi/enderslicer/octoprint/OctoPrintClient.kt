@@ -9,6 +9,7 @@ import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.util.Collections
 import java.util.UUID
+import java.util.zip.GZIPInputStream
 import org.json.JSONObject
 
 class OctoPrintClient(
@@ -117,7 +118,7 @@ class OctoPrintClient(
 
     private fun fetchWebcamSnapshot(url: URI, redirectCount: Int): ByteArray {
         require(redirectCount <= MAX_SNAPSHOT_REDIRECTS) { "Too many webcam redirects" }
-        val connection = openConnection(url, "GET", authenticated = true)
+        val connection = openConnection(url, "GET", authenticated = true, accept = SNAPSHOT_ACCEPT)
         return try {
             val code = connection.responseCode
             if (code in 300..399) {
@@ -133,22 +134,52 @@ class OctoPrintClient(
             if (code !in 200..299) throw httpError(connection, code)
             val declared = connection.contentLengthLong
             require(declared < 0L || declared <= MAX_SNAPSHOT_BYTES) { "Webcam snapshot is too large" }
-            connection.inputStream.buffered().use { input ->
+            val input = if (isGzipEncoded(connection)) {
+                GZIPInputStream(connection.inputStream)
+            } else {
+                connection.inputStream
+            }
+            input.buffered().use {
                 val output = ByteArrayOutputStream()
                 val buffer = ByteArray(64 * 1024)
                 var total = 0L
                 while (true) {
-                    val count = input.read(buffer)
+                    val count = it.read(buffer)
                     if (count < 0) break
                     total += count
                     require(total <= MAX_SNAPSHOT_BYTES) { "Webcam snapshot is too large" }
                     output.write(buffer, 0, count)
                 }
-                output.toByteArray()
+                val bytes = output.toByteArray()
+                if (!looksLikeImage(bytes)) {
+                    throw IOException("Webcam snapshot did not return an image")
+                }
+                bytes
             }
         } finally {
             closeConnection(connection)
         }
+    }
+
+    private fun isGzipEncoded(connection: HttpURLConnection): Boolean =
+        connection.getContentEncoding()?.split(',')?.any {
+            it.trim().equals("gzip", ignoreCase = true)
+        } == true
+
+    internal fun looksLikeImage(bytes: ByteArray): Boolean {
+        if (bytes.size < 4) return false
+        val jpeg = bytes[0] == 0xFF.toByte() && bytes[1] == 0xD8.toByte() && bytes[2] == 0xFF.toByte()
+        val png = bytes[0] == 0x89.toByte() && bytes[1] == 0x50.toByte() &&
+            bytes[2] == 0x4E.toByte() && bytes[3] == 0x47.toByte()
+        val gif = bytes[0] == 0x47.toByte() && bytes[1] == 0x49.toByte() &&
+            bytes[2] == 0x46.toByte() && bytes[3] == 0x38.toByte()
+        val bmp = bytes[0] == 0x42.toByte() && bytes[1] == 0x4D.toByte()
+        val webp = bytes.size >= 12 &&
+            bytes[0] == 0x52.toByte() && bytes[1] == 0x49.toByte() &&
+            bytes[2] == 0x46.toByte() && bytes[3] == 0x46.toByte() &&
+            bytes[8] == 0x57.toByte() && bytes[9] == 0x45.toByte() &&
+            bytes[10] == 0x42.toByte() && bytes[11] == 0x50.toByte()
+        return jpeg || png || gif || bmp || webp
     }
 
     fun upload(
@@ -537,6 +568,7 @@ class OctoPrintClient(
         contentType: String? = null,
         contentLength: Long? = null,
         readTimeoutMillis: Int = READ_TIMEOUT_MILLIS,
+        accept: String = JSON_ACCEPT,
     ): HttpURLConnection {
         require(url.scheme.equals("http", true) || url.scheme.equals("https", true)) {
             "OctoPrint URL must use HTTP or HTTPS"
@@ -548,7 +580,7 @@ class OctoPrintClient(
             instanceFollowRedirects = false
             useCaches = false
             doInput = true
-            setRequestProperty("Accept", "application/json")
+            setRequestProperty("Accept", accept)
             setRequestProperty("User-Agent", "$OCTOPRINT_APP_NAME Android")
             if (authenticated && isSameOrigin(url)) {
                 apiKey?.takeIf(String::isNotBlank)?.let { setRequestProperty("X-Api-Key", it) }
@@ -644,6 +676,8 @@ class OctoPrintClient(
     )
 
     companion object {
+        private const val JSON_ACCEPT = "application/json"
+        private const val SNAPSHOT_ACCEPT = "image/jpeg,image/png,image/gif,image/webp,image/bmp,image/*,*/*;q=0.8"
         private const val JSON_CONTENT_TYPE = "application/json; charset=utf-8"
         private const val CONNECT_TIMEOUT_MILLIS = 12_000
         private const val READ_TIMEOUT_MILLIS = 30_000

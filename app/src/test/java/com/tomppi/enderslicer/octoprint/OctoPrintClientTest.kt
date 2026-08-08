@@ -6,7 +6,6 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
-
 class OctoPrintClientTest {
     @Test
     fun normalizesLocalHostAndPreservesPathPrefix() {
@@ -271,5 +270,35 @@ class OctoPrintClientTest {
         assertEquals("Webcam snapshot failed: Connection refused", state.webcamError)
         val cleared = state.copy(webcamFrame = byteArrayOf(1), webcamError = null)
         assertNull(cleared.webcamError)
+    }
+
+    @Test
+    fun recognizesCommonWebcamImageMagicBytes() {
+        val client = OctoPrintClient("http://octopi.local")
+        val jpeg = byteArrayOf(
+            0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0xE0.toByte(), 0, 0, 0, 0,
+        )
+        assertTrue(client.looksLikeImage(jpeg))
+        val png = byteArrayOf(
+            0x89.toByte(), 0x50.toByte(), 0x4E.toByte(), 0x47.toByte(), 0x0D, 0x0A, 0x1A, 0x0A,
+        )
+        assertTrue(client.looksLikeImage(png))
+        val gif = byteArrayOf(
+            0x47.toByte(), 0x49.toByte(), 0x46.toByte(), 0x38.toByte(), 0x39, 0x61, 0, 0,
+        )
+        assertTrue(client.looksLikeImage(gif))
+        val webp = byteArrayOf(
+            0x52.toByte(), 0x49.toByte(), 0x46.toByte(), 0x46.toByte(), 0, 0, 0, 0,
+            0x57.toByte(), 0x45.toByte(), 0x42.toByte(), 0x50.toByte(),
+        )
+        assertTrue(client.looksLikeImage(webp))
+    }
+
+    @Test
+    fun rejectsNonImageWebcamResponses() {
+        val client = OctoPrintClient("http://octopi.local")
+        assertFalse(client.looksLikeImage("<html>login page</html>".toByteArray()))
+        assertFalse(client.looksLikeImage("{".toByteArray()))
+        assertFalse(client.looksLikeImage(byteArrayOf(0, 0, 0, 0)))
     }
 }
