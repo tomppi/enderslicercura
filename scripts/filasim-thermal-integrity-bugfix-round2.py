@@ -524,6 +524,8 @@ struct LinearSolve {
             secondary_emissivity: 0.9,
             secondary_part_emissivity: 0.9,
             use_fixed_temperature_surface: false,
+            part_conductivity_t_slope_per_k: 0.0,
+            part_emissivity_t_slope_per_k: 0.0,
         };
         let result = solve_nearby_hot_object(&grid, &material, &options, &source);
         match result {

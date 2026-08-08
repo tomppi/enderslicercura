@@ -18,6 +18,8 @@
         ${field("sourceGapMm", "Surface-to-surface distance (mm)", 25, 0.1)}
         ${field("sourceDiameterMm", "Effective hot object diameter (mm)", 50, 0.1)}
         ${field("sourceEmissivity", "Hot object emissivity", 0.9, 0.01)}
+        ${field("sourcePartConductivityTSlopePerK", "Conductivity vs temperature (%/°C)", 0.4, 0.01)}
+        ${field("sourcePartEmissivityTSlopePerK", "Emissivity vs temperature (%/°C)", 0.05, 0.01)}
         ${field("ambientTemperatureC", "Ambient air temperature (°C)", 23, 0.1)}
         ${field("convectionWm2K", "Air convection (W/m²K)", 8, 0.1)}
         ${field("emissivity", "Printed surface emissivity", 0.9, 0.01)}
@@ -131,6 +133,8 @@
       sourceDiameterMm: finite(value("sourceDiameterMm"), "hot object diameter", 0.1, 100000),
       sourceTemperatureC: finite(value("sourceTemperatureC"), "hot object temperature", -200, 2000),
       sourceEmissivity: finite(value("sourceEmissivity"), "hot object emissivity", 0, 1),
+      sourcePartConductivityTSlopePerK: finite(value("sourcePartConductivityTSlopePerK"), "conductivity temp slope", -1, 1),
+      sourcePartEmissivityTSlopePerK: finite(value("sourcePartEmissivityTSlopePerK"), "emissivity temp slope", -1, 1),
       useFixedTemperatureSurface: checked("useFixedTemperatureSurface"),
       heatedFace: "zmax",
       cooledFace: value("cooledFace"),

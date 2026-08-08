@@ -12,6 +12,9 @@ ZONE_AXIS_TRANSFORM = pathlib.Path(__file__).with_name("filasim-engine-bay-zone-
 PLACEMENT_TRANSFORM = pathlib.Path(__file__).with_name(
     "filasim-engine-bay-part-placement-viewer.py"
 )
+CALIBRATED_TRANSFORM = pathlib.Path(__file__).with_name(
+    "filasim-nearby-hot-object-calibrated.py"
+)
 PLACEMENT_TEST = pathlib.Path(__file__).with_name("test-engine-bay-part-placement.mjs")
 ZONE_AXIS_TEST = pathlib.Path(__file__).with_name("test-engine-bay-zone-axis.mjs")
 REACT_SAFE_TEST = pathlib.Path(__file__).with_name(
@@ -34,6 +37,7 @@ for path in (
     V19,
     ZONE_AXIS_TRANSFORM,
     PLACEMENT_TRANSFORM,
+    CALIBRATED_TRANSFORM,
     PLACEMENT_TEST,
     ZONE_AXIS_TEST,
     REACT_SAFE_TEST,
@@ -57,9 +61,12 @@ thermal = v19.thermal
 for transform in (ZONE_AXIS_TRANSFORM, PLACEMENT_TRANSFORM):
     if transform not in thermal.THERMAL_TRANSFORMS:
         thermal.THERMAL_TRANSFORMS = (*thermal.THERMAL_TRANSFORMS, transform)
+if CALIBRATED_TRANSFORM not in thermal.THERMAL_TRANSFORMS:
+    thermal.THERMAL_TRANSFORMS = (*thermal.THERMAL_TRANSFORMS, CALIBRATED_TRANSFORM)
 for marker in (
     ".enderslicer-engine-bay-zone-axis-fix-v1",
     ".enderslicer-engine-bay-part-placement-viewer-v1",
+    ".enderslicer-nearby-hot-object-calibrated-v1",
 ):
     if marker not in thermal.THERMAL_MARKERS:
         thermal.THERMAL_MARKERS = (*thermal.THERMAL_MARKERS, marker)
