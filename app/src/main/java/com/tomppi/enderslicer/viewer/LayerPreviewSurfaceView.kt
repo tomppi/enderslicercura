@@ -280,12 +280,12 @@ private class LayerPreviewRenderer : GLSurfaceView.Renderer {
         Matrix.multiplyMM(modelView, 0, view, 0, scene, 0)
         Matrix.multiplyMM(mvp, 0, projection, 0, modelView, 0)
 
-        drawSolidLines(gridBuffer, gridVertexCount, 1f, 0.25f, 0.29f, 0.36f, 0.48f)
+        drawSolidLines(gridBuffer, gridVertexCount, 1f, 0.34f, 0.40f, 0.50f, 0.66f)
         val previousPathVertices = if (selectedLayerIndex > 0) cumulativePathVertices[selectedLayerIndex - 1] else 0
         if (style == LayerPreviewStyle.BUILD_UP && previousPathVertices > 0) {
-            drawColoredPaths(firstVertex = 0, vertexCount = previousPathVertices, alpha = 0.13f, mode = GLES20.GL_LINES)
+            drawColoredPaths(firstVertex = 0, vertexCount = previousPathVertices, alpha = 0.32f, mode = GLES20.GL_LINES)
         }
-        drawSolidTriangles(currentHaloPositionBuffer, currentRibbonVertexCount, 0.005f, 0.008f, 0.012f, 0.96f)
+        drawSolidTriangles(currentHaloPositionBuffer, currentRibbonVertexCount, 0.42f, 0.52f, 0.68f, 0.90f)
         drawColoredTriangles(currentRibbonPositionBuffer, currentRibbonColorBuffer, currentRibbonVertexCount)
         val currentStart = previousPathVertices
         val currentEnd = cumulativeVertexCount(cumulativePathVertices)
@@ -613,7 +613,7 @@ private class LayerPreviewRenderer : GLSurfaceView.Renderer {
                 val range = max(maximum - minimum, 0.001f)
                 val normalized = ((speed - minimum) / range).coerceIn(0f, 1f)
                 val hue = 240f * (1f - normalized)
-                val saturation = 0.88f
+                val saturation = 0.95f
                 val value = 1f
                 val chroma = value * saturation
                 val hueSection = (hue / 60f) % 6f
@@ -703,9 +703,9 @@ private class LayerPreviewRenderer : GLSurfaceView.Renderer {
         const val GRID_PADDING = 10f
         const val MAX_GRID_LINES = 512
         const val MIN_SCENE_SIZE = 20f
-        const val PATH_WIDTH = 2.2f
-        const val CORE_RIBBON_WIDTH = 0.30f
-        const val HALO_RIBBON_WIDTH = 0.82f
+        const val PATH_WIDTH = 3.2f
+        const val CORE_RIBBON_WIDTH = 0.38f
+        const val HALO_RIBBON_WIDTH = 0.96f
         const val BASE_POSITION_FLOATS_PER_SEGMENT = 6
         const val BASE_COLOR_FLOATS_PER_SEGMENT = 8
         const val RIBBON_POSITION_FLOATS_PER_SEGMENT = 18

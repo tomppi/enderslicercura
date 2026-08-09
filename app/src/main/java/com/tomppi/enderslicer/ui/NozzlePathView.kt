@@ -221,7 +221,7 @@ private fun NozzlePathPlayer(path: GcodeNozzlePath, artifactKey: String, modifie
                         modifier = Modifier.fillMaxWidth(),
                     ) { Text("Restart") }
                     Text(
-                        "Gray is travel. Extrusion changes from blue at low Z to red at high Z. Drag to orbit, pinch to zoom, use two fingers to pan, and double-tap to reset.",
+                        "Gray is travel. Extrusion changes from blue at low Z to red at high Z. The amber crosshair marks the nozzle tip. Drag to orbit, pinch to zoom, use two fingers to pan, and double-tap to reset.",
                         style = MaterialTheme.typography.labelSmall,
                     )
                 }

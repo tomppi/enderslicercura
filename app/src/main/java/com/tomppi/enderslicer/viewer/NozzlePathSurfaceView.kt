@@ -134,6 +134,8 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
     private var gridVertexCount = 0
     private var markerPositions: FloatBuffer? = null
     private var markerVertexCount = 0
+    private var markerGlowPositions: FloatBuffer? = null
+    private var markerGlowVertexCount = 0
 
     private var colorProgram = 0
     private var solidProgram = 0
@@ -239,9 +241,10 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         Matrix.multiplyMM(modelView, 0, view, 0, scene, 0)
         Matrix.multiplyMM(mvp, 0, projection, 0, modelView, 0)
 
-        drawSolidLines(gridPositions, gridVertexCount, 1f, 0.25f, 0.29f, 0.36f, 0.50f)
+        drawSolidLines(gridPositions, gridVertexCount, 1f, 0.34f, 0.40f, 0.50f, 0.66f)
         drawColoredLines((selectedMoveIndex + 1) * 2)
-        drawSolidLines(markerPositions, markerVertexCount, 4f, 1f, 1f, 1f, 1f)
+        drawSolidLines(markerGlowPositions, markerGlowVertexCount, 12f, 1f, 0.55f, 0.05f, 0.55f)
+        drawSolidLines(markerPositions, markerVertexCount, 6f, 1f, 1f, 1f, 1f)
     }
 
     private fun buildPathBuffers(value: GcodeNozzlePath) {
@@ -255,7 +258,7 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
                 ((source[offset + GcodeNozzlePath.Z2] - value.minZ) / (value.maxZ - value.minZ)).coerceIn(0f, 1f)
             } else 0f
             val extrusion = source[offset + GcodeNozzlePath.KIND] == GcodeNozzlePath.Kind.EXTRUSION.code
-            val color = if (extrusion) hsv(240f - 240f * zRatio, 0.82f, 0.98f, 1f) else floatArrayOf(0.65f, 0.69f, 0.76f, 0.42f)
+            val color = if (extrusion) hsv(240f - 240f * zRatio, 0.95f, 1f, 1f) else floatArrayOf(0.70f, 0.74f, 0.82f, 0.62f)
             positions.put(source[offset + GcodeNozzlePath.X1])
             positions.put(source[offset + GcodeNozzlePath.Y1])
             positions.put(source[offset + GcodeNozzlePath.Z1])
@@ -304,7 +307,8 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         val x = current.moves[offset + GcodeNozzlePath.X2]
         val y = current.moves[offset + GcodeNozzlePath.Y2]
         val z = current.moves[offset + GcodeNozzlePath.Z2]
-        val size = max(sceneRadius(current) * 0.018f, 0.7f)
+        val size = max(sceneRadius(current) * 0.022f, 0.9f)
+        // Crosshair: three axis-aligned line pairs centred on the nozzle tip.
         val buffer = allocate(18)
         buffer.put(x - size); buffer.put(y); buffer.put(z)
         buffer.put(x + size); buffer.put(y); buffer.put(z)
@@ -315,6 +319,19 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         buffer.position(0)
         markerPositions = buffer
         markerVertexCount = 6
+        // Soft amber halo behind the crosshair so the nozzle reads clearly
+        // against the blue-to-red path colours.
+        val glow = allocate(18)
+        val glowSize = size * 1.7f
+        glow.put(x - glowSize); glow.put(y); glow.put(z)
+        glow.put(x + glowSize); glow.put(y); glow.put(z)
+        glow.put(x); glow.put(y - glowSize); glow.put(z)
+        glow.put(x); glow.put(y + glowSize); glow.put(z)
+        glow.put(x); glow.put(y); glow.put(z - glowSize)
+        glow.put(x); glow.put(y); glow.put(z + glowSize)
+        glow.position(0)
+        markerGlowPositions = glow
+        markerGlowVertexCount = 6
     }
 
     private fun drawColoredLines(vertexCount: Int) {
@@ -332,7 +349,7 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         GLES20.glVertexAttribPointer(position, 3, GLES20.GL_FLOAT, false, 12, positions)
         GLES20.glVertexAttribPointer(color, 4, GLES20.GL_FLOAT, false, 16, colors)
         GLES20.glUniformMatrix4fv(matrix, 1, false, mvp, 0)
-        GLES20.glLineWidth(2f)
+        GLES20.glLineWidth(PATH_WIDTH)
         GLES20.glDrawArrays(GLES20.GL_LINES, 0, vertexCount)
         GLES20.glLineWidth(1f)
         GLES20.glDisableVertexAttribArray(position)
@@ -443,6 +460,7 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         private const val DEFAULT_ZOOM = 1f
         private const val MIN_ZOOM = 0.25f
         private const val MAX_ZOOM = 8f
+        private const val PATH_WIDTH = 3.4f
 
         private const val COLOR_VERTEX_SHADER = """
             uniform mat4 uMvpMatrix;
