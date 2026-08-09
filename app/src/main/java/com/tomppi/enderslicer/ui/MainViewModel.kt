@@ -1199,7 +1199,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun clearCalibrationState() {
         CalibrationSliceState.clear()
         plannedCalibrationEvents = emptyList()
-        calibrationDescription = null
+        _uiState.update { it.copy(calibrationDescription = null) }
     }
 
     private fun materializeModel(uri: Uri, maxTriangles: Int): File {

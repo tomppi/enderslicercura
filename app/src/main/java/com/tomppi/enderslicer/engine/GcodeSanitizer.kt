@@ -99,11 +99,12 @@ object GcodeSanitizer {
                     )
                     return@forEach
                 }
+                val reachedFinalLayer = lastLayerSeen?.let { it >= layerCount - 1 } ?: false
                 GcodeCommandPolicy.requirePublishedSafe(
                     command,
                     currentLayer,
                     lineNumber,
-                    inEndGcode = layerCount > 0 && lastLayerSeen != null && lastLayerSeen >= layerCount - 1,
+                    inEndGcode = layerCount > 0 && reachedFinalLayer,
                 )
                 GcodeCommandPolicy.speedFactor(command)?.let { factor ->
                     speedFactor = factor
