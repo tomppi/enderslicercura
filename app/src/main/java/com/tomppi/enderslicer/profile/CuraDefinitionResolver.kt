@@ -19,6 +19,7 @@ internal object CuraDefinitionResolver {
         val settablePerMesh: Boolean?,
         val type: String?,
         val options: Set<String>?,
+        val bestEffort: Boolean = false,
     )
 
     private data class DefinitionDocument(
@@ -104,6 +105,7 @@ internal object CuraDefinitionResolver {
             scope = "global",
             expressions = globalExpressions,
             locked = lockedGlobal,
+            bestEffort = machineDefinitions.filterValues { it.bestEffort }.keys,
             localValues = globalValues,
             globalValues = globalValues,
             extruderValues = extruderValues,
@@ -113,6 +115,7 @@ internal object CuraDefinitionResolver {
             scope = "extruder",
             expressions = extruderExpressions,
             locked = lockedExtruder,
+            bestEffort = combinedExtruderDefinitions.filterValues { it.bestEffort }.keys,
             localValues = extruderValues,
             globalValues = globalValues,
             extruderValues = extruderValues,
@@ -227,6 +230,7 @@ internal object CuraDefinitionResolver {
                 null
             }
             val rawValueExpression = setting.optString("value").trim()
+            var bestEffort = false
             val expression = when {
                 rawValueExpression.startsWith("=") -> rawValueExpression.removePrefix("=").trim()
                 key in definitionExpressionKeys && rawValueExpression.isNotEmpty() -> rawValueExpression
@@ -236,7 +240,10 @@ internal object CuraDefinitionResolver {
                 // plain text/literals stay as defaults because expressions()
                 // now skips anything that does not parse.
                 rawValueExpression.isNotEmpty() &&
-                    isFormulaLike(rawValueExpression) -> rawValueExpression
+                    isFormulaLike(rawValueExpression) -> {
+                    bestEffort = true
+                    rawValueExpression
+                }
                 else -> null
             }
             val type = setting.optString("type")
@@ -270,6 +277,7 @@ internal object CuraDefinitionResolver {
                     settablePerMesh = settablePerMesh,
                     type = type,
                     options = options,
+                    bestEffort = bestEffort,
                 )
             }
             setting.optJSONObject("children")?.let {
@@ -384,6 +392,7 @@ internal object CuraDefinitionResolver {
         scope: String,
         expressions: Map<String, CuraExpression>,
         locked: Set<String>,
+        bestEffort: Set<String>,
         localValues: Map<String, Any?>,
         globalValues: Map<String, Any?>,
         extruderValues: Map<String, Any?>,
@@ -392,6 +401,10 @@ internal object CuraDefinitionResolver {
         val context = CuraEvaluationContext(localValues, globalValues, extruderValues)
         expressions.forEach { (key, expression) ->
             if (key in locked) return@forEach
+            // Best-effort formulas (definition values without a leading '=')
+            // that fail to evaluate simply stay at their default value; only
+            // explicit '='-prefixed overrides are required to resolve.
+            if (key in bestEffort) return@forEach
             runCatching { expression.eval(context) }
                 .onFailure { error -> output["$scope.$key"] = error.message ?: error::class.java.simpleName }
         }
