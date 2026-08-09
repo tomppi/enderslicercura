@@ -21,6 +21,7 @@ import com.tomppi.enderslicer.engine.LayerEvent
 import com.tomppi.enderslicer.engine.LayerEventSource
 import com.tomppi.enderslicer.engine.LayerEventType
 import com.tomppi.enderslicer.engine.PlannedLayerEvent
+import com.tomppi.enderslicer.engine.PrinterEnvelope
 import com.tomppi.enderslicer.engine.SliceArtifactPublisher
 import com.tomppi.enderslicer.mesh.MeshTriangleLimits
 import com.tomppi.enderslicer.model.ModelPlacement
@@ -185,7 +186,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 prepared
             }.onSuccess { prepared ->
-                CalibrationSliceState.clear()
+                clearCalibrationState()
                 sourceMesh = prepared.source
                 plannedCalibrationEvents = emptyList()
                 _uiState.update { current ->
@@ -795,6 +796,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             },
                         )
                     }
+                    // Reject placements that leave the model hanging off the
+                    // build volume or above the printer height so the user gets
+                    // immediate feedback instead of a slice-time failure.
+                    PrinterEnvelope.from(printer).requireModelFits(transformed)
                     changed to transformed
                 }
                 val durableModel = requireNotNull(modelPath)?.let(::File)
@@ -1124,6 +1129,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         scene: CuraProjectScene?,
         statusMessage: String?,
     ) {
+        clearCalibrationState()
         importedSettingsBaseline = config.mappedSettings.copy(overriddenSettingKeys = emptySet())
         importedScene = scene
         val original = sourceMesh
@@ -1188,6 +1194,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         withContext(Dispatchers.IO) { persistCurrentWorkspace(_uiState.value) }
         _uiState.update { it.copy(isBusy = false) }
+    }
+
+    private fun clearCalibrationState() {
+        CalibrationSliceState.clear()
+        plannedCalibrationEvents = emptyList()
+        calibrationDescription = null
     }
 
     private fun materializeModel(uri: Uri, maxTriangles: Int): File {

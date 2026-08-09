@@ -43,12 +43,16 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.tomppi.enderslicer.mesh.MeshTriangleLimits
@@ -567,9 +571,38 @@ private fun ViewerPanel(
                 modifier = Modifier.fillMaxSize(),
             )
             else -> key(effectivePrinter) {
+                var modelView by remember(effectivePrinter) { mutableStateOf<ModelSurfaceView?>(null) }
+                val lifecycleOwner = LocalLifecycleOwner.current
+                DisposableEffect(lifecycleOwner, modelView) {
+                    val view = modelView
+                    if (view == null) {
+                        onDispose { }
+                    } else {
+                        val observer = LifecycleEventObserver { _, event ->
+                            when (event) {
+                                Lifecycle.Event.ON_RESUME -> view.onResume()
+                                Lifecycle.Event.ON_PAUSE,
+                                Lifecycle.Event.ON_STOP,
+                                Lifecycle.Event.ON_DESTROY,
+                                -> view.onPause()
+                                else -> Unit
+                            }
+                        }
+                        lifecycleOwner.lifecycle.addObserver(observer)
+                        if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+                            view.onResume()
+                        }
+                        onDispose {
+                            lifecycleOwner.lifecycle.removeObserver(observer)
+                            view.onPause()
+                        }
+                    }
+                }
                 AndroidView(
                     modifier = Modifier.fillMaxSize(),
-                    factory = { context -> ModelSurfaceView(context, effectivePrinter) },
+                    factory = { context ->
+                        ModelSurfaceView(context, effectivePrinter).also { modelView = it }
+                    },
                     update = { view -> view.setMesh(state.mesh) },
                 )
             }

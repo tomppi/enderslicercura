@@ -78,13 +78,16 @@ class CalibrationFirmwareEncoder private constructor(
 
     internal fun isFirmwareRetract(command: GcodeCommand.Parsed): Boolean = when (dialect) {
         FirmwareDialect.REPRAP_FIRMWARE -> command.opcode == "G10" && command.parameterLetters.isEmpty()
-        FirmwareDialect.MARLIN -> command.opcode == "G10"
+        // Marlin uses G10 both for firmware retraction (bare) and for workspace
+        // / tool offsets (G10 P0 X… Y… Z…, G10 R, G10 L). Only the bare form is
+        // a retraction.
+        FirmwareDialect.MARLIN -> command.opcode == "G10" && command.parameterLetters.isEmpty()
         FirmwareDialect.KLIPPER, FirmwareDialect.GENERIC -> false
     }
 
     internal fun isFirmwareUnretract(command: GcodeCommand.Parsed): Boolean = when (dialect) {
         FirmwareDialect.REPRAP_FIRMWARE -> command.opcode == "G11" && command.parameterLetters.isEmpty()
-        FirmwareDialect.MARLIN -> command.opcode == "G11"
+        FirmwareDialect.MARLIN -> command.opcode == "G11" && command.parameterLetters.isEmpty()
         FirmwareDialect.KLIPPER, FirmwareDialect.GENERIC -> false
     }
 

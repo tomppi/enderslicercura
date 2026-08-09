@@ -22,6 +22,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -33,6 +34,9 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.tomppi.enderslicer.engine.GcodeLayerPreview
@@ -68,12 +72,41 @@ internal fun LayerPreviewView(
             360.dp
         }
         Column {
+            var previewView by remember { mutableStateOf<LayerPreviewSurfaceView?>(null) }
+            val lifecycleOwner = LocalLifecycleOwner.current
+            DisposableEffect(lifecycleOwner, previewView) {
+                val view = previewView
+                if (view == null) {
+                    onDispose { }
+                } else {
+                    val observer = LifecycleEventObserver { _, event ->
+                        when (event) {
+                            Lifecycle.Event.ON_RESUME -> view.onResume()
+                            Lifecycle.Event.ON_PAUSE,
+                            Lifecycle.Event.ON_STOP,
+                            Lifecycle.Event.ON_DESTROY,
+                            -> view.onPause()
+                            else -> Unit
+                        }
+                    }
+                    lifecycleOwner.lifecycle.addObserver(observer)
+                    if (lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+                        view.onResume()
+                    }
+                    onDispose {
+                        lifecycleOwner.lifecycle.removeObserver(observer)
+                        view.onPause()
+                    }
+                }
+            }
             AndroidView(
                 modifier = Modifier
                     .weight(1f)
                     .heightIn(min = if (shortWindow) 120.dp else 180.dp)
                     .fillMaxWidth(),
-                factory = { context -> LayerPreviewSurfaceView(context) },
+                factory = { context ->
+                    LayerPreviewSurfaceView(context).also { previewView = it }
+                },
                 update = { view -> view.setPreview(preview, safeIndex, style) },
             )
 

@@ -114,6 +114,9 @@ internal object CuraSettingScopeResolver {
     private fun parse(text: String): Document {
         val root = JSONObject(text)
         val settings = linkedMapOf<String, ScopeDefinition>()
+        // Machine/extruder definitions may place settings under "overrides"
+        // (newer Cura format) or "settings"; merge both.
+        root.optJSONObject("overrides")?.let { collect(it, settings) }
         root.optJSONObject("settings")?.let { collect(it, settings) }
         return Document(
             parent = root.optString("inherits").trim().ifEmpty { null },

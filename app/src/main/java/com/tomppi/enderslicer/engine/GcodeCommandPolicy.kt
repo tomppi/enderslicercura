@@ -58,6 +58,7 @@ internal object GcodeCommandPolicy {
         command: GcodeCommand.Parsed,
         currentLayer: Int?,
         lineNumber: Int,
+        inEndGcode: Boolean = false,
     ) {
         requireUnframed(command, "Published G-code at line $lineNumber")
         when (command.family) {
@@ -67,7 +68,7 @@ internal object GcodeCommandPolicy {
                     "Unsupported G2/G3 arc at line $lineNumber; the G-code was not made available for export",
                 )
                 in SAFE_NON_MOTION_G -> Unit
-                in TRUSTED_STARTUP_G -> require(currentLayer == null) {
+                in TRUSTED_STARTUP_G -> require(currentLayer == null || inEndGcode) {
                     "Unsafe ${command.opcode} at line $lineNumber after printable layers began"
                 }
                 else -> error(

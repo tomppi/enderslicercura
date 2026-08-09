@@ -67,7 +67,18 @@ internal object CuraMaterialParser {
             "retraction amount" -> "retraction_amount"
             else -> return null
         }
-        return curaKey to value
+        // Cura material files store "print cooling" as True/False while the
+        // engine's cool_fan_speed is a percentage; normalise the boolean.
+        val normalized = if (curaKey == "cool_fan_speed") {
+            when (value.trim().lowercase()) {
+                "true", "1", "yes" -> "100"
+                "false", "0", "no" -> "0"
+                else -> value
+            }
+        } else {
+            value
+        }
+        return curaKey to normalized
     }
 
     private fun firstText(root: Element, localName: String): String? {

@@ -39,6 +39,7 @@ object GcodeSanitizer {
 
         var layerCount = 0
         var currentLayer: Int? = null
+        var lastLayerSeen: Int? = null
         var lastElapsed: Double? = null
         val modalState = GcodeModalState()
         var currentE = 0.0
@@ -78,6 +79,7 @@ object GcodeSanitizer {
                     }
                     line.startsWith(";LAYER:") -> {
                         currentLayer = line.substringAfter(':').trim().toIntOrNull()
+                        if (currentLayer != null) lastLayerSeen = currentLayer
                     }
                     line.startsWith(";TIME_ELAPSED:") -> {
                         lastElapsed = line.substringAfter(':').trim().toDoubleOrNull() ?: lastElapsed
@@ -97,7 +99,12 @@ object GcodeSanitizer {
                     )
                     return@forEach
                 }
-                GcodeCommandPolicy.requirePublishedSafe(command, currentLayer, lineNumber)
+                GcodeCommandPolicy.requirePublishedSafe(
+                    command,
+                    currentLayer,
+                    lineNumber,
+                    inEndGcode = layerCount > 0 && lastLayerSeen != null && lastLayerSeen >= layerCount - 1,
+                )
                 GcodeCommandPolicy.speedFactor(command)?.let { factor ->
                     speedFactor = factor
                     return@forEach
@@ -245,9 +252,18 @@ object GcodeSanitizer {
             }
         }
         check(temporary.length() > 0L) { "Validated G-code output is empty" }
-        if (file.exists()) file.delete()
-        check(temporary.renameTo(file) || temporary.copyTo(file, overwrite = true).let { temporary.delete(); true }) {
-            "Unable to replace generated G-code with the validated output"
+        // Atomic replace: never delete the original before the validated file is
+        // in place, so a failed rename leaves the source intact.
+        try {
+            java.nio.file.Files.move(
+                temporary.toPath(),
+                file.toPath(),
+                java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+            )
+        } catch (_: java.io.IOException) {
+            check(temporary.renameTo(file) || temporary.copyTo(file, overwrite = true).let { temporary.delete(); true }) {
+                "Unable to replace generated G-code with the validated output"
+            }
         }
         if (temperatureCalibration && finalNozzleTarget(file) != 0.0) {
             throw UnsafeGcodeException(

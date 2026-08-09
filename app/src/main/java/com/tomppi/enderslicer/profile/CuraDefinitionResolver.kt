@@ -200,6 +200,11 @@ internal object CuraDefinitionResolver {
     ): DefinitionDocument {
         val root = JSONObject(content)
         val settings = linkedMapOf<String, SettingDefinition>()
+        // Newer Cura machine/extruder definitions (e.g. creality_base,
+        // creality_ender3) place their settings under "overrides"; the base
+        // fdmprinter/fdmextruder docs use "settings". Merge both, with the
+        // "settings" section taking precedence when a key exists in both.
+        root.optJSONObject("overrides")?.let { collectSettings(it, settings, definitionExpressionKeys) }
         root.optJSONObject("settings")?.let { collectSettings(it, settings, definitionExpressionKeys) }
         return DefinitionDocument(
             parentName = root.optString("inherits").trim().ifEmpty { null },
@@ -225,6 +230,13 @@ internal object CuraDefinitionResolver {
             val expression = when {
                 rawValueExpression.startsWith("=") -> rawValueExpression.removePrefix("=").trim()
                 key in definitionExpressionKeys && rawValueExpression.isNotEmpty() -> rawValueExpression
+                // Many Cura formulas (e.g. wall_line_count, support_infill_rate,
+                // material_print_temperature_layer_0) are stored without the
+                // leading '='. If the value parses as a formula it is evaluated;
+                // plain text/literals stay as defaults because expressions()
+                // now skips anything that does not parse.
+                rawValueExpression.isNotEmpty() &&
+                    isFormulaLike(rawValueExpression) -> rawValueExpression
                 else -> null
             }
             val type = setting.optString("type")
@@ -266,14 +278,27 @@ internal object CuraDefinitionResolver {
         }
     }
 
+    /** True when a definition `value` looks like a formula rather than a literal. */
+    private fun isFormulaLike(value: String): Boolean {
+        val trimmed = value.trim()
+        if (trimmed.isEmpty()) return false
+        if (trimmed.toDoubleOrNull() != null) return false
+        if (trimmed.lowercase() in BOOLEAN_LITERALS) return false
+        // A formula uses arithmetic/boolean/conditional syntax or a Cura
+        // function call. Bare single identifiers (plain setting references or
+        // option strings) are left to the engine and stay at their default.
+        if (trimmed.any { it in FORMULA_OPERATORS }) return true
+        return trimmed.any { it == '(' } && trimmed.any { it == ')' }
+    }
+
     private fun booleanValue(value: Any?): Boolean? = when (value) {
         is Boolean -> value
+        is Number -> value.toInt() != 0
         is String -> when (value.trim().lowercase()) {
             "true", "1", "yes", "on" -> true
             "false", "0", "no", "off" -> false
             else -> null
         }
-        is Number -> value.toInt() != 0
         else -> null
     }
 
@@ -304,7 +329,13 @@ internal object CuraDefinitionResolver {
         return linkedMapOf<String, CuraExpression>().apply {
             definitions.forEach { (key, definition) ->
                 definition.expression?.let { expression ->
-                    put(key, CuraValueExpressionParser.parse(expression))
+                    // Definition files are not fully consistent: some settings
+                    // whose "value" is intended as a formula are stored without
+                    // the leading '=' marker. Parse defensively so a value that
+                    // is really plain text (or a lone setting reference that
+                    // only resolves later) does not abort resolution; it simply
+                    // stays at its default and is resolved by the engine.
+                    runCatching { CuraValueExpressionParser.parse(expression) }.getOrNull()?.let { put(key, it) }
                 }
             }
         }
@@ -475,6 +506,7 @@ internal object CuraDefinitionResolver {
         "extra_infill_lines_to_support_skins",
     )
     private val BOOLEAN_LITERALS = setOf("true", "false", "1", "0", "yes", "no", "on", "off")
+    private val FORMULA_OPERATORS = charArrayOf('+', '-', '*', '/', '%', '=', '<', '>', '!')
     private const val MAX_PASSES = 64
     private const val MAX_REPORTED_UNRESOLVED = 12
 }
