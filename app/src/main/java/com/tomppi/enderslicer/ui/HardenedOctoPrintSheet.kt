@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -467,9 +468,10 @@ private fun HardenedWebcamCard(state: OctoPrintUiState) {
                 Image(
                     bitmap = currentBitmap.asImageBitmap(),
                     contentDescription = "OctoPrint webcam",
+                    contentScale = ContentScale.FillWidth,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(230.dp)
+                        .height(380.dp)
                         .graphicsLayer(
                             scaleX = if (state.webcam.flipHorizontal) -1f else 1f,
                             scaleY = if (state.webcam.flipVertical) -1f else 1f,
