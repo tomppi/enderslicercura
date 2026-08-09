@@ -57,7 +57,7 @@ object GcodeNozzlePathParser {
         val sourceMoveCount = countSpatialMoves(file)
         require(sourceMoveCount > 0) { "No spatial nozzle moves were found in the G-code" }
 
-        val accumulator = FloatAccumulator()
+        val accumulator = FloatAccumulator(GcodeNozzlePath.VALUES_PER_MOVE * 2048)
         val sourceIndices = IntAccumulator()
         val modalState = GcodeModalState()
         var x = 0.0
@@ -230,27 +230,6 @@ object GcodeNozzlePathParser {
     private fun checkCancellation(linesRead: Int) {
         if (linesRead % CANCELLATION_INTERVAL == 0 && Thread.currentThread().isInterrupted) {
             throw InterruptedException("Nozzle-path parsing was cancelled")
-        }
-    }
-
-    private class FloatAccumulator(initialCapacity: Int = GcodeNozzlePath.VALUES_PER_MOVE * 2048) {
-        private var values = FloatArray(initialCapacity)
-        var size: Int = 0
-            private set
-
-        fun add(vararg additions: Float) {
-            ensure(size + additions.size)
-            additions.copyInto(values, destinationOffset = size)
-            size += additions.size
-        }
-
-        fun toArray(): FloatArray = values.copyOf(size)
-
-        private fun ensure(required: Int) {
-            if (required <= values.size) return
-            var capacity = values.size
-            while (capacity < required) capacity *= 2
-            values = values.copyOf(capacity)
         }
     }
 

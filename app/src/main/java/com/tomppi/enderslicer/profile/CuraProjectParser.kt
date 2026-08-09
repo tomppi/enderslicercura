@@ -115,7 +115,6 @@ object CuraProjectParser {
             definitionFiles = definitionFiles,
             machineDefinitionFileName = machineDefinitionId?.let { "$it.def.json" },
             extruderDefinitionFileName = extruderDefinitionId?.let { "$it.def.json" },
-            materialValueCount = materialValues.size,
             unresolvedExpressions = resolved.unresolvedExpressions,
         )
 

@@ -141,9 +141,7 @@ class CalibrationFirmwareEncoder private constructor(
         .take(64)
         .ifBlank { "EnderSlicer event" }
 
-    private fun format(value: Double): String = String.format(Locale.US, "%.5f", value)
-        .trimEnd('0')
-        .trimEnd('.')
+    private fun format(value: Double): String = formatDecimal(value, 5)
 
     companion object {
         fun fromFlavor(rawFlavor: String): CalibrationFirmwareEncoder {

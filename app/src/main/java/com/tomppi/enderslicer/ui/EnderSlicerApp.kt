@@ -661,7 +661,7 @@ private fun ViewerPanel(
                     Text(description, style = MaterialTheme.typography.bodySmall)
                 }
                 state.estimatedPrintSeconds?.takeIf { gcodeAvailable }?.let { seconds ->
-                    Text("Estimated print: ${formatEstimatedPrintTime(seconds)}", style = MaterialTheme.typography.bodySmall)
+                    Text("Estimated print: ${formatPrintTime(seconds)}", style = MaterialTheme.typography.bodySmall)
                 }
                 if (state.warnings.isNotEmpty()) {
                     Text("Cura compatibility warnings: ${state.warnings.size}", style = MaterialTheme.typography.labelSmall)
@@ -742,7 +742,7 @@ private fun ActionBar(
             }
             state.estimatedPrintSeconds?.takeIf { gcodeAvailable }?.let { seconds ->
                 Text(
-                    "Estimated print time: ${formatEstimatedPrintTime(seconds)}",
+                    "Estimated print time: ${formatPrintTime(seconds)}",
                     style = MaterialTheme.typography.titleSmall,
                     modifier = Modifier.align(Alignment.CenterHorizontally),
                 )
@@ -778,14 +778,4 @@ private fun ActionBar(
     }
 }
 
-private fun formatEstimatedPrintTime(totalSeconds: Int): String {
-    val seconds = totalSeconds.coerceAtLeast(0)
-    val days = seconds / 86_400
-    val hours = (seconds % 86_400) / 3_600
-    val minutes = (seconds % 3_600) / 60
-    return buildString {
-        if (days > 0) append("${days}d ")
-        if (hours > 0 || days > 0) append("${hours}h ")
-        append("${minutes}m")
-    }.trim()
-}
+

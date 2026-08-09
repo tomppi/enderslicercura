@@ -8,7 +8,6 @@ data class CuraEngineProfile(
     val definitionFiles: Map<String, String> = emptyMap(),
     val machineDefinitionFileName: String? = null,
     val extruderDefinitionFileName: String? = null,
-    val materialValueCount: Int = 0,
     val unresolvedExpressions: List<String> = emptyList(),
 ) {
     val concreteSettingCount: Int

@@ -73,11 +73,6 @@ internal object CurviSlicerFieldStorage {
         return read(sidecar).curveGcode(file, printerEnvelope)
     }
 
-    fun diagnostics(workspace: File): CurviSlicerPipeline.Diagnostics? {
-        val sidecar = File(workspace, FILE_NAME)
-        return sidecar.takeIf(File::isFile)?.let(::read)?.diagnostics
-    }
-
     fun isPrepared(workspace: File): Boolean = File(workspace, FILE_NAME).isFile
 
     private fun read(file: File): CurviSlicerPipeline.Prepared =

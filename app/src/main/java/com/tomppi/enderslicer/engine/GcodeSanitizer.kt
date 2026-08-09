@@ -171,7 +171,7 @@ object GcodeSanitizer {
                                         nozzleTargetLayer?.let { append(", layer $it") }
                                     }
                                     throw UnsafeGcodeException(
-                                        "Unsafe nozzle target ${format(target)} C while extruding at $extrusionLayer " +
+                                        "Unsafe nozzle target ${formatDecimal(target, 5)} C while extruding at $extrusionLayer " +
                                             "(extrusion line $lineNumber; $targetLocation). " +
                                             "The G-code was not made available for export.",
                                     )
@@ -225,13 +225,13 @@ object GcodeSanitizer {
                             originalLine.startsWith(";ENDERSLICER_COORDINATE_TRANSPORT:") ||
                             originalLine.startsWith(";ENDERSLICER_SETTINGS_TRANSPORT:") -> return@forEach
                         originalLine.startsWith(";TIME:") && estimatedSeconds != null -> ";TIME:$estimatedSeconds"
-                        originalLine.startsWith(";Filament used:") -> ";Filament used: ${format(totalFilament / 1000.0)}m"
-                        originalLine.startsWith(";MINX:") && minX != null -> ";MINX:${format(requireNotNull(minX))}"
-                        originalLine.startsWith(";MINY:") && minY != null -> ";MINY:${format(requireNotNull(minY))}"
-                        originalLine.startsWith(";MINZ:") && minZ != null -> ";MINZ:${format(requireNotNull(minZ))}"
-                        originalLine.startsWith(";MAXX:") && maxX != null -> ";MAXX:${format(requireNotNull(maxX))}"
-                        originalLine.startsWith(";MAXY:") && maxY != null -> ";MAXY:${format(requireNotNull(maxY))}"
-                        originalLine.startsWith(";MAXZ:") && maxZ != null -> ";MAXZ:${format(requireNotNull(maxZ))}"
+                        originalLine.startsWith(";Filament used:") -> ";Filament used: ${formatDecimal(totalFilament / 1000.0, 5)}m"
+                        originalLine.startsWith(";MINX:") && minX != null -> ";MINX:${formatDecimal(requireNotNull(minX), 5)}"
+                        originalLine.startsWith(";MINY:") && minY != null -> ";MINY:${formatDecimal(requireNotNull(minY), 5)}"
+                        originalLine.startsWith(";MINZ:") && minZ != null -> ";MINZ:${formatDecimal(requireNotNull(minZ), 5)}"
+                        originalLine.startsWith(";MAXX:") && maxX != null -> ";MAXX:${formatDecimal(requireNotNull(maxX), 5)}"
+                        originalLine.startsWith(";MAXY:") && maxY != null -> ";MAXY:${formatDecimal(requireNotNull(maxY), 5)}"
+                        originalLine.startsWith(";MAXZ:") && maxZ != null -> ";MAXZ:${formatDecimal(requireNotNull(maxZ), 5)}"
                         else -> originalLine
                     }
                     writer.write(line)
@@ -299,8 +299,6 @@ object GcodeSanitizer {
         }
         return target
     }
-
-    private fun format(value: Double): String = "%.5f".format(java.util.Locale.US, value).trimEnd('0').trimEnd('.')
 
     private const val TEMPERATURE_CALIBRATION_SHUTDOWN_COMMENT =
         "enderslicercura temperature calibration safety shutdown"

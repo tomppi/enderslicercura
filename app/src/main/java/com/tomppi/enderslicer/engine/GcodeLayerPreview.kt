@@ -77,7 +77,7 @@ object GcodeLayerPreviewParser {
         val layers = mutableListOf<GcodeLayerPreview.Layer>()
         var currentLayerNumber: Int? = null
         var currentLayerZ = 0f
-        var currentSegments = FloatAccumulator()
+        var currentSegments = FloatAccumulator(6 * 2048)
         var currentSupportCount = 0
         var currentSupportInterfaceCount = 0
         var feature = GcodeLayerPreview.Feature.OTHER
@@ -112,7 +112,7 @@ object GcodeLayerPreviewParser {
                 supportInterfaceSegmentCount = currentSupportInterfaceCount,
                 sourceSegmentCount = source.layerSegmentCounts[number] ?: 0,
             )
-            currentSegments = FloatAccumulator()
+            currentSegments = FloatAccumulator(6 * 2048)
             currentSupportCount = 0
             currentSupportInterfaceCount = 0
         }
@@ -333,25 +333,4 @@ object GcodeLayerPreviewParser {
         val layerSegmentCounts: Map<Int, Int>,
         val firstFeatureIndices: IntArray,
     )
-
-    private class FloatAccumulator(initialCapacity: Int = 6 * 2048) {
-        private var values = FloatArray(initialCapacity)
-        var size: Int = 0
-            private set
-
-        fun add(vararg additions: Float) {
-            ensure(size + additions.size)
-            additions.copyInto(values, destinationOffset = size)
-            size += additions.size
-        }
-
-        fun toArray(): FloatArray = values.copyOf(size)
-
-        private fun ensure(required: Int) {
-            if (required <= values.size) return
-            var capacity = values.size
-            while (capacity < required) capacity *= 2
-            values = values.copyOf(capacity)
-        }
-    }
 }

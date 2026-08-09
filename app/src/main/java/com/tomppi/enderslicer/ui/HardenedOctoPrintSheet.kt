@@ -991,17 +991,8 @@ private fun decodeHardenedWebcamBitmap(bytes: ByteArray): Bitmap? {
     )
 }
 
-private fun hardenedDuration(seconds: Int?): String {
-    if (seconds == null || seconds < 0) return "—"
-    val days = seconds / 86_400
-    val hours = (seconds % 86_400) / 3_600
-    val minutes = (seconds % 3_600) / 60
-    return buildString {
-        if (days > 0) append("${days}d ")
-        if (hours > 0 || days > 0) append("${hours}h ")
-        append("${minutes}m")
-    }.trim()
-}
+private fun hardenedDuration(seconds: Int?): String =
+    if (seconds == null || seconds < 0) "—" else formatPrintTime(seconds)
 
 private fun hardenedBytes(bytes: Long): String = when {
     bytes >= 1024L * 1024L * 1024L -> "%.2f GiB".format(bytes / (1024.0 * 1024.0 * 1024.0))

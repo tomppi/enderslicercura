@@ -136,8 +136,6 @@ fun IntegratedEnderSlicerApp(
         val url = octoPrintState.authorizationDialogUrl ?: return@LaunchedEffect
         runCatching {
             context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-        }.onSuccess {
-            octoPrintViewModel.acknowledgeAuthorizationDialog()
         }.onFailure { error ->
             Toast.makeText(
                 context,
@@ -171,12 +169,7 @@ fun IntegratedEnderSlicerApp(
             scope.launch {
                 val previousPath = slicerViewModel.uiState.value.modelPath
                 slicerViewModel.importPartTopoResult(exportUri)
-                val started = slicerViewModel.uiState.value.isBusy
-                val completed = if (started) {
-                    slicerViewModel.uiState.first { state -> !state.isBusy }
-                } else {
-                    slicerViewModel.uiState.value
-                }
+                val completed = slicerViewModel.awaitIdleIfBusy()
                 val imported = completed.mesh != null && completed.modelPath != previousPath
                 if (imported) {
                     val previousPackage = smartInfillPackage
@@ -273,12 +266,7 @@ fun IntegratedEnderSlicerApp(
         val packageToDelete = smartInfillPackage
         scope.launch {
             slicerViewModel.clearBuildPlate()
-            val started = slicerViewModel.uiState.value.isBusy
-            val completed = if (started) {
-                slicerViewModel.uiState.first { state -> !state.isBusy }
-            } else {
-                slicerViewModel.uiState.value
-            }
+            val completed = slicerViewModel.awaitIdleIfBusy()
             val cleared = completed.mesh == null && completed.modelPath == null
             if (cleared) {
                 smartInfillStore.clearActive()
@@ -520,4 +508,9 @@ private fun suggestedOctoPrintName(state: MainUiState): String {
         ?.takeIf(String::isNotBlank)
         ?: "enderslicercura"
     return "$source.gcode"
+}
+
+private suspend fun MainViewModel.awaitIdleIfBusy(): MainUiState {
+    val started = uiState.value.isBusy
+    return if (started) uiState.first { state -> !state.isBusy } else uiState.value
 }

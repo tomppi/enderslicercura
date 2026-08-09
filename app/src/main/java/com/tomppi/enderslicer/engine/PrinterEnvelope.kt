@@ -229,8 +229,7 @@ data class PrinterEnvelope(
             else -> value.trim().lowercase(Locale.US)
         }
 
-        private fun format(value: Double): String =
-            String.format(Locale.US, "%.5f", value).trimEnd('0').trimEnd('.')
+        private fun format(value: Double): String = formatDecimal(value, 5)
 
         private const val FORMAT_VERSION = 1
         private const val RECTANGULAR = "rectangular"

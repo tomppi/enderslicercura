@@ -190,8 +190,6 @@ class OctoPrintRepository(
         }
     }
 
-    fun acknowledgeAuthorizationDialog() = Unit
-
     fun reopenAuthorizationDialog() {
         val current = _state.value
         if (!current.authorizationPending || current.authorizationDialogUrl.isNullOrBlank()) return

@@ -1,7 +1,5 @@
 package com.tomppi.enderslicer.engine
 
-import java.util.Locale
-
 enum class LayerEventType {
     PAUSE,
     FILAMENT_CHANGE,
@@ -56,7 +54,7 @@ data class LayerEvent(
     }
 
     private fun format(number: Double?): String = number
-        ?.let { String.format(Locale.US, "%.3f", it).trimEnd('0').trimEnd('.') }
+        ?.let { formatDecimal(it, 3) }
         ?: "?"
 }
 

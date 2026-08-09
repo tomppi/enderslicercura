@@ -2,7 +2,6 @@ package com.tomppi.enderslicer.engine
 
 import com.tomppi.enderslicer.calibration.CalibrationSliceState
 import java.io.File
-import java.util.Locale
 
 object GcodeLayerEventProcessor {
     fun resolve(
@@ -241,9 +240,7 @@ object GcodeLayerEventProcessor {
         .take(80)
         .ifBlank { "event" }
 
-    private fun formatTarget(value: Float): String = String.format(Locale.US, "%.3f", value)
-        .trimEnd('0')
-        .trimEnd('.')
+    private fun formatTarget(value: Float): String = formatDecimal(value.toDouble(), 3)
 
     private const val Z_EPSILON = 0.01f
     private const val MAX_TARGET_ERROR_MM = 0.6f

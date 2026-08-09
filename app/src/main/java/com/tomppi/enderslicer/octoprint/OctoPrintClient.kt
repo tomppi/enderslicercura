@@ -216,10 +216,6 @@ class OctoPrintClient(
         postFileCommand(path, JSONObject().put("command", "select").put("print", print))
     }
 
-    fun unselectFile(path: String) {
-        postFileCommand(path, JSONObject().put("command", "unselect"))
-    }
-
     fun deleteFile(path: String) {
         execute(url = fileUrl(path), method = "DELETE")
     }
