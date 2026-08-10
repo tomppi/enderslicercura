@@ -18,6 +18,17 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Create
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -25,6 +36,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
@@ -159,6 +171,7 @@ fun EnderSlicerApp(
                             MenuSectionLabel("Files")
                             DropdownMenuItem(
                                 text = { Text("Import STL") },
+                                leadingIcon = { Icon(Icons.Filled.Add, contentDescription = null) },
                                 onClick = {
                                     menuExpanded = false
                                     stlPicker.launch(arrayOf("*/*"))
@@ -167,6 +180,7 @@ fun EnderSlicerApp(
                             )
                             DropdownMenuItem(
                                 text = { Text("Import Cura project (.3mf)") },
+                                leadingIcon = { Icon(Icons.Filled.Add, contentDescription = null) },
                                 onClick = {
                                     menuExpanded = false
                                     projectPicker.launch(
@@ -181,6 +195,7 @@ fun EnderSlicerApp(
                             )
                             DropdownMenuItem(
                                 text = { Text("Import Cura profile") },
+                                leadingIcon = { Icon(Icons.Filled.Add, contentDescription = null) },
                                 onClick = {
                                     menuExpanded = false
                                     profilePicker.launch(arrayOf("*/*"))
@@ -192,6 +207,7 @@ fun EnderSlicerApp(
                             MenuSectionLabel("Model")
                             DropdownMenuItem(
                                 text = { Text("Texture model (BumpMesh)") },
+                                leadingIcon = { Icon(Icons.Filled.Build, contentDescription = null) },
                                 onClick = {
                                     val mesh = state.mesh
                                     menuExpanded = false
@@ -226,6 +242,8 @@ fun EnderSlicerApp(
                             )
                             DropdownMenuItem(
                                 text = { Text("Position & rotation") },
+                                leadingIcon = { Icon(Icons.Filled.Edit, contentDescription = null) },
+                                trailingIcon = { Icon(Icons.Filled.KeyboardArrowRight, contentDescription = null) },
                                 onClick = {
                                     menuExpanded = false
                                     modelToolsOpen = true
@@ -234,6 +252,8 @@ fun EnderSlicerApp(
                             )
                             DropdownMenuItem(
                                 text = { Text("Mesh triangle limit") },
+                                leadingIcon = { Icon(Icons.Filled.Info, contentDescription = null) },
+                                trailingIcon = { Icon(Icons.Filled.KeyboardArrowRight, contentDescription = null) },
                                 onClick = {
                                     menuExpanded = false
                                     meshLimitOpen = true
@@ -253,6 +273,8 @@ fun EnderSlicerApp(
                                         },
                                     )
                                 },
+                                leadingIcon = { Icon(Icons.Filled.PlayArrow, contentDescription = null) },
+                                trailingIcon = { Icon(Icons.Filled.KeyboardArrowRight, contentDescription = null) },
                                 onClick = {
                                     menuExpanded = false
                                     nonPlanarOpen = true
@@ -264,17 +286,21 @@ fun EnderSlicerApp(
                             MenuSectionLabel("Calibration")
                             DropdownMenuItem(
                                 text = { Text("Calibration generator") },
+                                leadingIcon = { Icon(Icons.Filled.Create, contentDescription = null) },
+                                trailingIcon = { Icon(Icons.Filled.KeyboardArrowRight, contentDescription = null) },
                                 onClick = {
                                     menuExpanded = false
                                     calibrationOpen = true
                                 },
-                                enabled = !state.isBusy,
+                                enabled = state.mesh != null && !state.isBusy,
                             )
 
                             HorizontalDivider()
                             MenuSectionLabel("Configuration")
                             DropdownMenuItem(
                                 text = { Text("Profiles & filament") },
+                                leadingIcon = { Icon(Icons.Filled.Star, contentDescription = null) },
+                                trailingIcon = { Icon(Icons.Filled.KeyboardArrowRight, contentDescription = null) },
                                 onClick = {
                                     menuExpanded = false
                                     profilesOpen = true
@@ -283,6 +309,8 @@ fun EnderSlicerApp(
                             )
                             DropdownMenuItem(
                                 text = { Text("Print settings") },
+                                leadingIcon = { Icon(Icons.Filled.Settings, contentDescription = null) },
+                                trailingIcon = { Icon(Icons.Filled.KeyboardArrowRight, contentDescription = null) },
                                 onClick = {
                                     menuExpanded = false
                                     settingsOpen = true
@@ -291,6 +319,8 @@ fun EnderSlicerApp(
                             )
                             DropdownMenuItem(
                                 text = { Text("Printer & G-code") },
+                                leadingIcon = { Icon(Icons.Filled.Build, contentDescription = null) },
+                                trailingIcon = { Icon(Icons.Filled.KeyboardArrowRight, contentDescription = null) },
                                 onClick = {
                                     menuExpanded = false
                                     machineSettingsOpen = true
@@ -299,6 +329,7 @@ fun EnderSlicerApp(
                             )
                             DropdownMenuItem(
                                 text = { Text("Export configuration snapshot") },
+                                leadingIcon = { Icon(Icons.Filled.Share, contentDescription = null) },
                                 onClick = {
                                     menuExpanded = false
                                     configExportPicker.launch("printer-config.json")
@@ -335,9 +366,8 @@ fun EnderSlicerApp(
     }
 
     if (profilesOpen) {
-        ModalBottomSheet(
+        AppBottomSheet(
             onDismissRequest = { profilesOpen = false },
-            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         ) {
             ProfileManagementSheet(
                 state = state,
@@ -350,9 +380,8 @@ fun EnderSlicerApp(
     }
 
     if (settingsOpen) {
-        ModalBottomSheet(
+        AppBottomSheet(
             onDismissRequest = { settingsOpen = false },
-            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         ) {
             CategorizedSettingsSheet(
                 state = state,
@@ -366,9 +395,8 @@ fun EnderSlicerApp(
     }
 
     if (meshLimitOpen) {
-        ModalBottomSheet(
+        AppBottomSheet(
             onDismissRequest = { meshLimitOpen = false },
-            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         ) {
             MeshTriangleLimitSheet(
                 currentLimit = MeshTriangleLimits.current(),
@@ -390,9 +418,8 @@ fun EnderSlicerApp(
     }
 
     if (nonPlanarOpen) {
-        ModalBottomSheet(
+        AppBottomSheet(
             onDismissRequest = { nonPlanarOpen = false },
-            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         ) {
             val effectivePrinter = state.printer.withSettings(state.settings)
             NonPlanarSettingsSheet(
@@ -434,9 +461,8 @@ fun EnderSlicerApp(
     }
 
     if (machineSettingsOpen) {
-        ModalBottomSheet(
+        AppBottomSheet(
             onDismissRequest = { machineSettingsOpen = false },
-            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         ) {
             MachineSettingsSheet(
                 state = state,
@@ -450,9 +476,8 @@ fun EnderSlicerApp(
     }
 
     if (calibrationOpen) {
-        ModalBottomSheet(
+        AppBottomSheet(
             onDismissRequest = { calibrationOpen = false },
-            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         ) {
             CalibrationGeneratorSheet(
                 isBusy = state.isBusy,
@@ -470,9 +495,8 @@ fun EnderSlicerApp(
     if (layerEventsOpen && state.layerPreview != null && state.hasCurrentGcode()) {
         val preview = requireNotNull(state.layerPreview)
         val layer = preview.layers[selectedLayerIndex.coerceIn(preview.layers.indices)]
-        ModalBottomSheet(
+        AppBottomSheet(
             onDismissRequest = { layerEventsOpen = false },
-            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         ) {
             LayerEventsSheet(
                 layer = layer,
@@ -492,9 +516,8 @@ fun EnderSlicerApp(
     }
 
     if (modelToolsOpen) {
-        ModalBottomSheet(
+        AppBottomSheet(
             onDismissRequest = { modelToolsOpen = false },
-            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         ) {
             ModelToolsSheet(
                 state = state,
@@ -527,6 +550,20 @@ internal fun TopBarTextAction(
         contentPadding = PaddingValues(horizontal = 12.dp),
     ) {
         Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AppBottomSheet(
+    onDismissRequest: () -> Unit,
+    content: @Composable () -> Unit,
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismissRequest,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+    ) {
+        content()
     }
 }
 
