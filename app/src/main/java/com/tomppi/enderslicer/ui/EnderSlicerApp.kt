@@ -85,12 +85,14 @@ private enum class ViewerMode { MODEL, LAYERS, NOZZLE_PATH }
 fun EnderSlicerApp(
     viewModel: MainViewModel = viewModel(),
     topBarActions: @Composable () -> Unit = {},
+    advancedMenuItems: @Composable (() -> Unit) -> Unit = { _ -> },
     sliceBlockedReason: String? = null,
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var menuExpanded by rememberSaveable { mutableStateOf(false) }
+    var advancedSubmenuExpanded by rememberSaveable { mutableStateOf(false) }
     var settingsOpen by rememberSaveable { mutableStateOf(false) }
     var profilesOpen by rememberSaveable { mutableStateOf(false) }
     var machineSettingsOpen by rememberSaveable { mutableStateOf(false) }
@@ -206,41 +208,6 @@ fun EnderSlicerApp(
                             HorizontalDivider()
                             MenuSectionLabel("Model")
                             DropdownMenuItem(
-                                text = { Text("Texture model (BumpMesh)") },
-                                leadingIcon = { Icon(Icons.Filled.Build, contentDescription = null) },
-                                onClick = {
-                                    val mesh = state.mesh
-                                    menuExpanded = false
-                                    if (mesh != null) {
-                                        scope.launch {
-                                            runCatching {
-                                                withContext(Dispatchers.IO) {
-                                                    val source = File(
-                                                        context.cacheDir,
-                                                        "bumpmesh-source/current-displayed.stl",
-                                                    )
-                                                    StlMeshWriter.writeBinary(mesh, source)
-                                                    source
-                                                }
-                                            }.onSuccess { source ->
-                                                textureLauncher.launch(
-                                                    Intent(context, BumpMeshActivity::class.java)
-                                                        .putExtra(BumpMeshActivity.EXTRA_MODEL_PATH, source.absolutePath)
-                                                        .putExtra(BumpMeshActivity.EXTRA_MODEL_NAME, mesh.displayName),
-                                                )
-                                            }.onFailure { error ->
-                                                Toast.makeText(
-                                                    context,
-                                                    error.message ?: "Unable to prepare the model for BumpMesh",
-                                                    Toast.LENGTH_LONG,
-                                                ).show()
-                                            }
-                                        }
-                                    }
-                                },
-                                enabled = state.mesh != null && !state.isBusy,
-                            )
-                            DropdownMenuItem(
                                 text = { Text("Position & rotation") },
                                 leadingIcon = { Icon(Icons.Filled.Edit, contentDescription = null) },
                                 trailingIcon = { Icon(Icons.Filled.KeyboardArrowRight, contentDescription = null) },
@@ -260,30 +227,6 @@ fun EnderSlicerApp(
                                 },
                                 enabled = !state.isBusy,
                             )
-
-                            HorizontalDivider()
-                            MenuSectionLabel("Non Planar")
-                            DropdownMenuItem(
-                                text = {
-                                    Text(
-                                        if (nonPlanarSettings.enabled) {
-                                            "CurviSlicer options · enabled"
-                                        } else {
-                                            "CurviSlicer options"
-                                        },
-                                    )
-                                },
-                                leadingIcon = { Icon(Icons.Filled.PlayArrow, contentDescription = null) },
-                                trailingIcon = { Icon(Icons.Filled.KeyboardArrowRight, contentDescription = null) },
-                                onClick = {
-                                    menuExpanded = false
-                                    nonPlanarOpen = true
-                                },
-                                enabled = !state.isBusy,
-                            )
-
-                            HorizontalDivider()
-                            MenuSectionLabel("Calibration")
                             DropdownMenuItem(
                                 text = { Text("Calibration generator") },
                                 leadingIcon = { Icon(Icons.Filled.Create, contentDescription = null) },
@@ -336,6 +279,83 @@ fun EnderSlicerApp(
                                 },
                                 enabled = !state.isBusy,
                             )
+
+                            HorizontalDivider()
+                            MenuSectionLabel("Advanced")
+                            Box {
+                                DropdownMenuItem(
+                                    text = { Text("Experimental tools") },
+                                    leadingIcon = { Icon(Icons.Filled.PlayArrow, contentDescription = null) },
+                                    trailingIcon = { Icon(Icons.Filled.KeyboardArrowRight, contentDescription = null) },
+                                    onClick = { advancedSubmenuExpanded = true },
+                                )
+                                DropdownMenu(
+                                    expanded = advancedSubmenuExpanded,
+                                    onDismissRequest = { advancedSubmenuExpanded = false },
+                                    modifier = Modifier.widthIn(min = 240.dp, max = 320.dp),
+                                ) {
+                                    MenuSectionLabel("Experimental")
+                                    DropdownMenuItem(
+                                        text = { Text("Texture model (BumpMesh)") },
+                                        leadingIcon = { Icon(Icons.Filled.Build, contentDescription = null) },
+                                        onClick = {
+                                            val mesh = state.mesh
+                                            advancedSubmenuExpanded = false
+                                            menuExpanded = false
+                                            if (mesh != null) {
+                                                scope.launch {
+                                                    runCatching {
+                                                        withContext(Dispatchers.IO) {
+                                                            val source = File(
+                                                                context.cacheDir,
+                                                                "bumpmesh-source/current-displayed.stl",
+                                                            )
+                                                            StlMeshWriter.writeBinary(mesh, source)
+                                                            source
+                                                        }
+                                                    }.onSuccess { source ->
+                                                        textureLauncher.launch(
+                                                            Intent(context, BumpMeshActivity::class.java)
+                                                                .putExtra(BumpMeshActivity.EXTRA_MODEL_PATH, source.absolutePath)
+                                                                .putExtra(BumpMeshActivity.EXTRA_MODEL_NAME, mesh.displayName),
+                                                        )
+                                                    }.onFailure { error ->
+                                                        Toast.makeText(
+                                                            context,
+                                                            error.message ?: "Unable to prepare the model for BumpMesh",
+                                                            Toast.LENGTH_LONG,
+                                                        ).show()
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        enabled = state.mesh != null && !state.isBusy,
+                                    )
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                if (nonPlanarSettings.enabled) {
+                                                    "CurviSlicer options · enabled"
+                                                } else {
+                                                    "CurviSlicer options"
+                                                },
+                                            )
+                                        },
+                                        leadingIcon = { Icon(Icons.Filled.PlayArrow, contentDescription = null) },
+                                        trailingIcon = { Icon(Icons.Filled.KeyboardArrowRight, contentDescription = null) },
+                                        onClick = {
+                                            advancedSubmenuExpanded = false
+                                            menuExpanded = false
+                                            nonPlanarOpen = true
+                                        },
+                                        enabled = !state.isBusy,
+                                    )
+                                    advancedMenuItems {
+                                        advancedSubmenuExpanded = false
+                                        menuExpanded = false
+                                    }
+                                }
+                            }
                         }
                     }
                 },

@@ -350,18 +350,6 @@ fun IntegratedEnderSlicerApp(
                     modifier = Modifier.widthIn(min = 240.dp, max = 320.dp),
                 ) {
                     DropdownMenuItem(
-                        text = { Text(smartInfillMenuLabel) },
-                        onClick = {
-                            plateMenuExpanded = false
-                            if (smartInfillPackage == null) {
-                                launchSmartInfill()
-                            } else {
-                                smartInfillOpen = true
-                            }
-                        },
-                        enabled = slicerState.mesh != null && !slicerState.isBusy && !smartInfillImporting,
-                    )
-                    DropdownMenuItem(
                         text = { Text("Clear plate") },
                         onClick = {
                             plateMenuExpanded = false
@@ -379,6 +367,20 @@ fun IntegratedEnderSlicerApp(
                 label = octoPrintMenuLabel,
                 onClick = { octoPrintOpen = true },
                 enabled = !smartInfillImporting,
+            )
+        },
+        advancedMenuItems = { close ->
+            DropdownMenuItem(
+                text = { Text(smartInfillMenuLabel) },
+                onClick = {
+                    close()
+                    if (smartInfillPackage == null) {
+                        launchSmartInfill()
+                    } else {
+                        smartInfillOpen = true
+                    }
+                },
+                enabled = slicerState.mesh != null && !slicerState.isBusy && !smartInfillImporting,
             )
         },
     )
