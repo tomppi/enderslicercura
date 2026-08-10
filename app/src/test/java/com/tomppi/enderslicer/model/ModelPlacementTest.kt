@@ -126,6 +126,62 @@ class ModelPlacementTest {
         assertTrue(flattened.bounds.height < 1e-3f)
     }
 
+    @Test
+    fun scaledTo200PercentDoublesBoundsAndKeepsCenter() {
+        val mesh = triangleMesh(
+            floatArrayOf(
+                0f, 0f, 0f,
+                10f, 0f, 0f,
+                0f, 0f, 10f,
+            ),
+        )
+        val initial = ModelPlacement.centeredOnBed(mesh, 230.0, 230.0)
+        val before = initial.transformed(mesh)
+        val scaled = initial.scaled(200.0).transformed(mesh)
+
+        assertEquals(2.0 * before.bounds.width.toDouble(), scaled.bounds.width.toDouble(), 1e-4)
+        assertEquals(2.0 * before.bounds.depth.toDouble(), scaled.bounds.depth.toDouble(), 1e-4)
+        assertEquals(2.0 * before.bounds.height.toDouble(), scaled.bounds.height.toDouble(), 1e-4)
+        assertEquals(before.bounds.centerX.toDouble(), scaled.bounds.centerX.toDouble(), 1e-4)
+        assertEquals(before.bounds.centerY.toDouble(), scaled.bounds.centerY.toDouble(), 1e-4)
+        assertEquals(before.bounds.minZ.toDouble(), scaled.bounds.minZ.toDouble(), 1e-4)
+        assertTrue(initial.scaled(200.0).source.contains("200%"))
+    }
+
+    @Test
+    fun scaledTo50PercentHalvesBounds() {
+        val mesh = triangleMesh(
+            floatArrayOf(
+                0f, 0f, 0f,
+                10f, 0f, 0f,
+                0f, 0f, 10f,
+            ),
+        )
+        val initial = ModelPlacement.centeredOnBed(mesh, 230.0, 230.0)
+        val before = initial.transformed(mesh)
+        val scaled = initial.scaled(50.0).transformed(mesh)
+
+        assertEquals(0.5 * before.bounds.width.toDouble(), scaled.bounds.width.toDouble(), 1e-4)
+        assertEquals(0.5 * before.bounds.height.toDouble(), scaled.bounds.height.toDouble(), 1e-4)
+    }
+
+    @Test
+    fun scaledRejectsNonPositiveOrNonFinitePercentages() {
+        val mesh = triangleMesh(
+            floatArrayOf(
+                0f, 0f, 0f,
+                10f, 0f, 0f,
+                0f, 0f, 10f,
+            ),
+        )
+        val initial = ModelPlacement.centeredOnBed(mesh, 230.0, 230.0)
+
+        listOf(0.0, -50.0, Double.NaN, Double.POSITIVE_INFINITY).forEach { percent ->
+            val error = runCatching { initial.scaled(percent) }.exceptionOrNull()
+            assertTrue(error is IllegalArgumentException)
+        }
+    }
+
     private fun triangleMesh(positions: FloatArray): StlMesh {
         require(positions.size == 9)
         val interleaved = FloatArray(18)

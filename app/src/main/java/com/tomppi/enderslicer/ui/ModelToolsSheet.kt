@@ -34,6 +34,7 @@ fun ModelToolsSheet(
     state: MainUiState,
     onMove: (Double, Double, Double) -> Unit,
     onRotate: (ModelPlacement.Axis, Double) -> Unit,
+    onScale: (Double) -> Unit,
     onDropToBed: () -> Unit,
     onLayFlat: () -> Unit,
     onReset: () -> Unit,
@@ -44,6 +45,7 @@ fun ModelToolsSheet(
     var xText by rememberSaveable(placement) { mutableStateOf(placement?.centerXmm?.formatPosition().orEmpty()) }
     var yText by rememberSaveable(placement) { mutableStateOf(placement?.centerYmm?.formatPosition().orEmpty()) }
     var zText by rememberSaveable(placement) { mutableStateOf(placement?.baseZmm?.formatPosition().orEmpty()) }
+    var scaleText by rememberSaveable(placement) { mutableStateOf("100") }
     val computedSnapshot by produceState<CuraComputedSnapshot?>(
         initialValue = null,
         state.engineProfile,
@@ -114,6 +116,36 @@ fun ModelToolsSheet(
                     ) { Text("${if (amount > 0) "+" else ""}${amount.toInt()}°") }
                 }
             }
+        }
+
+        HorizontalDivider()
+        Text("Scale model", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "Multiplies the current size around its position. 100% keeps the model unchanged; 200% doubles it.",
+            style = MaterialTheme.typography.bodySmall,
+        )
+        listOf("50", "75", "125", "150").chunked(2).forEach { presets ->
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                presets.forEach { preset ->
+                    OutlinedButton(
+                        onClick = { scaleText = preset },
+                        modifier = Modifier.weight(1f),
+                    ) { Text("$preset%") }
+                }
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            PositionField("Scale (%)", scaleText, { scaleText = it }, Modifier.weight(1f))
+            Button(
+                onClick = {
+                    val percent = scaleText.toDoubleOrNull()
+                    if (percent == null || !percent.isFinite() || percent < 1.0 || percent > 1000.0) {
+                        return@Button
+                    }
+                    onScale(percent)
+                },
+                modifier = Modifier.weight(1f),
+            ) { Text("Apply scale") }
         }
 
         HorizontalDivider()

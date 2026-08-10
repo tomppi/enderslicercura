@@ -543,6 +543,7 @@ fun EnderSlicerApp(
                 state = state,
                 onMove = viewModel::moveModel,
                 onRotate = viewModel::rotateModel,
+                onScale = viewModel::scaleModel,
                 onDropToBed = viewModel::dropModelToBed,
                 onLayFlat = viewModel::layModelFlat,
                 onReset = viewModel::resetModelTransform,

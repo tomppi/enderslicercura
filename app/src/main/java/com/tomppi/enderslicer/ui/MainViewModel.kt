@@ -454,6 +454,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun scaleModel(percent: Double) {
+        val label = if (percent == percent.toLong().toDouble()) {
+            percent.toLong().toString()
+        } else {
+            String.format(java.util.Locale.US, "%.1f", percent).trimEnd('0').trimEnd('.')
+        }
+        changePlacement("Model scaled to $label%") { placement, _ ->
+            placement.scaled(percent)
+        }
+    }
+
     fun dropModelToBed() {
         changePlacement("Model dropped to the build plate") { placement, _ -> placement.droppedToBed() }
     }

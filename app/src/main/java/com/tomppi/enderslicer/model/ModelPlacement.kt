@@ -139,6 +139,18 @@ data class ModelPlacement(
 
     fun droppedToBed(): ModelPlacement = copy(baseZmm = 0.0, source = "Dropped to build plate")
 
+    fun scaled(percent: Double): ModelPlacement {
+        require(percent.isFinite() && percent > 0.0) { "Scale percentage must be positive and finite" }
+        val factor = percent / 100.0
+        val scale = listOf(factor, 0.0, 0.0, 0.0, factor, 0.0, 0.0, 0.0, factor)
+        val label = if (percent == percent.toLong().toDouble()) {
+            percent.toLong().toString()
+        } else {
+            String.format(java.util.Locale.US, "%.3f", percent).trimEnd('0').trimEnd('.')
+        }
+        return copy(linear = multiply(scale, linear), source = "Scaled to $label%")
+    }
+
     fun rotated(axis: Axis, degrees: Double): ModelPlacement {
         require(degrees.isFinite()) { "Rotation must be finite" }
         val radians = Math.toRadians(degrees)
