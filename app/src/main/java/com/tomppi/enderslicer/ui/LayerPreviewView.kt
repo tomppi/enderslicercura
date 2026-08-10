@@ -188,7 +188,7 @@ internal fun LayerPreviewView(
                 }
                 SpeedLegend(preview.minSpeedMmPerSecond, preview.maxSpeedMmPerSecond)
                 Text(
-                    "The selected layer is rendered as thick ribbons with a bright halo. Violet is a Multiplex arc overhang, cyan is support, magenta is support interface, and orange is adhesion.",
+                    "The selected layer is rendered as thick ribbons with a black outline. Violet is a Multiplex arc overhang, cyan is support, magenta is support interface, and orange is adhesion.",
                     style = MaterialTheme.typography.labelSmall,
                 )
                 if (preview.minLayerHeightMm > 0f) {

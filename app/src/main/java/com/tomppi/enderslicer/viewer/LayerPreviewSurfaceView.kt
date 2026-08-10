@@ -280,12 +280,12 @@ private class LayerPreviewRenderer : GLSurfaceView.Renderer {
         Matrix.multiplyMM(modelView, 0, view, 0, scene, 0)
         Matrix.multiplyMM(mvp, 0, projection, 0, modelView, 0)
 
-        drawSolidLines(gridBuffer, gridVertexCount, 1f, 0.34f, 0.40f, 0.50f, 0.66f)
+        drawSolidLines(gridBuffer, gridVertexCount, 1f, 0.26f, 0.32f, 0.42f, 0.50f)
         val previousPathVertices = if (selectedLayerIndex > 0) cumulativePathVertices[selectedLayerIndex - 1] else 0
         if (style == LayerPreviewStyle.BUILD_UP && previousPathVertices > 0) {
-            drawColoredPaths(firstVertex = 0, vertexCount = previousPathVertices, alpha = 0.32f, mode = GLES20.GL_LINES)
+            drawColoredPaths(firstVertex = 0, vertexCount = previousPathVertices, alpha = 0.15f, mode = GLES20.GL_LINES)
         }
-        drawSolidTriangles(currentHaloPositionBuffer, currentRibbonVertexCount, 0.42f, 0.52f, 0.68f, 0.90f)
+        drawSolidTriangles(currentHaloPositionBuffer, currentRibbonVertexCount, 0.0f, 0.0f, 0.0f, 0.96f)
         drawColoredTriangles(currentRibbonPositionBuffer, currentRibbonColorBuffer, currentRibbonVertexCount)
         val currentStart = previousPathVertices
         val currentEnd = cumulativeVertexCount(cumulativePathVertices)
@@ -695,7 +695,7 @@ private class LayerPreviewRenderer : GLSurfaceView.Renderer {
         const val DEFAULT_PITCH = 58f
         const val DEFAULT_ZOOM = 1f
         const val MIN_ZOOM = 0.08f
-        const val MAX_ZOOM = 20f
+        const val MAX_ZOOM = 40f
         const val FIELD_OF_VIEW_DEGREES = 42f
         const val CAMERA_MARGIN = 1.15f
         const val GRID_Z = -0.08f
@@ -703,7 +703,7 @@ private class LayerPreviewRenderer : GLSurfaceView.Renderer {
         const val GRID_PADDING = 10f
         const val MAX_GRID_LINES = 512
         const val MIN_SCENE_SIZE = 20f
-        const val PATH_WIDTH = 3.2f
+        const val PATH_WIDTH = 3.8f
         const val CORE_RIBBON_WIDTH = 0.38f
         const val HALO_RIBBON_WIDTH = 0.96f
         const val BASE_POSITION_FLOATS_PER_SEGMENT = 6

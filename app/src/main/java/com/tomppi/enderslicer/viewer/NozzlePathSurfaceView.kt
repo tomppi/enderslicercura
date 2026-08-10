@@ -241,7 +241,7 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         Matrix.multiplyMM(modelView, 0, view, 0, scene, 0)
         Matrix.multiplyMM(mvp, 0, projection, 0, modelView, 0)
 
-        drawSolidLines(gridPositions, gridVertexCount, 1f, 0.34f, 0.40f, 0.50f, 0.66f)
+        drawSolidLines(gridPositions, gridVertexCount, 1f, 0.24f, 0.30f, 0.40f, 0.48f)
         drawColoredLines((selectedMoveIndex + 1) * 2)
         drawSolidLines(markerGlowPositions, markerGlowVertexCount, 12f, 1f, 0.55f, 0.05f, 0.55f)
         drawSolidLines(markerPositions, markerVertexCount, 6f, 1f, 1f, 1f, 1f)
@@ -258,7 +258,7 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
                 ((source[offset + GcodeNozzlePath.Z2] - value.minZ) / (value.maxZ - value.minZ)).coerceIn(0f, 1f)
             } else 0f
             val extrusion = source[offset + GcodeNozzlePath.KIND] == GcodeNozzlePath.Kind.EXTRUSION.code
-            val color = if (extrusion) hsv(240f - 240f * zRatio, 0.95f, 1f, 1f) else floatArrayOf(0.70f, 0.74f, 0.82f, 0.62f)
+            val color = if (extrusion) hsv(240f - 240f * zRatio, 0.95f, 1f, 1f) else floatArrayOf(0.50f, 0.54f, 0.64f, 0.32f)
             positions.put(source[offset + GcodeNozzlePath.X1])
             positions.put(source[offset + GcodeNozzlePath.Y1])
             positions.put(source[offset + GcodeNozzlePath.Z1])
@@ -459,7 +459,7 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         private const val DEFAULT_PITCH = 58f
         private const val DEFAULT_ZOOM = 1f
         private const val MIN_ZOOM = 0.25f
-        private const val MAX_ZOOM = 8f
+        private const val MAX_ZOOM = 24f
         private const val PATH_WIDTH = 3.4f
 
         private const val COLOR_VERTEX_SHADER = """

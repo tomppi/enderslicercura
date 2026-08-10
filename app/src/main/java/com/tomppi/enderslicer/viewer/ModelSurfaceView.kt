@@ -366,7 +366,7 @@ private class ModelRenderer(
         const val DEFAULT_PITCH = 58f
         const val DEFAULT_ZOOM = 1f
         const val MIN_ZOOM = 0.08f
-        const val MAX_ZOOM = 20f
+        const val MAX_ZOOM = 40f
         const val FIELD_OF_VIEW_DEGREES = 42f
         const val GRID_Z = -0.08f
 
