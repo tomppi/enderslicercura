@@ -4,6 +4,7 @@ import com.tomppi.enderslicer.calibration.CalibrationTestType
 import com.tomppi.enderslicer.engine.LayerEventType
 import com.tomppi.enderslicer.engine.PlannedLayerEvent
 import com.tomppi.enderslicer.model.ModelPlacement
+import com.tomppi.enderslicer.model.SlicerSettings
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -73,6 +74,39 @@ class WorkspaceStateStoreTest {
         val error = runCatching { store.save(snapshot) }.exceptionOrNull()
 
         assertTrue(error is IllegalArgumentException)
+    }
+
+    @Test
+    fun fingerprintIgnoresOverrideKeyInsertionOrder() {
+        // saveSettings persists overriddenSettingKeys sorted, while a live
+        // updateSettings appends in user-entered order. The fingerprint must
+        // not depend on that ordering, or a plain restart would recompute a
+        // different fingerprint and clear calibration events.
+        val live = SlicerSettings().copy(
+            overriddenSettingKeys = linkedSetOf("wallLineCount", "layerHeightMm"),
+        )
+        val restored = SlicerSettings().copy(
+            overriddenSettingKeys = linkedSetOf("layerHeightMm", "wallLineCount"),
+        )
+        val liveFingerprint = WorkspaceStateStore.fingerprint(
+            "Modified Ender 3 V2",
+            "Cura project: reference.3mf",
+            "5.11.0-beta.1",
+            "25",
+            live,
+            "start",
+            "end",
+        )
+        val restoredFingerprint = WorkspaceStateStore.fingerprint(
+            "Modified Ender 3 V2",
+            "Cura project: reference.3mf",
+            "5.11.0-beta.1",
+            "25",
+            restored,
+            "start",
+            "end",
+        )
+        assertEquals(liveFingerprint, restoredFingerprint)
     }
 
     private fun snapshot(model: File): WorkspaceStateStore.Snapshot = WorkspaceStateStore.Snapshot(

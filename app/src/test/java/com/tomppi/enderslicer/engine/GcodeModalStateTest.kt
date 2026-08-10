@@ -7,17 +7,16 @@ import java.io.File
 
 class GcodeModalStateTest {
     @Test
-    fun g91ClearsM82OverrideAndColdRelativeExtrusionIsRejected() {
+    fun coldRelativeExtrusionAfterM83IsRejected() {
         val file = temporaryGcode(
             """
             ;FLAVOR:Marlin
             ;LAYER_COUNT:1
-            M82
-            G92 E100
+            M83
+            G92 X0 Y0 Z0 E100
             M104 S0
             ;LAYER:0
             ;MESH:model.stl
-            G91
             G1 X1 E0.5 F1200
             ;TIME_ELAPSED:1
             """.trimIndent(),
@@ -30,12 +29,12 @@ class GcodeModalStateTest {
     }
 
     @Test
-    fun sanitizerAndPreviewTreatG91AsRelativeExtrusionAfterM82() {
+    fun sanitizerAndPreviewTreatRelativeExtrusionAfterM83AndG91() {
         val file = temporaryGcode(
             """
             ;FLAVOR:Marlin
             ;LAYER_COUNT:1
-            M82
+            M83
             G92 X0 Y0 Z0 E100
             M104 S210
             ;LAYER:0
@@ -58,7 +57,7 @@ class GcodeModalStateTest {
     }
 
     @Test
-    fun sanitizerAndPreviewTreatG90AsAbsoluteExtrusionAfterM83() {
+    fun sanitizerAndPreviewKeepERelativeAfterG90FollowingM83() {
         val file = temporaryGcode(
             """
             ;FLAVOR:Marlin
@@ -81,10 +80,12 @@ class GcodeModalStateTest {
         val preview = GcodeLayerPreviewParser.parse(file)
         val segment = preview.layers.single().segments
 
-        assertEquals(100.5, summary.totalFilamentMillimeters, 0.0001)
-        assertEquals(1, preview.totalSegmentCount)
-        assertEquals(5f, segment[0], 0f)
-        assertEquals(10f, segment[2], 0f)
+        // Marlin: M83 keeps E relative, so G90 only affects XYZ. Both moves
+        // extrude (0.5 + 101) and the preview records each as a segment.
+        assertEquals(101.5, summary.totalFilamentMillimeters, 0.0001)
+        assertEquals(2, preview.totalSegmentCount)
+        assertEquals(5f, segment[2], 0f)
+        assertEquals(10f, segment[8], 0f)
     }
 
     private fun temporaryGcode(content: String): File {

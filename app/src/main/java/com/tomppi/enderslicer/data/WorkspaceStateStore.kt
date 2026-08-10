@@ -5,6 +5,7 @@ import com.tomppi.enderslicer.calibration.CalibrationTestType
 import com.tomppi.enderslicer.engine.LayerEventType
 import com.tomppi.enderslicer.engine.PlannedLayerEvent
 import com.tomppi.enderslicer.model.ModelPlacement
+import com.tomppi.enderslicer.model.SlicerSettings
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -221,7 +222,10 @@ class WorkspaceStateStore(private val filesDirectory: File) {
         fun fingerprint(vararg parts: Any?): String {
             val digest = MessageDigest.getInstance("SHA-256")
             parts.forEach { part ->
-                digest.update((part?.toString() ?: "<null>").toByteArray(Charsets.UTF_8))
+                val normalized = (part as? SlicerSettings)?.copy(
+                    overriddenSettingKeys = part.overriddenSettingKeys.toSortedSet(),
+                ) ?: part
+                digest.update((normalized?.toString() ?: "<null>").toByteArray(Charsets.UTF_8))
                 digest.update(0.toByte())
             }
             return digest.digest().joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }

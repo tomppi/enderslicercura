@@ -324,7 +324,14 @@ class AppStateStore(context: Context) {
         val overrides = JSONArray()
         settings.overriddenSettingKeys.sorted().forEach(overrides::put)
         values.put(KEY_OVERRIDES_JSON, overrides)
-        preferences.edit().putString(KEY_SETTINGS, values.toString()).apply()
+        // commit() is required here: the caller writes the workspace descriptor
+        // (with its settings-derived fingerprint) immediately afterwards. An
+        // async apply() could flush the settings after the workspace file, so a
+        // process death between the two would restore stale settings with a new
+        // fingerprint and clear calibration state on the next launch.
+        check(preferences.edit().putString(KEY_SETTINGS, values.toString()).commit()) {
+            "Unable to persist app settings"
+        }
     }
 
     fun restoreSettings(base: SlicerSettings): SlicerSettings {

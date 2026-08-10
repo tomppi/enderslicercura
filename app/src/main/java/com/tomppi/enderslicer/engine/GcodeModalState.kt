@@ -2,8 +2,8 @@ package com.tomppi.enderslicer.engine
 
 /**
  * Marlin-style motion and extrusion modes shared by every G-code interpreter.
- * G90/G91 select both XYZ and E mode; M82/M83 then override E independently
- * until a later G90/G91 resets it again.
+ * G90/G91 select the XYZ mode only; E mode is controlled independently by
+ * M82/M83, exactly like Marlin, Klipper and RepRapFirmware.
  */
 internal class GcodeModalState {
     var absolutePosition: Boolean = true
@@ -16,12 +16,10 @@ internal class GcodeModalState {
     fun apply(command: GcodeCommand.Parsed): Boolean = when (command.opcode) {
         "G90" -> {
             absolutePosition = true
-            absoluteExtrusion = true
             true
         }
         "G91" -> {
             absolutePosition = false
-            absoluteExtrusion = false
             true
         }
         "M82" -> {

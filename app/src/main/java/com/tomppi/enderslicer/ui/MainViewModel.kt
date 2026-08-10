@@ -950,6 +950,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         settings = restored.settings,
                         scene = restored.scene,
                         statusMessage = "Restored ${restored.config.name} and ${restored.settings.overriddenSettingKeys.size} app overrides",
+                        preserveCalibration = true,
                     )
                 }
                 restoreWorkspace(restored.workspace)
@@ -1128,8 +1129,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         settings: SlicerSettings,
         scene: CuraProjectScene?,
         statusMessage: String?,
+        preserveCalibration: Boolean = false,
     ) {
-        clearCalibrationState()
+        if (!preserveCalibration) clearCalibrationState()
         importedSettingsBaseline = config.mappedSettings.copy(overriddenSettingKeys = emptySet())
         importedScene = scene
         val original = sourceMesh

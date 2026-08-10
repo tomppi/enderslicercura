@@ -9,6 +9,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -381,6 +382,7 @@ class OctoPrintRepository(
     fun deleteFile(path: String) = operation(
         message = "Deleting OctoPrint file…",
         refreshFileList = true,
+        guard = activeFileGuard("deleted", path),
     ) { deleteFile(path) }
 
     fun createFolder(parentPath: String, name: String) = operation(
@@ -391,11 +393,13 @@ class OctoPrintRepository(
     fun moveFile(path: String, destination: String) = operation(
         message = "Moving OctoPrint file…",
         refreshFileList = true,
+        guard = activeFileGuard("moved", path),
     ) { moveFile(path, destination) }
 
     fun copyFile(path: String, destination: String) = operation(
         message = "Copying OctoPrint file…",
         refreshFileList = true,
+        guard = activeFileGuard("copied", path),
     ) { copyFile(path, destination) }
 
     fun startJob() = operation(
@@ -534,7 +538,8 @@ class OctoPrintRepository(
             authorizationJob = null
             activateConfiguration(config, key, info)
         }.onFailure { error ->
-            if (requestId != setupRequestId || error is CancellationException) return@onFailure
+            if (requestId != setupRequestId) return@onFailure
+            if (error is CancellationException && error !is TimeoutCancellationException) return@onFailure
             authorizationJob = null
             _state.update {
                 it.copy(
@@ -692,7 +697,16 @@ class OctoPrintRepository(
                     }
                 }.onFailure { error ->
                     if (error is OctoPrintClient.OctoPrintHttpException && error.statusCode == 401) {
-                        handleSessionError(error, requestGeneration, forbiddenMeansInvalidKey = false)
+                        // The webcam snapshot is a separate resource (typically
+                        // mjpg-streamer or a reverse-proxied /webcam/ path) that may
+                        // be password-protected or misconfigured. Its 401 does not
+                        // mean the OctoPrint API key is invalid, so never invalidate
+                        // the stored configuration here.
+                        if (isCurrent(requestGeneration) && requestId == webcamRequestId) {
+                            _state.update {
+                                it.copy(webcamError = "Webcam snapshot rejected (HTTP 401); check the webcam URL and credentials")
+                            }
+                        }
                     } else if (isCurrent(requestGeneration) && requestId == webcamRequestId) {
                         _state.update { it.copy(webcamError = "Webcam snapshot failed: ${error.message ?: error::class.java.simpleName}") }
                     }
@@ -825,6 +839,15 @@ class OctoPrintRepository(
             !current.isReady -> "Configure OctoPrint before $action"
             current.hasActiveJob -> "Finish or cancel the active OctoPrint job before $action"
             else -> null
+        }
+    }
+
+    private fun activeFileGuard(action: String, targetPath: String): (OctoPrintUiState) -> String? = { current ->
+        val activePath = current.job.filePath
+        if (activePath != null && targetPath.isNotBlank() && activePath.trim('/') == targetPath.trim('/')) {
+            "The file currently being printed ($activePath) cannot be $action"
+        } else {
+            null
         }
     }
 
