@@ -55,7 +55,7 @@ class CalibrationFirmwareEncoderTest {
     fun commonCommandsRemainAvailableForGenericFirmware() {
         val firmware = CalibrationFirmwareEncoder.fromFlavor("Custom")
         assertEquals(
-            listOf("M104 S210"),
+            listOf("M109 S210"),
             firmware.commands(LayerEventType.NOZZLE_TEMPERATURE, 0, 210.0),
         )
         assertEquals(

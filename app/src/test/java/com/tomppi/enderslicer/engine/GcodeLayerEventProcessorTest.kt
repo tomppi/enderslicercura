@@ -40,7 +40,7 @@ class GcodeLayerEventProcessorTest {
         val output = kotlin.io.path.createTempFile("enderslicer-events-output", ".gcode").toFile()
         GcodeLayerEventProcessor.materialize(base, output, listOf(event))
         val text = output.readText()
-        assertTrue(text.indexOf(";LAYER:1") < text.indexOf("M104 S225"))
+        assertTrue(text.indexOf(";LAYER:1") < text.indexOf("M109 S225"))
         assertTrue(text.contains(";ENDERSLICER_LAYER_EVENT"))
     }
 

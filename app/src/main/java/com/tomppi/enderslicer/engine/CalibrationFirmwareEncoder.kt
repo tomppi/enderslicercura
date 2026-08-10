@@ -21,7 +21,7 @@ class CalibrationFirmwareEncoder private constructor(
     ): List<String> = when (type) {
         LayerEventType.PAUSE -> listOf("M117 Pause layer $layerNumber", "M0")
         LayerEventType.FILAMENT_CHANGE -> listOf("M600")
-        LayerEventType.NOZZLE_TEMPERATURE -> listOf("M104 S${format(required(value, type))}")
+        LayerEventType.NOZZLE_TEMPERATURE -> listOf("M109 S${format(required(value, type))}")
         LayerEventType.BED_TEMPERATURE -> listOf("M140 S${format(required(value, type))}")
         LayerEventType.FAN_SPEED -> {
             val percent = required(value, type).coerceIn(0.0, 100.0)
