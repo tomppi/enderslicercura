@@ -169,6 +169,7 @@ private class LayerPreviewRenderer : GLSurfaceView.Renderer {
 
     private var colorProgram = 0
     private var solidProgram = 0
+    private var maxLineWidth = 1f
     private var gridBuffer: FloatBuffer? = null
     private var gridVertexCount = 0
     private var viewportWidth = 1
@@ -220,7 +221,7 @@ private class LayerPreviewRenderer : GLSurfaceView.Renderer {
     fun panPixels(deltaX: Float, deltaY: Float) {
         if (!deltaX.isFinite() || !deltaY.isFinite()) return
         val distance = cameraDistance()
-        val visibleHeight = 2f * distance * tan(Math.toRadians(FIELD_OF_VIEW_DEGREES / 2.0)).toFloat()
+        val visibleHeight = 2f * distance * CAMERA_EYE_DISTANCE_SCALE * tan(Math.toRadians(FIELD_OF_VIEW_DEGREES / 2.0)).toFloat()
         val worldPerPixel = visibleHeight / max(viewportHeight, 1).toFloat()
         panX += deltaX * worldPerPixel
         panY -= deltaY * worldPerPixel
@@ -244,6 +245,17 @@ private class LayerPreviewRenderer : GLSurfaceView.Renderer {
         GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA)
         colorProgram = createProgram(COLOR_VERTEX_SHADER, COLOR_FRAGMENT_SHADER)
         solidProgram = createProgram(SOLID_VERTEX_SHADER, SOLID_FRAGMENT_SHADER)
+        maxLineWidth = queryMaxLineWidth()
+    }
+
+    private fun queryMaxLineWidth(): Float {
+        val range = FloatArray(2)
+        GLES20.glGetFloatv(GLES20.GL_ALIASED_LINE_WIDTH_RANGE, range, 0)
+        return range[1].takeIf { it.isFinite() && it > 0f } ?: 1f
+    }
+
+    private fun lineWidth(width: Float) {
+        GLES20.glLineWidth(width.coerceAtMost(maxLineWidth))
     }
 
     override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
@@ -317,7 +329,7 @@ private class LayerPreviewRenderer : GLSurfaceView.Renderer {
         GLES20.glVertexAttribPointer(position, 3, GLES20.GL_FLOAT, false, 3 * 4, buffer)
         GLES20.glUniformMatrix4fv(matrix, 1, false, mvp, 0)
         GLES20.glUniform4f(color, red, green, blue, alpha)
-        GLES20.glLineWidth(width)
+        lineWidth(width)
         GLES20.glDrawArrays(GLES20.GL_LINES, 0, vertexCount)
         GLES20.glLineWidth(1f)
         GLES20.glDisableVertexAttribArray(position)
@@ -360,7 +372,7 @@ private class LayerPreviewRenderer : GLSurfaceView.Renderer {
         GLES20.glVertexAttribPointer(color, 4, GLES20.GL_FLOAT, false, 4 * 4, colors)
         GLES20.glUniformMatrix4fv(matrix, 1, false, mvp, 0)
         GLES20.glUniform1f(opacity, alpha)
-        if (mode == GLES20.GL_LINES) GLES20.glLineWidth(PATH_WIDTH)
+        if (mode == GLES20.GL_LINES) lineWidth(PATH_WIDTH)
         GLES20.glDrawArrays(mode, firstVertex, vertexCount)
         GLES20.glLineWidth(1f)
         GLES20.glDisableVertexAttribArray(position)
@@ -699,6 +711,8 @@ private class LayerPreviewRenderer : GLSurfaceView.Renderer {
         const val FIELD_OF_VIEW_DEGREES = 42f
         const val CAMERA_MARGIN = 1.15f
         const val GRID_Z = -0.08f
+        // Eye sits at (0, -distance, 0.62*distance); true eye distance is distance * sqrt(1 + 0.62^2).
+        const val CAMERA_EYE_DISTANCE_SCALE = 1.17666f
         const val GRID_SPACING = 10f
         const val GRID_PADDING = 10f
         const val MAX_GRID_LINES = 512

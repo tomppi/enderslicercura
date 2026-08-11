@@ -187,7 +187,8 @@ private class ModelRenderer(
     fun panPixels(deltaX: Float, deltaY: Float) {
         if (!deltaX.isFinite() || !deltaY.isFinite()) return
         val distance = cameraDistance()
-        val visibleHeight = 2f * distance * tan(Math.toRadians(FIELD_OF_VIEW_DEGREES / 2.0)).toFloat()
+        val eyeDistance = distance * CAMERA_EYE_DISTANCE_SCALE
+        val visibleHeight = 2f * eyeDistance * tan(Math.toRadians(FIELD_OF_VIEW_DEGREES / 2.0)).toFloat()
         val worldPerPixel = visibleHeight / max(viewportHeight, 1).toFloat()
         panX += deltaX * worldPerPixel
         panY -= deltaY * worldPerPixel
@@ -369,6 +370,10 @@ private class ModelRenderer(
         const val MAX_ZOOM = 40f
         const val FIELD_OF_VIEW_DEGREES = 42f
         const val GRID_Z = -0.08f
+
+        // Eye sits at (0, -distance, 0.62*distance); its true distance to the
+        // target is distance * sqrt(1 + 0.62^2).
+        const val CAMERA_EYE_DISTANCE_SCALE = 1.17666f
 
         const val MESH_VERTEX_SHADER = """
             uniform mat4 uMvpMatrix;

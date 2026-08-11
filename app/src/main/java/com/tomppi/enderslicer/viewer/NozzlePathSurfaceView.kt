@@ -139,6 +139,7 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
 
     private var colorProgram = 0
     private var solidProgram = 0
+    private var maxLineWidth = 1f
     private var viewportWidth = 1
     private var viewportHeight = 1
     @Volatile private var yaw = DEFAULT_YAW
@@ -184,7 +185,7 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
 
     fun panPixels(deltaX: Float, deltaY: Float) {
         if (!deltaX.isFinite() || !deltaY.isFinite()) return
-        val visibleHeight = 2f * cameraDistance() * tan(Math.toRadians(FIELD_OF_VIEW / 2.0)).toFloat()
+        val visibleHeight = 2f * cameraDistance() * CAMERA_EYE_DISTANCE_SCALE * tan(Math.toRadians(FIELD_OF_VIEW / 2.0)).toFloat()
         val worldPerPixel = visibleHeight / max(viewportHeight, 1)
         panX += deltaX * worldPerPixel
         panY -= deltaY * worldPerPixel
@@ -208,6 +209,17 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA)
         colorProgram = createProgram(COLOR_VERTEX_SHADER, COLOR_FRAGMENT_SHADER)
         solidProgram = createProgram(SOLID_VERTEX_SHADER, SOLID_FRAGMENT_SHADER)
+        maxLineWidth = queryMaxLineWidth()
+    }
+
+    private fun queryMaxLineWidth(): Float {
+        val range = FloatArray(2)
+        GLES20.glGetFloatv(GLES20.GL_ALIASED_LINE_WIDTH_RANGE, range, 0)
+        return range[1].takeIf { it.isFinite() && it > 0f } ?: 1f
+    }
+
+    private fun lineWidth(width: Float) {
+        GLES20.glLineWidth(width.coerceAtMost(maxLineWidth))
     }
 
     override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
@@ -349,7 +361,7 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         GLES20.glVertexAttribPointer(position, 3, GLES20.GL_FLOAT, false, 12, positions)
         GLES20.glVertexAttribPointer(color, 4, GLES20.GL_FLOAT, false, 16, colors)
         GLES20.glUniformMatrix4fv(matrix, 1, false, mvp, 0)
-        GLES20.glLineWidth(PATH_WIDTH)
+        lineWidth(PATH_WIDTH)
         GLES20.glDrawArrays(GLES20.GL_LINES, 0, vertexCount)
         GLES20.glLineWidth(1f)
         GLES20.glDisableVertexAttribArray(position)
@@ -375,7 +387,7 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         GLES20.glVertexAttribPointer(position, 3, GLES20.GL_FLOAT, false, 12, buffer)
         GLES20.glUniformMatrix4fv(matrix, 1, false, mvp, 0)
         GLES20.glUniform4f(color, red, green, blue, alpha)
-        GLES20.glLineWidth(width)
+        lineWidth(width)
         GLES20.glDrawArrays(GLES20.GL_LINES, 0, vertexCount)
         GLES20.glLineWidth(1f)
         GLES20.glDisableVertexAttribArray(position)
@@ -461,6 +473,8 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         private const val MIN_ZOOM = 0.25f
         private const val MAX_ZOOM = 24f
         private const val PATH_WIDTH = 3.4f
+        // Eye sits at (0, -distance, 0.58*distance); true eye distance is distance * sqrt(1 + 0.58^2).
+        private const val CAMERA_EYE_DISTANCE_SCALE = 1.1561f
 
         private const val COLOR_VERTEX_SHADER = """
             uniform mat4 uMvpMatrix;
