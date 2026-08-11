@@ -130,7 +130,7 @@ class SmartInfillActivity : ComponentActivity() {
                 override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest): Boolean {
                     val target = request.url
                     if (target.host == WebViewAssetLoader.DEFAULT_DOMAIN) return false
-                    if (target.scheme == "about" || target.scheme == "blob") return false
+                    if (target.scheme == "about" || target.scheme == "blob") return true
                     openExternal(target)
                     return true
                 }
