@@ -245,6 +245,9 @@ object StlParser {
         file.bufferedReader().useLines { lines ->
             lines.forEachIndexed { index, raw ->
                 val lineNumber = index + 1
+                require(raw.length <= MAX_ASCII_LINE_LENGTH) {
+                    "ASCII STL line $lineNumber exceeds the $MAX_ASCII_LINE_LENGTH character safety limit"
+                }
                 val trimmed = raw.trim()
                 if (trimmed.isEmpty()) return@forEachIndexed
                 require(!wrapperClosed) { "Unexpected content after endsolid at line $lineNumber" }
@@ -418,4 +421,6 @@ object StlParser {
     private const val NORMAL_EPSILON = 1e-12f
     private const val NORMAL_EPSILON_DOUBLE = 1e-18
     private val WHITESPACE = Regex("\\s+")
+
+    private const val MAX_ASCII_LINE_LENGTH = 16 * 1024
 }

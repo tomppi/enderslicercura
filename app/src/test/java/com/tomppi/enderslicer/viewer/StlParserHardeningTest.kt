@@ -144,6 +144,16 @@ class StlParserHardeningTest {
         assertEquals(1f, parsed.interleavedVertices[5], 0.000001f)
     }
 
+    @Test
+    fun oversizedAsciiLineIsRejectedBeforeParsing() {
+        val file = ascii("solid big\n" + " ".repeat(20 * 1024) + "\nendsolid big\n")
+
+        val error = runCatching { StlParser.parse(file, maxTriangles = 10) }.exceptionOrNull()
+
+        assertTrue(error is IllegalArgumentException || error is IllegalStateException)
+        assertTrue(error?.message?.contains("safety limit") == true)
+    }
+
     private fun ascii(content: String): File {
         val directory = createTempDirectory("enderslicer-ascii-stl").toFile()
         return File(directory, "model.stl").apply { writeText(content) }
