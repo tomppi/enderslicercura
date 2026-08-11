@@ -65,6 +65,28 @@ class CalibrationFirmwareEncoderTest {
         assertEquals("M104 S0", firmware.hotendOffCommand())
     }
 
+    @Test
+    fun marlinNozzleTemperatureWaitsForCooldownOnDescendingTowers() {
+        // Marlin M109 S waits only while heating; R also waits for cooldown (descending towers).
+        assertEquals(
+            listOf("M109 R210"),
+            commands("Marlin", LayerEventType.NOZZLE_TEMPERATURE, 210.0),
+        )
+    }
+
+    @Test
+    fun nonMarlinNozzleTemperatureKeepsWaitForHeatingForm() {
+        // Klipper/RRF M109 already wait for the target in both directions.
+        assertEquals(
+            listOf("M109 S210"),
+            commands("Klipper", LayerEventType.NOZZLE_TEMPERATURE, 210.0),
+        )
+        assertEquals(
+            listOf("M109 S210"),
+            commands("RepRapFirmware", LayerEventType.NOZZLE_TEMPERATURE, 210.0),
+        )
+    }
+
     private fun commands(
         flavor: String,
         type: LayerEventType,

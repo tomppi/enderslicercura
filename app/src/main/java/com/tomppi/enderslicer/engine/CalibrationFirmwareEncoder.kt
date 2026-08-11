@@ -21,7 +21,12 @@ class CalibrationFirmwareEncoder private constructor(
     ): List<String> = when (type) {
         LayerEventType.PAUSE -> listOf("M117 Pause layer $layerNumber", "M0")
         LayerEventType.FILAMENT_CHANGE -> listOf("M600")
-        LayerEventType.NOZZLE_TEMPERATURE -> listOf("M109 S${format(required(value, type))}")
+        LayerEventType.NOZZLE_TEMPERATURE -> {
+            // Marlin's M109 S waits only while heating; R also waits for the
+            // temperature to come back down, which descending towers require.
+            val waitMode = if (dialect == FirmwareDialect.MARLIN) "R" else "S"
+            listOf("M109 $waitMode${format(required(value, type))}")
+        }
         LayerEventType.BED_TEMPERATURE -> listOf("M140 S${format(required(value, type))}")
         LayerEventType.FAN_SPEED -> {
             val percent = required(value, type).coerceIn(0.0, 100.0)
