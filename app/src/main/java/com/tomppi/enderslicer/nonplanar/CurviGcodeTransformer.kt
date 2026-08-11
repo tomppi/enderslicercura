@@ -356,9 +356,16 @@ internal object CurviGcodeTransformer {
                 "CurviSlicer generated path slope ${format(maximumSlope)}° above the configured " +
                     "${format(settings.effectiveSlopeLimitDegrees)}° clearance limit"
             }
-            check(file.delete()) { "Unable to replace planar G-code with CurviSlicer output" }
-            check(temporary.renameTo(file) || temporary.copyTo(file, overwrite = false).let { temporary.delete(); true }) {
-                "Unable to publish CurviSlicer G-code"
+            try {
+                java.nio.file.Files.move(
+                    temporary.toPath(),
+                    file.toPath(),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+                )
+            } catch (_: java.io.IOException) {
+                check(temporary.renameTo(file) || temporary.copyTo(file, overwrite = true).let { temporary.delete(); true }) {
+                    "Unable to publish CurviSlicer G-code"
+                }
             }
             return CurviSlicerPipeline.GcodeDiagnostics(
                 sourceMoves = sourceMoves,

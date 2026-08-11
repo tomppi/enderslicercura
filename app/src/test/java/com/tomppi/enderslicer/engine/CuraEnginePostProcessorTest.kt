@@ -96,6 +96,33 @@ class CuraEnginePostProcessorTest {
         assertTrue(output.readText().contains(";ENDERSLICER_SETTINGS_TRANSPORT:resolved-json+layer-events"))
     }
 
+    @Test
+    fun failsLoudWhenCurviGcodeHasNoFieldInsteadOfSilentlyGoingPlanar() {
+        val directory = kotlin.io.path.createTempDirectory("enderslicer-postprocess-curvi-lost").toFile()
+        val output = File(directory, "output.gcode").apply {
+            writeText(
+                sampleGcode() + "\n" +
+                    com.tomppi.enderslicer.nonplanar.CurviSlicerRuntime.MACHINE_END_SENTINEL + "\n" +
+                    "G28\n",
+            )
+        }
+        val base = File(directory, "base.gcode")
+
+        val error = runCatching {
+            CuraEnginePostProcessor.process(
+                outputFile = output,
+                baseGcodeFile = base,
+                settingsTransport = "resolved-json",
+                layerEvents = emptyList(),
+                plannedLayerEvents = emptyList(),
+                printerEnvelope = envelope(),
+            )
+        }.exceptionOrNull()
+
+        assertTrue(error is IllegalStateException)
+        assertTrue(error!!.message!!.contains("CurviSlicer was requested"))
+    }
+
     private fun envelope(): PrinterEnvelope = PrinterEnvelope(
         widthMm = 230.0,
         depthMm = 230.0,

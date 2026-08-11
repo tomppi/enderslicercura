@@ -57,11 +57,18 @@ internal object CurviSlicerFieldStorage {
                 }
             }
             check(temporary.isFile && temporary.length() > 64L) { "Unable to persist the CurviSlicer field" }
-            if (destination.exists()) check(destination.delete()) { "Unable to replace the CurviSlicer field" }
-            check(
-                temporary.renameTo(destination) ||
-                    temporary.copyTo(destination, overwrite = false).let { temporary.delete(); true },
-            ) { "Unable to publish the CurviSlicer field" }
+            try {
+                java.nio.file.Files.move(
+                    temporary.toPath(),
+                    destination.toPath(),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+                )
+            } catch (_: java.io.IOException) {
+                check(
+                    temporary.renameTo(destination) ||
+                        temporary.copyTo(destination, overwrite = true).let { temporary.delete(); true },
+                ) { "Unable to publish the CurviSlicer field" }
+            }
         } finally {
             temporary.delete()
         }

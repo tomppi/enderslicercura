@@ -2,10 +2,15 @@ package com.tomppi.enderslicer.engine
 
 import com.tomppi.enderslicer.calibration.CalibrationPlacementPolicy
 import com.tomppi.enderslicer.nonplanar.CurviSlicerFieldStorage
+import com.tomppi.enderslicer.nonplanar.CurviSlicerRuntime
 import java.io.File
 
 /** Finalizes staged engine output before it is eligible for immutable publication. */
 internal object CuraEnginePostProcessor {
+    private fun gcodeRequestsCurvi(file: File): Boolean = file.bufferedReader().useLines { lines ->
+        lines.any { it.trim() == CurviSlicerRuntime.MACHINE_END_SENTINEL }
+    }
+
     data class Result(
         val summary: GcodeSanitizer.Summary,
         val layerPreview: GcodeLayerPreview?,
@@ -28,6 +33,12 @@ internal object CuraEnginePostProcessor {
             "CurviSlicer cannot be combined with height-based calibration events"
         }
         val curviDiagnostics = CurviSlicerFieldStorage.curveStagedGcode(outputFile, effectiveEnvelope)
+        if (curviDiagnostics == null && gcodeRequestsCurvi(outputFile)) {
+            throw IllegalStateException(
+                "CurviSlicer was requested for this slice but its field data is missing; refusing to " +
+                    "publish a planar G-code for a warped model",
+            )
+        }
         val effectiveTransport = if (curviDiagnostics == null) {
             settingsTransport
         } else {
