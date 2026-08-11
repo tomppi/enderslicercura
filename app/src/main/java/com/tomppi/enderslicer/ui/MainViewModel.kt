@@ -26,6 +26,7 @@ import com.tomppi.enderslicer.engine.SliceArtifactPublisher
 import com.tomppi.enderslicer.mesh.MeshTriangleLimits
 import com.tomppi.enderslicer.model.ModelPlacement
 import com.tomppi.enderslicer.model.SlicerSettings
+import com.tomppi.enderslicer.model.withSettings
 import com.tomppi.enderslicer.nonplanar.CurviSlicerRuntime
 import com.tomppi.enderslicer.profile.CuraImportedSettingsResolver
 import com.tomppi.enderslicer.profile.CuraProfileParser
@@ -810,7 +811,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     // Reject placements that leave the model hanging off the
                     // build volume or above the printer height so the user gets
                     // immediate feedback instead of a slice-time failure.
-                    PrinterEnvelope.from(printer).requireModelFits(transformed)
+                    PrinterEnvelope.from(printer.withSettings(stateSnapshot.settings)).requireModelFits(transformed)
                     changed to transformed
                 }
                 val durableModel = requireNotNull(modelPath)?.let(::File)
@@ -1056,8 +1057,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val previousWrite = settingsPersistenceJob
         settingsPersistenceJob = viewModelScope.launch(Dispatchers.IO) {
             previousWrite?.join()
-            stateStore.saveSettings(settings)
-            if (workspaceMutationGeneration.get() == generation) {
+            val settingsCommitted = stateStore.saveSettings(settings)
+            if (settingsCommitted && workspaceMutationGeneration.get() == generation) {
                 persistCurrentWorkspace(stateSnapshot)
             }
         }
