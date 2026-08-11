@@ -504,10 +504,15 @@ internal class ThermalFeaReportStore(context: Context) {
                 StoredThermalFeaReport(report, json, markdown)
             }.getOrNull()
             if (stored != null) return stored
-            json.delete()
-            markdown.delete()
+            quarantine(json, markdown)
         }
         return null
+    }
+
+    private fun quarantine(json: File, markdown: File) {
+        val quarantineDir = File(root, ".quarantine").apply { mkdirs() }
+        runCatching { json.renameTo(File(quarantineDir, json.name)) }
+        if (markdown.isFile) runCatching { markdown.renameTo(File(quarantineDir, markdown.name)) }
     }
 
     private fun cleanup(activeBaseName: String) {

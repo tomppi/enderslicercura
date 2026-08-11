@@ -247,9 +247,11 @@ class SmartInfillPackageStore(private val context: Context) {
             activeFile.delete()
             return null
         }
+        // Keep the pointer on load failure so a transient error (disk read,
+        // triangle-limit change, interrupted activation) does not permanently
+        // deactivate Smart Infill and orphan the package directory.
         return runCatching { loadPackage(File(packagesDirectory, id)) }
             .onFailure { error ->
-                activeFile.delete()
                 val warning = error.message
                     ?.take(MAX_LOAD_WARNING_CHARS)
                     ?.takeIf(String::isNotBlank)
@@ -430,10 +432,21 @@ class SmartInfillPackageStore(private val context: Context) {
         val seen = hashSetOf<Int>()
         val modifiers = mutableListOf<SmartInfillModifier>()
         var totalBytes = 0L
+        var totalEntries = 0
+        val startedNanos = System.nanoTime()
+
+        fun checkWorkBudget() {
+            if (Thread.currentThread().isInterrupted) throw InterruptedException("Smart Infill extraction was cancelled")
+            val elapsedMillis = (System.nanoTime() - startedNanos) / 1_000_000L
+            require(elapsedMillis <= MAX_EXTRACTION_MILLIS) { "Smart Infill extraction exceeded its work-time limit" }
+            require(totalEntries <= MAX_ARCHIVE_ENTRIES) { "Smart Infill archive contains too many entries" }
+        }
 
         ZipInputStream(BufferedInputStream(input, BUFFER_SIZE)).use { zip ->
             while (true) {
+                checkWorkBudget()
                 val entry = zip.nextEntry ?: break
+                totalEntries++
                 if (entry.isDirectory) continue
                 require('/' !in entry.name && '\\' !in entry.name) { "Smart Infill archive contains nested paths" }
                 val match = MODIFIER_ARCHIVE.matchEntire(entry.name)
@@ -595,6 +608,8 @@ class SmartInfillPackageStore(private val context: Context) {
         private const val MAX_METADATA_CHARS = 64 * 1024
         private const val MAX_SOURCE_NAME = 512
         private const val MAX_MODIFIERS = 16
+        private const val MAX_ARCHIVE_ENTRIES = 2_048
+        private const val MAX_EXTRACTION_MILLIS = 30_000L
         private const val MAX_RETAINED_PACKAGES = 4
         private const val MAX_TOTAL_UNCOMPRESSED_BYTES = 768L * 1024L * 1024L
         private const val MAX_LOAD_WARNING_BYTES = 16L * 1024L
