@@ -844,12 +844,20 @@ class OctoPrintRepository(
 
     private fun activeFileGuard(action: String, targetPath: String): (OctoPrintUiState) -> String? = { current ->
         val activePath = current.job.filePath
-        if (activePath != null && targetPath.isNotBlank() && activePath.trim('/') == targetPath.trim('/')) {
+        if (activePath != null && targetPath.isNotBlank() && normalizeForCompare(activePath) == normalizeForCompare(targetPath)) {
             "The file currently being printed ($activePath) cannot be $action"
         } else {
             null
         }
     }
+
+    private fun normalizeForCompare(value: String): String = value
+        .trim()
+        .trim('/')
+        .lowercase()
+        .split('/')
+        .filter { it.isNotBlank() && it != "." }
+        .joinToString("/")
 
     private fun requireClient(): OctoPrintClient {
         val current = _state.value
