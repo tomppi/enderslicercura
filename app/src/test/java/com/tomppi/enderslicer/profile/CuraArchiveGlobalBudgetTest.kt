@@ -34,6 +34,20 @@ class CuraArchiveGlobalBudgetTest {
         assertTrue(failure != null)
     }
 
+    @Test
+    fun oversizedEntryNameIsRejected() {
+        val archive = zip("Cura/" + "a".repeat(1_024) to "x".toByteArray())
+        val failure = runCatching {
+            CuraArchive.readTextEntries(
+                ByteArrayInputStream(archive),
+                maximumEntryNameLength = 256,
+                accept = { it.startsWith("Cura/") },
+            )
+        }.exceptionOrNull()
+        assertTrue(failure != null)
+        assertTrue(failure!!.message!!.contains("entry name"))
+    }
+
     private fun zip(vararg entries: Pair<String, ByteArray>): ByteArray = ByteArrayOutputStream().also { output ->
         ZipOutputStream(output).use { zip ->
             entries.forEach { (name, value) ->

@@ -15,6 +15,7 @@ internal object CuraArchive {
         maximumInflatedBytes: Long = 256L * 1024L * 1024L,
         maximumCompressionRatio: Long = 2_000L,
         maximumWorkMillis: Long = 30_000L,
+        maximumEntryNameLength: Int = 512,
         accept: (String) -> Boolean = { true },
     ): Map<String, String> {
         require(maximumEntryBytes > 0) { "Archive entry limit must be positive" }
@@ -24,6 +25,7 @@ internal object CuraArchive {
         require(maximumInflatedBytes > 0L) { "Archive global inflated-size limit must be positive" }
         require(maximumCompressionRatio > 0L) { "Archive compression ratio limit must be positive" }
         require(maximumWorkMillis > 0L) { "Archive work-time limit must be positive" }
+        require(maximumEntryNameLength > 0) { "Archive entry-name length limit must be positive" }
 
         val counted = CountingInputStream(input.buffered())
         val startedNanos = System.nanoTime()
@@ -54,6 +56,9 @@ internal object CuraArchive {
                 archiveEntries++
                 require(archiveEntries <= maximumArchiveEntries) {
                     "Archive contains more than $maximumArchiveEntries entries"
+                }
+                require(entry.name.length <= maximumEntryNameLength) {
+                    "Archive entry name exceeds the $maximumEntryNameLength character safety limit"
                 }
                 val accepted = !entry.isDirectory && accept(entry.name)
                 val output = if (accepted) ByteArrayOutputStream() else null
