@@ -235,7 +235,7 @@ fun EnderSlicerApp(
                                     menuExpanded = false
                                     calibrationOpen = true
                                 },
-                                enabled = state.mesh != null && !state.isBusy,
+                                enabled = !state.isBusy,
                             )
 
                             HorizontalDivider()
