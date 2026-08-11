@@ -9,13 +9,22 @@ import org.junit.Test
 class OctoPrintClientTest {
     @Test
     fun normalizesLocalHostAndPreservesPathPrefix() {
+        // Bare hostnames default to HTTPS so the API key is never silently sent in cleartext.
         assertEquals(
-            "http://octopi.local/",
+            "https://octopi.local/",
             OctoPrintClient.normalizeBaseUrl("octopi.local").toString(),
         )
         assertEquals(
             "https://printer.example/octoprint/",
             OctoPrintClient.normalizeBaseUrl("https://printer.example/octoprint").toString(),
+        )
+    }
+
+    @Test
+    fun explicitHttpSchemeIsPreservedForTrustedLan() {
+        assertEquals(
+            "http://octopi.local/",
+            OctoPrintClient.normalizeBaseUrl("http://octopi.local").toString(),
         )
     }
 
@@ -243,6 +252,28 @@ class OctoPrintClientTest {
         assertEquals(
             "http://octopi.local/webcam/?action=snapshot",
             client.resolveWebcamSnapshotUrl("/webcam/?action=snapshot")?.toString(),
+        )
+    }
+
+    @Test
+    fun blocksCloudMetadataAndLinkLocalWebcamSnapshotTargets() {
+        val client = OctoPrintClient("http://octopi.local")
+        assertNull(client.resolveWebcamSnapshotUrl("http://169.254.169.254/latest/meta-data/"))
+        assertNull(client.resolveWebcamSnapshotUrl("http://169.254.0.1:8080/webcam/"))
+        assertNull(client.resolveWebcamSnapshotUrl("http://[fc00::1]:8080/webcam/"))
+        assertNull(client.resolveWebcamSnapshotUrl("http://[fd12:3456:789a::1]/webcam/"))
+    }
+
+    @Test
+    fun allowsRfc1918WebcamTargetsOnTheLan() {
+        val client = OctoPrintClient("http://octopi.local")
+        assertEquals(
+            "http://192.168.1.50:8080/webcam/?action=snapshot",
+            client.resolveWebcamSnapshotUrl("http://192.168.1.50:8080/webcam/?action=snapshot")?.toString(),
+        )
+        assertEquals(
+            "http://10.0.0.7/webcam/?action=snapshot",
+            client.resolveWebcamSnapshotUrl("http://10.0.0.7/webcam/?action=snapshot")?.toString(),
         )
     }
 

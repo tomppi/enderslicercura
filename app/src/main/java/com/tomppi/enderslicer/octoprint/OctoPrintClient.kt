@@ -4,6 +4,7 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
 import java.net.HttpURLConnection
+import java.net.InetAddress
 import java.net.URI
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
@@ -94,7 +95,8 @@ class OctoPrintClient(
 
     internal fun resolveWebcamSnapshotUrl(value: String): URI? {
         val resolved = resolveServerUrl(value) ?: return null
-        return rewriteLoopbackHost(resolved)
+        val rewritten = rewriteLoopbackHost(resolved)
+        return rewritten.takeIf { isAllowedWebcamTarget(it) }
     }
 
     private fun rewriteLoopbackHost(uri: URI): URI {
@@ -116,6 +118,18 @@ class OctoPrintClient(
     private fun isLoopbackHost(host: String): Boolean =
         host.equals("localhost", ignoreCase = true) || host == "127.0.0.1" || host == "::1"
 
+    // Blocks SSRF to cloud metadata (169.254.169.254), link-local ranges and
+    // IPv6 unique-local addresses; RFC1918 webcams on the LAN stay supported.
+    private fun isAllowedWebcamTarget(uri: URI): Boolean {
+        val host = uri.host ?: return false
+        val address = runCatching { InetAddress.getByName(host) }.getOrNull() ?: return true
+        val bytes = address.address ?: return true
+        val linkLocalV4 = bytes.size == 4 && (bytes[0].toInt() and 0xFF) == 169 && (bytes[1].toInt() and 0xFF) == 254
+        val uniqueLocalV6 = bytes.size == 16 && (bytes[0].toInt() and 0xFE) == 0xFC
+        val loopbackV6 = bytes.size == 16 && bytes.all { it == 0.toByte() } && bytes.last() == 1.toByte()
+        return !linkLocalV4 && !uniqueLocalV6 && !loopbackV6
+    }
+
     private fun fetchWebcamSnapshot(url: URI, redirectCount: Int): ByteArray {
         require(redirectCount <= MAX_SNAPSHOT_REDIRECTS) { "Too many webcam redirects" }
         val connection = openConnection(url, "GET", authenticated = true, accept = SNAPSHOT_ACCEPT)
@@ -129,7 +143,14 @@ class OctoPrintClient(
                 require(next.scheme.equals("http", true) || next.scheme.equals("https", true)) {
                     "Webcam redirect must use HTTP or HTTPS"
                 }
-                return fetchWebcamSnapshot(rewriteLoopbackHost(next), redirectCount + 1)
+                require(next.host.equals(base.host, ignoreCase = true)) {
+                    "Webcam redirect must stay on the OctoPrint server host"
+                }
+                val rewritten = rewriteLoopbackHost(next)
+                require(isAllowedWebcamTarget(rewritten)) {
+                    "Webcam redirect target is not allowed"
+                }
+                return fetchWebcamSnapshot(rewritten, redirectCount + 1)
             }
             if (code !in 200..299) throw httpError(connection, code)
             val declared = connection.contentLengthLong
@@ -686,7 +707,10 @@ class OctoPrintClient(
         fun normalizeBaseUrl(value: String): URI {
             val trimmed = value.trim()
             require(trimmed.isNotBlank()) { "Enter the OctoPrint server address" }
-            val withScheme = if ("://" in trimmed) trimmed else "http://$trimmed"
+            // A bare hostname defaults to HTTPS so the API key is not silently
+            // sent in cleartext; users who need plaintext HTTP on a trusted LAN
+            // must type the http:// scheme explicitly.
+            val withScheme = if ("://" in trimmed) trimmed else "https://$trimmed"
             val parsed = runCatching { URI(withScheme) }.getOrNull()
                 ?: error("Invalid OctoPrint server address")
             require(parsed.scheme.equals("http", true) || parsed.scheme.equals("https", true)) {
