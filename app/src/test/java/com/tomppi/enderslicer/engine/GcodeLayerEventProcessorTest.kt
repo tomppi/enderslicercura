@@ -40,7 +40,7 @@ class GcodeLayerEventProcessorTest {
         val output = kotlin.io.path.createTempFile("enderslicer-events-output", ".gcode").toFile()
         GcodeLayerEventProcessor.materialize(base, output, listOf(event))
         val text = output.readText()
-        assertTrue(text.indexOf(";LAYER:1") < text.indexOf("M109 S225"))
+        assertTrue(text.indexOf(";LAYER:1") < text.indexOf("M109 R225"))
         assertTrue(text.contains(";ENDERSLICER_LAYER_EVENT"))
     }
 
@@ -177,6 +177,53 @@ class GcodeLayerEventProcessorTest {
         assertTrue(result.contains("M221 S95"))
         assertTrue(result.contains("M220 S100 ; enderslicercura restore speed factor"))
         assertTrue(result.contains("M221 S100 ; enderslicercura restore flow factor"))
+    }
+
+    @Test
+    fun calibrationRestoresRunBeforeTheEndGcode() {
+        val endGcodeBody = "G28 ; home the printer\nG1 E-4 F2400 ; final retract"
+        val base = kotlin.io.path.createTempFile("enderslicer-restore-order", ".gcode").toFile().apply {
+            writeText(
+                """
+                ;FLAVOR:Marlin
+                M82
+                ;LAYER:0
+                G1 X1 E1
+                ;LAYER:1
+                G1 X2 E2
+                ;End of Gcode
+                $endGcodeBody
+                """.trimIndent(),
+            )
+        }
+        val events = listOf(
+            LayerEvent(
+                id = "flow-cal-order",
+                layerNumber = 1,
+                zMm = 0.4f,
+                type = LayerEventType.FLOW_FACTOR,
+                value = 200.0,
+                source = LayerEventSource.CALIBRATION,
+            ),
+            LayerEvent(
+                id = "speed-cal-order",
+                layerNumber = 1,
+                zMm = 0.4f,
+                type = LayerEventType.SPEED_FACTOR,
+                value = 300.0,
+                source = LayerEventSource.CALIBRATION,
+            ),
+        )
+        val output = kotlin.io.path.createTempFile("enderslicer-restore-order-output", ".gcode").toFile()
+        GcodeLayerEventProcessor.materialize(base, output, events)
+        val result = output.readText()
+        val endMarker = result.indexOf(";End of Gcode")
+        val retract = result.indexOf("G1 E-4")
+        val speedRestore = result.indexOf("M220 S100 ; enderslicercura restore speed factor")
+        val flowRestore = result.indexOf("M221 S100 ; enderslicercura restore flow factor")
+        assertTrue(endMarker >= 0 && retract > endMarker)
+        assertTrue(speedRestore in 0 until endMarker)
+        assertTrue(flowRestore in 0 until endMarker)
     }
 
     @Test

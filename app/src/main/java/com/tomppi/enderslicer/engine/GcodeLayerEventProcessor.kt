@@ -1,6 +1,7 @@
 package com.tomppi.enderslicer.engine
 
 import com.tomppi.enderslicer.calibration.CalibrationSliceState
+import com.tomppi.enderslicer.nonplanar.CurviSlicerRuntime
 import java.io.File
 
 object GcodeLayerEventProcessor {
@@ -83,6 +84,46 @@ object GcodeLayerEventProcessor {
                 }
             }
 
+            var restoresWritten = false
+
+            fun writeRestores() {
+                if (restoresWritten) return
+                restoresWritten = true
+                deferredRetraction.forEach(::writeEvent)
+                deferredRetraction.clear()
+
+                if (LayerEventType.SPEED_FACTOR in eventTypes) {
+                    writer.write("M220 S100 ; enderslicercura restore speed factor")
+                    writer.newLine()
+                }
+                if (LayerEventType.FLOW_FACTOR in eventTypes) {
+                    writer.write("M221 S100 ; enderslicercura restore flow factor")
+                    writer.newLine()
+                }
+                if (LayerEventType.RETRACTION in calibrationTypes) {
+                    CalibrationSliceState.retractionRestoreCommand(firmware)?.let { command ->
+                        writer.write("$command ; enderslicercura restore firmware retraction")
+                        writer.newLine()
+                    }
+                }
+                if (LayerEventType.PRESSURE_ADVANCE in calibrationTypes) {
+                    CalibrationSliceState.pressureAdvanceRestoreCommand(firmware)?.let { command ->
+                        writer.write("$command ; enderslicercura restore pressure advance")
+                        writer.newLine()
+                    }
+                }
+                if (LayerEventType.JUNCTION_DEVIATION in calibrationTypes) {
+                    CalibrationSliceState.junctionDeviationRestoreCommand(firmware)?.let { command ->
+                        writer.write("$command ; enderslicercura restore junction deviation")
+                        writer.newLine()
+                    }
+                }
+                if (fanCalibration && calibrationFanStarted) {
+                    writer.write("M107 ; enderslicercura fan calibration safety shutdown")
+                    writer.newLine()
+                }
+            }
+
             baseFile.bufferedReader().useLines { lines ->
                 lines.forEach { line ->
                     val parsedCommand = GcodeCommand.parse(line)
@@ -90,6 +131,20 @@ object GcodeLayerEventProcessor {
 
                     if (fanCalibration && calibrationFanStarted && (opcode == "M106" || opcode == "M107")) {
                         return@forEach
+                    }
+
+                    // The end-G-code runs with whatever calibration values are
+                    // active when it starts (e.g. an M221 flow factor scales the
+                    // final retract). Restore the factors before that boundary so
+                    // the end script executes at safe, nominal settings.
+                    val trimmedLine = line.trimStart()
+                    if (
+                        !restoresWritten &&
+                        (trimmedLine.startsWith(";End of Gcode", ignoreCase = true) ||
+                            trimmedLine.startsWith(";END_OF_PRINT") ||
+                            trimmedLine == CurviSlicerRuntime.MACHINE_END_SENTINEL)
+                    ) {
+                        writeRestores()
                     }
 
                     writer.write(line)
@@ -122,38 +177,9 @@ object GcodeLayerEventProcessor {
                 }
             }
 
-            deferredRetraction.forEach(::writeEvent)
-
-            if (LayerEventType.SPEED_FACTOR in eventTypes) {
-                writer.write("M220 S100 ; enderslicercura restore speed factor")
-                writer.newLine()
-            }
-            if (LayerEventType.FLOW_FACTOR in eventTypes) {
-                writer.write("M221 S100 ; enderslicercura restore flow factor")
-                writer.newLine()
-            }
-            if (LayerEventType.RETRACTION in calibrationTypes) {
-                CalibrationSliceState.retractionRestoreCommand(firmware)?.let { command ->
-                    writer.write("$command ; enderslicercura restore firmware retraction")
-                    writer.newLine()
-                }
-            }
-            if (LayerEventType.PRESSURE_ADVANCE in calibrationTypes) {
-                CalibrationSliceState.pressureAdvanceRestoreCommand(firmware)?.let { command ->
-                    writer.write("$command ; enderslicercura restore pressure advance")
-                    writer.newLine()
-                }
-            }
-            if (LayerEventType.JUNCTION_DEVIATION in calibrationTypes) {
-                CalibrationSliceState.junctionDeviationRestoreCommand(firmware)?.let { command ->
-                    writer.write("$command ; enderslicercura restore junction deviation")
-                    writer.newLine()
-                }
-            }
-            if (fanCalibration && calibrationFanStarted) {
-                writer.write("M107 ; enderslicercura fan calibration safety shutdown")
-                writer.newLine()
-            }
+            // Fallback for files without an end-G-code marker: keep the restores
+            // at the end so calibration values are still reset before the next job.
+            writeRestores()
         }
         check(temporary.isFile && temporary.length() > 0L) { "Layer-event G-code output is empty" }
         if (destination.exists()) destination.delete()
