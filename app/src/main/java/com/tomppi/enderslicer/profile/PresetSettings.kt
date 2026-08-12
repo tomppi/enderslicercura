@@ -77,6 +77,7 @@ object PresetSettings {
         SlicerSettings.Keys.WAVE_OVERHANG_MINIMUM_WIDTH,
         SlicerSettings.Keys.WAVE_OVERHANG_MAX_ITERATIONS,
         SlicerSettings.Keys.WAVE_OVERHANG_REVERSE_ODD_LAYERS,
+        SlicerSettings.Keys.SMART_OVERHANG_STRATEGY,
         SlicerSettings.Keys.IRONING_ENABLED,
         SlicerSettings.Keys.IRONING_ONLY_HIGHEST_LAYER,
         SlicerSettings.Keys.IRONING_FLOW,
@@ -210,6 +211,7 @@ object PresetSettings {
                 SlicerSettings.Keys.WAVE_OVERHANG_MINIMUM_WIDTH -> changed.copy(waveOverhangMinimumWidthMm = values.optDouble(key, changed.waveOverhangMinimumWidthMm))
                 SlicerSettings.Keys.WAVE_OVERHANG_MAX_ITERATIONS -> changed.copy(waveOverhangMaxIterations = values.optInt(key, changed.waveOverhangMaxIterations))
                 SlicerSettings.Keys.WAVE_OVERHANG_REVERSE_ODD_LAYERS -> changed.copy(waveOverhangReverseOddLayers = values.optBoolean(key, changed.waveOverhangReverseOddLayers))
+                SlicerSettings.Keys.SMART_OVERHANG_STRATEGY -> changed.copy(smartOverhangStrategy = values.optBoolean(key, changed.smartOverhangStrategy))
                 SlicerSettings.Keys.IRONING_ENABLED -> changed.copy(ironingEnabled = values.optBoolean(key, changed.ironingEnabled))
                 SlicerSettings.Keys.IRONING_ONLY_HIGHEST_LAYER -> changed.copy(ironingOnlyHighestLayer = values.optBoolean(key, changed.ironingOnlyHighestLayer))
                 SlicerSettings.Keys.IRONING_FLOW -> changed.copy(ironingFlowPercent = values.optDouble(key, changed.ironingFlowPercent))

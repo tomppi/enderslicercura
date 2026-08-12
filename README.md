@@ -83,6 +83,10 @@ This is a build-process thermo-mechanical approximation. It does not yet solve t
 
 - **Arc overhangs (Multiplex):** expanding clipped arc paths with normal bridge fallback
 - **Wave overhangs:** expanding wavefronts seeded from previous-layer model material
+- **Smart overhang strategy:** before slicing, the app classifies the positioned mesh
+  (sloped upper surfaces vs. flat roof undersides vs. steep undersides) and decides
+  where arc fill and CurviSlicer layers apply automatically, including a safe
+  combined mode when CurviSlicer is enabled
 - Smart, monotonic and zigzag wave traversal
 - Adjustable spacing, flow, speed, fan, overlap, minimum width and iteration limit
 - Exact preview markers and dedicated layer colors
@@ -125,7 +129,7 @@ Printed geometry and extrusion destinations were extremely close. This is a usef
 
 - Single printable model and single extruder
 - No duplicate/auto-arrange workflow or Cura plugin compatibility
-- Smart Infill, thermal FEA, Arc Overhangs and Wave Overhangs still need broader physical print validation
+- Smart Infill, thermal FEA, Arc Overhangs, Wave Overhangs and the smart overhang strategy still need broader physical print validation
 - filaSim currently uses its single-threaded WASM fallback inside Android WebView
 - High-density models and fine FEA grids may exceed the Android heap
 - Thermal FEA does not yet include transient conduction, G-code thermal history, delamination, creep or service-temperature failure
