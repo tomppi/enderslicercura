@@ -116,6 +116,74 @@ class CuraInputSecurityTest {
     }
 
     @Test
+    fun secureXmlToleratesParserRejectingEveryHardeningFeature() {
+        // Android Expat rejects even the SAX external-entity features; imports
+        // must still succeed because that parser is secure by default.
+        val strictParser = object : javax.xml.parsers.DocumentBuilderFactory() {
+            private val delegate = javax.xml.parsers.DocumentBuilderFactory.newInstance()
+            override fun newDocumentBuilder() = delegate.newDocumentBuilder()
+            override fun setAttribute(name: String, value: Any) {
+                if (name.startsWith("http://javax.xml.XMLConstants/property/")) {
+                    throw javax.xml.parsers.ParserConfigurationException("unsupported property")
+                }
+                delegate.setAttribute(name, value)
+            }
+            override fun getAttribute(name: String): Any = delegate.getAttribute(name)
+            override fun setFeature(name: String, value: Boolean) {
+                if (name.startsWith("http://")) {
+                    throw javax.xml.parsers.ParserConfigurationException("unsupported feature")
+                }
+                delegate.setFeature(name, value)
+            }
+            override fun getFeature(name: String): Boolean {
+                if (name.startsWith("http://")) {
+                    throw javax.xml.parsers.ParserConfigurationException("unsupported feature")
+                }
+                return delegate.getFeature(name)
+            }
+            override fun isNamespaceAware(): Boolean = delegate.isNamespaceAware()
+            override fun setNamespaceAware(value: Boolean) = delegate.setNamespaceAware(value)
+            override fun isValidating(): Boolean = delegate.isValidating()
+            override fun setValidating(value: Boolean) = delegate.setValidating(value)
+            override fun isXIncludeAware(): Boolean = delegate.isXIncludeAware()
+            override fun setXIncludeAware(value: Boolean) = delegate.setXIncludeAware(value)
+            override fun isExpandEntityReferences(): Boolean = delegate.isExpandEntityReferences()
+            override fun setExpandEntityReferences(value: Boolean) = delegate.setExpandEntityReferences(value)
+        }
+
+        assertTrue(SecureXml.factory(strictParser).newDocumentBuilder() != null)
+    }
+
+    @Test
+    fun secureXmlRejectsParserThatAcceptsButDoesNotApplyHardening() {
+        // The false-assurance case: a parser that claims a feature but leaves
+        // the parser vulnerable must still be rejected loudly.
+        val lyingParser = object : javax.xml.parsers.DocumentBuilderFactory() {
+            private val delegate = javax.xml.parsers.DocumentBuilderFactory.newInstance()
+            override fun newDocumentBuilder() = delegate.newDocumentBuilder()
+            override fun setAttribute(name: String, value: Any) = delegate.setAttribute(name, value)
+            override fun getAttribute(name: String): Any = delegate.getAttribute(name)
+            override fun setFeature(name: String, value: Boolean) = delegate.setFeature(name, value)
+            override fun getFeature(name: String): Boolean {
+                if (name == "http://xml.org/sax/features/external-general-entities") return true
+                return delegate.getFeature(name)
+            }
+            override fun isNamespaceAware(): Boolean = delegate.isNamespaceAware()
+            override fun setNamespaceAware(value: Boolean) = delegate.setNamespaceAware(value)
+            override fun isValidating(): Boolean = delegate.isValidating()
+            override fun setValidating(value: Boolean) = delegate.setValidating(value)
+            override fun isXIncludeAware(): Boolean = delegate.isXIncludeAware()
+            override fun setXIncludeAware(value: Boolean) = delegate.setXIncludeAware(value)
+            override fun isExpandEntityReferences(): Boolean = delegate.isExpandEntityReferences()
+            override fun setExpandEntityReferences(value: Boolean) = delegate.setExpandEntityReferences(value)
+        }
+
+        val error = runCatching { SecureXml.factory(lyingParser) }.exceptionOrNull()
+        assertTrue(error is IllegalStateException)
+        assertTrue(error!!.message!!.contains("did not apply"))
+    }
+
+    @Test
     fun readsNormalAcceptedEntries() {
         val archive = zip("Cura/a.cfg" to "hello")
         val entries = CuraArchive.readTextEntries(

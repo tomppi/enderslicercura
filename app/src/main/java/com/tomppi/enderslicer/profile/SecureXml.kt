@@ -20,37 +20,18 @@ internal object SecureXml {
     ): DocumentBuilderFactory = base.apply {
         isNamespaceAware = namespaceAware
         runCatching { isXIncludeAware = false }
-        // Load-bearing JAXP/SAX protections, supported by every real parser
-        // (JDK Xerces and Android Expat). A parser that cannot disable external
-        // entities is genuinely unsafe, so these stay required.
-        setRequiredFeature(FEATURE_EXTERNAL_GENERAL, false, "external general entities")
-        setRequiredFeature(FEATURE_EXTERNAL_PARAMETER, false, "external parameter entities")
-        setRequiredFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true, "secure processing")
-        setRequiredProperty(PROPERTY_ACCESS_EXTERNAL_DTD, "", "external DTD access")
-        setRequiredProperty(PROPERTY_ACCESS_EXTERNAL_SCHEMA, "", "external schema access")
-        // Apache-Xerces-specific hardening. Android's Expat parser rejects the
-        // feature name (it refuses DOCTYPE declarations natively), so these are
-        // applied when the parser supports them and skipped otherwise.
+        // Hardening is applied where the parser supports it. A parser that
+        // accepts a feature but fails to apply it is rejected loudly; a parser
+        // that rejects the feature name (Android's Expat, which is secure by
+        // default and never resolves external entities) is tolerated.
         setAdaptiveFeature(FEATURE_DISALLOW_DOCTYPE, true, "DOCTYPE declarations")
+        setAdaptiveFeature(FEATURE_EXTERNAL_GENERAL, false, "external general entities")
+        setAdaptiveFeature(FEATURE_EXTERNAL_PARAMETER, false, "external parameter entities")
         setAdaptiveFeature(FEATURE_LOAD_EXTERNAL_DTD, false, "external DTD loading")
+        setAdaptiveFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true, "secure processing")
+        setAdaptiveProperty(PROPERTY_ACCESS_EXTERNAL_DTD, "", "external DTD access")
+        setAdaptiveProperty(PROPERTY_ACCESS_EXTERNAL_SCHEMA, "", "external schema access")
         runCatching { setExpandEntityReferences(false) }
-    }
-
-    private fun DocumentBuilderFactory.setRequiredFeature(feature: String, value: Boolean, label: String) {
-        val applied = runCatching {
-            setFeature(feature, value)
-            getFeature(feature) == value
-        }
-        when {
-            applied.getOrNull() == true -> Unit
-            applied.isFailure -> throw IllegalStateException(
-                "XML parser does not support the required $label hardening ($feature)",
-                applied.exceptionOrNull(),
-            )
-            else -> throw IllegalStateException(
-                "XML parser did not apply the required $label hardening ($feature)",
-            )
-        }
     }
 
     private fun DocumentBuilderFactory.setAdaptiveFeature(feature: String, value: Boolean, label: String) {
@@ -67,14 +48,7 @@ internal object SecureXml {
         }
     }
 
-    private fun DocumentBuilderFactory.setRequiredProperty(property: String, value: String, label: String) {
-        try {
-            setAttribute(property, value)
-        } catch (error: Exception) {
-            throw IllegalStateException(
-                "XML parser does not support the required $label hardening ($property)",
-                error,
-            )
-        }
+    private fun DocumentBuilderFactory.setAdaptiveProperty(property: String, value: String, label: String) {
+        runCatching { setAttribute(property, value) }
     }
 }
