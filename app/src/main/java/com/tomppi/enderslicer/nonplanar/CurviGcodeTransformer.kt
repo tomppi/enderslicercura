@@ -43,6 +43,8 @@ internal object CurviGcodeTransformer {
         var inPrintableLayers = false
         var afterMachineEnd = false
         var currentLayer: Int? = null
+        var currentPathType: String? = null
+        var currentOverhangOffset: Double? = null
         var lineNumber = 0
         var sourceMoves = 0
         var emittedMoves = 0
@@ -113,6 +115,10 @@ internal object CurviGcodeTransformer {
                             currentLayer = trimmed.substringAfter(':').trim().toIntOrNull()
                             inPrintableLayers = true
                         }
+                        if (trimmed.startsWith(";TYPE:")) {
+                            currentPathType = trimmed.substringAfter(":").trim()
+                            currentOverhangOffset = null
+                        }
                         if (trimmed.startsWith(";End of Gcode", ignoreCase = true) || trimmed.startsWith(";END_OF_PRINT")) {
                             inPrintableLayers = false
                             currentLayer = null
@@ -155,6 +161,7 @@ internal object CurviGcodeTransformer {
                                 val deltaE = nextPlanarE - planarE
                                 val spatial = abs(nextPlanarX - planarX) > EPSILON ||
                                     abs(nextPlanarY - planarY) > EPSILON || abs(nextPlanarZ - planarZ) > EPSILON
+                                val isOverhangPath = currentPathType == "ARC-OVERHANG" || currentPathType == "WAVE-OVERHANG"
                                 if (!spatial || !inPrintableLayers) {
                                     if (inPrintableLayers && command.has('E')) {
                                         val builder = StringBuilder(command.opcode)
@@ -184,7 +191,10 @@ internal object CurviGcodeTransformer {
                                     planarE = nextPlanarE
                                     curvedX = nextPlanarX
                                     curvedY = nextPlanarY
-                                    curvedZ = if (inPrintableLayers) {
+                                    curvedZ = if (isOverhangPath && inPrintableLayers) {
+                                        nextPlanarZ + (currentOverhangOffset
+                                            ?: (field.unflattenZ(nextPlanarX, nextPlanarY, nextPlanarZ) - nextPlanarZ))
+                                    } else if (inPrintableLayers) {
                                         field.unflattenZ(nextPlanarX, nextPlanarY, nextPlanarZ)
                                     } else {
                                         nextPlanarZ
@@ -200,7 +210,16 @@ internal object CurviGcodeTransformer {
                                 val startCurvedY = curvedY
                                 val startCurvedZ = curvedZ
                                 val startIdealCurvedE = idealCurvedE
-                                val endCurvedZ = field.unflattenZ(nextPlanarX, nextPlanarY, nextPlanarZ)
+                                if (isOverhangPath && currentOverhangOffset == null) {
+                                    currentOverhangOffset =
+                                        field.unflattenZ(startPlanarX, startPlanarY, startPlanarZ) - startPlanarZ
+                                }
+                                val overhangOffset = if (isOverhangPath) currentOverhangOffset!! else 0.0
+                                val endCurvedZ = if (isOverhangPath) {
+                                    nextPlanarZ + overhangOffset
+                                } else {
+                                    field.unflattenZ(nextPlanarX, nextPlanarY, nextPlanarZ)
+                                }
                                 val planarLength = distance3(
                                     startPlanarX, startPlanarY, startPlanarZ,
                                     nextPlanarX, nextPlanarY, nextPlanarZ,
@@ -228,7 +247,11 @@ internal object CurviGcodeTransformer {
                                     val px = lerp(startPlanarX, nextPlanarX, t)
                                     val py = lerp(startPlanarY, nextPlanarY, t)
                                     val pz = lerp(startPlanarZ, nextPlanarZ, t)
-                                    points += Point(px, py, field.unflattenZ(px, py, pz))
+                                    points += if (isOverhangPath) {
+                                        Point(px, py, pz + overhangOffset)
+                                    } else {
+                                        Point(px, py, field.unflattenZ(px, py, pz))
+                                    }
                                 }
                                 val lengths = DoubleArray(segmentCount)
                                 var totalCurvedLength = 0.0

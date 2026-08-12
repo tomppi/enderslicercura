@@ -206,6 +206,61 @@ class CurviSlicerSafetyRegressionTest {
         }
     }
 
+    @Test
+    fun overhangPathsStayFlatWhileNormalPathsFollowTheReliefField() {
+        val directory = Files.createTempDirectory("curvi-overhang-flat").toFile()
+        try {
+            val gcode = File(directory, "output.gcode").apply {
+                writeText(
+                    buildString {
+                        appendLine(";FLAVOR:Marlin")
+                        appendLine("G90")
+                        appendLine("M82")
+                        appendLine("G0 X0 Y0 Z2 F6000")
+                        appendLine(";LAYER:0")
+                        appendLine("G1 X0 Y2 Z2 E1 F1200")
+                        appendLine(";TYPE:WAVE-OVERHANG")
+                        appendLine("G1 X0 Y4 Z2 E2 F1200")
+                        appendLine("G1 X1 Y4 Z2 E3 F1200")
+                        appendLine("G1 X2 Y4 Z2 E4 F1200")
+                        appendLine(";TYPE:SKIN")
+                        appendLine("G1 X4 Y4 Z2 E5 F1200")
+                        appendLine("G1 X6 Y4 Z2 E6 F1200")
+                        appendLine("G1 X8 Y4 Z2 E7 F1200")
+                        appendLine(";End of Gcode")
+                    },
+                )
+            }
+            writePreparedField(directory, simpleField(), NonPlanarSettings(enabled = true))
+
+            CurviSlicerFieldStorage.curveStagedGcode(gcode, printerEnvelope())
+
+            val gcodeLines = gcode.readLines()
+            val overhangZ = gcodeLines
+                .dropWhile { !it.contains(";TYPE:WAVE-OVERHANG") }
+                .drop(1)
+                .takeWhile { !it.startsWith(";TYPE:") }
+                .mapNotNull { GcodeCommand.parse(it)?.value('Z') }
+            val normalZ = gcodeLines
+                .dropWhile { !it.contains(";TYPE:SKIN") }
+                .drop(1)
+                .takeWhile { !it.startsWith(";TYPE:") }
+                .mapNotNull { GcodeCommand.parse(it)?.value('Z') }
+            val overhangSpread = overhangZ.max() - overhangZ.min()
+            val normalSpread = normalZ.max() - normalZ.min()
+            assertTrue(
+                "Overhang paths must stay flat (spread=$overhangSpread)",
+                overhangSpread <= 1e-6,
+            )
+            assertTrue(
+                "Normal skin must follow the relief field (spread=$normalSpread)",
+                normalSpread > 1e-3,
+            )
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
     private fun writePreparedField(
         directory: File,
         field: CurviSlicerField,
