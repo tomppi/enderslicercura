@@ -162,7 +162,9 @@ internal object CurviGcodeTransformer {
                                 val deltaE = nextPlanarE - planarE
                                 val spatial = abs(nextPlanarX - planarX) > EPSILON ||
                                     abs(nextPlanarY - planarY) > EPSILON || abs(nextPlanarZ - planarZ) > EPSILON
-                                val isOverhangPath = currentPathType == "ARC-OVERHANG" || currentPathType == "WAVE-OVERHANG"
+                                val isOverhangExtrusion = (currentPathType == "ARC-OVERHANG" ||
+                                    currentPathType == "WAVE-OVERHANG") && command.has('E')
+                                val isOverhangPath = isOverhangExtrusion
                                 if (!spatial || !inPrintableLayers) {
                                     if (inPrintableLayers && command.has('E')) {
                                         val builder = StringBuilder(command.opcode)
