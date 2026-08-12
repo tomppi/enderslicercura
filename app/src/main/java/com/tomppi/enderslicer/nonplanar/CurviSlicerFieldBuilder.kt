@@ -41,7 +41,8 @@ internal object CurviSlicerFieldBuilder {
         val top = FloatArray(columns * rows) { Float.NaN }
         val vertices = mesh.interleavedVertices
         var offset = 0
-        repeat(mesh.triangleCount) {
+        repeat(mesh.triangleCount) { triangleIndex ->
+            checkCurviCancellation(triangleIndex)
             rasterizeTriangle(
                 grid = top,
                 columns = columns,
@@ -221,7 +222,10 @@ internal object CurviSlicerFieldBuilder {
         }
         require(queue.isNotEmpty()) { "CurviSlicer could not sample the model surface" }
         val directions = intArrayOf(-1, 0, 1, 0, 0, -1, 0, 1)
+        var processed = 0
         while (queue.isNotEmpty()) {
+            processed++
+            checkCurviCancellation(processed)
             val current = queue.removeFirst()
             val cx = current % columns
             val cy = current / columns
@@ -253,6 +257,7 @@ internal object CurviSlicerFieldBuilder {
 
         val horizontal = FloatArray(source.size)
         for (y in 0 until rows) {
+            checkCurviCancellation(y, 1)
             for (x in 0 until columns) {
                 var sum = 0.0
                 for (offset in -radius..radius) {
@@ -264,6 +269,7 @@ internal object CurviSlicerFieldBuilder {
         }
         val output = FloatArray(source.size)
         for (y in 0 until rows) {
+            checkCurviCancellation(y, 1)
             for (x in 0 until columns) {
                 var sum = 0.0
                 for (offset in -radius..radius) {
@@ -285,6 +291,7 @@ internal object CurviSlicerFieldBuilder {
     ): Double {
         var maximum = 0.0
         for (y in 0 until rows - 1) {
+            checkCurviCancellation(y, 1)
             for (x in 0 until columns - 1) {
                 val a = field[y * columns + x].toDouble()
                 val b = field[y * columns + x + 1].toDouble()
