@@ -45,6 +45,7 @@ internal object CurviGcodeTransformer {
         var currentLayer: Int? = null
         var currentPathType: String? = null
         var currentOverhangOffset: Double? = null
+        var pendingOverhang: MutableList<Pair<Int, String>>? = null
         var lineNumber = 0
         var sourceMoves = 0
         var emittedMoves = 0
@@ -71,15 +72,14 @@ internal object CurviGcodeTransformer {
         try {
             file.bufferedReader().use { input ->
                 temporary.bufferedWriter().use { output ->
-                    input.forEachLine { rawLine ->
-                        lineNumber++
+                    fun processLine(rawLine: String) {
                         val trimmed = rawLine.trimStart()
                         if (afterMachineEnd) {
                             require(trimmed != CurviSlicerRuntime.MACHINE_END_SENTINEL) {
                                 "CurviSlicer machine-end sentinel appears more than once"
                             }
                             output.appendLine(rawLine)
-                            return@forEachLine
+                            return
                         }
                         if (trimmed == CurviSlicerRuntime.MACHINE_END_SENTINEL) {
                             // This is a monotonic phase boundary. No later comment or command may
@@ -98,19 +98,19 @@ internal object CurviGcodeTransformer {
                             planarX = curvedX
                             planarY = curvedY
                             planarZ = curvedZ
-                            return@forEachLine
+                            return
                         }
                         if (trimmed.startsWith(";TIME_ELAPSED:")) {
                             val originalElapsed = trimmed.substringAfter(':').trim().toDoubleOrNull()
                             if (originalElapsed != null) {
                                 output.appendLine(";TIME_ELAPSED:${format(originalElapsed + additionalTimeSeconds)}")
-                                return@forEachLine
+                                return
                             }
                         }
                         if (!metadataWritten && (trimmed.startsWith(";Generated with Cura") || trimmed.startsWith(";FLAVOR:"))) {
                             output.appendLine(rawLine)
                             writeMetadata(output)
-                            return@forEachLine
+                            return
                         }
                         if (trimmed.startsWith(";LAYER:")) {
                             currentLayer = trimmed.substringAfter(':').trim().toIntOrNull()
@@ -128,12 +128,12 @@ internal object CurviGcodeTransformer {
                         val command = GcodeCommand.parse(rawLine)
                         if (command == null) {
                             output.appendLine(rawLine)
-                            return@forEachLine
+                            return
                         }
                         GcodeCommandPolicy.requireCurviSupported(command, inPrintableLayers)
                         if (modal.apply(command)) {
                             output.appendLine(rawLine)
-                            return@forEachLine
+                            return
                         }
                         when (command.opcode) {
                             "G92" -> {
@@ -202,7 +202,7 @@ internal object CurviGcodeTransformer {
                                     } else {
                                         nextPlanarZ
                                     }
-                                    return@forEachLine
+                                    return
                                 }
 
                                 sourceMoves++
@@ -236,7 +236,10 @@ internal object CurviGcodeTransformer {
                                 var actualMoveSeconds = 0.0
                                 val segmentCount = max(
                                     1,
-                                    ceil(max(planarLength, curvedLength) / settings.maximumSegmentLengthMm).toInt(),
+                                    ceil(
+                                        (if (isOverhangPath) planarLength else max(planarLength, curvedLength)) /
+                                            settings.maximumSegmentLengthMm,
+                                    ).toInt(),
                                 ).coerceAtMost(20_000)
                                 if (segmentCount > 1) subdividedMoves++
                                 check(emittedMoves + segmentCount <= MAX_EMITTED_MOVES) {
@@ -378,6 +381,77 @@ internal object CurviGcodeTransformer {
                             else -> output.appendLine(rawLine)
                         }
                     }
+
+                    fun flushPendingOverhang() {
+                        val buffer = pendingOverhang ?: return
+                        pendingOverhang = null
+                        if (buffer.isEmpty()) return
+                        var scanX = planarX
+                        var scanY = planarY
+                        var scanZ = planarZ
+                        var lastExtrusionX = scanX
+                        var lastExtrusionY = scanY
+                        var lastExtrusionZ = scanZ
+                        var foundExtrusion = false
+                        for ((_, raw) in buffer) {
+                            val command = GcodeCommand.parse(raw) ?: continue
+                            if (command.opcode != "G0" && command.opcode != "G1") continue
+                            val nextX = modal.position(scanX, command.value('X'))
+                            val nextY = modal.position(scanY, command.value('Y'))
+                            val nextZ = modal.position(scanZ, command.value('Z'))
+                            val spatial = abs(nextX - scanX) > EPSILON ||
+                                abs(nextY - scanY) > EPSILON || abs(nextZ - scanZ) > EPSILON
+                            if (command.has('E') && spatial) {
+                                lastExtrusionX = nextX
+                                lastExtrusionY = nextY
+                                lastExtrusionZ = nextZ
+                                foundExtrusion = true
+                            }
+                            scanX = nextX
+                            scanY = nextY
+                            scanZ = nextZ
+                        }
+                        currentOverhangOffset = if (foundExtrusion) {
+                            field.unflattenZ(lastExtrusionX, lastExtrusionY, lastExtrusionZ) - lastExtrusionZ
+                        } else {
+                            null
+                        }
+                        for ((savedLineNumber, raw) in buffer) {
+                            lineNumber = savedLineNumber
+                            processLine(raw)
+                        }
+                    }
+
+                    val lines = ArrayList<String>()
+                    input.forEachLine { lines.add(it) }
+                    var index = 0
+                    while (index < lines.size) {
+                        val rawLine = lines[index]
+                        index++
+                        lineNumber++
+                        val trimmed = rawLine.trimStart()
+                        val startsOverhang = trimmed.startsWith(";TYPE:") &&
+                            (trimmed.contains("WAVE-OVERHANG") || trimmed.contains("ARC-OVERHANG"))
+                        if (startsOverhang) {
+                            flushPendingOverhang()
+                            pendingOverhang = mutableListOf()
+                            processLine(rawLine)
+                            continue
+                        }
+                        if (pendingOverhang != null) {
+                            val endsOverhang = trimmed.startsWith(";TYPE:") || trimmed.startsWith(";LAYER:") ||
+                                trimmed.startsWith(";End of Gcode", ignoreCase = true) ||
+                                trimmed.startsWith(";END_OF_PRINT") ||
+                                trimmed == CurviSlicerRuntime.MACHINE_END_SENTINEL
+                            if (!endsOverhang) {
+                                pendingOverhang!!.add(lineNumber to rawLine)
+                                continue
+                            }
+                            flushPendingOverhang()
+                        }
+                        processLine(rawLine)
+                    }
+                    flushPendingOverhang()
                     writeMetadata(output)
                 }
             }
