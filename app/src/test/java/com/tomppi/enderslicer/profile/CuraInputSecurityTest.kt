@@ -84,6 +84,38 @@ class CuraInputSecurityTest {
     }
 
     @Test
+    fun secureXmlToleratesParserWithoutApacheDoctypeFeature() {
+        // Android's Expat-based DocumentBuilderFactory rejects the Apache
+        // disallow-doctype-decl feature even though it refuses DOCTYPEs
+        // natively; profile import must not fail because of it.
+        val unsupportedDoctypeFactory = object : javax.xml.parsers.DocumentBuilderFactory() {
+            private val delegate = javax.xml.parsers.DocumentBuilderFactory.newInstance()
+            override fun newDocumentBuilder() = delegate.newDocumentBuilder()
+            override fun setAttribute(name: String, value: Any) = delegate.setAttribute(name, value)
+            override fun getAttribute(name: String): Any = delegate.getAttribute(name)
+            override fun setFeature(name: String, value: Boolean) {
+                if (name == "http://apache.org/xml/features/disallow-doctype-decl") {
+                    throw javax.xml.parsers.ParserConfigurationException("unsupported feature")
+                }
+                delegate.setFeature(name, value)
+            }
+            override fun getFeature(name: String): Boolean = delegate.getFeature(name)
+            override fun isNamespaceAware(): Boolean = delegate.isNamespaceAware()
+            override fun setNamespaceAware(value: Boolean) = delegate.setNamespaceAware(value)
+            override fun isValidating(): Boolean = delegate.isValidating()
+            override fun setValidating(value: Boolean) = delegate.setValidating(value)
+            override fun isXIncludeAware(): Boolean = delegate.isXIncludeAware()
+            override fun setXIncludeAware(value: Boolean) = delegate.setXIncludeAware(value)
+            override fun isExpandEntityReferences(): Boolean = delegate.isExpandEntityReferences()
+            override fun setExpandEntityReferences(value: Boolean) = delegate.setExpandEntityReferences(value)
+        }
+
+        val factory = SecureXml.factory(unsupportedDoctypeFactory)
+        assertTrue(factory.getFeature("http://xml.org/sax/features/external-general-entities") == false)
+        assertTrue(factory.getFeature("http://xml.org/sax/features/external-parameter-entities") == false)
+    }
+
+    @Test
     fun readsNormalAcceptedEntries() {
         val archive = zip("Cura/a.cfg" to "hello")
         val entries = CuraArchive.readTextEntries(
