@@ -212,7 +212,7 @@ internal object CurviGcodeTransformer {
                                 val startIdealCurvedE = idealCurvedE
                                 if (isOverhangPath && currentOverhangOffset == null) {
                                     currentOverhangOffset =
-                                        field.unflattenZ(startPlanarX, startPlanarY, startPlanarZ) - startPlanarZ
+                                        field.unflattenZ(nextPlanarX, nextPlanarY, nextPlanarZ) - nextPlanarZ
                                 }
                                 val overhangOffset = if (isOverhangPath) currentOverhangOffset!! else 0.0
                                 val endCurvedZ = if (isOverhangPath) {
