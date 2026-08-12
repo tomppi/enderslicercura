@@ -46,6 +46,7 @@ internal object CurviGcodeTransformer {
         var currentPathType: String? = null
         var currentOverhangOffset: Double? = null
         var pendingOverhang: MutableList<Pair<Int, String>>? = null
+        var overhangExitTravel = false
         var lineNumber = 0
         var sourceMoves = 0
         var emittedMoves = 0
@@ -162,9 +163,11 @@ internal object CurviGcodeTransformer {
                                 val deltaE = nextPlanarE - planarE
                                 val spatial = abs(nextPlanarX - planarX) > EPSILON ||
                                     abs(nextPlanarY - planarY) > EPSILON || abs(nextPlanarZ - planarZ) > EPSILON
-                                val isOverhangExtrusion = (currentPathType == "ARC-OVERHANG" ||
-                                    currentPathType == "WAVE-OVERHANG") && command.has('E')
-                                val isOverhangPath = isOverhangExtrusion
+                                val isOverhangSection = currentPathType == "ARC-OVERHANG" ||
+                                    currentPathType == "WAVE-OVERHANG"
+                                val isOverhangExtrusion = isOverhangSection && command.has('E')
+                                val isOverhangPath = isOverhangExtrusion ||
+                                    (isOverhangSection && !command.has('E') && !overhangExitTravel)
                                 if (!spatial || !inPrintableLayers) {
                                     if (inPrintableLayers && command.has('E')) {
                                         val builder = StringBuilder(command.opcode)
@@ -392,9 +395,10 @@ internal object CurviGcodeTransformer {
                         var lastExtrusionX = scanX
                         var lastExtrusionY = scanY
                         var lastExtrusionZ = scanZ
+                        var lastExtrusionBufferIndex = -1
                         var foundExtrusion = false
-                        for ((_, raw) in buffer) {
-                            val command = GcodeCommand.parse(raw) ?: continue
+                        for ((bufferIndex, pair) in buffer.withIndex()) {
+                            val command = GcodeCommand.parse(pair.second) ?: continue
                             if (command.opcode != "G0" && command.opcode != "G1") continue
                             val nextX = modal.position(scanX, command.value('X'))
                             val nextY = modal.position(scanY, command.value('Y'))
@@ -405,6 +409,7 @@ internal object CurviGcodeTransformer {
                                 lastExtrusionX = nextX
                                 lastExtrusionY = nextY
                                 lastExtrusionZ = nextZ
+                                lastExtrusionBufferIndex = bufferIndex
                                 foundExtrusion = true
                             }
                             scanX = nextX
@@ -416,10 +421,12 @@ internal object CurviGcodeTransformer {
                         } else {
                             null
                         }
-                        for ((savedLineNumber, raw) in buffer) {
-                            lineNumber = savedLineNumber
-                            processLine(raw)
+                        for ((bufferIndex, pair) in buffer.withIndex()) {
+                            lineNumber = pair.first
+                            overhangExitTravel = bufferIndex > lastExtrusionBufferIndex
+                            processLine(pair.second)
                         }
+                        overhangExitTravel = false
                     }
 
                     val lines = ArrayList<String>()

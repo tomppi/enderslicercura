@@ -390,6 +390,73 @@ class CurviSlicerSafetyRegressionTest {
         }
     }
 
+    @Test
+    fun interWavefrontTravelsStayFlatWhileTheExitTravelFollowsTheField() {
+        val directory = Files.createTempDirectory("curvi-inter-wavefront-travel").toFile()
+        try {
+            val gcode = File(directory, "output.gcode").apply {
+                writeText(
+                    buildString {
+                        appendLine(";FLAVOR:Marlin")
+                        appendLine("G90")
+                        appendLine("M82")
+                        appendLine("G0 X0 Y0 Z6 F6000")
+                        appendLine(";LAYER:0")
+                        appendLine(";TYPE:SKIN")
+                        appendLine("G1 X0 Y2 Z6 E1 F1200")
+                        appendLine("G0 X0.5 Y2 Z6 F6000")
+                        appendLine(";TYPE:WAVE-OVERHANG")
+                        appendLine("G1 X0.5 Y2 Z6 E2 F1200")
+                        appendLine("G1 X0.5 Y2.8 Z6 E3 F1200")
+                        appendLine("G0 X0.85 Y2.8 Z6 F6000")
+                        appendLine("G1 X0.85 Y2.8 Z6 E4 F1200")
+                        appendLine("G1 X0.85 Y2 Z6 E5 F1200")
+                        appendLine("G0 X1.2 Y2 Z6 F6000")
+                        appendLine("G1 X1.2 Y2 Z6 E6 F1200")
+                        appendLine("G1 X1.2 Y2.8 Z6 E7 F1200")
+                        appendLine("G0 X3.5 Y2.8 Z6 F6000")
+                        appendLine("G1 X3.5 Y2.8 Z6 E8 F1200")
+                        appendLine("G1 X3.5 Y2 Z6 E9 F1200")
+                        appendLine("G0 X3.5 Y2.15 Z6 F6000")
+                        appendLine(";TYPE:WALL-INNER")
+                        appendLine("G1 X3.5 Y2.5 Z6 E10 F1200")
+                        appendLine(";End of Gcode")
+                    },
+                )
+            }
+            val field = CurviSlicerField(
+                minX = 0.0,
+                minY = 0.0,
+                minZ = 0.0,
+                maxX = 4.0,
+                maxY = 4.0,
+                maxZ = 10.0,
+                columns = 4,
+                rows = 2,
+                relief = floatArrayOf(0f, 0f, 0f, -1f, 0f, 0f, 0f, -1f),
+                strength = 1.0,
+                flatBaseHeightMm = 0.2,
+            )
+            writePreparedField(directory, field, NonPlanarSettings(enabled = true))
+
+            CurviSlicerFieldStorage.curveStagedGcode(gcode, printerEnvelope())
+
+            val gcodeLines = gcode.readLines()
+            val overhangZ = gcodeLines
+                .dropWhile { !it.contains(";TYPE:WAVE-OVERHANG") }
+                .drop(1)
+                .takeWhile { !it.startsWith(";TYPE:") }
+                .filter { it.startsWith("G1 X") }
+                .mapNotNull { GcodeCommand.parse(it)?.value('Z') }
+            assertTrue(
+                "Overhang extrusions must stay flat (spread=${overhangZ.max() - overhangZ.min()})",
+                overhangZ.max() - overhangZ.min() <= 1e-6,
+            )
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
     private fun writePreparedField(
         directory: File,
         field: CurviSlicerField,
