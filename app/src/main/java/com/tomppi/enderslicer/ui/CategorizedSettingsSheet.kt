@@ -514,6 +514,22 @@ internal fun CategorizedSettingsSheet(
 
         SettingsCategory("Experimental") {
             SwitchRow(
+                "Smart overhang strategy",
+                settings.smartOverhangStrategy,
+                source(state, SlicerSettings.Keys.SMART_OVERHANG_STRATEGY),
+            ) {
+                onSettings(SlicerSettings.Keys.SMART_OVERHANG_STRATEGY) { current ->
+                    current.copy(smartOverhangStrategy = it)
+                }
+            }
+            if (settings.smartOverhangStrategy) {
+                Text(
+                    "The slicer inspects the model before slicing and decides where to use arc fill and curved (CurviSlicer) layers automatically, including a safe combined mode when CurviSlicer is enabled.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            SwitchRow(
                 "Wave overhangs (experimental)",
                 settings.waveOverhangEnabled,
                 source(state, SlicerSettings.Keys.WAVE_OVERHANG_ENABLED),

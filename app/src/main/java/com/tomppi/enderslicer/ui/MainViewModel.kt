@@ -28,6 +28,7 @@ import com.tomppi.enderslicer.model.ModelPlacement
 import com.tomppi.enderslicer.model.SlicerSettings
 import com.tomppi.enderslicer.model.withSettings
 import com.tomppi.enderslicer.nonplanar.CurviSlicerRuntime
+import com.tomppi.enderslicer.nonplanar.SmartOverhangStrategy
 import com.tomppi.enderslicer.profile.CuraImportedSettingsResolver
 import com.tomppi.enderslicer.profile.CuraProfileParser
 import com.tomppi.enderslicer.profile.CuraProjectAudit
@@ -523,6 +524,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         viewModelScope.launch {
+            var strategyMessage: String? = null
             runCatching {
                 withContext(Dispatchers.IO) {
                     val stagingRoot = File(app.cacheDir, "model-placement").apply {
@@ -540,10 +542,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             ) { "Calibration slice transform is unavailable" }
                             CalibrationPlacementPolicy.requireAllowed(transform)
                         }
+                        val smartResolution = SmartOverhangStrategy.resolve(
+                            settings = snapshot.settings,
+                            curviSettings = CurviSlicerRuntime.current(),
+                            mesh = transformedMesh,
+                            layerHeightMm = snapshot.settings.layerHeightMm,
+                            nozzleDiameterMm = snapshot.printer.withSettings(snapshot.settings).nozzleSizeMm,
+                        )
+                        strategyMessage = smartResolution.message
                         engine.slice(
                             modelFile = transformedFile,
                             printer = snapshot.printer,
-                            settings = snapshot.settings,
+                            settings = smartResolution.settings,
                             startGcode = snapshot.startGcode,
                             endGcode = snapshot.endGcode,
                             profile = snapshot.engineProfile,
@@ -571,6 +581,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         statusMessage = buildString {
                             append("Sliced ${formatFileSize(result.gcodeFile.length())} of validated G-code in ${formatDuration(result.elapsedMilliseconds)}")
                             if (printTime != null) append(" · estimated print $printTime")
+                            if (strategyMessage != null) append(" · $strategyMessage")
                             if (result.layerPreview == null) append(" · layer preview unavailable; see diagnostic log")
                             if (result.layerEvents.isNotEmpty()) append(" · ${result.layerEvents.size} layer events")
                         },
@@ -1418,6 +1429,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     .put("arcOverhangMaxAreaMm2", settings.arcOverhangMaxAreaMm2)
                     .put("arcOverhangResolutionMm", settings.arcOverhangResolutionMm)
                     .put("arcOverhangFanSpeedPercent", settings.arcOverhangFanSpeedPercent)
+                    .put("smartOverhangStrategy", settings.smartOverhangStrategy)
                     .put("raftMarginMm", settings.raftMarginMm)
                     .put("ironingOnlyHighestLayer", settings.ironingOnlyHighestLayer),
             )
