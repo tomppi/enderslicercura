@@ -54,6 +54,7 @@ internal object CurviGcodeTransformer {
         var minimumZ = Double.POSITIVE_INFINITY
         var maximumZ = Double.NEGATIVE_INFINITY
         var maximumSlope = 0.0
+        var maximumSlopeContext: String? = null
         var maximumZSpeed = 0.0
         var additionalTimeSeconds = 0.0
         var metadataWritten = false
@@ -290,7 +291,16 @@ internal object CurviGcodeTransformer {
                                     emittedCurvedE = if (modal.absoluteExtrusion) emittedE else emittedCurvedE + emittedE
                                     val horizontal = hypot(to.x - from.x, to.y - from.y)
                                     val slope = if (horizontal > EPSILON) abs(to.z - from.z) / horizontal else 0.0
-                                    maximumSlope = max(maximumSlope, Math.toDegrees(kotlin.math.atan(slope)))
+                                    val slopeDegrees = Math.toDegrees(kotlin.math.atan(slope))
+                                    if (slopeDegrees > maximumSlope) {
+                                        maximumSlope = slopeDegrees
+                                        maximumSlopeContext = "slope=${format(slopeDegrees)}° at line $lineNumber " +
+                                            "layer=$currentLayer type=$currentPathType " +
+                                            "from=(${format(from.x)},${format(from.y)},${format(from.z)}) " +
+                                            "to=(${format(to.x)},${format(to.y)},${format(to.z)}) " +
+                                            "horizontal=${format(horizontal)} segment=$segment/$segmentCount " +
+                                            "feed=${format(logicalFeed)}"
+                                    }
                                     val zSpeed = if (lengths[segment] > EPSILON) {
                                         requestedSpeed * abs(to.z - from.z) / lengths[segment]
                                     } else {
@@ -375,9 +385,15 @@ internal object CurviGcodeTransformer {
             require(maximumZ <= printerEnvelope.heightMm + 0.02) {
                 "CurviSlicer generated Z ${format(maximumZ)} mm outside the ${format(printerEnvelope.heightMm)} mm build height"
             }
+            try {
+                File(file.parentFile, "${file.name}.curvislope.diag.txt")
+                    .writeText("maximumSlope=${format(maximumSlope)}\n$maximumSlopeContext\n")
+            } catch (_: Exception) {
+            }
             require(maximumSlope <= settings.effectiveSlopeLimitDegrees + SLOPE_TOLERANCE_DEGREES) {
                 "CurviSlicer generated path slope ${format(maximumSlope)}° above the configured " +
-                    "${format(settings.effectiveSlopeLimitDegrees)}° clearance limit"
+                    "${format(settings.effectiveSlopeLimitDegrees)}° clearance limit" +
+                    (maximumSlopeContext?.let { "; worst: $it" } ?: "")
             }
             try {
                 java.nio.file.Files.move(
