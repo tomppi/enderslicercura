@@ -275,6 +275,7 @@ object CuraEngineCommand {
         )
         if (adaptiveWallModifiers.isNotEmpty()) {
             setting("wall_line_count", 0)
+            setting("skin_inset_count", adaptiveWallModifiers.maxOf(AdaptiveWallModifier::wallLineCount))
         }
         setting("infill_mesh", false)
         setting("support_mesh", false)
