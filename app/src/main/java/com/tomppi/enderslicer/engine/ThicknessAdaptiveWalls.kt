@@ -8,9 +8,12 @@ import com.tomppi.enderslicer.viewer.StlMeshWriter
 import com.tomppi.enderslicer.viewer.StlParser
 import com.tomppi.enderslicer.viewer.StlSliceTransform
 import java.io.File
+import kotlin.math.abs
+import kotlin.math.atan2
 import kotlin.math.ceil
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
 /** One nested modifier volume and the wall reinforcement it applies in its region. */
@@ -41,6 +44,9 @@ object ThicknessAdaptiveWalls {
     private const val CHAMFER_KNIGHT = 5.0f
     private const val ISO_LEVEL = 0.6f
     private const val RAY_EPSILON = 1e-6f
+    private const val BEND_MAX_TURN_RAD = 0.52f
+    private const val PI_F = 3.1415927f
+    private const val TWO_PI_F = 6.2831855f
 
     fun generate(
         modelFile: File,
@@ -72,6 +78,8 @@ object ThicknessAdaptiveWalls {
         }
 
         val baseWalls = settings.wallLineCount.coerceAtLeast(1)
+        val triangles = triangleList(mesh)
+        val layerSegments = layerOutlineSegments(triangles, nz, originZ, pitch)
         val layerWallCount = IntArray(nz)
         for (iz in 0 until nz) {
             var layerMax = 0f
@@ -81,9 +89,14 @@ object ThicknessAdaptiveWalls {
                     if (mask[i] && thickness[i] > layerMax) layerMax = thickness[i]
                 }
             }
+            val hasBend = layerMax > 0f && layerHasBend(layerSegments[iz])
             layerWallCount[iz] = if (layerMax > 0f) {
-                baseWalls + EXTRA_WALLS_PER_BAND *
-                    min(MAX_EXTRA_BANDS, (layerMax / BAND_WIDTH_MM).toInt())
+                if (hasBend) {
+                    baseWalls + EXTRA_WALLS_PER_BAND *
+                        min(MAX_EXTRA_BANDS, (layerMax / BAND_WIDTH_MM).toInt())
+                } else {
+                    baseWalls
+                }
             } else {
                 0
             }
@@ -199,6 +212,116 @@ object ThicknessAdaptiveWalls {
         val hasNegative = d1 < 0f || d2 < 0f || d3 < 0f
         val hasPositive = d1 > 0f || d2 > 0f || d3 > 0f
         return !(hasNegative && hasPositive)
+    }
+
+    private fun layerOutlineSegments(
+        triangles: List<FloatArray>,
+        nz: Int,
+        originZ: Float,
+        pitch: Float,
+    ): Array<MutableList<FloatArray>> {
+        val layers = Array(nz) { mutableListOf<FloatArray>() }
+        for (tri in triangles) {
+            val zMin = min(tri[2], min(tri[5], tri[8]))
+            val zMax = max(tri[2], max(tri[5], tri[8]))
+            val izStart = ((zMin - originZ) / pitch).toInt().coerceAtLeast(0)
+            val izEnd = ((zMax - originZ) / pitch).toInt().coerceAtMost(nz - 1)
+            for (iz in izStart..izEnd) {
+                val z = originZ + (iz + 0.5f) * pitch
+                if (z <= zMin || z >= zMax) continue
+                var count = 0
+                val points = FloatArray(4)
+                fun edgeCross(x1: Float, y1: Float, z1: Float, x2: Float, y2: Float, z2: Float) {
+                    if ((z1 - z) * (z2 - z) < 0f && count < 2) {
+                        val t = (z - z1) / (z2 - z1)
+                        points[count * 2] = x1 + t * (x2 - x1)
+                        points[count * 2 + 1] = y1 + t * (y2 - y1)
+                        count++
+                    }
+                }
+                edgeCross(tri[0], tri[1], tri[2], tri[3], tri[4], tri[5])
+                edgeCross(tri[3], tri[4], tri[5], tri[6], tri[7], tri[8])
+                edgeCross(tri[6], tri[7], tri[8], tri[0], tri[1], tri[2])
+                if (count == 2) layers[iz] += points
+            }
+        }
+        return layers
+    }
+
+    private fun layerHasBend(segments: List<FloatArray>): Boolean {
+        if (segments.isEmpty()) return false
+        var maxTurn = 0f
+        for (loop in chainSegments(segments)) {
+            val n = loop.size / 2
+            if (n < 3) continue
+            for (i in 0 until n) {
+                val x0 = loop[((i - 1 + n) % n) * 2]
+                val y0 = loop[((i - 1 + n) % n) * 2 + 1]
+                val x1 = loop[i * 2]
+                val y1 = loop[i * 2 + 1]
+                val x2 = loop[((i + 1) % n) * 2]
+                val y2 = loop[((i + 1) % n) * 2 + 1]
+                val d1 = (x1 - x0) * (x1 - x0) + (y1 - y0) * (y1 - y0)
+                val d2 = (x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1)
+                if (d1 < 1e-6f || d2 < 1e-6f) continue
+                val a1 = atan2(y1 - y0, x1 - x0)
+                val a2 = atan2(y2 - y1, x2 - x1)
+                var turn = a2 - a1
+                while (turn > PI_F) turn -= TWO_PI_F
+                while (turn < -PI_F) turn += TWO_PI_F
+                if (abs(turn) > maxTurn) maxTurn = abs(turn)
+            }
+        }
+        return maxTurn < BEND_MAX_TURN_RAD
+    }
+
+    private fun chainSegments(segments: List<FloatArray>): List<FloatArray> {
+        data class Key(val x: Int, val y: Int)
+        fun key(x: Float, y: Float) = Key((x * 100f).roundToInt(), (y * 100f).roundToInt())
+        val endToSeg = HashMap<Key, MutableList<Int>>()
+        segments.forEachIndexed { index, s ->
+            endToSeg.getOrPut(key(s[0], s[1])) { mutableListOf() } += index
+            endToSeg.getOrPut(key(s[2], s[3])) { mutableListOf() } += index
+        }
+        val used = BooleanArray(segments.size)
+        val loops = mutableListOf<FloatArray>()
+        for (start in segments.indices) {
+            if (used[start]) continue
+            used[start] = true
+            val loop = mutableListOf<Float>()
+            val startKey = key(segments[start][0], segments[start][1])
+            var currentKey = key(segments[start][2], segments[start][3])
+            loop += segments[start][0]
+            loop += segments[start][1]
+            loop += segments[start][2]
+            loop += segments[start][3]
+            var guard = 0
+            while (guard++ <= segments.size) {
+                if (currentKey == startKey) break
+                val candidates = endToSeg[currentKey] ?: break
+                var next = -1
+                for (ci in candidates) {
+                    if (!used[ci]) {
+                        next = ci
+                        break
+                    }
+                }
+                if (next == -1) break
+                used[next] = true
+                val s = segments[next]
+                if (key(s[0], s[1]) == currentKey) {
+                    loop += s[2]
+                    loop += s[3]
+                    currentKey = key(s[2], s[3])
+                } else {
+                    loop += s[0]
+                    loop += s[1]
+                    currentKey = key(s[0], s[1])
+                }
+            }
+            loops += loop.toFloatArray()
+        }
+        return loops
     }
 
     private fun triangleList(mesh: StlMesh): List<FloatArray> {
