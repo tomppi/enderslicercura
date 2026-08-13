@@ -33,7 +33,6 @@ data class AdaptiveWallModifier(
  * Infill infill_mesh mechanism with wall overrides instead of density overrides.
  */
 object ThicknessAdaptiveWalls {
-    private const val BAND_WIDTH_MM = 8.0
     private const val MAX_EXTRA_BANDS = 3
     private const val EXTRA_WALLS_PER_BAND = 2
     private const val MIN_CROSS_SECTION_MM = 6.0
@@ -110,11 +109,13 @@ object ThicknessAdaptiveWalls {
             val z = (boundaries[k] + boundaries[k + 1]) * 0.5f
             val iz = ((z - originZ) / pitch).toInt().coerceIn(0, nz - 1)
             val layerMax = coarseLayerMax[iz]
-            val hasBend = layerMax > 0f && layerHasBend(layerSegments[iz], bendRadiusMm)
+            val minRadius = minBendRadius(layerSegments[iz])
+            val hasBend = layerMax > 0f && minRadius < bendRadiusMm
             fineWallCount[k] = if (layerMax > 0f) {
                 if (hasBend) {
-                    baseWalls + EXTRA_WALLS_PER_BAND *
-                        min(MAX_EXTRA_BANDS, (layerMax / BAND_WIDTH_MM).toInt())
+                    val tightness = 1.0f - minRadius / bendRadiusMm
+                    val band = ceil(MAX_EXTRA_BANDS * tightness).toInt().coerceIn(1, MAX_EXTRA_BANDS)
+                    baseWalls + EXTRA_WALLS_PER_BAND * band
                 } else {
                     baseWalls
                 }
@@ -358,8 +359,8 @@ object ThicknessAdaptiveWalls {
         return layers
     }
 
-    private fun layerHasBend(segments: List<FloatArray>, thresholdMm: Float): Boolean {
-        if (segments.isEmpty()) return false
+    private fun minBendRadius(segments: List<FloatArray>): Float {
+        if (segments.isEmpty()) return Float.POSITIVE_INFINITY
         var minRadius = Float.POSITIVE_INFINITY
         for (loop in chainSegments(segments)) {
             val n = loop.size / 2
@@ -383,7 +384,7 @@ object ThicknessAdaptiveWalls {
                 if (radius < minRadius) minRadius = radius
             }
         }
-        return minRadius < thresholdMm
+        return minRadius
     }
 
     private fun turnAngleRad(ax: Float, ay: Float, bx: Float, by: Float, cx: Float, cy: Float): Float {
