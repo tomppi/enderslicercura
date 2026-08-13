@@ -126,7 +126,6 @@ object ThicknessAdaptiveWalls {
         val modifiers = mutableListOf<AdaptiveWallModifier>()
         var order = 0
         var bandStart = 0
-        while (bandStart < fineCount && fineWallCount[bandStart] == 0) bandStart++
         while (bandStart < fineCount) {
             val wallCount = if (fineWallCount[bandStart] == 0) baseWalls else fineWallCount[bandStart]
             var bandEnd = bandStart
@@ -142,8 +141,8 @@ object ThicknessAdaptiveWalls {
             val midK = (bandStart + bandEnd) / 2
             val midZ = (boundaries[midK] + boundaries[midK + 1]) * 0.5f
             val midIz = ((midZ - originZ) / pitch).toInt().coerceIn(0, nz - 1)
-            val slabZ0 = boundaries[bandStart]
-            val slabZ1 = boundaries[bandEnd + 1]
+            val slabZ0 = boundaries[bandStart] - 0.1f
+            val slabZ1 = boundaries[bandEnd + 1] + 0.1f
             slabModifierStl(
                 layerSegments[midIz],
                 slabZ0,
