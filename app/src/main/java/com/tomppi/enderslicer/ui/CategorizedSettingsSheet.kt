@@ -290,6 +290,15 @@ internal fun CategorizedSettingsSheet(
                         current.copy(thicknessAdaptiveWallsFlowPercent = it.coerceIn(100.0, 200.0))
                     }
                 }
+                NumberField(
+                    "Bend radius (mm)",
+                    settings.thicknessAdaptiveWallsBendRadiusMm,
+                    source(state, SlicerSettings.Keys.THICKNESS_ADAPTIVE_WALLS_BEND_RADIUS),
+                ) {
+                    onSettings(SlicerSettings.Keys.THICKNESS_ADAPTIVE_WALLS_BEND_RADIUS) { current ->
+                        current.copy(thicknessAdaptiveWallsBendRadiusMm = it.coerceIn(0.5, 100.0))
+                    }
+                }
             }
         }
 

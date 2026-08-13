@@ -47,6 +47,7 @@ data class SlicerSettings(
     val zigZagConnectInfill: Boolean = true,
     val thicknessAdaptiveWallsEnabled: Boolean = false,
     val thicknessAdaptiveWallsFlowPercent: Double = 150.0,
+    val thicknessAdaptiveWallsBendRadiusMm: Double = 12.0,
     val printSpeedMmPerSecond: Double = 200.0,
     val wallSpeedMmPerSecond: Double = 100.0,
     val outerWallSpeedMmPerSecond: Double = 50.0,
@@ -177,6 +178,7 @@ data class SlicerSettings(
         const val ZIG_ZAG_CONNECT_INFILL = "zigZagConnectInfill"
         const val THICKNESS_ADAPTIVE_WALLS_ENABLED = "thicknessAdaptiveWallsEnabled"
         const val THICKNESS_ADAPTIVE_WALLS_FLOW = "thicknessAdaptiveWallsFlowPercent"
+        const val THICKNESS_ADAPTIVE_WALLS_BEND_RADIUS = "thicknessAdaptiveWallsBendRadiusMm"
         const val PRINT_SPEED = "printSpeedMmPerSecond"
         const val WALL_SPEED = "wallSpeedMmPerSecond"
         const val OUTER_WALL_SPEED = "outerWallSpeedMmPerSecond"

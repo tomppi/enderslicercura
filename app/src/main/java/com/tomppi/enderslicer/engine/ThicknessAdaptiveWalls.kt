@@ -11,6 +11,7 @@ import java.io.File
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.ceil
+import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -44,7 +45,7 @@ object ThicknessAdaptiveWalls {
     private const val CHAMFER_KNIGHT = 5.0f
     private const val ISO_LEVEL = 0.6f
     private const val RAY_EPSILON = 1e-6f
-    private const val BEND_MAX_TURN_RAD = 0.52f
+    private const val BEND_CORNER_TURN_RAD = 0.785f
     private const val PI_F = 3.1415927f
     private const val TWO_PI_F = 6.2831855f
 
@@ -89,7 +90,10 @@ object ThicknessAdaptiveWalls {
                     if (mask[i] && thickness[i] > layerMax) layerMax = thickness[i]
                 }
             }
-            val hasBend = layerMax > 0f && layerHasBend(layerSegments[iz])
+            val hasBend = layerMax > 0f && layerHasBend(
+                layerSegments[iz],
+                settings.thicknessAdaptiveWallsBendRadiusMm.toFloat(),
+            )
             layerWallCount[iz] = if (layerMax > 0f) {
                 if (hasBend) {
                     baseWalls + EXTRA_WALLS_PER_BAND *
@@ -248,31 +252,41 @@ object ThicknessAdaptiveWalls {
         return layers
     }
 
-    private fun layerHasBend(segments: List<FloatArray>): Boolean {
+    private fun layerHasBend(segments: List<FloatArray>, thresholdMm: Float): Boolean {
         if (segments.isEmpty()) return false
-        var maxTurn = 0f
+        var minRadius = Float.POSITIVE_INFINITY
         for (loop in chainSegments(segments)) {
             val n = loop.size / 2
-            if (n < 3) continue
+            if (n < 4) continue
             for (i in 0 until n) {
-                val x0 = loop[((i - 1 + n) % n) * 2]
-                val y0 = loop[((i - 1 + n) % n) * 2 + 1]
-                val x1 = loop[i * 2]
-                val y1 = loop[i * 2 + 1]
-                val x2 = loop[((i + 1) % n) * 2]
-                val y2 = loop[((i + 1) % n) * 2 + 1]
-                val d1 = (x1 - x0) * (x1 - x0) + (y1 - y0) * (y1 - y0)
-                val d2 = (x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1)
-                if (d1 < 1e-6f || d2 < 1e-6f) continue
-                val a1 = atan2(y1 - y0, x1 - x0)
-                val a2 = atan2(y2 - y1, x2 - x1)
-                var turn = a2 - a1
-                while (turn > PI_F) turn -= TWO_PI_F
-                while (turn < -PI_F) turn += TWO_PI_F
-                if (abs(turn) > maxTurn) maxTurn = abs(turn)
+                val ax = loop[((i - 1 + n) % n) * 2]
+                val ay = loop[((i - 1 + n) % n) * 2 + 1]
+                val bx = loop[i * 2]
+                val by = loop[i * 2 + 1]
+                val cx = loop[((i + 1) % n) * 2]
+                val cy = loop[((i + 1) % n) * 2 + 1]
+                val turn = turnAngleRad(ax, ay, bx, by, cx, cy)
+                if (abs(turn) > BEND_CORNER_TURN_RAD) continue
+                val la = hypot(bx - cx, by - cy)
+                val lb = hypot(ax - cx, ay - cy)
+                val lc = hypot(ax - bx, ay - by)
+                val halfPerimeter = (la + lb + lc) * 0.5f
+                val areaSquared = halfPerimeter * (halfPerimeter - la) * (halfPerimeter - lb) * (halfPerimeter - lc)
+                if (areaSquared <= 1e-12f) continue
+                val radius = (la * lb * lc) / (4f * sqrt(areaSquared))
+                if (radius < minRadius) minRadius = radius
             }
         }
-        return maxTurn < BEND_MAX_TURN_RAD
+        return minRadius < thresholdMm
+    }
+
+    private fun turnAngleRad(ax: Float, ay: Float, bx: Float, by: Float, cx: Float, cy: Float): Float {
+        val a1 = atan2(by - ay, bx - ax)
+        val a2 = atan2(cy - by, cx - bx)
+        var turn = a2 - a1
+        while (turn > PI_F) turn -= TWO_PI_F
+        while (turn < -PI_F) turn += TWO_PI_F
+        return turn
     }
 
     private fun chainSegments(segments: List<FloatArray>): List<FloatArray> {
