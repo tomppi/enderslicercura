@@ -39,11 +39,9 @@ object ThicknessAdaptiveWalls {
     private const val MIN_CROSS_SECTION_MM = 6.0
     private const val MAX_GRID_VOXELS = 1_800_000
     private const val GRID_PAD_MM = 1.5
-    private const val ISO_PAD_VOXELS = 3
     private const val CHAMFER_AXIS = 3.0f
     private const val CHAMFER_DIAGONAL = 4.0f
     private const val CHAMFER_KNIGHT = 5.0f
-    private const val ISO_LEVEL = 0.6f
     private const val RAY_EPSILON = 1e-6f
     private const val BEND_CORNER_TURN_RAD = 0.785f
     private const val PI_F = 3.1415927f
@@ -108,14 +106,6 @@ object ThicknessAdaptiveWalls {
 
         val modifiers = mutableListOf<AdaptiveWallModifier>()
         var order = 0
-        var firstMaterial = -1
-        var lastMaterial = -1
-        for (iz in 0 until nz) {
-            if (layerWallCount[iz] > 0) {
-                if (firstMaterial < 0) firstMaterial = iz
-                lastMaterial = iz
-            }
-        }
         var bandStart = 0
         while (bandStart < nz) {
             if (layerWallCount[bandStart] == 0) {
@@ -126,18 +116,16 @@ object ThicknessAdaptiveWalls {
             var bandEnd = bandStart
             while (bandEnd + 1 < nz && layerWallCount[bandEnd + 1] == wallCount) bandEnd++
             val file = File(destination, "adaptive-walls-${++order}-${wallCount}walls.stl")
-            if (bandStart == firstMaterial && bandEnd == lastMaterial) {
-                writePartAsModifier(mesh, transform, file)
-            } else {
-                val bandMask = BooleanArray(nx * ny * nz) { i ->
-                    mask[i] && (i / (ny * nx)) in bandStart..bandEnd
-                }
-                val vertices = isosurfaceShell(bandMask, nx, ny, nz, pitch, originX, originY, originZ)
-                require(vertices.isNotEmpty() && vertices.size % 9 == 0) {
-                    "Adaptive wall band ${order} produced no closed shell"
-                }
-                writeShellStl(vertices, transform, file)
-            }
+            val midLayer = (bandStart + bandEnd) / 2
+            val slabZ0 = originZ + bandStart * pitch
+            val slabZ1 = originZ + (bandEnd + 1) * pitch
+            slabModifierStl(
+                layerSegments[midLayer],
+                slabZ0,
+                slabZ1,
+                transform,
+                file,
+            )
             modifiers += AdaptiveWallModifier(wallCount, settings.thicknessAdaptiveWallsFlowPercent, file)
             bandStart = bandEnd + 1
             throwIfInterrupted()
@@ -145,45 +133,87 @@ object ThicknessAdaptiveWalls {
         return modifiers
     }
 
-    private fun writePartAsModifier(mesh: StlMesh, transform: StlSliceTransform?, file: File) {
-        val src = mesh.interleavedVertices
-        val count = mesh.triangleCount
-        val transformed = if (transform == null) {
-            src
-        } else {
-            val linear = transform.linear
-            val tx = transform.translationXmm.toFloat()
-            val ty = transform.translationYmm.toFloat()
-            val tz = transform.translationZmm.toFloat()
-            FloatArray(src.size) { i ->
-                when (i % 6) {
-                    0 -> src[i] * linear[0].toFloat() + src[i + 1] * linear[1].toFloat() + src[i + 2] * linear[2].toFloat() + tx
-                    1 -> src[i - 1] * linear[3].toFloat() + src[i] * linear[4].toFloat() + src[i + 1] * linear[5].toFloat() + ty
-                    2 -> src[i - 2] * linear[6].toFloat() + src[i - 1] * linear[7].toFloat() + src[i] * linear[8].toFloat() + tz
-                    else -> src[i]
+    private fun slabModifierStl(
+        segments: List<FloatArray>,
+        z0: Float,
+        z1: Float,
+        transform: StlSliceTransform?,
+        file: File,
+    ) {
+        val loops = chainSegments(segments)
+        require(loops.isNotEmpty()) { "Adaptive wall band produced no cross-section outline" }
+        var best = loops[0]
+        for (loop in loops) if (loop.size > best.size) best = loop
+        val n = best.size / 2
+        require(n >= 3) { "Adaptive wall band cross-section is degenerate" }
+        val ox = FloatArray(n) { best[it * 2] }
+        val oy = FloatArray(n) { best[it * 2 + 1] }
+        val vertices = mutableListOf<Float>()
+        for (i in 0 until n) {
+            val j = (i + 1) % n
+            val ax = ox[i]; val ay = oy[i]
+            val bx = ox[j]; val by = oy[j]
+            vertices.add(ax); vertices.add(ay); vertices.add(z0)
+            vertices.add(bx); vertices.add(by); vertices.add(z0)
+            vertices.add(bx); vertices.add(by); vertices.add(z1)
+            vertices.add(ax); vertices.add(ay); vertices.add(z0)
+            vertices.add(bx); vertices.add(by); vertices.add(z1)
+            vertices.add(ax); vertices.add(ay); vertices.add(z1)
+        }
+        val caps = earClip(ox, oy)
+        for (tri in caps) {
+            val a = tri[0]; val b = tri[1]; val c = tri[2]
+            vertices.add(ox[a]); vertices.add(oy[a]); vertices.add(z0)
+            vertices.add(ox[c]); vertices.add(oy[c]); vertices.add(z0)
+            vertices.add(ox[b]); vertices.add(oy[b]); vertices.add(z0)
+            vertices.add(ox[a]); vertices.add(oy[a]); vertices.add(z1)
+            vertices.add(ox[b]); vertices.add(oy[b]); vertices.add(z1)
+            vertices.add(ox[c]); vertices.add(oy[c]); vertices.add(z1)
+        }
+        require(vertices.isNotEmpty() && vertices.size % 9 == 0) {
+            "Adaptive wall band produced no closed shell"
+        }
+        writeShellStl(vertices.toFloatArray(), transform, file)
+    }
+
+    private fun earClip(ox: FloatArray, oy: FloatArray): List<IntArray> {
+        val idx = ArrayList<Int>(ox.size)
+        for (i in ox.indices) idx.add(i)
+        val tris = mutableListOf<IntArray>()
+        while (idx.size > 3) {
+            var clipped = false
+            for (i in idx.indices) {
+                val a = idx[(i - 1 + idx.size) % idx.size]
+                val b = idx[i]
+                val c = idx[(i + 1) % idx.size]
+                val cross = (ox[b] - ox[a]) * (oy[c] - oy[b]) - (oy[b] - oy[a]) * (ox[c] - ox[b])
+                if (cross <= 1e-6f) continue
+                var ok = true
+                for (j in idx) {
+                    if (j == a || j == b || j == c) continue
+                    val d1 = (ox[b] - ox[a]) * (oy[j] - oy[a]) - (oy[b] - oy[a]) * (ox[j] - ox[a])
+                    val d2 = (ox[c] - ox[b]) * (oy[j] - oy[b]) - (oy[c] - oy[b]) * (ox[j] - ox[b])
+                    val d3 = (ox[a] - ox[c]) * (oy[j] - oy[c]) - (oy[a] - oy[c]) * (ox[j] - ox[c])
+                    val hasNeg = d1 < -1e-6f || d2 < -1e-6f || d3 < -1e-6f
+                    val hasPos = d1 > 1e-6f || d2 > 1e-6f || d3 > 1e-6f
+                    if (!(hasNeg && hasPos)) {
+                        ok = false
+                        break
+                    }
+                }
+                if (ok) {
+                    tris += intArrayOf(a, b, c)
+                    idx.removeAt(i)
+                    clipped = true
+                    break
                 }
             }
+            if (!clipped) break
         }
-        var minX = Float.POSITIVE_INFINITY
-        var minY = Float.POSITIVE_INFINITY
-        var minZ = Float.POSITIVE_INFINITY
-        var maxX = Float.NEGATIVE_INFINITY
-        var maxY = Float.NEGATIVE_INFINITY
-        var maxZ = Float.NEGATIVE_INFINITY
-        for (i in 0 until transformed.size step 6) {
-            minX = min(minX, transformed[i]); maxX = max(maxX, transformed[i])
-            minY = min(minY, transformed[i + 1]); maxY = max(maxY, transformed[i + 1])
-            minZ = min(minZ, transformed[i + 2]); maxZ = max(maxZ, transformed[i + 2])
-        }
-        val partMesh = StlMesh(
-            displayName = file.name,
-            interleavedVertices = transformed,
-            triangleCount = count,
-            bounds = MeshBounds(minX, minY, minZ, maxX, maxY, maxZ),
-        )
-        StlMeshWriter.writeBinary(partMesh, file)
-        require(file.isFile && file.length() > 0L) { "Unable to write the adaptive wall modifier" }
+        if (idx.size == 3) tris += intArrayOf(idx[0], idx[1], idx[2])
+        return tris
     }
+
 
     private fun voxelize(mesh: StlMesh): VoxelGrid {
         val b = mesh.bounds
@@ -531,134 +561,8 @@ object ThicknessAdaptiveWalls {
         return dist
     }
 
-    private fun isosurfaceShell(
-        band: BooleanArray,
-        nx: Int,
-        ny: Int,
-        nz: Int,
-        pitch: Float,
-        originX: Float,
-        originY: Float,
-        originZ: Float,
-    ): FloatArray {
-        val pn = ISO_PAD_VOXELS
-        val ex = nx + 2 * pn
-        val ey = ny + 2 * pn
-        val ez = nz + 2 * pn
-        val padded = BooleanArray(ex * ey * ez)
-        for (iz in 0 until nz) {
-            for (iy in 0 until ny) {
-                for (ix in 0 until nx) {
-                    padded[((iz + pn) * ey + iy + pn) * ex + ix + pn] = band[(iz * ny + iy) * nx + ix]
-                }
-            }
-        }
-        val field = chamfer(padded, ex, ey, ez)
-        val vertices = mutableListOf<Float>()
-        val pxs = FloatArray(ex + 1) { k -> originX + (k - pn) * pitch }
-        val pys = FloatArray(ey + 1) { k -> originY + (k - pn) * pitch }
-        val pzs = FloatArray(ez + 1) { k -> originZ + (k - pn) * pitch }
 
-        val corners = Array(8) { IntArray(3) }
-        val tets = TETRAHEDRA
-        for (iz in 0 until ez - 1) {
-            for (iy in 0 until ey - 1) {
-                for (ix in 0 until ex - 1) {
-                    var o = 0
-                    for (kz in 0..1) {
-                        for (ky in 0..1) {
-                            for (kx in 0..1) {
-                                corners[o][0] = ix + kx
-                                corners[o][1] = iy + ky
-                                corners[o][2] = iz + kz
-                                o++
-                            }
-                        }
-                    }
-                    val values = FloatArray(8) { c -> field[(corners[c][2] * ey + corners[c][1]) * ex + corners[c][0]] }
-                    val firstAbove = values[0] >= ISO_LEVEL
-                    var straddles = false
-                    for (c in 1 until 8) {
-                        if ((values[c] >= ISO_LEVEL) != firstAbove) {
-                            straddles = true
-                            break
-                        }
-                    }
-                    if (!straddles) continue
-                    for (tet in tets) {
-                        emitTetTriangle(
-                            vertices,
-                            pxs, pys, pzs,
-                            tet,
-                            values,
-                            corners,
-                        )
-                    }
-                }
-            }
-        }
-        return vertices.toFloatArray()
-    }
 
-    private fun emitTetTriangle(
-        out: MutableList<Float>,
-        pxs: FloatArray,
-        pys: FloatArray,
-        pzs: FloatArray,
-        tet: IntArray,
-        values: FloatArray,
-        corners: Array<IntArray>,
-    ) {
-        val above = IntArray(4)
-        var aboveCount = 0
-        val below = IntArray(4)
-        var belowCount = 0
-        for (t in 0 until 4) {
-            val c = tet[t]
-            if (values[c] >= ISO_LEVEL) above[aboveCount++] = c else below[belowCount++] = c
-        }
-        if (aboveCount == 0 || aboveCount == 4) return
-        if (aboveCount == 1 || aboveCount == 3) {
-            val odd = if (aboveCount == 1) above[0] else below[0]
-            val others = if (aboveCount == 1) below else above
-            val p0 = interpolated(pxs, pys, pzs, corners[odd], corners[others[0]], values[odd], values[others[0]])
-            val p1 = interpolated(pxs, pys, pzs, corners[odd], corners[others[1]], values[odd], values[others[1]])
-            val p2 = interpolated(pxs, pys, pzs, corners[odd], corners[others[2]], values[odd], values[others[2]])
-            out.addAll(p0.asList())
-            out.addAll(p1.asList())
-            out.addAll(p2.asList())
-        } else {
-            val a0 = above[0]; val a1 = above[1]
-            val c0 = below[0]; val c1 = below[1]
-            val pa = interpolated(pxs, pys, pzs, corners[a0], corners[c0], values[a0], values[c0])
-            val pb = interpolated(pxs, pys, pzs, corners[a1], corners[c0], values[a1], values[c0])
-            val pc = interpolated(pxs, pys, pzs, corners[a1], corners[c1], values[a1], values[c1])
-            val pd = interpolated(pxs, pys, pzs, corners[a0], corners[c1], values[a0], values[c1])
-            out.addAll(pa.asList())
-            out.addAll(pb.asList())
-            out.addAll(pc.asList())
-            out.addAll(pa.asList())
-            out.addAll(pc.asList())
-            out.addAll(pd.asList())
-        }
-    }
-
-    private fun interpolated(
-        pxs: FloatArray,
-        pys: FloatArray,
-        pzs: FloatArray,
-        a: IntArray,
-        b: IntArray,
-        va: Float,
-        vb: Float,
-    ): FloatArray {
-        val f = if (kotlin.math.abs(vb - va) < 1e-6f) 0.5f else (ISO_LEVEL - va) / (vb - va)
-        return floatArrayOf(
-            pxs[a[0]] + f * (pxs[b[0]] - pxs[a[0]]),
-            pys[a[1]] + f * (pys[b[1]] - pys[a[1]]),
-            pzs[a[2]] + f * (pzs[b[2]] - pzs[a[2]]),
-        )
-    }
 
     private fun writeShellStl(vertices: FloatArray, transform: StlSliceTransform?, file: File) {
         val count = vertices.size / 9
@@ -741,12 +645,4 @@ object ThicknessAdaptiveWalls {
         val originZ: Float,
     )
 
-    private val TETRAHEDRA = arrayOf(
-        intArrayOf(0, 1, 3, 7),
-        intArrayOf(0, 2, 3, 7),
-        intArrayOf(0, 1, 5, 7),
-        intArrayOf(0, 4, 5, 7),
-        intArrayOf(0, 2, 6, 7),
-        intArrayOf(0, 4, 6, 7),
-    )
 }
