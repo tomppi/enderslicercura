@@ -72,16 +72,37 @@ object ThicknessAdaptiveWalls {
         }
 
         val baseWalls = settings.wallLineCount.coerceAtLeast(1)
+        val layerWallCount = IntArray(nz)
+        for (iz in 0 until nz) {
+            var layerMax = 0f
+            for (iy in 0 until ny) {
+                for (ix in 0 until nx) {
+                    val i = (iz * ny + iy) * nx + ix
+                    if (mask[i] && thickness[i] > layerMax) layerMax = thickness[i]
+                }
+            }
+            layerWallCount[iz] = if (layerMax > 0f) {
+                baseWalls + EXTRA_WALLS_PER_BAND *
+                    min(MAX_EXTRA_BANDS, (layerMax / BAND_WIDTH_MM).toInt())
+            } else {
+                0
+            }
+        }
+
         val modifiers = mutableListOf<AdaptiveWallModifier>()
         var order = 0
-        var previous: BooleanArray? = null
-        for (band in 1..MAX_EXTRA_BANDS) {
-            val threshold = band * BAND_WIDTH_MM
-            val bandMask = BooleanArray(nx * ny * nz) { i -> mask[i] && thickness[i] >= threshold.toFloat() }
-            if (countTrue(bandMask) < 8) break
-            if (previous != null && bandMasksEqual(previous, bandMask)) continue
-            previous = bandMask
-            val wallCount = baseWalls + EXTRA_WALLS_PER_BAND * band
+        var bandStart = 0
+        while (bandStart < nz) {
+            if (layerWallCount[bandStart] == 0) {
+                bandStart++
+                continue
+            }
+            val wallCount = layerWallCount[bandStart]
+            var bandEnd = bandStart
+            while (bandEnd + 1 < nz && layerWallCount[bandEnd + 1] == wallCount) bandEnd++
+            val bandMask = BooleanArray(nx * ny * nz) { i ->
+                mask[i] && (i / (ny * nx)) in bandStart..bandEnd
+            }
             val file = File(destination, "adaptive-walls-${++order}-${wallCount}walls.stl")
             val vertices = isosurfaceShell(bandMask, nx, ny, nz, pitch, originX, originY, originZ)
             require(vertices.isNotEmpty() && vertices.size % 9 == 0) {
@@ -89,6 +110,7 @@ object ThicknessAdaptiveWalls {
             }
             writeShellStl(vertices, transform, file)
             modifiers += AdaptiveWallModifier(wallCount, settings.thicknessAdaptiveWallsFlowPercent, file)
+            bandStart = bandEnd + 1
             throwIfInterrupted()
         }
         return modifiers
@@ -511,18 +533,6 @@ object ThicknessAdaptiveWalls {
         )
         StlMeshWriter.writeBinary(mesh, file)
         require(file.isFile && file.length() > 0L) { "Unable to write the adaptive wall modifier" }
-    }
-
-    private fun countTrue(mask: BooleanArray): Int {
-        var count = 0
-        for (value in mask) if (value) count++
-        return count
-    }
-
-    private fun bandMasksEqual(a: BooleanArray, b: BooleanArray): Boolean {
-        if (a.size != b.size) return false
-        for (i in a.indices) if (a[i] != b[i]) return false
-        return true
     }
 
     private fun throwIfInterrupted() {

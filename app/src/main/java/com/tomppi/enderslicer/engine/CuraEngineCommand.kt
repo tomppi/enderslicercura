@@ -273,6 +273,9 @@ object CuraEngineCommand {
             activeSmartInfill?.baseDensityPercent ?: effectiveSettings.infillDensityPercent,
             basePattern,
         )
+        if (adaptiveWallModifiers.isNotEmpty()) {
+            setting("wall_line_count", 0)
+        }
         setting("infill_mesh", false)
         setting("support_mesh", false)
         setting("anti_overhang_mesh", false)
