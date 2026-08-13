@@ -51,6 +51,24 @@ class CurviSlicerFieldBuilderTest {
         )
     }
 
+    @Test
+    fun interruptedThreadAbortsFieldConstruction() {
+        Thread.currentThread().interrupt()
+        try {
+            val failure = runCatching {
+                CurviSlicerFieldBuilder.build(
+                    mesh = tiltedPlaneMesh(),
+                    settings = NonPlanarSettings(enabled = true, fieldResolution = 32),
+                    layerHeightMm = 0.2,
+                    nozzleDiameterMm = 0.4,
+                )
+            }.exceptionOrNull()
+            assertTrue("Expected InterruptedException", failure is InterruptedException)
+        } finally {
+            Thread.interrupted()
+        }
+    }
+
     private fun tiltedPlaneMesh(): StlMesh {
         fun vertex(x: Float, y: Float, z: Float): FloatArray = floatArrayOf(x, y, z, 0f, 0f, 1f)
         val values = vertex(0f, 0f, 0f) +

@@ -258,49 +258,57 @@ replace(
 )
 replace(
     fff_gcode_writer_cpp,
-    '''    // helper function that detects skin regions that have no support and modifies their print settings (config, line angle, density, etc.)
-
-    auto handle_bridge_skin =''',
-    '''    // helper function that detects skin regions that have no support and modifies their print settings (config, line angle, density, etc.)
-    Shape bridge_supported_skin_regions;
-
-    // Arc-overhang eligibility is intentionally independent of Cura's
-    // conventional bridge-angle heuristic. A one-sided cantilever has
-    // one valid model anchor, while Cura's classic bridge detector may
-    // require two support islands before it calls the skin a bridge.
-    Shape arc_supported_skin_regions;
-    Shape wave_supported_skin_regions;
-    const bool wave_overhang_enabled = layer_nr > 0 && mesh.settings.get<bool>("enderslicer_wave_overhang_enabled");
-    const bool arc_overhang_enabled = layer_nr > 0
-                                   && mesh.settings.get<bool>("enderslicer_arc_overhang_enabled")
-                                   && ! wave_overhang_enabled;
-    if (arc_overhang_enabled || wave_overhang_enabled)
-    {
-        Shape& supported = wave_overhang_enabled ? wave_supported_skin_regions : arc_supported_skin_regions;
-        // Ignore generated support: both strategies must start on model material.
-        bridgeAngle(mesh.settings, skin_part.skin_fill, storage, layer_nr, 1, nullptr, supported);
-    }
-
-    auto handle_bridge_skin =''',
-)
-replace(
-    fff_gcode_writer_cpp,
-    '''        Shape supported_skin_part_regions;
-
-        const double angle = bridgeAngle(mesh.settings, skin_part.skin_fill, storage, layer_nr, bridge_layer, support_layer, supported_skin_part_regions);
-
-        if (angle > -1 || (support_threshold > 0 && (supported_skin_part_regions.area() / (skin_part.skin_fill.area() + 1) < support_threshold)))''',
-    '''        bridge_supported_skin_regions = Shape();
-
-        const double angle = bridgeAngle(mesh.settings, skin_part.skin_fill, storage, layer_nr, bridge_layer, support_layer, bridge_supported_skin_regions);
-
-        if (angle > -1 || (support_threshold > 0 && (bridge_supported_skin_regions.area() / (skin_part.skin_fill.area() + 1) < support_threshold)))''',
-)
-replace(
-    fff_gcode_writer_cpp,
     '''    const bool monotonic = mesh.settings.get<bool>("skin_monotonic");
     processSkinPrintFeature(''',
-    '''    if (wave_overhang_enabled && ! wave_supported_skin_regions.empty())
+    '''    // EnderSlicer: overhang fill is emitted before the walls in
+    // addMeshPartToGCode, so any island that reached the skin phase was either
+    // already filled (empty skin_fill returns above) or rejected by the
+    // generator. Keep the normal bridge/skin path for the rejected islands.
+    const bool monotonic = mesh.settings.get<bool>("skin_monotonic");
+    processSkinPrintFeature(''',
+)
+replace(
+    fff_gcode_writer_cpp,
+    '''void FffGcodeWriter::addMeshPartToGCode(
+    const SliceDataStorage& storage,
+    const SliceMeshStorage& mesh,
+    const size_t extruder_nr,
+    const MeshPathConfigs& mesh_config,
+    SliceLayerPart& part,
+    LayerPlan& gcode_layer) const
+{
+    const Settings& mesh_group_settings = Application::getInstance().current_slice_->scene.current_mesh_group->settings;
+
+    bool added_something = false;
+
+    if (mesh.settings.get<bool>("infill_before_walls"))
+    {
+        added_something = added_something | processInfill(storage, gcode_layer, mesh, extruder_nr, mesh_config, part);
+    }
+
+    added_something = added_something | processInsets(storage, gcode_layer, mesh, extruder_nr, mesh_config, part);''',
+    '''static bool emitOverhangFillForSkinPart(
+    const SliceDataStorage& storage,
+    LayerPlan& gcode_layer,
+    const SliceMeshStorage& mesh,
+    const size_t layer_nr,
+    const MeshPathConfigs& mesh_config,
+    const SkinPart& skin_part,
+    const GCodePathConfig& skin_config)
+{
+    // Emits wave/arc overhang fill for a skin part before the walls are added,
+    // so a step-out wall prints onto the freshly laid fill instead of into the
+    // void. Returns whether the fill was emitted; the caller clears the handled
+    // island so the skin phase does not print it again.
+    Shape supported;
+    bridgeAngle(mesh.settings, skin_part.skin_fill, storage, layer_nr, 1, nullptr, supported);
+    if (supported.empty())
+    {
+        return false;
+    }
+    const bool wave_overhang_enabled = mesh.settings.get<bool>("enderslicer_wave_overhang_enabled");
+    const bool arc_overhang_enabled = mesh.settings.get<bool>("enderslicer_arc_overhang_enabled") && ! wave_overhang_enabled;
+    if (wave_overhang_enabled)
     {
         WaveOverhangParameters wave_parameters;
         wave_parameters.line_spacing = mesh.settings.get<coord_t>("enderslicer_wave_overhang_line_spacing");
@@ -313,20 +321,19 @@ replace(
         OpenLinesSet wave_lines;
         if (WaveOverhangGenerator::generate(
                 skin_part.skin_fill,
-                wave_supported_skin_regions,
+                supported,
                 wave_parameters,
                 wave_lines))
         {
-            GCodePathConfig wave_config = *skin_config;
+            GCodePathConfig wave_config = skin_config;
             wave_config.is_wave_overhang = true;
             wave_config.speed_derivatives.speed = mesh.settings.get<Velocity>("enderslicer_wave_overhang_speed");
-            const double line_width_mm = std::max(INT2MM(skin_config->getLineWidth()), 0.001);
+            const double line_width_mm = std::max(INT2MM(skin_config.getLineWidth()), 0.001);
             const double layer_height_mm = std::max(INT2MM(mesh.settings.get<coord_t>("layer_height")), 0.001);
             const double nominal_mm3_per_mm = line_width_mm * layer_height_mm;
             const double wave_flow = mesh.settings.get<double>("enderslicer_wave_overhang_flow_mm3_per_mm") / nominal_mm3_per_mm;
             const double wave_fan_speed = mesh.settings.get<double>("enderslicer_wave_overhang_fan_speed");
 
-            added_something = true;
             gcode_layer.setIsInside(true);
             for (const OpenPolyline& wave_line : wave_lines)
             {
@@ -346,18 +353,16 @@ replace(
                     std::nullopt,
                     wave_fan_speed);
             }
-            return;
+            return true;
         }
-        // Incomplete propagation falls through to Cura's normal bridge/skin path.
     }
-
-    if (arc_overhang_enabled && ! arc_supported_skin_regions.empty())
+    if (arc_overhang_enabled)
     {
         ArcOverhangParameters arc_parameters;
         arc_parameters.line_spacing = std::max<coord_t>(
             1,
             static_cast<coord_t>(std::llround(
-                static_cast<double>(skin_config->getLineWidth())
+                static_cast<double>(skin_config.getLineWidth())
                 * mesh.settings.get<double>("enderslicer_arc_overhang_line_spacing")
                 / 100.0)));
         arc_parameters.min_radius = mesh.settings.get<coord_t>("enderslicer_arc_overhang_min_radius");
@@ -368,11 +373,11 @@ replace(
         OpenLinesSet arc_lines;
         if (ArcOverhangGenerator::generate(
                 skin_part.skin_fill,
-                arc_supported_skin_regions,
+                supported,
                 arc_parameters,
                 arc_lines))
         {
-            GCodePathConfig arc_config = *skin_config;
+            GCodePathConfig arc_config = skin_config;
             arc_config.is_arc_overhang = true;
             arc_config.speed_derivatives.speed = mesh.settings.get<Velocity>("enderslicer_arc_overhang_speed");
             const double arc_flow = mesh.settings.get<double>("enderslicer_arc_overhang_flow") / 100.0;
@@ -380,7 +385,6 @@ replace(
             constexpr coord_t arc_wipe_distance = 0;
             constexpr bool optimize_arc_travel = false;
 
-            added_something = true;
             gcode_layer.setIsInside(true);
             // Preserve the generator's inner-to-outer order. Submitting one
             // clipped arc at a time prevents the generic path optimizer from
@@ -403,13 +407,50 @@ replace(
                     std::nullopt,
                     arc_fan_speed);
             }
-            return;
+            return true;
         }
-        // Generator rejected this island: retain Cura's normal skin or bridge path.
+    }
+    return false;
+}
+
+void FffGcodeWriter::addMeshPartToGCode(
+    const SliceDataStorage& storage,
+    const SliceMeshStorage& mesh,
+    const size_t extruder_nr,
+    const MeshPathConfigs& mesh_config,
+    SliceLayerPart& part,
+    LayerPlan& gcode_layer) const
+{
+    const Settings& mesh_group_settings = Application::getInstance().current_slice_->scene.current_mesh_group->settings;
+
+    bool added_something = false;
+
+    // EnderSlicer: emit overhang fill before the walls. A step-out wall must
+    // print onto the freshly laid overhang floor instead of into the void.
+    // Handled skin parts are emptied so the later skin phase skips them.
+    const size_t layer_nr = gcode_layer.getLayerNr();
+    if (layer_nr > 0 && (mesh.settings.get<bool>("enderslicer_wave_overhang_enabled") || mesh.settings.get<bool>("enderslicer_arc_overhang_enabled")))
+    {
+        for (SkinPart& skin_part : part.skin_parts)
+        {
+            if (skin_part.skin_fill.empty())
+            {
+                continue;
+            }
+            if (emitOverhangFillForSkinPart(storage, gcode_layer, mesh, layer_nr, mesh_config, skin_part, mesh_config.skin_config))
+            {
+                skin_part.skin_fill = Shape();
+                added_something = true;
+            }
+        }
     }
 
-    const bool monotonic = mesh.settings.get<bool>("skin_monotonic");
-    processSkinPrintFeature(''',
+    if (mesh.settings.get<bool>("infill_before_walls"))
+    {
+        added_something = added_something | processInfill(storage, gcode_layer, mesh, extruder_nr, mesh_config, part);
+    }
+
+    added_something = added_something | processInsets(storage, gcode_layer, mesh, extruder_nr, mesh_config, part);''',
 )
 PY
 

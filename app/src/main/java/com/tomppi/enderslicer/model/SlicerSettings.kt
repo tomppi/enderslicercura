@@ -119,6 +119,7 @@ data class SlicerSettings(
     val waveOverhangMinimumWidthMm: Double = 0.70,
     val waveOverhangMaxIterations: Int = 400,
     val waveOverhangReverseOddLayers: Boolean = true,
+    val smartOverhangStrategy: Boolean = false,
     val ironingEnabled: Boolean = false,
     val ironingOnlyHighestLayer: Boolean = false,
     val ironingFlowPercent: Double = 10.0,
@@ -242,6 +243,7 @@ data class SlicerSettings(
         const val WAVE_OVERHANG_MINIMUM_WIDTH = "waveOverhangMinimumWidthMm"
         const val WAVE_OVERHANG_MAX_ITERATIONS = "waveOverhangMaxIterations"
         const val WAVE_OVERHANG_REVERSE_ODD_LAYERS = "waveOverhangReverseOddLayers"
+        const val SMART_OVERHANG_STRATEGY = "smartOverhangStrategy"
         const val IRONING_ENABLED = "ironingEnabled"
         const val IRONING_ONLY_HIGHEST_LAYER = "ironingOnlyHighestLayer"
         const val IRONING_FLOW = "ironingFlowPercent"

@@ -5,6 +5,7 @@ import com.tomppi.enderslicer.calibration.CalibrationSliceState
 import com.tomppi.enderslicer.model.PrinterDefinition
 import com.tomppi.enderslicer.model.SlicerSettings
 import com.tomppi.enderslicer.model.withSettings
+import com.tomppi.enderslicer.nonplanar.CurviSlicerRuntime
 import com.tomppi.enderslicer.profile.CuraEngineProfile
 import com.tomppi.enderslicer.profile.CuraResolvedSettingsWriter
 import com.tomppi.enderslicer.profile.CuraSliceSettingsResolver
@@ -112,6 +113,7 @@ class CuraEngineRunner(private val context: Context) {
         plannedLayerEvents: List<PlannedLayerEvent>,
         smartInfillSnapshot: SmartInfillSliceSnapshot?,
     ): SliceResult {
+        val curviRequestSnapshot = CurviSlicerRuntime.snapshot()
         val workspace = createWorkspace("slice")
         val log = requestLog(workspace.id)
         val started = System.nanoTime()
@@ -242,6 +244,15 @@ class CuraEngineRunner(private val context: Context) {
                 printerEnvelope = printerEnvelope,
             )
             throwIfInterrupted()
+
+            val currentCurviSnapshot = CurviSlicerRuntime.snapshot()
+            if (curviRequestSnapshot?.generation != currentCurviSnapshot?.generation) {
+                throw SliceException(
+                    "CurviSlicer settings changed while slicing was in progress; " +
+                        "the result was discarded so no stale G-code is published. Slice again.",
+                    log,
+                )
+            }
 
             val artifact = publisher.publish(
                 id = workspace.id,

@@ -137,6 +137,7 @@ internal object PresetValueSanitizer {
         SlicerSettings.Keys.ARC_OVERHANG_ENABLED,
         SlicerSettings.Keys.WAVE_OVERHANG_ENABLED,
         SlicerSettings.Keys.WAVE_OVERHANG_REVERSE_ODD_LAYERS,
+        SlicerSettings.Keys.SMART_OVERHANG_STRATEGY,
         SlicerSettings.Keys.IRONING_ENABLED,
         SlicerSettings.Keys.IRONING_ONLY_HIGHEST_LAYER,
         SlicerSettings.Keys.RETRACT_AT_LAYER_CHANGE,

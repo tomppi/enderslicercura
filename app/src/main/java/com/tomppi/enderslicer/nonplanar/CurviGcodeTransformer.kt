@@ -43,6 +43,10 @@ internal object CurviGcodeTransformer {
         var inPrintableLayers = false
         var afterMachineEnd = false
         var currentLayer: Int? = null
+        var currentPathType: String? = null
+        var currentOverhangOffset: Double? = null
+        var pendingOverhang: MutableList<Pair<Int, String>>? = null
+        var overhangExitTravel = false
         var lineNumber = 0
         var sourceMoves = 0
         var emittedMoves = 0
@@ -52,6 +56,7 @@ internal object CurviGcodeTransformer {
         var minimumZ = Double.POSITIVE_INFINITY
         var maximumZ = Double.NEGATIVE_INFINITY
         var maximumSlope = 0.0
+        var maximumSlopeContext: String? = null
         var maximumZSpeed = 0.0
         var additionalTimeSeconds = 0.0
         var metadataWritten = false
@@ -68,15 +73,14 @@ internal object CurviGcodeTransformer {
         try {
             file.bufferedReader().use { input ->
                 temporary.bufferedWriter().use { output ->
-                    input.forEachLine { rawLine ->
-                        lineNumber++
+                    fun processLine(rawLine: String) {
                         val trimmed = rawLine.trimStart()
                         if (afterMachineEnd) {
                             require(trimmed != CurviSlicerRuntime.MACHINE_END_SENTINEL) {
                                 "CurviSlicer machine-end sentinel appears more than once"
                             }
                             output.appendLine(rawLine)
-                            return@forEachLine
+                            return
                         }
                         if (trimmed == CurviSlicerRuntime.MACHINE_END_SENTINEL) {
                             // This is a monotonic phase boundary. No later comment or command may
@@ -95,23 +99,27 @@ internal object CurviGcodeTransformer {
                             planarX = curvedX
                             planarY = curvedY
                             planarZ = curvedZ
-                            return@forEachLine
+                            return
                         }
                         if (trimmed.startsWith(";TIME_ELAPSED:")) {
                             val originalElapsed = trimmed.substringAfter(':').trim().toDoubleOrNull()
                             if (originalElapsed != null) {
                                 output.appendLine(";TIME_ELAPSED:${format(originalElapsed + additionalTimeSeconds)}")
-                                return@forEachLine
+                                return
                             }
                         }
                         if (!metadataWritten && (trimmed.startsWith(";Generated with Cura") || trimmed.startsWith(";FLAVOR:"))) {
                             output.appendLine(rawLine)
                             writeMetadata(output)
-                            return@forEachLine
+                            return
                         }
                         if (trimmed.startsWith(";LAYER:")) {
                             currentLayer = trimmed.substringAfter(':').trim().toIntOrNull()
                             inPrintableLayers = true
+                        }
+                        if (trimmed.startsWith(";TYPE:")) {
+                            currentPathType = trimmed.substringAfter(":").trim()
+                            currentOverhangOffset = null
                         }
                         if (trimmed.startsWith(";End of Gcode", ignoreCase = true) || trimmed.startsWith(";END_OF_PRINT")) {
                             inPrintableLayers = false
@@ -121,12 +129,12 @@ internal object CurviGcodeTransformer {
                         val command = GcodeCommand.parse(rawLine)
                         if (command == null) {
                             output.appendLine(rawLine)
-                            return@forEachLine
+                            return
                         }
                         GcodeCommandPolicy.requireCurviSupported(command, inPrintableLayers)
                         if (modal.apply(command)) {
                             output.appendLine(rawLine)
-                            return@forEachLine
+                            return
                         }
                         when (command.opcode) {
                             "G92" -> {
@@ -155,6 +163,11 @@ internal object CurviGcodeTransformer {
                                 val deltaE = nextPlanarE - planarE
                                 val spatial = abs(nextPlanarX - planarX) > EPSILON ||
                                     abs(nextPlanarY - planarY) > EPSILON || abs(nextPlanarZ - planarZ) > EPSILON
+                                val isOverhangSection = currentPathType == "ARC-OVERHANG" ||
+                                    currentPathType == "WAVE-OVERHANG"
+                                val isOverhangExtrusion = isOverhangSection && command.has('E')
+                                val isOverhangPath = isOverhangExtrusion ||
+                                    (isOverhangSection && !command.has('E') && !overhangExitTravel)
                                 if (!spatial || !inPrintableLayers) {
                                     if (inPrintableLayers && command.has('E')) {
                                         val builder = StringBuilder(command.opcode)
@@ -184,12 +197,15 @@ internal object CurviGcodeTransformer {
                                     planarE = nextPlanarE
                                     curvedX = nextPlanarX
                                     curvedY = nextPlanarY
-                                    curvedZ = if (inPrintableLayers) {
+                                    curvedZ = if (isOverhangPath && inPrintableLayers) {
+                                        nextPlanarZ + (currentOverhangOffset
+                                            ?: (field.unflattenZ(nextPlanarX, nextPlanarY, nextPlanarZ) - nextPlanarZ))
+                                    } else if (inPrintableLayers) {
                                         field.unflattenZ(nextPlanarX, nextPlanarY, nextPlanarZ)
                                     } else {
                                         nextPlanarZ
                                     }
-                                    return@forEachLine
+                                    return
                                 }
 
                                 sourceMoves++
@@ -200,7 +216,16 @@ internal object CurviGcodeTransformer {
                                 val startCurvedY = curvedY
                                 val startCurvedZ = curvedZ
                                 val startIdealCurvedE = idealCurvedE
-                                val endCurvedZ = field.unflattenZ(nextPlanarX, nextPlanarY, nextPlanarZ)
+                                if (isOverhangPath && currentOverhangOffset == null) {
+                                    currentOverhangOffset =
+                                        field.unflattenZ(nextPlanarX, nextPlanarY, nextPlanarZ) - nextPlanarZ
+                                }
+                                val overhangOffset = if (isOverhangPath) currentOverhangOffset!! else 0.0
+                                val endCurvedZ = if (isOverhangPath) {
+                                    nextPlanarZ + overhangOffset
+                                } else {
+                                    field.unflattenZ(nextPlanarX, nextPlanarY, nextPlanarZ)
+                                }
                                 val planarLength = distance3(
                                     startPlanarX, startPlanarY, startPlanarZ,
                                     nextPlanarX, nextPlanarY, nextPlanarZ,
@@ -214,7 +239,10 @@ internal object CurviGcodeTransformer {
                                 var actualMoveSeconds = 0.0
                                 val segmentCount = max(
                                     1,
-                                    ceil(max(planarLength, curvedLength) / settings.maximumSegmentLengthMm).toInt(),
+                                    ceil(
+                                        (if (isOverhangPath) planarLength else max(planarLength, curvedLength)) /
+                                            settings.maximumSegmentLengthMm,
+                                    ).toInt(),
                                 ).coerceAtMost(20_000)
                                 if (segmentCount > 1) subdividedMoves++
                                 check(emittedMoves + segmentCount <= MAX_EMITTED_MOVES) {
@@ -228,7 +256,11 @@ internal object CurviGcodeTransformer {
                                     val px = lerp(startPlanarX, nextPlanarX, t)
                                     val py = lerp(startPlanarY, nextPlanarY, t)
                                     val pz = lerp(startPlanarZ, nextPlanarZ, t)
-                                    points += Point(px, py, field.unflattenZ(px, py, pz))
+                                    points += if (isOverhangPath) {
+                                        Point(px, py, pz + overhangOffset)
+                                    } else {
+                                        Point(px, py, field.unflattenZ(px, py, pz))
+                                    }
                                 }
                                 val lengths = DoubleArray(segmentCount)
                                 var totalCurvedLength = 0.0
@@ -267,7 +299,16 @@ internal object CurviGcodeTransformer {
                                     emittedCurvedE = if (modal.absoluteExtrusion) emittedE else emittedCurvedE + emittedE
                                     val horizontal = hypot(to.x - from.x, to.y - from.y)
                                     val slope = if (horizontal > EPSILON) abs(to.z - from.z) / horizontal else 0.0
-                                    maximumSlope = max(maximumSlope, Math.toDegrees(kotlin.math.atan(slope)))
+                                    val slopeDegrees = Math.toDegrees(kotlin.math.atan(slope))
+                                    if (slopeDegrees > maximumSlope) {
+                                        maximumSlope = slopeDegrees
+                                        maximumSlopeContext = "slope=${format(slopeDegrees)}° at line $lineNumber " +
+                                            "layer=$currentLayer type=$currentPathType " +
+                                            "from=(${format(from.x)},${format(from.y)},${format(from.z)}) " +
+                                            "to=(${format(to.x)},${format(to.y)},${format(to.z)}) " +
+                                            "horizontal=${format(horizontal)} segment=$segment/$segmentCount " +
+                                            "feed=${format(logicalFeed)}"
+                                    }
                                     val zSpeed = if (lengths[segment] > EPSILON) {
                                         requestedSpeed * abs(to.z - from.z) / lengths[segment]
                                     } else {
@@ -343,6 +384,81 @@ internal object CurviGcodeTransformer {
                             else -> output.appendLine(rawLine)
                         }
                     }
+
+                    fun flushPendingOverhang() {
+                        val buffer = pendingOverhang ?: return
+                        pendingOverhang = null
+                        if (buffer.isEmpty()) return
+                        var scanX = planarX
+                        var scanY = planarY
+                        var scanZ = planarZ
+                        var lastExtrusionX = scanX
+                        var lastExtrusionY = scanY
+                        var lastExtrusionZ = scanZ
+                        var lastExtrusionBufferIndex = -1
+                        var foundExtrusion = false
+                        for ((bufferIndex, pair) in buffer.withIndex()) {
+                            val command = GcodeCommand.parse(pair.second) ?: continue
+                            if (command.opcode != "G0" && command.opcode != "G1") continue
+                            val nextX = modal.position(scanX, command.value('X'))
+                            val nextY = modal.position(scanY, command.value('Y'))
+                            val nextZ = modal.position(scanZ, command.value('Z'))
+                            val spatial = abs(nextX - scanX) > EPSILON ||
+                                abs(nextY - scanY) > EPSILON || abs(nextZ - scanZ) > EPSILON
+                            if (command.has('E') && spatial) {
+                                lastExtrusionX = nextX
+                                lastExtrusionY = nextY
+                                lastExtrusionZ = nextZ
+                                lastExtrusionBufferIndex = bufferIndex
+                                foundExtrusion = true
+                            }
+                            scanX = nextX
+                            scanY = nextY
+                            scanZ = nextZ
+                        }
+                        currentOverhangOffset = if (foundExtrusion) {
+                            field.unflattenZ(lastExtrusionX, lastExtrusionY, lastExtrusionZ) - lastExtrusionZ
+                        } else {
+                            null
+                        }
+                        for ((bufferIndex, pair) in buffer.withIndex()) {
+                            lineNumber = pair.first
+                            overhangExitTravel = bufferIndex > lastExtrusionBufferIndex
+                            processLine(pair.second)
+                        }
+                        overhangExitTravel = false
+                    }
+
+                    val lines = ArrayList<String>()
+                    input.forEachLine { lines.add(it) }
+                    var index = 0
+                    while (index < lines.size) {
+                        val rawLine = lines[index]
+                        index++
+                        lineNumber++
+                        val trimmed = rawLine.trimStart()
+                        val startsOverhang = trimmed.startsWith(";TYPE:") &&
+                            (trimmed.contains("WAVE-OVERHANG") || trimmed.contains("ARC-OVERHANG"))
+                        if (startsOverhang) {
+                            flushPendingOverhang()
+                            pendingOverhang = mutableListOf()
+                            processLine(rawLine)
+                            continue
+                        }
+                        if (pendingOverhang != null) {
+                            val endsOverhang = trimmed.startsWith(";TYPE:") || trimmed.startsWith(";LAYER:") ||
+                                trimmed.startsWith(";End of Gcode", ignoreCase = true) ||
+                                trimmed.startsWith(";END_OF_PRINT") ||
+                                trimmed == CurviSlicerRuntime.MACHINE_END_SENTINEL
+                            if (!endsOverhang) {
+                                pendingOverhang!!.add(lineNumber to rawLine)
+                                continue
+                            }
+                            flushPendingOverhang()
+                        }
+                        processLine(rawLine)
+                    }
+                    flushPendingOverhang()
                     writeMetadata(output)
                 }
             }
@@ -352,9 +468,15 @@ internal object CurviGcodeTransformer {
             require(maximumZ <= printerEnvelope.heightMm + 0.02) {
                 "CurviSlicer generated Z ${format(maximumZ)} mm outside the ${format(printerEnvelope.heightMm)} mm build height"
             }
+            try {
+                File(file.parentFile, "${file.name}.curvislope.diag.txt")
+                    .writeText("maximumSlope=${format(maximumSlope)}\n$maximumSlopeContext\n")
+            } catch (_: Exception) {
+            }
             require(maximumSlope <= settings.effectiveSlopeLimitDegrees + SLOPE_TOLERANCE_DEGREES) {
                 "CurviSlicer generated path slope ${format(maximumSlope)}° above the configured " +
-                    "${format(settings.effectiveSlopeLimitDegrees)}° clearance limit"
+                    "${format(settings.effectiveSlopeLimitDegrees)}° clearance limit" +
+                    (maximumSlopeContext?.let { "; worst: $it" } ?: "")
             }
             try {
                 java.nio.file.Files.move(

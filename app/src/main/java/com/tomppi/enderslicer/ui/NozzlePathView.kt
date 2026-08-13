@@ -1,5 +1,8 @@
 package com.tomppi.enderslicer.ui
 
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -30,6 +33,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
@@ -46,6 +50,12 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.runInterruptible
 import kotlin.math.max
 import kotlin.math.roundToInt
+
+private const val PLAYBACK_TICK_MS = 16L
+private const val PLAYBACK_TOTAL_MS = 60_000L
+private const val PLAYBACK_MAX_STEP_MS = 2_000L
+private const val HOLD_REPEAT_DELAY_MS = 400L
+private const val HOLD_REPEAT_INTERVAL_MS = 250L
 
 private sealed interface NozzlePathLoadState {
     data object Loading : NozzlePathLoadState
@@ -76,6 +86,44 @@ internal fun NozzlePathView(gcodePath: String, modifier: Modifier = Modifier) {
             Text(current.message, modifier = Modifier.padding(24.dp))
         }
         is NozzlePathLoadState.Ready -> NozzlePathPlayer(current.path, gcodePath, modifier)
+    }
+}
+
+@Composable
+private fun HoldRepeatButton(
+    text: String,
+    outlined: Boolean,
+    enabled: Boolean,
+    modifier: Modifier = Modifier,
+    onStep: () -> Unit,
+) {
+    var pressed by remember { mutableStateOf(false) }
+    LaunchedEffect(pressed, enabled) {
+        if (pressed && enabled) {
+            delay(HOLD_REPEAT_DELAY_MS)
+            while (isActive && pressed && enabled) {
+                onStep()
+                delay(HOLD_REPEAT_INTERVAL_MS)
+            }
+        }
+    }
+    val interactionModifier = modifier.pointerInput(enabled) {
+        if (!enabled) return@pointerInput
+        awaitEachGesture {
+            awaitFirstDown(requireUnconsumed = false)
+            pressed = true
+            try {
+                onStep()
+                waitForUpOrCancellation()
+            } finally {
+                pressed = false
+            }
+        }
+    }
+    if (outlined) {
+        OutlinedButton(onClick = { }, enabled = enabled, modifier = interactionModifier) { Text(text) }
+    } else {
+        Button(onClick = { }, enabled = enabled, modifier = interactionModifier) { Text(text) }
     }
 }
 
@@ -119,8 +167,11 @@ private fun NozzlePathPlayer(path: GcodeNozzlePath, artifactKey: String, modifie
                 playing = false
                 break
             }
-            moveIndex = (moveIndex + max(path.moveCount / 600, 1)).coerceAtMost(path.moveCount - 1)
-            delay(16)
+            val step = max(1, (path.moveCount * PLAYBACK_TICK_MS / PLAYBACK_TOTAL_MS).toInt())
+            val perMoveDelay =
+                (PLAYBACK_TOTAL_MS / max(path.moveCount, 1)).coerceIn(PLAYBACK_TICK_MS, PLAYBACK_MAX_STEP_MS)
+            moveIndex = (moveIndex + step).coerceAtMost(path.moveCount - 1)
+            delay(perMoveDelay)
         }
     }
 
@@ -185,14 +236,16 @@ private fun NozzlePathPlayer(path: GcodeNozzlePath, artifactKey: String, modifie
                         enabled = path.moveCount > 1,
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                        OutlinedButton(
-                            onClick = {
-                                playing = false
-                                moveIndex = (safeIndex - 1).coerceAtLeast(0)
-                            },
+                        HoldRepeatButton(
+                            text = "Previous",
+                            outlined = true,
                             enabled = safeIndex > 0,
                             modifier = Modifier.weight(1f),
-                        ) { Text("Previous") }
+                            onStep = {
+                                playing = false
+                                moveIndex = (moveIndex - 1).coerceAtLeast(0)
+                            },
+                        )
                         if (playing) {
                             Button(onClick = { playing = false }, modifier = Modifier.weight(1f)) { Text("Pause") }
                         } else {
@@ -204,14 +257,16 @@ private fun NozzlePathPlayer(path: GcodeNozzlePath, artifactKey: String, modifie
                                 modifier = Modifier.weight(1f),
                             ) { Text("Play") }
                         }
-                        OutlinedButton(
-                            onClick = {
-                                playing = false
-                                moveIndex = (safeIndex + 1).coerceAtMost(path.moveCount - 1)
-                            },
+                        HoldRepeatButton(
+                            text = "Next",
+                            outlined = true,
                             enabled = safeIndex < path.moveCount - 1,
                             modifier = Modifier.weight(1f),
-                        ) { Text("Next") }
+                            onStep = {
+                                playing = false
+                                moveIndex = (moveIndex + 1).coerceAtMost(path.moveCount - 1)
+                            },
+                        )
                     }
                     OutlinedButton(
                         onClick = {

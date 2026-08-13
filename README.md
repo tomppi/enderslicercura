@@ -45,6 +45,7 @@ Imported values are kept as a persistent baseline: they stay in effect until you
 ### Experimental overhangs
 
 - Native arc-overhang (Multiplex) and wave-overhang paths with normal bridge/skin fallback; mutually exclusive and off by default
+- Smart overhang strategy: classifies the positioned mesh before slicing and decides where arc fill and CurviSlicer layers apply automatically, including a safe combined mode when CurviSlicer is enabled
 
 ### OctoPrint
 
@@ -53,7 +54,7 @@ Imported values are kept as a persistent baseline: they stay in effect until you
 ## Current limitations
 
 - Single printable model, single extruder; no duplicate/auto-arrange workflow or Cura plugins
-- Smart Infill, thermal FEA and arc/wave overhangs need broader physical print validation
+- Smart Infill, thermal FEA, arc/wave overhangs and the smart overhang strategy need broader physical print validation
 - High-density models and fine FEA grids may exceed the Android heap; thermal FEA lacks transient conduction and creep
 - OctoPrint needs broader real-server validation; printer-specific calibration commands must be checked against the installed firmware
 

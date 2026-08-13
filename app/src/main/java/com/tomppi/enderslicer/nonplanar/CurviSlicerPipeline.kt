@@ -31,6 +31,14 @@ import kotlin.math.tan
  * above flat base layers, preserves layer ordering, and compensates extrusion
  * for the longer 3D paths.
  */
+internal const val CURVI_CANCELLATION_INTERVAL = 1024
+
+internal fun checkCurviCancellation(workItems: Int, interval: Int = CURVI_CANCELLATION_INTERVAL) {
+    if (workItems % interval == 0 && Thread.currentThread().isInterrupted) {
+        throw InterruptedException("CurviSlicer processing was cancelled")
+    }
+}
+
 internal object CurviSlicerPipeline {
     data class Prepared(
         val field: CurviSlicerField,
@@ -97,7 +105,8 @@ internal object CurviSlicerPipeline {
         val transformed = mesh.interleavedVertices
         val bounds = MutableBounds()
         var offset = 0
-        repeat(mesh.triangleCount) {
+        repeat(mesh.triangleCount) { triangleIndex ->
+            checkCurviCancellation(triangleIndex)
             val x0 = transformed[offset].toDouble()
             val y0 = transformed[offset + 1].toDouble()
             val z0 = field.flattenZ(x0, y0, transformed[offset + 2].toDouble()).toFloat()
