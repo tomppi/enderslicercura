@@ -119,22 +119,64 @@ object ThicknessAdaptiveWalls {
         val cx = FloatArray(nx) { ix -> originX + (ix + 0.5f) * pitch }
         val cy = FloatArray(ny) { iy -> originY + (iy + 0.5f) * pitch }
         val cz = FloatArray(nz) { iz -> originZ + (iz + 0.5f) * pitch }
+        val crossingX = FloatArray(triangles.size)
         for (iz in 0 until nz) {
             for (iy in 0 until ny) {
-                val cyI = cellsY - 1 - min(cellsY - 1, ((cy[iy] - originY) / cellSize).toInt())
-                val czI = min(cellsZ - 1, ((cz[iz] - originZ) / cellSize).toInt())
+                val cyI = min(cellsY - 1, max(0, ((cy[iy] - originY) / cellSize).toInt()))
+                val czI = min(cellsZ - 1, max(0, ((cz[iz] - originZ) / cellSize).toInt()))
                 val candidates = occupancy[cyI * cellsZ + czI]
-                for (ix in 0 until nx) {
-                    var crossings = 0
-                    for (tri in candidates) {
-                        if (rayCrosses(triangles, tri, cx[ix], cy[iy], cz[iz])) crossings++
+                val py = cy[iy]
+                val pz = cz[iz]
+                var crossingCount = 0
+                for (ci in candidates) {
+                    val tri = triangles[ci]
+                    val ax = tri[0]; val ay = tri[1]; val az = tri[2]
+                    val bx = tri[3]; val by = tri[4]; val bz = tri[5]
+                    val cx2 = tri[6]; val cy2 = tri[7]; val cz2 = tri[8]
+                    if (!pointInTriangle2D(py, pz, ay, az, by, bz, cy2, cz2)) continue
+                    val ux = bx - ax; val uy = by - ay; val uz = bz - az
+                    val vx = cx2 - ax; val vy = cy2 - ay; val vz = cz2 - az
+                    val normalX = uy * vz - uz * vy
+                    if (kotlin.math.abs(normalX) < 1e-12f) continue
+                    val normalY = uz * vx - ux * vz
+                    val normalZ = ux * vy - uy * vx
+                    val xAtPlane = ax - (normalY * (py - ay) + normalZ * (pz - az)) / normalX
+                    crossingX[crossingCount++] = xAtPlane
+                }
+                crossingX.sort(0, crossingCount)
+                var xIndex = 0
+                var inside = false
+                var cross = 0
+                while (xIndex < nx) {
+                    while (cross < crossingCount && crossingX[cross] <= cx[xIndex]) {
+                        inside = !inside
+                        cross++
                     }
-                    mask[(iz * ny + iy) * nx + ix] = crossings and 1 == 1
+                    mask[(iz * ny + iy) * nx + xIndex] = inside
+                    xIndex++
                 }
             }
             throwIfInterrupted()
         }
         return VoxelGrid(mask, nx, ny, nz, pitch, originX, originY, originZ)
+    }
+
+    private fun pointInTriangle2D(
+        px: Float,
+        pz: Float,
+        ax: Float,
+        az: Float,
+        bx: Float,
+        bz: Float,
+        cx: Float,
+        cz: Float,
+    ): Boolean {
+        val d1 = (pz - az) * (bx - ax) - (px - ax) * (bz - az)
+        val d2 = (pz - bz) * (cx - bx) - (px - bx) * (cz - bz)
+        val d3 = (pz - cz) * (ax - cx) - (px - cx) * (az - cz)
+        val hasNegative = d1 < 0f || d2 < 0f || d3 < 0f
+        val hasPositive = d1 > 0f || d2 > 0f || d3 > 0f
+        return !(hasNegative && hasPositive)
     }
 
     private fun triangleList(mesh: StlMesh): List<FloatArray> {
@@ -186,30 +228,6 @@ object ThicknessAdaptiveWalls {
 
     private fun cellIndex(offset: Float, cellSize: Float, cellCount: Int): Int =
         min(cellCount - 1, max(0, (offset / cellSize).toInt()))
-
-    private fun rayCrosses(triangles: List<FloatArray>, index: Int, px: Float, py: Float, pz: Float): Boolean {
-        val tri = triangles[index]
-        val ax = tri[0]; val ay = tri[1]; val az = tri[2]
-        val bx = tri[3]; val by = tri[4]; val bz = tri[5]
-        val cx = tri[6]; val cy = tri[7]; val cz = tri[8]
-        val ux = bx - ax; val uy = by - ay; val uz = bz - az
-        val vx = cx - ax; val vy = cy - ay; val vz = cz - az
-        val nx = uy * vz - uz * vy
-        val ny = uz * vx - ux * vz
-        val nz = ux * vy - uy * vx
-        if (kotlin.math.abs(nx) < 1e-12f) return false
-        val t = (nx * (ax - px) + ny * (ay - py) + nz * (az - pz)) / nx
-        if (t <= RAY_EPSILON) return false
-        val ix = px + t
-        val iy = py
-        val iz = pz
-        val w0x = ix - ax; val w0y = iy - ay; val w0z = iz - az
-        val nDot = nx * nx + ny * ny + nz * nz
-        val bary1 = ((uy * w0z - uz * w0y) * nx + (uz * w0x - ux * w0z) * ny + (ux * w0y - uy * w0x) * nz) / nDot
-        val bary2 = ((vy * w0z - vz * w0y) * nx + (vz * w0x - vx * w0z) * ny + (vx * w0y - vy * w0x) * nz) / nDot
-        val bary3 = 1.0f - bary1 - bary2
-        return bary1 >= -RAY_EPSILON && bary2 >= -RAY_EPSILON && bary3 >= -RAY_EPSILON
-    }
 
     private fun zColumnHeight(mask: BooleanArray, nx: Int, ny: Int, nz: Int): FloatArray {
         val fromStart = FloatArray(nx * ny * nz)
@@ -346,6 +364,15 @@ object ThicknessAdaptiveWalls {
                         }
                     }
                     val values = FloatArray(8) { c -> field[(corners[c][2] * ey + corners[c][1]) * ex + corners[c][0]] }
+                    val firstAbove = values[0] >= ISO_LEVEL
+                    var straddles = false
+                    for (c in 1 until 8) {
+                        if ((values[c] >= ISO_LEVEL) != firstAbove) {
+                            straddles = true
+                            break
+                        }
+                    }
+                    if (!straddles) continue
                     for (tet in tets) {
                         emitTetTriangle(
                             vertices,
