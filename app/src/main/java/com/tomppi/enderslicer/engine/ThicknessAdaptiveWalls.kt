@@ -11,7 +11,7 @@ import java.io.File
 import kotlin.math.ceil
 import kotlin.math.max
 import kotlin.math.min
-import kotlin.math.roundToInt
+import kotlin.math.sqrt
 
 /** One nested modifier volume and the wall reinforcement it applies in its region. */
 data class AdaptiveWallModifier(
@@ -184,10 +184,11 @@ object ThicknessAdaptiveWalls {
         val count = mesh.triangleCount
         val out = ArrayList<FloatArray>(count)
         for (t in 0 until count) {
+            val b = t * 18
             out += floatArrayOf(
-                v[t * 9], v[t * 9 + 1], v[t * 9 + 2],
-                v[t * 9 + 3], v[t * 9 + 4], v[t * 9 + 5],
-                v[t * 9 + 6], v[t * 9 + 7], v[t * 9 + 8],
+                v[b], v[b + 1], v[b + 2],
+                v[b + 6], v[b + 7], v[b + 8],
+                v[b + 12], v[b + 13], v[b + 14],
             )
         }
         return out
@@ -454,32 +455,57 @@ object ThicknessAdaptiveWalls {
         val transformX = transform?.translationXmm ?: 0.0
         val transformY = transform?.translationYmm ?: 0.0
         val transformZ = transform?.translationZmm ?: 0.0
-        val transformed = if (linear == null) {
-            vertices
-        } else {
-            FloatArray(vertices.size) { i ->
-                when (i % 3) {
-                    0 -> (vertices[i] * linear[0] + vertices[i + 1] * linear[1] + vertices[i + 2] * linear[2] + transformX).toFloat()
-                    1 -> (vertices[i - 1] * linear[3] + vertices[i] * linear[4] + vertices[i + 1] * linear[5] + transformY).toFloat()
-                    else -> (vertices[i - 2] * linear[6] + vertices[i - 1] * linear[7] + vertices[i] * linear[8] + transformZ).toFloat()
-                }
-            }
+        fun place(x: Float, y: Float, z: Float): FloatArray {
+            if (linear == null) return floatArrayOf(x, y, z)
+            return floatArrayOf(
+                (x * linear[0] + y * linear[1] + z * linear[2] + transformX).toFloat(),
+                (x * linear[3] + y * linear[4] + z * linear[5] + transformY).toFloat(),
+                (x * linear[6] + y * linear[7] + z * linear[8] + transformZ).toFloat(),
+            )
         }
+        val interleaved = FloatArray(count * 18)
         var minX = Float.POSITIVE_INFINITY
         var minY = Float.POSITIVE_INFINITY
         var minZ = Float.POSITIVE_INFINITY
         var maxX = Float.NEGATIVE_INFINITY
         var maxY = Float.NEGATIVE_INFINITY
         var maxZ = Float.NEGATIVE_INFINITY
-        for (i in 0 until transformed.size step 3) {
-            minX = min(minX, transformed[i]); maxX = max(maxX, transformed[i])
-            minY = min(minY, transformed[i + 1]); maxY = max(maxY, transformed[i + 1])
-            minZ = min(minZ, transformed[i + 2]); maxZ = max(maxZ, transformed[i + 2])
+        var out = 0
+        for (t in 0 until count) {
+            val b = t * 9
+            val p0 = place(vertices[b], vertices[b + 1], vertices[b + 2])
+            val p1 = place(vertices[b + 3], vertices[b + 4], vertices[b + 5])
+            val p2 = place(vertices[b + 6], vertices[b + 7], vertices[b + 8])
+            val ax = p1[0] - p0[0]; val ay = p1[1] - p0[1]; val az = p1[2] - p0[2]
+            val bx = p2[0] - p0[0]; val by = p2[1] - p0[1]; val bz = p2[2] - p0[2]
+            var nx = ay * bz - az * by
+            var ny = az * bx - ax * bz
+            var nz = ax * by - ay * bx
+            val length = sqrt(nx * nx + ny * ny + nz * nz)
+            if (length > 1e-12f) {
+                nx /= length
+                ny /= length
+                nz /= length
+            }
+            repeat(3) { vertex ->
+                val px = when (vertex) { 0 -> p0[0]; 1 -> p1[0]; else -> p2[0] }
+                val py = when (vertex) { 0 -> p0[1]; 1 -> p1[1]; else -> p2[1] }
+                val pz = when (vertex) { 0 -> p0[2]; 1 -> p1[2]; else -> p2[2] }
+                minX = min(minX, px); maxX = max(maxX, px)
+                minY = min(minY, py); maxY = max(maxY, py)
+                minZ = min(minZ, pz); maxZ = max(maxZ, pz)
+                interleaved[out++] = px
+                interleaved[out++] = py
+                interleaved[out++] = pz
+                interleaved[out++] = if (vertex == 0) nx else 0f
+                interleaved[out++] = if (vertex == 0) ny else 0f
+                interleaved[out++] = if (vertex == 0) nz else 0f
+            }
         }
         val bounds = MeshBounds(minX, minY, minZ, maxX, maxY, maxZ)
         val mesh = StlMesh(
             displayName = file.name,
-            interleavedVertices = transformed,
+            interleavedVertices = interleaved,
             triangleCount = count,
             bounds = bounds,
         )
