@@ -108,6 +108,14 @@ object ThicknessAdaptiveWalls {
 
         val modifiers = mutableListOf<AdaptiveWallModifier>()
         var order = 0
+        var firstMaterial = -1
+        var lastMaterial = -1
+        for (iz in 0 until nz) {
+            if (layerWallCount[iz] > 0) {
+                if (firstMaterial < 0) firstMaterial = iz
+                lastMaterial = iz
+            }
+        }
         var bandStart = 0
         while (bandStart < nz) {
             if (layerWallCount[bandStart] == 0) {
@@ -117,20 +125,64 @@ object ThicknessAdaptiveWalls {
             val wallCount = layerWallCount[bandStart]
             var bandEnd = bandStart
             while (bandEnd + 1 < nz && layerWallCount[bandEnd + 1] == wallCount) bandEnd++
-            val bandMask = BooleanArray(nx * ny * nz) { i ->
-                mask[i] && (i / (ny * nx)) in bandStart..bandEnd
-            }
             val file = File(destination, "adaptive-walls-${++order}-${wallCount}walls.stl")
-            val vertices = isosurfaceShell(bandMask, nx, ny, nz, pitch, originX, originY, originZ)
-            require(vertices.isNotEmpty() && vertices.size % 9 == 0) {
-                "Adaptive wall band ${order} produced no closed shell"
+            if (bandStart == firstMaterial && bandEnd == lastMaterial) {
+                writePartAsModifier(mesh, transform, file)
+            } else {
+                val bandMask = BooleanArray(nx * ny * nz) { i ->
+                    mask[i] && (i / (ny * nx)) in bandStart..bandEnd
+                }
+                val vertices = isosurfaceShell(bandMask, nx, ny, nz, pitch, originX, originY, originZ)
+                require(vertices.isNotEmpty() && vertices.size % 9 == 0) {
+                    "Adaptive wall band ${order} produced no closed shell"
+                }
+                writeShellStl(vertices, transform, file)
             }
-            writeShellStl(vertices, transform, file)
             modifiers += AdaptiveWallModifier(wallCount, settings.thicknessAdaptiveWallsFlowPercent, file)
             bandStart = bandEnd + 1
             throwIfInterrupted()
         }
         return modifiers
+    }
+
+    private fun writePartAsModifier(mesh: StlMesh, transform: StlSliceTransform?, file: File) {
+        val src = mesh.interleavedVertices
+        val count = mesh.triangleCount
+        val transformed = if (transform == null) {
+            src
+        } else {
+            val linear = transform.linear
+            val tx = transform.translationXmm.toFloat()
+            val ty = transform.translationYmm.toFloat()
+            val tz = transform.translationZmm.toFloat()
+            FloatArray(src.size) { i ->
+                when (i % 6) {
+                    0 -> src[i] * linear[0].toFloat() + src[i + 1] * linear[1].toFloat() + src[i + 2] * linear[2].toFloat() + tx
+                    1 -> src[i - 1] * linear[3].toFloat() + src[i] * linear[4].toFloat() + src[i + 1] * linear[5].toFloat() + ty
+                    2 -> src[i - 2] * linear[6].toFloat() + src[i - 1] * linear[7].toFloat() + src[i] * linear[8].toFloat() + tz
+                    else -> src[i]
+                }
+            }
+        }
+        var minX = Float.POSITIVE_INFINITY
+        var minY = Float.POSITIVE_INFINITY
+        var minZ = Float.POSITIVE_INFINITY
+        var maxX = Float.NEGATIVE_INFINITY
+        var maxY = Float.NEGATIVE_INFINITY
+        var maxZ = Float.NEGATIVE_INFINITY
+        for (i in 0 until transformed.size step 6) {
+            minX = min(minX, transformed[i]); maxX = max(maxX, transformed[i])
+            minY = min(minY, transformed[i + 1]); maxY = max(maxY, transformed[i + 1])
+            minZ = min(minZ, transformed[i + 2]); maxZ = max(maxZ, transformed[i + 2])
+        }
+        val partMesh = StlMesh(
+            displayName = file.name,
+            interleavedVertices = transformed,
+            triangleCount = count,
+            bounds = MeshBounds(minX, minY, minZ, maxX, maxY, maxZ),
+        )
+        StlMeshWriter.writeBinary(partMesh, file)
+        require(file.isFile && file.length() > 0L) { "Unable to write the adaptive wall modifier" }
     }
 
     private fun voxelize(mesh: StlMesh): VoxelGrid {
