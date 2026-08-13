@@ -54,6 +54,7 @@ object CuraEngineCommand {
         endGcode: String,
         profile: CuraEngineProfile? = null,
         smartInfillModifiers: List<SmartInfillModifier> = emptyList(),
+        adaptiveWallModifiers: List<AdaptiveWallModifier> = emptyList(),
         threadCount: Int = recommendedThreadCount(),
     ): List<String> {
         require(profile == null) {
@@ -83,12 +84,17 @@ object CuraEngineCommand {
             requireSafeArgument(modifier.file.absolutePath)
             requireValidBinaryStl(modifier.file, Int.MAX_VALUE)
         }
+        adaptiveWallModifiers.forEach { modifier ->
+            requireSafeArgument(modifier.file.absolutePath)
+            requireValidBinaryStl(modifier.file, Int.MAX_VALUE)
+        }
 
         val effectiveSettings = CalibrationSliceState.effective(settings)
         val effectivePrinter = printer.withSettings(effectiveSettings)
         val printerEnvelope = PrinterEnvelope.from(effectivePrinter)
         analyzedSource.takeIf(File::isFile)?.let(printerEnvelope::requireBinaryStlFits)
         effectiveSmartInfillModifiers.forEach { modifier -> printerEnvelope.requireBinaryStlFits(modifier.file) }
+        adaptiveWallModifiers.forEach { modifier -> printerEnvelope.requireBinaryStlFits(modifier.file) }
 
         val curviPrepared = CurviSlicerRuntime.snapshot()?.let { snapshot ->
             CurviSlicerPipeline.prepareAndWarp(
@@ -290,6 +296,25 @@ object CuraEngineCommand {
                 setting("anti_overhang_mesh", false)
                 setting("cutting_mesh", false)
             }
+
+        adaptiveWallModifiers.forEachIndexed { index, modifier ->
+            prepareMeshLoad()
+            command += listOf("-l", modifier.file.absolutePath)
+            positionLoadedMesh()
+            setting("extruder_nr", 0)
+            setting("infill_mesh", true)
+            setting("infill_mesh_order", effectiveSmartInfillModifiers.size + index + 1)
+            setting("wall_line_count", modifier.wallLineCount)
+            setting("wall_0_material_flow", modifier.wallFlowPercent)
+            setting("wall_x_material_flow", modifier.wallFlowPercent)
+            applySmartInfillRegion(
+                activeSmartInfill?.baseDensityPercent ?: effectiveSettings.infillDensityPercent,
+                basePattern,
+            )
+            setting("support_mesh", false)
+            setting("anti_overhang_mesh", false)
+            setting("cutting_mesh", false)
+        }
 
         command += listOf("-o", outputPath)
         return command

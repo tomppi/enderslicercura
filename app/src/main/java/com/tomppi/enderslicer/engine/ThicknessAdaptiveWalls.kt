@@ -1,0 +1,500 @@
+package com.tomppi.enderslicer.engine
+
+import com.tomppi.enderslicer.mesh.MeshTriangleLimits
+import com.tomppi.enderslicer.model.SlicerSettings
+import com.tomppi.enderslicer.viewer.MeshBounds
+import com.tomppi.enderslicer.viewer.StlMesh
+import com.tomppi.enderslicer.viewer.StlMeshWriter
+import com.tomppi.enderslicer.viewer.StlParser
+import com.tomppi.enderslicer.viewer.StlSliceTransform
+import java.io.File
+import kotlin.math.ceil
+import kotlin.math.max
+import kotlin.math.min
+import kotlin.math.roundToInt
+
+/** One nested modifier volume and the wall reinforcement it applies in its region. */
+data class AdaptiveWallModifier(
+    val wallLineCount: Int,
+    val wallFlowPercent: Double,
+    val file: File,
+)
+
+/**
+ * Automatic wall reinforcement by build-direction material column height, gated by the
+ * local cross-sectional thickness so thin-but-tall features (ribs, fins) are left alone.
+ * Every point whose column is tall is a reinforcement candidate, but only points whose
+ * cross-section is genuinely fat (2x distance to the nearest wall) count as thick.
+ * Modifier volumes are emitted as nested iso-surface shells; slicing reuses the Smart
+ * Infill infill_mesh mechanism with wall overrides instead of density overrides.
+ */
+object ThicknessAdaptiveWalls {
+    private const val BAND_WIDTH_MM = 8.0
+    private const val MAX_EXTRA_BANDS = 3
+    private const val EXTRA_WALLS_PER_BAND = 2
+    private const val MIN_CROSS_SECTION_MM = 6.0
+    private const val MAX_GRID_VOXELS = 1_800_000
+    private const val GRID_PAD_MM = 1.5
+    private const val ISO_PAD_VOXELS = 3
+    private const val CHAMFER_AXIS = 3.0f
+    private const val CHAMFER_DIAGONAL = 4.0f
+    private const val CHAMFER_KNIGHT = 5.0f
+    private const val ISO_LEVEL = 0.6f
+    private const val RAY_EPSILON = 1e-6f
+
+    fun generate(
+        modelFile: File,
+        settings: SlicerSettings,
+        destination: File,
+        transform: StlSliceTransform? = null,
+    ): List<AdaptiveWallModifier> {
+        require(destination.mkdirs() || destination.isDirectory) {
+            "Unable to create the adaptive-walls staging directory"
+        }
+        require(settings.thicknessAdaptiveWallsFlowPercent in 100.0..200.0) {
+            "Adaptive wall flow must be between 100% and 200%"
+        }
+        val mesh = StlParser.parse(modelFile, modelFile.name, MeshTriangleLimits.current())
+        val (mask, nx, ny, nz, pitch, originX, originY, originZ) = voxelize(mesh)
+        throwIfInterrupted()
+
+        val columnHeight = zColumnHeight(mask, nx, ny, nz)
+        val surfaceDistance = chamfer(mask, nx, ny, nz)
+        val inscribed = FloatArray(nx * ny * nz) { i ->
+            2.0f * surfaceDistance[i] * pitch / CHAMFER_AXIS
+        }
+        val thickness = FloatArray(nx * ny * nz) { i ->
+            if (inscribed[i] >= MIN_CROSS_SECTION_MM.toFloat()) {
+                columnHeight[i] * pitch
+            } else {
+                inscribed[i]
+            }
+        }
+
+        val baseWalls = settings.wallLineCount.coerceAtLeast(1)
+        val modifiers = mutableListOf<AdaptiveWallModifier>()
+        var order = 0
+        var previous: BooleanArray? = null
+        for (band in 1..MAX_EXTRA_BANDS) {
+            val threshold = band * BAND_WIDTH_MM
+            val bandMask = BooleanArray(nx * ny * nz) { i -> mask[i] && thickness[i] >= threshold.toFloat() }
+            if (countTrue(bandMask) < 8) break
+            if (previous != null && bandMasksEqual(previous, bandMask)) continue
+            previous = bandMask
+            val wallCount = baseWalls + EXTRA_WALLS_PER_BAND * band
+            val file = File(destination, "adaptive-walls-${++order}-${wallCount}walls.stl")
+            val vertices = isosurfaceShell(bandMask, nx, ny, nz, pitch, originX, originY, originZ)
+            require(vertices.isNotEmpty() && vertices.size % 9 == 0) {
+                "Adaptive wall band ${order} produced no closed shell"
+            }
+            writeShellStl(vertices, transform, file)
+            modifiers += AdaptiveWallModifier(wallCount, settings.thicknessAdaptiveWallsFlowPercent, file)
+            throwIfInterrupted()
+        }
+        return modifiers
+    }
+
+    private fun voxelize(mesh: StlMesh): VoxelGrid {
+        val b = mesh.bounds
+        val width = (b.maxX - b.minX) + 2.0f * GRID_PAD_MM.toFloat()
+        val depth = (b.maxY - b.minY) + 2.0f * GRID_PAD_MM.toFloat()
+        val height = (b.maxZ - b.minZ) + 2.0f * GRID_PAD_MM.toFloat()
+        val targetN = max(1, ceil(Math.cbrt(MAX_GRID_VOXELS.toDouble())).toInt())
+        val pitch = max(width, max(depth, height)) / targetN
+        val nx = ceil(width / pitch).toInt() + 1
+        val ny = ceil(depth / pitch).toInt() + 1
+        val nz = ceil(height / pitch).toInt() + 1
+        require(nx.toLong() * ny * nz <= MAX_GRID_VOXELS * 2L) { "Adaptive walls grid is too large" }
+        val originX = b.minX - GRID_PAD_MM.toFloat()
+        val originY = b.minY - GRID_PAD_MM.toFloat()
+        val originZ = b.minZ - GRID_PAD_MM.toFloat()
+
+        val triangles = triangleList(mesh)
+        val cellSize = (4 * pitch).coerceAtLeast(1e-3f)
+        val cellsY = max(1, ceil(depth / cellSize).toInt())
+        val cellsZ = max(1, ceil(height / cellSize).toInt())
+        val occupancy = buildCellOccupancy(triangles, cellsY, cellsZ, cellSize, originY, originZ)
+
+        val mask = BooleanArray(nx * ny * nz)
+        val cx = FloatArray(nx) { ix -> originX + (ix + 0.5f) * pitch }
+        val cy = FloatArray(ny) { iy -> originY + (iy + 0.5f) * pitch }
+        val cz = FloatArray(nz) { iz -> originZ + (iz + 0.5f) * pitch }
+        for (iz in 0 until nz) {
+            for (iy in 0 until ny) {
+                val cyI = cellsY - 1 - min(cellsY - 1, ((cy[iy] - originY) / cellSize).toInt())
+                val czI = min(cellsZ - 1, ((cz[iz] - originZ) / cellSize).toInt())
+                val candidates = occupancy[cyI * cellsZ + czI]
+                for (ix in 0 until nx) {
+                    var crossings = 0
+                    for (tri in candidates) {
+                        if (rayCrosses(triangles, tri, cx[ix], cy[iy], cz[iz])) crossings++
+                    }
+                    mask[(iz * ny + iy) * nx + ix] = crossings and 1 == 1
+                }
+            }
+            throwIfInterrupted()
+        }
+        return VoxelGrid(mask, nx, ny, nz, pitch, originX, originY, originZ)
+    }
+
+    private fun triangleList(mesh: StlMesh): List<FloatArray> {
+        val v = mesh.interleavedVertices
+        val count = mesh.triangleCount
+        val out = ArrayList<FloatArray>(count)
+        for (t in 0 until count) {
+            out += floatArrayOf(
+                v[t * 9], v[t * 9 + 1], v[t * 9 + 2],
+                v[t * 9 + 3], v[t * 9 + 4], v[t * 9 + 5],
+                v[t * 9 + 6], v[t * 9 + 7], v[t * 9 + 8],
+            )
+        }
+        return out
+    }
+
+    private fun buildCellOccupancy(
+        triangles: List<FloatArray>,
+        cellsY: Int,
+        cellsZ: Int,
+        cellSize: Float,
+        originY: Float,
+        originZ: Float,
+    ): Array<MutableList<Int>> {
+        val cells = Array(cellsY * cellsZ) { mutableListOf<Int>() }
+        triangles.forEachIndexed { index, tri ->
+            var minY = Float.POSITIVE_INFINITY
+            var maxY = Float.NEGATIVE_INFINITY
+            var minZ = Float.POSITIVE_INFINITY
+            var maxZ = Float.NEGATIVE_INFINITY
+            for (k in 0 until 3) {
+                minY = min(minY, tri[k * 3 + 1])
+                maxY = max(maxY, tri[k * 3 + 1])
+                minZ = min(minZ, tri[k * 3 + 2])
+                maxZ = max(maxZ, tri[k * 3 + 2])
+            }
+            val y0 = cellIndex(minY - originY, cellSize, cellsY)
+            val y1 = cellIndex(maxY - originY, cellSize, cellsY)
+            val z0 = cellIndex(minZ - originZ, cellSize, cellsZ)
+            val z1 = cellIndex(maxZ - originZ, cellSize, cellsZ)
+            for (cy in y0..y1) {
+                for (cz in z0..z1) {
+                    cells[cy * cellsZ + cz] += index
+                }
+            }
+        }
+        return cells
+    }
+
+    private fun cellIndex(offset: Float, cellSize: Float, cellCount: Int): Int =
+        min(cellCount - 1, max(0, (offset / cellSize).toInt()))
+
+    private fun rayCrosses(triangles: List<FloatArray>, index: Int, px: Float, py: Float, pz: Float): Boolean {
+        val tri = triangles[index]
+        val ax = tri[0]; val ay = tri[1]; val az = tri[2]
+        val bx = tri[3]; val by = tri[4]; val bz = tri[5]
+        val cx = tri[6]; val cy = tri[7]; val cz = tri[8]
+        val ux = bx - ax; val uy = by - ay; val uz = bz - az
+        val vx = cx - ax; val vy = cy - ay; val vz = cz - az
+        val nx = uy * vz - uz * vy
+        val ny = uz * vx - ux * vz
+        val nz = ux * vy - uy * vx
+        if (kotlin.math.abs(nx) < 1e-12f) return false
+        val t = (nx * (ax - px) + ny * (ay - py) + nz * (az - pz)) / nx
+        if (t <= RAY_EPSILON) return false
+        val ix = px + t
+        val iy = py
+        val iz = pz
+        val w0x = ix - ax; val w0y = iy - ay; val w0z = iz - az
+        val nDot = nx * nx + ny * ny + nz * nz
+        val bary1 = ((uy * w0z - uz * w0y) * nx + (uz * w0x - ux * w0z) * ny + (ux * w0y - uy * w0x) * nz) / nDot
+        val bary2 = ((vy * w0z - vz * w0y) * nx + (vz * w0x - vx * w0z) * ny + (vx * w0y - vy * w0x) * nz) / nDot
+        val bary3 = 1.0f - bary1 - bary2
+        return bary1 >= -RAY_EPSILON && bary2 >= -RAY_EPSILON && bary3 >= -RAY_EPSILON
+    }
+
+    private fun zColumnHeight(mask: BooleanArray, nx: Int, ny: Int, nz: Int): FloatArray {
+        val fromStart = FloatArray(nx * ny * nz)
+        for (iz in 0 until nz) {
+            for (iy in 0 until ny) {
+                for (ix in 0 until nx) {
+                    val i = (iz * ny + iy) * nx + ix
+                    if (mask[i]) {
+                        val below = if (iz > 0) fromStart[((iz - 1) * ny + iy) * nx + ix] else 0f
+                        fromStart[i] = below + 1f
+                    }
+                }
+            }
+        }
+        val total = FloatArray(nx * ny * nz)
+        for (iz in 0 until nz) {
+            for (iy in 0 until ny) {
+                for (ix in 0 until nx) {
+                    val i = (iz * ny + iy) * nx + ix
+                    val isEnd = mask[i] && (iz == nz - 1 || !mask[((iz + 1) * ny + iy) * nx + ix])
+                    if (isEnd) total[i] = fromStart[i]
+                }
+            }
+        }
+        for (iz in nz - 2 downTo 0) {
+            for (iy in 0 until ny) {
+                for (ix in 0 until nx) {
+                    val i = (iz * ny + iy) * nx + ix
+                    if (mask[i]) {
+                        val above = total[((iz + 1) * ny + iy) * nx + ix]
+                        if (above > total[i]) total[i] = above
+                    }
+                }
+            }
+        }
+        return total
+    }
+
+    private fun chamfer(mask: BooleanArray, nx: Int, ny: Int, nz: Int): FloatArray {
+        val dist = FloatArray(nx * ny * nz) { if (mask[it]) Float.POSITIVE_INFINITY else 0f }
+        val dirs = arrayOf(
+            intArrayOf(1, 0, 0, CHAMFER_AXIS.toInt()),
+            intArrayOf(0, 1, 0, CHAMFER_AXIS.toInt()),
+            intArrayOf(0, 0, 1, CHAMFER_AXIS.toInt()),
+            intArrayOf(1, 1, 0, CHAMFER_DIAGONAL.toInt()),
+            intArrayOf(1, 0, 1, CHAMFER_DIAGONAL.toInt()),
+            intArrayOf(0, 1, 1, CHAMFER_DIAGONAL.toInt()),
+            intArrayOf(1, 1, 1, CHAMFER_KNIGHT.toInt()),
+            intArrayOf(1, 1, -1, CHAMFER_KNIGHT.toInt()),
+        )
+        for (iz in 0 until nz) {
+            for (iy in 0 until ny) {
+                for (ix in 0 until nx) {
+                    val i = (iz * ny + iy) * nx + ix
+                    var best = dist[i]
+                    for (d in dirs) {
+                        val pz = iz - d[0]; val py = iy - d[1]; val px = ix - d[2]
+                        if (pz >= 0 && py >= 0 && px >= 0 && pz < nz && py < ny && px < nx) {
+                            val neighbor = dist[(pz * ny + py) * nx + px]
+                            if (neighbor.isFinite()) {
+                                val candidate = neighbor + d[3]
+                                if (candidate < best) best = candidate
+                            }
+                        }
+                    }
+                    dist[i] = best
+                }
+            }
+        }
+        for (iz in nz - 1 downTo 0) {
+            for (iy in ny - 1 downTo 0) {
+                for (ix in nx - 1 downTo 0) {
+                    val i = (iz * ny + iy) * nx + ix
+                    var best = dist[i]
+                    for (d in dirs) {
+                        val pz = iz + d[0]; val py = iy + d[1]; val px = ix + d[2]
+                        if (pz >= 0 && py >= 0 && px >= 0 && pz < nz && py < ny && px < nx) {
+                            val neighbor = dist[(pz * ny + py) * nx + px]
+                            if (neighbor.isFinite()) {
+                                val candidate = neighbor + d[3]
+                                if (candidate < best) best = candidate
+                            }
+                        }
+                    }
+                    dist[i] = best
+                }
+            }
+        }
+        return dist
+    }
+
+    private fun isosurfaceShell(
+        band: BooleanArray,
+        nx: Int,
+        ny: Int,
+        nz: Int,
+        pitch: Float,
+        originX: Float,
+        originY: Float,
+        originZ: Float,
+    ): FloatArray {
+        val pn = ISO_PAD_VOXELS
+        val ex = nx + 2 * pn
+        val ey = ny + 2 * pn
+        val ez = nz + 2 * pn
+        val padded = BooleanArray(ex * ey * ez)
+        for (iz in 0 until nz) {
+            for (iy in 0 until ny) {
+                for (ix in 0 until nx) {
+                    padded[((iz + pn) * ey + iy + pn) * ex + ix + pn] = band[(iz * ny + iy) * nx + ix]
+                }
+            }
+        }
+        val field = chamfer(padded, ex, ey, ez)
+        val vertices = mutableListOf<Float>()
+        val pxs = FloatArray(ex + 1) { k -> originX + (k - pn) * pitch }
+        val pys = FloatArray(ey + 1) { k -> originY + (k - pn) * pitch }
+        val pzs = FloatArray(ez + 1) { k -> originZ + (k - pn) * pitch }
+
+        val corners = Array(8) { IntArray(3) }
+        val tets = TETRAHEDRA
+        for (iz in 0 until ez - 1) {
+            for (iy in 0 until ey - 1) {
+                for (ix in 0 until ex - 1) {
+                    var o = 0
+                    for (kz in 0..1) {
+                        for (ky in 0..1) {
+                            for (kx in 0..1) {
+                                corners[o][0] = ix + kx
+                                corners[o][1] = iy + ky
+                                corners[o][2] = iz + kz
+                                o++
+                            }
+                        }
+                    }
+                    val values = FloatArray(8) { c -> field[(corners[c][2] * ey + corners[c][1]) * ex + corners[c][0]] }
+                    for (tet in tets) {
+                        emitTetTriangle(
+                            vertices,
+                            pxs, pys, pzs,
+                            tet,
+                            values,
+                            corners,
+                        )
+                    }
+                }
+            }
+        }
+        return vertices.toFloatArray()
+    }
+
+    private fun emitTetTriangle(
+        out: MutableList<Float>,
+        pxs: FloatArray,
+        pys: FloatArray,
+        pzs: FloatArray,
+        tet: IntArray,
+        values: FloatArray,
+        corners: Array<IntArray>,
+    ) {
+        val above = IntArray(4)
+        var aboveCount = 0
+        val below = IntArray(4)
+        var belowCount = 0
+        for (t in 0 until 4) {
+            val c = tet[t]
+            if (values[c] >= ISO_LEVEL) above[aboveCount++] = c else below[belowCount++] = c
+        }
+        if (aboveCount == 0 || aboveCount == 4) return
+        if (aboveCount == 1 || aboveCount == 3) {
+            val odd = if (aboveCount == 1) above[0] else below[0]
+            val others = if (aboveCount == 1) below else above
+            val p0 = interpolated(pxs, pys, pzs, corners[odd], corners[others[0]], values[odd], values[others[0]])
+            val p1 = interpolated(pxs, pys, pzs, corners[odd], corners[others[1]], values[odd], values[others[1]])
+            val p2 = interpolated(pxs, pys, pzs, corners[odd], corners[others[2]], values[odd], values[others[2]])
+            out.addAll(p0.asList())
+            out.addAll(p1.asList())
+            out.addAll(p2.asList())
+        } else {
+            val a0 = above[0]; val a1 = above[1]
+            val c0 = below[0]; val c1 = below[1]
+            val pa = interpolated(pxs, pys, pzs, corners[a0], corners[c0], values[a0], values[c0])
+            val pb = interpolated(pxs, pys, pzs, corners[a1], corners[c0], values[a1], values[c0])
+            val pc = interpolated(pxs, pys, pzs, corners[a1], corners[c1], values[a1], values[c1])
+            val pd = interpolated(pxs, pys, pzs, corners[a0], corners[c1], values[a0], values[c1])
+            out.addAll(pa.asList())
+            out.addAll(pb.asList())
+            out.addAll(pc.asList())
+            out.addAll(pa.asList())
+            out.addAll(pc.asList())
+            out.addAll(pd.asList())
+        }
+    }
+
+    private fun interpolated(
+        pxs: FloatArray,
+        pys: FloatArray,
+        pzs: FloatArray,
+        a: IntArray,
+        b: IntArray,
+        va: Float,
+        vb: Float,
+    ): FloatArray {
+        val f = if (kotlin.math.abs(vb - va) < 1e-6f) 0.5f else (ISO_LEVEL - va) / (vb - va)
+        return floatArrayOf(
+            pxs[a[0]] + f * (pxs[b[0]] - pxs[a[0]]),
+            pys[a[1]] + f * (pys[b[1]] - pys[a[1]]),
+            pzs[a[2]] + f * (pzs[b[2]] - pzs[a[2]]),
+        )
+    }
+
+    private fun writeShellStl(vertices: FloatArray, transform: StlSliceTransform?, file: File) {
+        val count = vertices.size / 9
+        val linear = transform?.linear
+        val transformX = transform?.translationXmm ?: 0.0
+        val transformY = transform?.translationYmm ?: 0.0
+        val transformZ = transform?.translationZmm ?: 0.0
+        val transformed = if (linear == null) {
+            vertices
+        } else {
+            FloatArray(vertices.size) { i ->
+                when (i % 3) {
+                    0 -> (vertices[i] * linear[0] + vertices[i + 1] * linear[1] + vertices[i + 2] * linear[2] + transformX).toFloat()
+                    1 -> (vertices[i - 1] * linear[3] + vertices[i] * linear[4] + vertices[i + 1] * linear[5] + transformY).toFloat()
+                    else -> (vertices[i - 2] * linear[6] + vertices[i - 1] * linear[7] + vertices[i] * linear[8] + transformZ).toFloat()
+                }
+            }
+        }
+        var minX = Float.POSITIVE_INFINITY
+        var minY = Float.POSITIVE_INFINITY
+        var minZ = Float.POSITIVE_INFINITY
+        var maxX = Float.NEGATIVE_INFINITY
+        var maxY = Float.NEGATIVE_INFINITY
+        var maxZ = Float.NEGATIVE_INFINITY
+        for (i in 0 until transformed.size step 3) {
+            minX = min(minX, transformed[i]); maxX = max(maxX, transformed[i])
+            minY = min(minY, transformed[i + 1]); maxY = max(maxY, transformed[i + 1])
+            minZ = min(minZ, transformed[i + 2]); maxZ = max(maxZ, transformed[i + 2])
+        }
+        val bounds = MeshBounds(minX, minY, minZ, maxX, maxY, maxZ)
+        val mesh = StlMesh(
+            displayName = file.name,
+            interleavedVertices = transformed,
+            triangleCount = count,
+            bounds = bounds,
+        )
+        StlMeshWriter.writeBinary(mesh, file)
+        require(file.isFile && file.length() > 0L) { "Unable to write the adaptive wall modifier" }
+    }
+
+    private fun countTrue(mask: BooleanArray): Int {
+        var count = 0
+        for (value in mask) if (value) count++
+        return count
+    }
+
+    private fun bandMasksEqual(a: BooleanArray, b: BooleanArray): Boolean {
+        if (a.size != b.size) return false
+        for (i in a.indices) if (a[i] != b[i]) return false
+        return true
+    }
+
+    private fun throwIfInterrupted() {
+        if (Thread.currentThread().isInterrupted) {
+            throw InterruptedException("Adaptive-walls generation was cancelled")
+        }
+    }
+
+    private data class VoxelGrid(
+        val mask: BooleanArray,
+        val nx: Int,
+        val ny: Int,
+        val nz: Int,
+        val pitch: Float,
+        val originX: Float,
+        val originY: Float,
+        val originZ: Float,
+    )
+
+    private val TETRAHEDRA = arrayOf(
+        intArrayOf(0, 1, 3, 7),
+        intArrayOf(0, 2, 3, 7),
+        intArrayOf(0, 1, 5, 7),
+        intArrayOf(0, 4, 5, 7),
+        intArrayOf(0, 2, 6, 7),
+        intArrayOf(0, 4, 6, 7),
+    )
+}

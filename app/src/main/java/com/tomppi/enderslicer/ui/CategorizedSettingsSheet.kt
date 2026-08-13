@@ -273,6 +273,24 @@ internal fun CategorizedSettingsSheet(
             ) {
                 onSettings(SlicerSettings.Keys.ZIG_ZAG_CONNECT_INFILL) { current -> current.copy(zigZagConnectInfill = it) }
             }
+            SwitchRow(
+                "Adaptive walls by thickness",
+                settings.thicknessAdaptiveWallsEnabled,
+                source(state, SlicerSettings.Keys.THICKNESS_ADAPTIVE_WALLS_ENABLED),
+            ) {
+                onSettings(SlicerSettings.Keys.THICKNESS_ADAPTIVE_WALLS_ENABLED) { current -> current.copy(thicknessAdaptiveWallsEnabled = it) }
+            }
+            if (settings.thicknessAdaptiveWallsEnabled) {
+                NumberField(
+                    "Extra wall flow (%)",
+                    settings.thicknessAdaptiveWallsFlowPercent,
+                    source(state, SlicerSettings.Keys.THICKNESS_ADAPTIVE_WALLS_FLOW),
+                ) {
+                    onSettings(SlicerSettings.Keys.THICKNESS_ADAPTIVE_WALLS_FLOW) { current ->
+                        current.copy(thicknessAdaptiveWallsFlowPercent = it.coerceIn(100.0, 200.0))
+                    }
+                }
+            }
         }
 
         SettingsCategory("Speed") {

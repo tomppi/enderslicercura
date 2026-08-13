@@ -1,6 +1,7 @@
 package com.tomppi.enderslicer.profile
 
 import com.tomppi.enderslicer.calibration.CalibrationSliceState
+import com.tomppi.enderslicer.engine.AdaptiveWallModifier
 import com.tomppi.enderslicer.engine.PrinterEnvelope
 import com.tomppi.enderslicer.nonplanar.CurviSlicerFieldStorage
 import com.tomppi.enderslicer.nonplanar.CurviSlicerPipeline
@@ -20,6 +21,7 @@ internal object CuraResolvedSettingsWriter {
         resolved: CuraSliceSettingsResolver.Result,
         modelTransform: StlSliceTransform? = null,
         smartInfillModifiers: List<SmartInfillModifier> = emptyList(),
+        adaptiveWallModifiers: List<AdaptiveWallModifier> = emptyList(),
     ) {
         require(modelFileName.endsWith(".stl", ignoreCase = true)) {
             "Resolved Cura model must be an STL file"
@@ -165,6 +167,30 @@ internal object CuraResolvedSettingsWriter {
             SmartInfillCuraContract.modifierShellNeutralValues.forEach { (key, value) ->
                 values.put(key, value.toInt())
             }
+            applyTransform(
+                values = values,
+                linear = IDENTITY,
+                translationX = 0.0,
+                translationY = 0.0,
+                translationZ = 0.0,
+                enginePositionX = enginePositionX,
+                enginePositionY = enginePositionY,
+                enginePositionZ = enginePositionZ,
+            )
+            root.put(modifier.file.name, values)
+        }
+
+        adaptiveWallModifiers.forEachIndexed { index, modifier ->
+            val values = JSONObject(resolved.modelValues)
+                .put("extruder_nr", 0)
+                .put("infill_mesh", true)
+                .put("infill_mesh_order", effectiveSmartInfillModifiers.size + index + 1)
+                .put("wall_line_count", modifier.wallLineCount)
+                .put("wall_0_material_flow", modifier.wallFlowPercent)
+                .put("wall_x_material_flow", modifier.wallFlowPercent)
+                .put("support_mesh", false)
+                .put("anti_overhang_mesh", false)
+                .put("cutting_mesh", false)
             applyTransform(
                 values = values,
                 linear = IDENTITY,
