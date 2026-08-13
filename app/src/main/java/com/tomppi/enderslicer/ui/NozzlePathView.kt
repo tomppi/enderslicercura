@@ -52,7 +52,8 @@ import kotlin.math.max
 import kotlin.math.roundToInt
 
 private const val PLAYBACK_TICK_MS = 16L
-private const val PLAYBACK_TOTAL_TICKS = 1800
+private const val PLAYBACK_TOTAL_MS = 60_000L
+private const val PLAYBACK_MAX_STEP_MS = 2_000L
 private const val HOLD_REPEAT_DELAY_MS = 400L
 private const val HOLD_REPEAT_INTERVAL_MS = 250L
 
@@ -166,8 +167,11 @@ private fun NozzlePathPlayer(path: GcodeNozzlePath, artifactKey: String, modifie
                 playing = false
                 break
             }
-            moveIndex = (moveIndex + max(path.moveCount / PLAYBACK_TOTAL_TICKS, 1)).coerceAtMost(path.moveCount - 1)
-            delay(PLAYBACK_TICK_MS)
+            val step = max(1, (path.moveCount * PLAYBACK_TICK_MS / PLAYBACK_TOTAL_MS).toInt())
+            val perMoveDelay =
+                (PLAYBACK_TOTAL_MS / max(path.moveCount, 1)).coerceIn(PLAYBACK_TICK_MS, PLAYBACK_MAX_STEP_MS)
+            moveIndex = (moveIndex + step).coerceAtMost(path.moveCount - 1)
+            delay(perMoveDelay)
         }
     }
 
@@ -239,7 +243,7 @@ private fun NozzlePathPlayer(path: GcodeNozzlePath, artifactKey: String, modifie
                             modifier = Modifier.weight(1f),
                             onStep = {
                                 playing = false
-                                moveIndex = (safeIndex - 1).coerceAtLeast(0)
+                                moveIndex = (moveIndex - 1).coerceAtLeast(0)
                             },
                         )
                         if (playing) {
@@ -260,7 +264,7 @@ private fun NozzlePathPlayer(path: GcodeNozzlePath, artifactKey: String, modifie
                             modifier = Modifier.weight(1f),
                             onStep = {
                                 playing = false
-                                moveIndex = (safeIndex + 1).coerceAtMost(path.moveCount - 1)
+                                moveIndex = (moveIndex + 1).coerceAtMost(path.moveCount - 1)
                             },
                         )
                     }
