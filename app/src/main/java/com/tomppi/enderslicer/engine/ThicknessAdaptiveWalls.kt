@@ -92,13 +92,22 @@ object ThicknessAdaptiveWalls {
         }
 
         val layerHeight = settings.layerHeightMm.toFloat()
+        val initialLayerHeight = settings.initialLayerHeightMm.toFloat()
         val zMin = mesh.bounds.minZ
         val zMax = mesh.bounds.maxZ
-        val fineCount = max(1, ceil((zMax - zMin) / layerHeight).toInt())
+        val boundaries = ArrayList<Float>()
+        boundaries.add(zMin)
+        var boundaryZ = zMin + initialLayerHeight
+        boundaries.add(boundaryZ)
+        while (boundaryZ < zMax) {
+            boundaryZ += layerHeight
+            boundaries.add(boundaryZ)
+        }
+        val fineCount = boundaries.size - 1
         val bendRadiusMm = settings.thicknessAdaptiveWallsBendRadiusMm.toFloat()
         val fineWallCount = IntArray(fineCount)
         for (k in 0 until fineCount) {
-            val z = zMin + (k + 0.5f) * layerHeight
+            val z = (boundaries[k] + boundaries[k + 1]) * 0.5f
             val iz = ((z - originZ) / pitch).toInt().coerceIn(0, nz - 1)
             val layerMax = coarseLayerMax[iz]
             val hasBend = layerMax > 0f && layerHasBend(layerSegments[iz], bendRadiusMm)
@@ -117,20 +126,24 @@ object ThicknessAdaptiveWalls {
         val modifiers = mutableListOf<AdaptiveWallModifier>()
         var order = 0
         var bandStart = 0
+        while (bandStart < fineCount && fineWallCount[bandStart] == 0) bandStart++
         while (bandStart < fineCount) {
-            if (fineWallCount[bandStart] == 0) {
-                bandStart++
-                continue
-            }
-            val wallCount = fineWallCount[bandStart]
+            val wallCount = if (fineWallCount[bandStart] == 0) baseWalls else fineWallCount[bandStart]
             var bandEnd = bandStart
-            while (bandEnd + 1 < fineCount && fineWallCount[bandEnd + 1] == wallCount) bandEnd++
+            while (bandEnd + 1 < fineCount) {
+                val next = fineWallCount[bandEnd + 1]
+                if (next == wallCount || next == 0) {
+                    bandEnd++
+                } else {
+                    break
+                }
+            }
             val file = File(destination, "adaptive-walls-${++order}-${wallCount}walls.stl")
             val midK = (bandStart + bandEnd) / 2
-            val midZ = zMin + (midK + 0.5f) * layerHeight
+            val midZ = (boundaries[midK] + boundaries[midK + 1]) * 0.5f
             val midIz = ((midZ - originZ) / pitch).toInt().coerceIn(0, nz - 1)
-            val slabZ0 = zMin + bandStart * layerHeight
-            val slabZ1 = zMin + (bandEnd + 1) * layerHeight
+            val slabZ0 = boundaries[bandStart]
+            val slabZ1 = boundaries[bandEnd + 1]
             slabModifierStl(
                 layerSegments[midIz],
                 slabZ0,
