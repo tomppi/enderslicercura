@@ -8,7 +8,6 @@ import com.tomppi.enderslicer.viewer.StlMeshWriter
 import com.tomppi.enderslicer.viewer.StlParser
 import com.tomppi.enderslicer.viewer.StlSliceTransform
 import java.io.File
-import kotlin.math.ceil
 import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
@@ -33,8 +32,6 @@ data class AdaptiveWallModifier(
  * mechanism with wall overrides instead of density overrides.
  */
 object ThicknessAdaptiveWalls {
-    private const val MAX_EXTRA_BANDS = 3
-    private const val EXTRA_WALLS_PER_BAND = 2
     private const val SLAB_Z_PAD = 0.1f
     private const val WALL_DEPTH_MARGIN_MM = 1.0f
     private const val SMOOTH_HALF_WINDOW = 2
@@ -47,7 +44,6 @@ object ThicknessAdaptiveWalls {
     private data class BendRegion(
         val points: FloatArray,
         val clockwise: Boolean,
-        val extraWalls: Int,
         val minRadius: Float,
     )
 
@@ -81,12 +77,13 @@ object ThicknessAdaptiveWalls {
             regions += detectBendRegions(resampled, bendRadiusMm)
         }
 
+        val extraWalls = settings.thicknessAdaptiveWallsExtraWalls.coerceIn(0, 20)
+        val wallCount = baseWalls + extraWalls
         val modifiers = mutableListOf<AdaptiveWallModifier>()
         var order = 0
         val slabZ0 = zMin - SLAB_Z_PAD
         val slabZ1 = zMax + SLAB_Z_PAD
         for (region in regions) {
-            val wallCount = baseWalls + region.extraWalls
             val depth = (wallCount * lineWidth + WALL_DEPTH_MARGIN_MM)
                 .coerceAtMost(max(region.minRadius * OFFSET_CLAMP_FRACTION, MIN_BAND_DEPTH_MM))
             val file = File(destination, "adaptive-walls-${++order}-${wallCount}walls.stl")
@@ -180,8 +177,6 @@ object ThicknessAdaptiveWalls {
                 if (vertex == run[1]) break
                 vertex = (vertex + 1) % n
             }
-            val tightness = (1.0f - minRadius / bendRadiusMm).coerceIn(0f, 1f)
-            val band = ceil(MAX_EXTRA_BANDS * tightness).toInt().coerceIn(1, MAX_EXTRA_BANDS)
             val start: Int
             val end: Int
             if (run[1] - run[0] + 1 >= n - 2 * BEND_RUN_PAD) {
@@ -194,7 +189,6 @@ object ThicknessAdaptiveWalls {
             regions += BendRegion(
                 points = collectLoopPoints(loop, start, end, n),
                 clockwise = clockwise,
-                extraWalls = EXTRA_WALLS_PER_BAND * band,
                 minRadius = minRadius,
             )
         }

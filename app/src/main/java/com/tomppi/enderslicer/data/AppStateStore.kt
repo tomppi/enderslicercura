@@ -324,6 +324,7 @@ class AppStateStore(context: Context) {
             .put(SlicerSettings.Keys.THICKNESS_ADAPTIVE_WALLS_ENABLED, settings.thicknessAdaptiveWallsEnabled)
             .put(SlicerSettings.Keys.THICKNESS_ADAPTIVE_WALLS_FLOW, settings.thicknessAdaptiveWallsFlowPercent)
             .put(SlicerSettings.Keys.THICKNESS_ADAPTIVE_WALLS_BEND_RADIUS, settings.thicknessAdaptiveWallsBendRadiusMm)
+            .put(SlicerSettings.Keys.THICKNESS_ADAPTIVE_WALLS_EXTRA_WALLS, settings.thicknessAdaptiveWallsExtraWalls)
 
         val overrides = JSONArray()
         settings.overriddenSettingKeys.sorted().forEach(overrides::put)
@@ -487,6 +488,9 @@ class AppStateStore(context: Context) {
                 )
                 SlicerSettings.Keys.THICKNESS_ADAPTIVE_WALLS_BEND_RADIUS -> restored.copy(
                     thicknessAdaptiveWallsBendRadiusMm = values.optDouble(key, restored.thicknessAdaptiveWallsBendRadiusMm),
+                )
+                SlicerSettings.Keys.THICKNESS_ADAPTIVE_WALLS_EXTRA_WALLS -> restored.copy(
+                    thicknessAdaptiveWallsExtraWalls = values.optInt(key, restored.thicknessAdaptiveWallsExtraWalls),
                 )
                 else -> restored
             }

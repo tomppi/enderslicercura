@@ -299,6 +299,16 @@ internal fun CategorizedSettingsSheet(
                         current.copy(thicknessAdaptiveWallsBendRadiusMm = it.coerceIn(0.5, 100.0))
                     }
                 }
+                NumberField(
+                    "Extra walls",
+                    settings.thicknessAdaptiveWallsExtraWalls.toDouble(),
+                    source(state, SlicerSettings.Keys.THICKNESS_ADAPTIVE_WALLS_EXTRA_WALLS),
+                    decimals = 0,
+                ) {
+                    onSettings(SlicerSettings.Keys.THICKNESS_ADAPTIVE_WALLS_EXTRA_WALLS) { current ->
+                        current.copy(thicknessAdaptiveWallsExtraWalls = it.toInt().coerceIn(0, 20))
+                    }
+                }
             }
         }
 
