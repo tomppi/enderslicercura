@@ -41,8 +41,8 @@ object ThicknessAdaptiveWalls {
     private const val CORNER_TURN_RAD = 0.785f
     private const val SLAB_Z_PAD = 0.1f
     private const val WALL_DEPTH_MARGIN_MM = 1.0f
-    private const val SMOOTH_HALF_WINDOW = 2
-    private const val BEND_RUN_PAD = 3
+    private const val SMOOTH_HALF_WINDOW = 6
+    private const val BEND_RUN_PAD = 4
     private const val OFFSET_CLAMP_FRACTION = 0.8f
     private const val PI_F = 3.1415927f
     private const val TWO_PI_F = 6.2831855f
