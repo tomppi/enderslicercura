@@ -55,11 +55,6 @@ object ThicknessAdaptiveWalls {
         val minRadius: Float,
     )
 
-    private data class LayerBends(
-        val regions: List<BendRegion>,
-        val maxExtraWalls: Int,
-    )
-
     fun generate(
         modelFile: File,
         settings: SlicerSettings,
@@ -77,61 +72,30 @@ object ThicknessAdaptiveWalls {
 
         val triangles = triangleList(mesh)
         val baseWalls = settings.wallLineCount.coerceAtLeast(1)
-        val layerHeight = settings.layerHeightMm.toFloat()
-        val initialLayerHeight = settings.initialLayerHeightMm.toFloat()
         val zMin = mesh.bounds.minZ
         val zMax = mesh.bounds.maxZ
-        val boundaries = ArrayList<Float>()
-        boundaries.add(zMin)
-        var boundaryZ = zMin + initialLayerHeight
-        boundaries.add(boundaryZ)
-        while (boundaryZ < zMax) {
-            boundaryZ += layerHeight
-            boundaries.add(boundaryZ)
-        }
-        val fineCount = boundaries.size - 1
         val bendRadiusMm = settings.thicknessAdaptiveWallsBendRadiusMm.toFloat()
         val lineWidth = settings.lineWidthMm.toFloat()
 
-        val layers = ArrayList<LayerBends>(fineCount)
-        for (k in 0 until fineCount) {
-            val z = (boundaries[k] + boundaries[k + 1]) * 0.5f
-            val loops = chainSegments(outlineSegmentsAt(triangles, z))
-            val regions = mutableListOf<BendRegion>()
-            for (loop in loops) {
-                regions += detectBendRegions(loop, bendRadiusMm)
-            }
-            layers += LayerBends(
-                regions = regions,
-                maxExtraWalls = regions.maxOfOrNull { it.extraWalls } ?: 0,
-            )
-            throwIfInterrupted()
+        val referenceZ = (zMin + zMax) * 0.5f
+        val loops = chainSegments(outlineSegmentsAt(triangles, referenceZ))
+        val regions = mutableListOf<BendRegion>()
+        for (loop in loops) {
+            regions += detectBendRegions(loop, bendRadiusMm)
         }
 
         val modifiers = mutableListOf<AdaptiveWallModifier>()
         var order = 0
-        var bandStart = 0
-        while (bandStart < fineCount) {
-            val bandExtra = layers[bandStart].maxExtraWalls
-            var bandEnd = bandStart
-            while (bandEnd + 1 < fineCount && layers[bandEnd + 1].maxExtraWalls == bandExtra) {
-                bandEnd++
-            }
-            if (bandExtra > 0) {
-                val mid = layers[(bandStart + bandEnd) / 2]
-                val slabZ0 = boundaries[bandStart] - SLAB_Z_PAD
-                val slabZ1 = boundaries[bandEnd + 1] + SLAB_Z_PAD
-                for (region in mid.regions) {
-                    val wallCount = baseWalls + region.extraWalls
-                    val depth = (wallCount * lineWidth + WALL_DEPTH_MARGIN_MM)
-                        .coerceAtMost(region.minRadius * OFFSET_CLAMP_FRACTION)
-                    val file = File(destination, "adaptive-walls-${++order}-${wallCount}walls.stl")
-                    bandStl(region, depth, slabZ0, slabZ1, transform, file)
-                    modifiers += AdaptiveWallModifier(wallCount, settings.thicknessAdaptiveWallsFlowPercent, file)
-                    throwIfInterrupted()
-                }
-            }
-            bandStart = bandEnd + 1
+        val slabZ0 = zMin - SLAB_Z_PAD
+        val slabZ1 = zMax + SLAB_Z_PAD
+        for (region in regions) {
+            val wallCount = baseWalls + region.extraWalls
+            val depth = (wallCount * lineWidth + WALL_DEPTH_MARGIN_MM)
+                .coerceAtMost(region.minRadius * OFFSET_CLAMP_FRACTION)
+            val file = File(destination, "adaptive-walls-${++order}-${wallCount}walls.stl")
+            bandStl(region, depth, slabZ0, slabZ1, transform, file)
+            modifiers += AdaptiveWallModifier(wallCount, settings.thicknessAdaptiveWallsFlowPercent, file)
+            throwIfInterrupted()
         }
         return modifiers
     }
