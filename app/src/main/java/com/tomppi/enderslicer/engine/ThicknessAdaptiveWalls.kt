@@ -39,7 +39,7 @@ object ThicknessAdaptiveWalls {
     private const val EXTRA_WALLS_PER_BAND = 2
     private const val SLAB_Z_PAD = 0.1f
     private const val WALL_DEPTH_MARGIN_MM = 1.0f
-    private const val SMOOTH_HALF_WINDOW = 6
+    private const val SMOOTH_HALF_WINDOW = 2
     private const val BEND_RUN_PAD = 4
     private const val GAP_MERGE_MM = 10.0f
     private const val OFFSET_CLAMP_FRACTION = 0.8f
@@ -205,8 +205,15 @@ object ThicknessAdaptiveWalls {
             }
             val tightness = (1.0f - minRadius / bendRadiusMm).coerceIn(0f, 1f)
             val band = ceil(MAX_EXTRA_BANDS * tightness).toInt().coerceIn(1, MAX_EXTRA_BANDS)
-            val start = (run[0] - BEND_RUN_PAD + n) % n
-            val end = (run[1] + BEND_RUN_PAD) % n
+            val start: Int
+            val end: Int
+            if (run[1] - run[0] + 1 >= n - 2 * BEND_RUN_PAD) {
+                start = 0
+                end = n - 1
+            } else {
+                start = (run[0] - BEND_RUN_PAD + n) % n
+                end = (run[1] + BEND_RUN_PAD) % n
+            }
             regions += BendRegion(
                 points = collectLoopPoints(loop, start, end, n),
                 clockwise = clockwise,
