@@ -43,6 +43,7 @@ object ThicknessAdaptiveWalls {
     private const val WALL_DEPTH_MARGIN_MM = 1.0f
     private const val SMOOTH_HALF_WINDOW = 6
     private const val BEND_RUN_PAD = 4
+    private const val GAP_MERGE_MM = 10.0f
     private const val OFFSET_CLAMP_FRACTION = 0.8f
     private const val PI_F = 3.1415927f
     private const val TWO_PI_F = 6.2831855f
@@ -176,7 +177,8 @@ object ThicknessAdaptiveWalls {
             }
             tight[i] = smoothed < bendRadiusMm
         }
-        val regions = mutableListOf<BendRegion>()
+
+        val runs = mutableListOf<IntArray>()
         var i = 0
         while (i < n) {
             if (!tight[i]) {
@@ -185,21 +187,61 @@ object ThicknessAdaptiveWalls {
             }
             var j = i
             while (j + 1 < n && tight[j + 1]) j++
+            runs += intArrayOf(i, j)
+            i = j + 1
+        }
+        if (runs.isEmpty()) return emptyList()
+        if (runs.size >= 2 && runs.first()[0] == 0 && runs.last()[1] == n - 1) {
+            val head = runs.removeAt(0)
+            val tail = runs.removeAt(runs.size - 1)
+            runs.add(0, intArrayOf(tail[0], head[1]))
+        }
+
+        val merged = mutableListOf<IntArray>()
+        var current = runs[0]
+        for (index in 1 until runs.size) {
+            val next = runs[index]
+            if (loopDistance(loop, current[1], next[0], n) < GAP_MERGE_MM) {
+                current = intArrayOf(current[0], next[1])
+            } else {
+                merged += current
+                current = next
+            }
+        }
+        merged += current
+
+        val regions = mutableListOf<BendRegion>()
+        for (run in merged) {
             var minRadius = Float.POSITIVE_INFINITY
-            for (k in i..j) minRadius = min(minRadius, radii[k])
+            var vertex = run[0]
+            while (true) {
+                minRadius = min(minRadius, radii[vertex])
+                if (vertex == run[1]) break
+                vertex = (vertex + 1) % n
+            }
             val tightness = (1.0f - minRadius / bendRadiusMm).coerceIn(0f, 1f)
             val band = ceil(MAX_EXTRA_BANDS * tightness).toInt().coerceIn(1, MAX_EXTRA_BANDS)
-            val start = (i - BEND_RUN_PAD + n) % n
-            val end = (j + BEND_RUN_PAD) % n
+            val start = (run[0] - BEND_RUN_PAD + n) % n
+            val end = (run[1] + BEND_RUN_PAD) % n
             regions += BendRegion(
                 points = collectLoopPoints(loop, start, end, n),
                 clockwise = clockwise,
                 extraWalls = EXTRA_WALLS_PER_BAND * band,
                 minRadius = minRadius,
             )
-            i = j + 1
         }
         return regions
+    }
+
+    private fun loopDistance(loop: FloatArray, fromIndex: Int, toIndex: Int, n: Int): Float {
+        var distance = 0f
+        var index = fromIndex
+        while (index != toIndex) {
+            val next = (index + 1) % n
+            distance += hypot(loop[next * 2] - loop[index * 2], loop[next * 2 + 1] - loop[index * 2 + 1])
+            index = next
+        }
+        return distance
     }
 
     private fun vertexRadii(loop: FloatArray): FloatArray {
