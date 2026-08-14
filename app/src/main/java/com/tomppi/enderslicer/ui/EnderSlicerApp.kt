@@ -549,7 +549,7 @@ fun EnderSlicerApp(
                 onReset = viewModel::resetModelTransform,
                 onApplyImportedTransform = viewModel::applyImportedSceneTransform,
                 modifier = Modifier
-                    .fillMaxHeight(0.94f)
+                    .fillMaxHeight(0.5f)
                     .navigationBarsPadding(),
             )
         }
