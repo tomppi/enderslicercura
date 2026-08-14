@@ -8,8 +8,6 @@ import com.tomppi.enderslicer.viewer.StlMeshWriter
 import com.tomppi.enderslicer.viewer.StlParser
 import com.tomppi.enderslicer.viewer.StlSliceTransform
 import java.io.File
-import kotlin.math.abs
-import kotlin.math.atan2
 import kotlin.math.ceil
 import kotlin.math.hypot
 import kotlin.math.max
@@ -25,28 +23,24 @@ data class AdaptiveWallModifier(
 )
 
 /**
- * Automatic wall reinforcement where the part outline bends sharply.
+ * Automatic wall reinforcement where the part outline curves or corners.
  *
- * The base model keeps its normal walls. For every print layer the mesh is intersected with a
- * horizontal plane and the local radius of curvature is measured at each outline vertex; vertices
- * whose radius is tighter than the configured bend radius get extra walls, scaled by how tight the
- * bend is. Each contiguous run of equally-tight vertices is emitted as a crescent-shaped band that
- * hugs the bend, so the extra walls are localised to the bends and never span the entire
- * cross-section. Modifier volumes reuse the Smart Infill infill_mesh mechanism with wall overrides
- * instead of density overrides.
+ * The base model keeps its normal walls. The mesh is sliced once at mid-height and the local radius
+ * of curvature is measured at each outline vertex; any vertex tighter than the configured bend
+ * radius - a curve or a sharp corner - gets extra walls, scaled by how tight it is. Neighbouring
+ * tight vertices are merged into crescent-shaped bands that hug each bend and span the whole
+ * height, so Cura clips them to the material. Modifier volumes reuse the Smart Infill infill_mesh
+ * mechanism with wall overrides instead of density overrides.
  */
 object ThicknessAdaptiveWalls {
     private const val MAX_EXTRA_BANDS = 3
     private const val EXTRA_WALLS_PER_BAND = 2
-    private const val CORNER_TURN_RAD = 0.785f
     private const val SLAB_Z_PAD = 0.1f
     private const val WALL_DEPTH_MARGIN_MM = 1.0f
     private const val SMOOTH_HALF_WINDOW = 6
     private const val BEND_RUN_PAD = 4
     private const val GAP_MERGE_MM = 10.0f
     private const val OFFSET_CLAMP_FRACTION = 0.8f
-    private const val PI_F = 3.1415927f
-    private const val TWO_PI_F = 6.2831855f
 
     private data class BendRegion(
         val points: FloatArray,
@@ -219,8 +213,6 @@ object ThicknessAdaptiveWalls {
             val by = loop[i * 2 + 1]
             val cx = loop[((i + 1) % n) * 2]
             val cy = loop[((i + 1) % n) * 2 + 1]
-            val turn = turnAngleRad(ax, ay, bx, by, cx, cy)
-            if (abs(turn) > CORNER_TURN_RAD) continue
             val la = hypot(bx - cx, by - cy)
             val lb = hypot(ax - cx, ay - cy)
             val lc = hypot(ax - bx, ay - by)
@@ -374,15 +366,6 @@ object ThicknessAdaptiveWalls {
             )
         }
         return out
-    }
-
-    private fun turnAngleRad(ax: Float, ay: Float, bx: Float, by: Float, cx: Float, cy: Float): Float {
-        val a1 = atan2(by - ay, bx - ax)
-        val a2 = atan2(cy - by, cx - bx)
-        var turn = a2 - a1
-        while (turn > PI_F) turn -= TWO_PI_F
-        while (turn < -PI_F) turn += TWO_PI_F
-        return turn
     }
 
     private fun writeShellStl(vertices: FloatArray, transform: StlSliceTransform?, file: File) {
