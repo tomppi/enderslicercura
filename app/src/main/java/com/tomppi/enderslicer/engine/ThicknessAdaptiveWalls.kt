@@ -167,35 +167,34 @@ object ThicknessAdaptiveWalls {
         if (n < 3) return emptyList()
         val radii = vertexRadii(loop)
         val clockwise = signedArea(loop) < 0f
-        val level = IntArray(n)
+        val tight = BooleanArray(n)
         for (i in 0 until n) {
             var smoothed = Float.POSITIVE_INFINITY
             for (w in -SMOOTH_HALF_WINDOW..SMOOTH_HALF_WINDOW) {
                 val radius = radii[(i + w + n) % n]
                 if (radius < smoothed) smoothed = radius
             }
-            if (smoothed < bendRadiusMm) {
-                val tightness = (1.0f - smoothed / bendRadiusMm).coerceIn(0f, 1f)
-                level[i] = ceil(MAX_EXTRA_BANDS * tightness).toInt().coerceIn(1, MAX_EXTRA_BANDS)
-            }
+            tight[i] = smoothed < bendRadiusMm
         }
         val regions = mutableListOf<BendRegion>()
         var i = 0
         while (i < n) {
-            if (level[i] == 0) {
+            if (!tight[i]) {
                 i++
                 continue
             }
             var j = i
-            while (j + 1 < n && level[j + 1] == level[i]) j++
+            while (j + 1 < n && tight[j + 1]) j++
             var minRadius = Float.POSITIVE_INFINITY
             for (k in i..j) minRadius = min(minRadius, radii[k])
+            val tightness = (1.0f - minRadius / bendRadiusMm).coerceIn(0f, 1f)
+            val band = ceil(MAX_EXTRA_BANDS * tightness).toInt().coerceIn(1, MAX_EXTRA_BANDS)
             val start = (i - BEND_RUN_PAD + n) % n
             val end = (j + BEND_RUN_PAD) % n
             regions += BendRegion(
                 points = collectLoopPoints(loop, start, end, n),
                 clockwise = clockwise,
-                extraWalls = EXTRA_WALLS_PER_BAND * level[i],
+                extraWalls = EXTRA_WALLS_PER_BAND * band,
                 minRadius = minRadius,
             )
             i = j + 1
