@@ -83,11 +83,14 @@ object ThicknessAdaptiveWalls {
         var order = 0
         val slabZ0 = zMin - SLAB_Z_PAD
         val slabZ1 = zMax + SLAB_Z_PAD
+        // CuraEngine insets a modifier mesh's outermost wall past its outline by the base
+        // wall count, so grow the band's outer boundary outward to keep wall 0 on the part.
+        val outerOffset = baseWalls * lineWidth
         for (region in regions) {
             val depth = (wallCount * lineWidth + WALL_DEPTH_MARGIN_MM)
                 .coerceAtMost(max(region.minRadius * OFFSET_CLAMP_FRACTION, MIN_BAND_DEPTH_MM))
             val file = File(destination, "adaptive-walls-${++order}-${wallCount}walls.stl")
-            bandStl(region, depth, slabZ0, slabZ1, transform, file)
+            bandStl(region, depth, outerOffset, slabZ0, slabZ1, transform, file)
             modifiers += AdaptiveWallModifier(wallCount, settings.thicknessAdaptiveWallsFlowPercent, file)
             throwIfInterrupted()
         }
@@ -301,6 +304,7 @@ object ThicknessAdaptiveWalls {
     private fun bandStl(
         region: BendRegion,
         depth: Float,
+        outerOffset: Float,
         z0: Float,
         z1: Float,
         transform: StlSliceTransform?,
@@ -308,20 +312,22 @@ object ThicknessAdaptiveWalls {
     ) {
         val n = region.points.size / 2
         require(n >= 2) { "Adaptive wall band is degenerate" }
-        val outerX = FloatArray(n) { region.points[it * 2] }
-        val outerY = FloatArray(n) { region.points[it * 2 + 1] }
+        val outerX = FloatArray(n)
+        val outerY = FloatArray(n)
         val innerX = FloatArray(n)
         val innerY = FloatArray(n)
         for (i in 0 until n) {
             val prev = if (i == 0) 0 else i - 1
             val next = if (i == n - 1) n - 1 else i + 1
-            val tx = outerX[next] - outerX[prev]
-            val ty = outerY[next] - outerY[prev]
+            val tx = region.points[next * 2] - region.points[prev * 2]
+            val ty = region.points[next * 2 + 1] - region.points[prev * 2 + 1]
             val len = hypot(tx, ty)
             val ux = if (len > 1e-6f) tx / len else 0f
             val uy = if (len > 1e-6f) ty / len else 0f
             val nx = if (region.clockwise) uy else -uy
             val ny = if (region.clockwise) -ux else ux
+            outerX[i] = region.points[i * 2] - nx * outerOffset
+            outerY[i] = region.points[i * 2 + 1] - ny * outerOffset
             innerX[i] = outerX[i] + nx * depth
             innerY[i] = outerY[i] + ny * depth
         }
