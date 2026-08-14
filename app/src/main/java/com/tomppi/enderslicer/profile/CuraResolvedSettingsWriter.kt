@@ -131,10 +131,6 @@ internal object CuraResolvedSettingsWriter {
             if (resolved.modelValues.containsKey(key)) modelValues.put(key, value)
         }
         modelValues.put("extruder_nr", 0)
-        if (adaptiveWallModifiers.isNotEmpty()) {
-            modelValues.put("wall_line_count", 0)
-            modelValues.put("skin_inset_count", adaptiveWallModifiers.maxOf(AdaptiveWallModifier::wallLineCount))
-        }
         applyTransform(
             values = modelValues,
             linear = linear,

@@ -43,6 +43,7 @@ object ThicknessAdaptiveWalls {
     private const val CORNER_TURN_RAD = 0.785f
     private const val SLAB_Z_PAD = 0.1f
     private const val WALL_DEPTH_MARGIN_MM = 1.0f
+    private const val DISK_SPACING_MM = 4.0f
     private const val DISK_SEGMENTS = 16
     private const val PI_F = 3.1415927f
     private const val TWO_PI_F = 6.2831855f
@@ -165,31 +166,20 @@ object ThicknessAdaptiveWalls {
         if (n < 3) return emptyList()
         val radii = vertexRadii(loop)
         val regions = mutableListOf<BendRegion>()
-        var i = 0
-        while (i < n) {
-            if (!(radii[i] < bendRadiusMm)) {
-                i++
-                continue
-            }
-            var j = i
-            while (j + 1 < n && radii[j + 1] < bendRadiusMm) j++
-            var minRadius = Float.POSITIVE_INFINITY
-            var centerX = 0f
-            var centerY = 0f
-            var vertexCount = 0
-            for (k in i..j) {
-                minRadius = min(minRadius, radii[k])
-                centerX += loop[k * 2]
-                centerY += loop[k * 2 + 1]
-                vertexCount++
-            }
-            centerX /= vertexCount
-            centerY /= vertexCount
-            val tightness = (1.0f - minRadius / bendRadiusMm).coerceIn(0f, 1f)
+        var lastX = Float.NaN
+        var lastY = Float.NaN
+        for (i in 0 until n) {
+            val radius = radii[i]
+            if (radius >= bendRadiusMm) continue
+            val x = loop[i * 2]
+            val y = loop[i * 2 + 1]
+            if (!lastX.isNaN() && hypot(x - lastX, y - lastY) < DISK_SPACING_MM) continue
+            val tightness = (1.0f - radius / bendRadiusMm).coerceIn(0f, 1f)
             val band = ceil(MAX_EXTRA_BANDS * tightness).toInt().coerceIn(1, MAX_EXTRA_BANDS)
             val extraWalls = EXTRA_WALLS_PER_BAND * band
-            regions += BendRegion(centerX, centerY, extraWalls)
-            i = j + 1
+            regions += BendRegion(x, y, extraWalls)
+            lastX = x
+            lastY = y
         }
         return regions
     }
