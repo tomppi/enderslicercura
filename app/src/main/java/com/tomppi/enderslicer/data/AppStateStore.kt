@@ -321,6 +321,14 @@ class AppStateStore(context: Context) {
             .put(SlicerSettings.Keys.IRONING_ONLY_HIGHEST_LAYER, settings.ironingOnlyHighestLayer)
             .put(SlicerSettings.Keys.IRONING_FLOW, settings.ironingFlowPercent)
             .put(SlicerSettings.Keys.IRONING_SPEED, settings.ironingSpeedMmPerSecond)
+            .put(SlicerSettings.Keys.THICKNESS_ADAPTIVE_WALLS_ENABLED, settings.thicknessAdaptiveWallsEnabled)
+            .put(SlicerSettings.Keys.THICKNESS_ADAPTIVE_WALLS_FLOW, settings.thicknessAdaptiveWallsFlowPercent)
+            .put(SlicerSettings.Keys.THICKNESS_ADAPTIVE_WALLS_BEND_RADIUS, settings.thicknessAdaptiveWallsBendRadiusMm)
+            .put(SlicerSettings.Keys.THICKNESS_ADAPTIVE_WALLS_CORNERS_ENABLED, settings.thicknessAdaptiveWallsCornersEnabled)
+            .put(
+                SlicerSettings.Keys.THICKNESS_ADAPTIVE_WALLS_CORNER_MIN_ANGLE,
+                settings.thicknessAdaptiveWallsCornerMinAngleDegrees,
+            )
 
         val overrides = JSONArray()
         settings.overriddenSettingKeys.sorted().forEach(overrides::put)
@@ -476,6 +484,21 @@ class AppStateStore(context: Context) {
                 SlicerSettings.Keys.IRONING_ONLY_HIGHEST_LAYER -> restored.copy(ironingOnlyHighestLayer = values.optBoolean(key, restored.ironingOnlyHighestLayer))
                 SlicerSettings.Keys.IRONING_FLOW -> restored.copy(ironingFlowPercent = values.optDouble(key, restored.ironingFlowPercent))
                 SlicerSettings.Keys.IRONING_SPEED -> restored.copy(ironingSpeedMmPerSecond = values.optDouble(key, restored.ironingSpeedMmPerSecond))
+                SlicerSettings.Keys.THICKNESS_ADAPTIVE_WALLS_ENABLED -> restored.copy(
+                    thicknessAdaptiveWallsEnabled = values.optBoolean(key, restored.thicknessAdaptiveWallsEnabled),
+                )
+                SlicerSettings.Keys.THICKNESS_ADAPTIVE_WALLS_FLOW -> restored.copy(
+                    thicknessAdaptiveWallsFlowPercent = values.optDouble(key, restored.thicknessAdaptiveWallsFlowPercent),
+                )
+                SlicerSettings.Keys.THICKNESS_ADAPTIVE_WALLS_BEND_RADIUS -> restored.copy(
+                    thicknessAdaptiveWallsBendRadiusMm = values.optDouble(key, restored.thicknessAdaptiveWallsBendRadiusMm),
+                )
+                SlicerSettings.Keys.THICKNESS_ADAPTIVE_WALLS_CORNERS_ENABLED -> restored.copy(
+                    thicknessAdaptiveWallsCornersEnabled = values.optBoolean(key, restored.thicknessAdaptiveWallsCornersEnabled),
+                )
+                SlicerSettings.Keys.THICKNESS_ADAPTIVE_WALLS_CORNER_MIN_ANGLE -> restored.copy(
+                    thicknessAdaptiveWallsCornerMinAngleDegrees = values.optDouble(key, restored.thicknessAdaptiveWallsCornerMinAngleDegrees),
+                )
                 else -> restored
             }
         }

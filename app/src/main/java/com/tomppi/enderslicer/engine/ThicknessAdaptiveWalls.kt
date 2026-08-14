@@ -8,6 +8,8 @@ import com.tomppi.enderslicer.viewer.StlMeshWriter
 import com.tomppi.enderslicer.viewer.StlParser
 import com.tomppi.enderslicer.viewer.StlSliceTransform
 import java.io.File
+import kotlin.math.abs
+import kotlin.math.atan2
 import kotlin.math.ceil
 import kotlin.math.hypot
 import kotlin.math.max
@@ -41,6 +43,8 @@ object ThicknessAdaptiveWalls {
     private const val BEND_RUN_PAD = 4
     private const val GAP_MERGE_MM = 10.0f
     private const val OFFSET_CLAMP_FRACTION = 0.8f
+    private const val PI_F = 3.1415927f
+    private const val TWO_PI_F = 6.2831855f
 
     private data class BendRegion(
         val points: FloatArray,
@@ -70,12 +74,14 @@ object ThicknessAdaptiveWalls {
         val zMax = mesh.bounds.maxZ
         val bendRadiusMm = settings.thicknessAdaptiveWallsBendRadiusMm.toFloat()
         val lineWidth = settings.lineWidthMm.toFloat()
+        val cornersEnabled = settings.thicknessAdaptiveWallsCornersEnabled
+        val cornerMinAngleRad = Math.toRadians(settings.thicknessAdaptiveWallsCornerMinAngleDegrees).toFloat()
 
         val referenceZ = (zMin + zMax) * 0.5f
         val loops = chainSegments(outlineSegmentsAt(triangles, referenceZ))
         val regions = mutableListOf<BendRegion>()
         for (loop in loops) {
-            regions += detectBendRegions(loop, bendRadiusMm)
+            regions += detectBendRegions(loop, bendRadiusMm, cornersEnabled, cornerMinAngleRad)
         }
 
         val modifiers = mutableListOf<AdaptiveWallModifier>()
@@ -121,7 +127,12 @@ object ThicknessAdaptiveWalls {
         return segments
     }
 
-    private fun detectBendRegions(loop: FloatArray, bendRadiusMm: Float): List<BendRegion> {
+    private fun detectBendRegions(
+        loop: FloatArray,
+        bendRadiusMm: Float,
+        cornersEnabled: Boolean,
+        cornerMinAngleRad: Float,
+    ): List<BendRegion> {
         val n = loop.size / 2
         if (n < 3) return emptyList()
         val radii = vertexRadii(loop)
@@ -134,6 +145,20 @@ object ThicknessAdaptiveWalls {
                 if (radius < smoothed) smoothed = radius
             }
             tight[i] = smoothed < bendRadiusMm
+        }
+        if (cornersEnabled) {
+            for (i in 0 until n) {
+                val ax = loop[((i - 1 + n) % n) * 2]
+                val ay = loop[((i - 1 + n) % n) * 2 + 1]
+                val bx = loop[i * 2]
+                val by = loop[i * 2 + 1]
+                val cx = loop[((i + 1) % n) * 2]
+                val cy = loop[((i + 1) % n) * 2 + 1]
+                if (abs(turnAngleRad(ax, ay, bx, by, cx, cy)) < cornerMinAngleRad) continue
+                for (w in -SMOOTH_HALF_WINDOW..SMOOTH_HALF_WINDOW) {
+                    tight[(i + w + n) % n] = true
+                }
+            }
         }
 
         val runs = mutableListOf<IntArray>()
@@ -235,6 +260,15 @@ object ThicknessAdaptiveWalls {
             area += x1 * y2 - x2 * y1
         }
         return area * 0.5f
+    }
+
+    private fun turnAngleRad(ax: Float, ay: Float, bx: Float, by: Float, cx: Float, cy: Float): Float {
+        val a1 = atan2(by - ay, bx - ax)
+        val a2 = atan2(cy - by, cx - bx)
+        var turn = a2 - a1
+        while (turn > PI_F) turn -= TWO_PI_F
+        while (turn < -PI_F) turn += TWO_PI_F
+        return turn
     }
 
     private fun collectLoopPoints(loop: FloatArray, start: Int, end: Int, n: Int): FloatArray {
