@@ -324,11 +324,6 @@ class AppStateStore(context: Context) {
             .put(SlicerSettings.Keys.THICKNESS_ADAPTIVE_WALLS_ENABLED, settings.thicknessAdaptiveWallsEnabled)
             .put(SlicerSettings.Keys.THICKNESS_ADAPTIVE_WALLS_FLOW, settings.thicknessAdaptiveWallsFlowPercent)
             .put(SlicerSettings.Keys.THICKNESS_ADAPTIVE_WALLS_BEND_RADIUS, settings.thicknessAdaptiveWallsBendRadiusMm)
-            .put(SlicerSettings.Keys.THICKNESS_ADAPTIVE_WALLS_CORNERS_ENABLED, settings.thicknessAdaptiveWallsCornersEnabled)
-            .put(
-                SlicerSettings.Keys.THICKNESS_ADAPTIVE_WALLS_CORNER_MIN_ANGLE,
-                settings.thicknessAdaptiveWallsCornerMinAngleDegrees,
-            )
 
         val overrides = JSONArray()
         settings.overriddenSettingKeys.sorted().forEach(overrides::put)
@@ -492,12 +487,6 @@ class AppStateStore(context: Context) {
                 )
                 SlicerSettings.Keys.THICKNESS_ADAPTIVE_WALLS_BEND_RADIUS -> restored.copy(
                     thicknessAdaptiveWallsBendRadiusMm = values.optDouble(key, restored.thicknessAdaptiveWallsBendRadiusMm),
-                )
-                SlicerSettings.Keys.THICKNESS_ADAPTIVE_WALLS_CORNERS_ENABLED -> restored.copy(
-                    thicknessAdaptiveWallsCornersEnabled = values.optBoolean(key, restored.thicknessAdaptiveWallsCornersEnabled),
-                )
-                SlicerSettings.Keys.THICKNESS_ADAPTIVE_WALLS_CORNER_MIN_ANGLE -> restored.copy(
-                    thicknessAdaptiveWallsCornerMinAngleDegrees = values.optDouble(key, restored.thicknessAdaptiveWallsCornerMinAngleDegrees),
                 )
                 else -> restored
             }

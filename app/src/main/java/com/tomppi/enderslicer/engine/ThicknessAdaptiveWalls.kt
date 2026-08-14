@@ -8,8 +8,6 @@ import com.tomppi.enderslicer.viewer.StlMeshWriter
 import com.tomppi.enderslicer.viewer.StlParser
 import com.tomppi.enderslicer.viewer.StlSliceTransform
 import java.io.File
-import kotlin.math.abs
-import kotlin.math.atan2
 import kotlin.math.ceil
 import kotlin.math.hypot
 import kotlin.math.max
@@ -44,8 +42,7 @@ object ThicknessAdaptiveWalls {
     private const val GAP_MERGE_MM = 10.0f
     private const val OFFSET_CLAMP_FRACTION = 0.8f
     private const val MIN_BAND_DEPTH_MM = 1.5f
-    private const val PI_F = 3.1415927f
-    private const val TWO_PI_F = 6.2831855f
+    private const val RESAMPLE_STEP_MM = 2.0f
 
     private data class BendRegion(
         val points: FloatArray,
@@ -75,14 +72,13 @@ object ThicknessAdaptiveWalls {
         val zMax = mesh.bounds.maxZ
         val bendRadiusMm = settings.thicknessAdaptiveWallsBendRadiusMm.toFloat()
         val lineWidth = settings.lineWidthMm.toFloat()
-        val cornersEnabled = settings.thicknessAdaptiveWallsCornersEnabled
-        val cornerMinAngleRad = Math.toRadians(settings.thicknessAdaptiveWallsCornerMinAngleDegrees).toFloat()
 
         val referenceZ = (zMin + zMax) * 0.5f
         val loops = chainSegments(outlineSegmentsAt(triangles, referenceZ))
         val regions = mutableListOf<BendRegion>()
         for (loop in loops) {
-            regions += detectBendRegions(deduplicateLoop(loop), bendRadiusMm, cornersEnabled, cornerMinAngleRad)
+            val resampled = resampleLoop(deduplicateLoop(loop), RESAMPLE_STEP_MM)
+            regions += detectBendRegions(resampled, bendRadiusMm)
         }
 
         val modifiers = mutableListOf<AdaptiveWallModifier>()
@@ -128,12 +124,7 @@ object ThicknessAdaptiveWalls {
         return segments
     }
 
-    private fun detectBendRegions(
-        loop: FloatArray,
-        bendRadiusMm: Float,
-        cornersEnabled: Boolean,
-        cornerMinAngleRad: Float,
-    ): List<BendRegion> {
+    private fun detectBendRegions(loop: FloatArray, bendRadiusMm: Float): List<BendRegion> {
         val n = loop.size / 2
         if (n < 3) return emptyList()
         val radii = vertexRadii(loop)
@@ -146,20 +137,6 @@ object ThicknessAdaptiveWalls {
                 if (radius < smoothed) smoothed = radius
             }
             tight[i] = smoothed < bendRadiusMm
-        }
-        if (cornersEnabled) {
-            for (i in 0 until n) {
-                val ax = loop[((i - 1 + n) % n) * 2]
-                val ay = loop[((i - 1 + n) % n) * 2 + 1]
-                val bx = loop[i * 2]
-                val by = loop[i * 2 + 1]
-                val cx = loop[((i + 1) % n) * 2]
-                val cy = loop[((i + 1) % n) * 2 + 1]
-                if (abs(turnAngleRad(ax, ay, bx, by, cx, cy)) < cornerMinAngleRad) continue
-                for (w in -SMOOTH_HALF_WINDOW..SMOOTH_HALF_WINDOW) {
-                    tight[(i + w + n) % n] = true
-                }
-            }
         }
 
         val runs = mutableListOf<IntArray>()
@@ -270,13 +247,30 @@ object ThicknessAdaptiveWalls {
         return area * 0.5f
     }
 
-    private fun turnAngleRad(ax: Float, ay: Float, bx: Float, by: Float, cx: Float, cy: Float): Float {
-        val a1 = atan2(by - ay, bx - ax)
-        val a2 = atan2(cy - by, cx - bx)
-        var turn = a2 - a1
-        while (turn > PI_F) turn -= TWO_PI_F
-        while (turn < -PI_F) turn += TWO_PI_F
-        return turn
+    private fun resampleLoop(loop: FloatArray, stepMm: Float): FloatArray {
+        val n = loop.size / 2
+        if (n == 0) return loop
+        val cumulative = FloatArray(n + 1)
+        for (i in 0 until n) {
+            val j = (i + 1) % n
+            cumulative[i + 1] = cumulative[i] +
+                hypot(loop[j * 2] - loop[i * 2], loop[j * 2 + 1] - loop[i * 2 + 1])
+        }
+        val total = cumulative[n]
+        if (total <= stepMm) return loop
+        val out = mutableListOf<Float>()
+        var target = 0f
+        var segment = 0
+        while (target < total) {
+            while (segment < n && cumulative[segment + 1] <= target) segment++
+            val segmentLength = cumulative[segment + 1] - cumulative[segment]
+            val t = if (segmentLength > 1e-6f) (target - cumulative[segment]) / segmentLength else 0f
+            val next = (segment + 1) % n
+            out += loop[segment * 2] + t * (loop[next * 2] - loop[segment * 2])
+            out += loop[segment * 2 + 1] + t * (loop[next * 2 + 1] - loop[segment * 2 + 1])
+            target += stepMm
+        }
+        return out.toFloatArray()
     }
 
     private fun deduplicateLoop(loop: FloatArray): FloatArray {

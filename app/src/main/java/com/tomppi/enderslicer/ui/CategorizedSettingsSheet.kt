@@ -299,26 +299,6 @@ internal fun CategorizedSettingsSheet(
                         current.copy(thicknessAdaptiveWallsBendRadiusMm = it.coerceIn(0.5, 100.0))
                     }
                 }
-                SwitchRow(
-                    "Reinforce corners",
-                    settings.thicknessAdaptiveWallsCornersEnabled,
-                    source(state, SlicerSettings.Keys.THICKNESS_ADAPTIVE_WALLS_CORNERS_ENABLED),
-                ) {
-                    onSettings(SlicerSettings.Keys.THICKNESS_ADAPTIVE_WALLS_CORNERS_ENABLED) { current ->
-                        current.copy(thicknessAdaptiveWallsCornersEnabled = it)
-                    }
-                }
-                if (settings.thicknessAdaptiveWallsCornersEnabled) {
-                    NumberField(
-                        "Corner min angle (°)",
-                        settings.thicknessAdaptiveWallsCornerMinAngleDegrees,
-                        source(state, SlicerSettings.Keys.THICKNESS_ADAPTIVE_WALLS_CORNER_MIN_ANGLE),
-                    ) {
-                        onSettings(SlicerSettings.Keys.THICKNESS_ADAPTIVE_WALLS_CORNER_MIN_ANGLE) { current ->
-                            current.copy(thicknessAdaptiveWallsCornerMinAngleDegrees = it.coerceIn(5.0, 150.0))
-                        }
-                    }
-                }
             }
         }
 
