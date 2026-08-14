@@ -43,6 +43,7 @@ object ThicknessAdaptiveWalls {
     private const val BEND_RUN_PAD = 4
     private const val GAP_MERGE_MM = 10.0f
     private const val OFFSET_CLAMP_FRACTION = 0.8f
+    private const val MIN_BAND_DEPTH_MM = 1.5f
     private const val PI_F = 3.1415927f
     private const val TWO_PI_F = 6.2831855f
 
@@ -81,7 +82,7 @@ object ThicknessAdaptiveWalls {
         val loops = chainSegments(outlineSegmentsAt(triangles, referenceZ))
         val regions = mutableListOf<BendRegion>()
         for (loop in loops) {
-            regions += detectBendRegions(loop, bendRadiusMm, cornersEnabled, cornerMinAngleRad)
+            regions += detectBendRegions(deduplicateLoop(loop), bendRadiusMm, cornersEnabled, cornerMinAngleRad)
         }
 
         val modifiers = mutableListOf<AdaptiveWallModifier>()
@@ -91,7 +92,7 @@ object ThicknessAdaptiveWalls {
         for (region in regions) {
             val wallCount = baseWalls + region.extraWalls
             val depth = (wallCount * lineWidth + WALL_DEPTH_MARGIN_MM)
-                .coerceAtMost(region.minRadius * OFFSET_CLAMP_FRACTION)
+                .coerceAtMost(max(region.minRadius * OFFSET_CLAMP_FRACTION, MIN_BAND_DEPTH_MM))
             val file = File(destination, "adaptive-walls-${++order}-${wallCount}walls.stl")
             bandStl(region, depth, slabZ0, slabZ1, transform, file)
             modifiers += AdaptiveWallModifier(wallCount, settings.thicknessAdaptiveWallsFlowPercent, file)
@@ -269,6 +270,23 @@ object ThicknessAdaptiveWalls {
         while (turn > PI_F) turn -= TWO_PI_F
         while (turn < -PI_F) turn += TWO_PI_F
         return turn
+    }
+
+    private fun deduplicateLoop(loop: FloatArray): FloatArray {
+        val n = loop.size / 2
+        val out = mutableListOf<Float>()
+        for (i in 0 until n) {
+            val x = loop[i * 2]
+            val y = loop[i * 2 + 1]
+            if (out.size >= 2 && out[out.size - 2] == x && out[out.size - 1] == y) continue
+            out += x
+            out += y
+        }
+        if (out.size >= 4 && out[0] == out[out.size - 2] && out[1] == out[out.size - 1]) {
+            out.removeAt(out.size - 1)
+            out.removeAt(out.size - 1)
+        }
+        return out.toFloatArray()
     }
 
     private fun collectLoopPoints(loop: FloatArray, start: Int, end: Int, n: Int): FloatArray {
