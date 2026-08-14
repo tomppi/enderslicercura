@@ -46,7 +46,7 @@ data class SlicerSettings(
     val infillPattern: String = "cubic",
     val zigZagConnectInfill: Boolean = true,
     val thicknessAdaptiveWallsEnabled: Boolean = false,
-    val thicknessAdaptiveWallsFlowPercent: Double = 150.0,
+    val thicknessAdaptiveWallsFlowPercent: Double = 100.0,
     val thicknessAdaptiveWallsBendRadiusMm: Double = 12.0,
     val printSpeedMmPerSecond: Double = 200.0,
     val wallSpeedMmPerSecond: Double = 100.0,
