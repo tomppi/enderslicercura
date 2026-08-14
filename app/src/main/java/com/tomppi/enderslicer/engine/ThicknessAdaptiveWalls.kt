@@ -11,12 +11,10 @@ import java.io.File
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.ceil
-import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
-import kotlin.math.sin
 import kotlin.math.sqrt
 
 /** One nested modifier volume and the wall reinforcement it applies in its region. */
@@ -32,10 +30,10 @@ data class AdaptiveWallModifier(
  * The base model keeps its normal walls. For every print layer the mesh is intersected with a
  * horizontal plane and the local radius of curvature is measured at each outline vertex; vertices
  * whose radius is tighter than the configured bend radius get extra walls, scaled by how tight the
- * bend is. Each contiguous run of tight vertices is emitted as a small disk-shaped modifier volume
- * centred on that bend (rather than a whole-layer slab), so the extra walls are localised to the
- * bends and never span the entire cross-section. Modifier volumes reuse the Smart Infill
- * infill_mesh mechanism with wall overrides instead of density overrides.
+ * bend is. Each contiguous run of equally-tight vertices is emitted as a crescent-shaped band that
+ * hugs the bend, so the extra walls are localised to the bends and never span the entire
+ * cross-section. Modifier volumes reuse the Smart Infill infill_mesh mechanism with wall overrides
+ * instead of density overrides.
  */
 object ThicknessAdaptiveWalls {
     private const val MAX_EXTRA_BANDS = 3
@@ -43,15 +41,17 @@ object ThicknessAdaptiveWalls {
     private const val CORNER_TURN_RAD = 0.785f
     private const val SLAB_Z_PAD = 0.1f
     private const val WALL_DEPTH_MARGIN_MM = 1.0f
-    private const val DISK_SPACING_MM = 4.0f
-    private const val DISK_SEGMENTS = 16
+    private const val SMOOTH_HALF_WINDOW = 2
+    private const val BEND_RUN_PAD = 3
+    private const val OFFSET_CLAMP_FRACTION = 0.8f
     private const val PI_F = 3.1415927f
     private const val TWO_PI_F = 6.2831855f
 
     private data class BendRegion(
-        val centerX: Float,
-        val centerY: Float,
+        val points: FloatArray,
+        val clockwise: Boolean,
         val extraWalls: Int,
+        val minRadius: Float,
     )
 
     private data class LayerBends(
@@ -122,9 +122,10 @@ object ThicknessAdaptiveWalls {
                 val slabZ1 = boundaries[bandEnd + 1] + SLAB_Z_PAD
                 for (region in mid.regions) {
                     val wallCount = baseWalls + region.extraWalls
-                    val radius = wallCount * lineWidth + WALL_DEPTH_MARGIN_MM
+                    val depth = (wallCount * lineWidth + WALL_DEPTH_MARGIN_MM)
+                        .coerceAtMost(region.minRadius * OFFSET_CLAMP_FRACTION)
                     val file = File(destination, "adaptive-walls-${++order}-${wallCount}walls.stl")
-                    diskPrismStl(region.centerX, region.centerY, radius, slabZ0, slabZ1, transform, file)
+                    bandStl(region, depth, slabZ0, slabZ1, transform, file)
                     modifiers += AdaptiveWallModifier(wallCount, settings.thicknessAdaptiveWallsFlowPercent, file)
                     throwIfInterrupted()
                 }
@@ -165,21 +166,39 @@ object ThicknessAdaptiveWalls {
         val n = loop.size / 2
         if (n < 3) return emptyList()
         val radii = vertexRadii(loop)
-        val regions = mutableListOf<BendRegion>()
-        var lastX = Float.NaN
-        var lastY = Float.NaN
+        val clockwise = signedArea(loop) < 0f
+        val level = IntArray(n)
         for (i in 0 until n) {
-            val radius = radii[i]
-            if (radius >= bendRadiusMm) continue
-            val x = loop[i * 2]
-            val y = loop[i * 2 + 1]
-            if (!lastX.isNaN() && hypot(x - lastX, y - lastY) < DISK_SPACING_MM) continue
-            val tightness = (1.0f - radius / bendRadiusMm).coerceIn(0f, 1f)
-            val band = ceil(MAX_EXTRA_BANDS * tightness).toInt().coerceIn(1, MAX_EXTRA_BANDS)
-            val extraWalls = EXTRA_WALLS_PER_BAND * band
-            regions += BendRegion(x, y, extraWalls)
-            lastX = x
-            lastY = y
+            var smoothed = Float.POSITIVE_INFINITY
+            for (w in -SMOOTH_HALF_WINDOW..SMOOTH_HALF_WINDOW) {
+                val radius = radii[(i + w + n) % n]
+                if (radius < smoothed) smoothed = radius
+            }
+            if (smoothed < bendRadiusMm) {
+                val tightness = (1.0f - smoothed / bendRadiusMm).coerceIn(0f, 1f)
+                level[i] = ceil(MAX_EXTRA_BANDS * tightness).toInt().coerceIn(1, MAX_EXTRA_BANDS)
+            }
+        }
+        val regions = mutableListOf<BendRegion>()
+        var i = 0
+        while (i < n) {
+            if (level[i] == 0) {
+                i++
+                continue
+            }
+            var j = i
+            while (j + 1 < n && level[j + 1] == level[i]) j++
+            var minRadius = Float.POSITIVE_INFINITY
+            for (k in i..j) minRadius = min(minRadius, radii[k])
+            val start = (i - BEND_RUN_PAD + n) % n
+            val end = (j + BEND_RUN_PAD) % n
+            regions += BendRegion(
+                points = collectLoopPoints(loop, start, end, n),
+                clockwise = clockwise,
+                extraWalls = EXTRA_WALLS_PER_BAND * level[i],
+                minRadius = minRadius,
+            )
+            i = j + 1
         }
         return regions
     }
@@ -208,22 +227,59 @@ object ThicknessAdaptiveWalls {
         return radii
     }
 
-    private fun diskPrismStl(
-        centerX: Float,
-        centerY: Float,
-        radius: Float,
+    private fun signedArea(loop: FloatArray): Float {
+        val n = loop.size / 2
+        var area = 0f
+        for (i in 0 until n) {
+            val x1 = loop[i * 2]
+            val y1 = loop[i * 2 + 1]
+            val x2 = loop[((i + 1) % n) * 2]
+            val y2 = loop[((i + 1) % n) * 2 + 1]
+            area += x1 * y2 - x2 * y1
+        }
+        return area * 0.5f
+    }
+
+    private fun collectLoopPoints(loop: FloatArray, start: Int, end: Int, n: Int): FloatArray {
+        val out = mutableListOf<Float>()
+        var idx = start
+        var guard = 0
+        while (guard <= n) {
+            out += loop[idx * 2]
+            out += loop[idx * 2 + 1]
+            if (idx == end) break
+            idx = (idx + 1) % n
+            guard++
+        }
+        return out.toFloatArray()
+    }
+
+    private fun bandStl(
+        region: BendRegion,
+        depth: Float,
         z0: Float,
         z1: Float,
         transform: StlSliceTransform?,
         file: File,
     ) {
-        val n = DISK_SEGMENTS
-        val px = FloatArray(n)
-        val py = FloatArray(n)
-        for (k in 0 until n) {
-            val angle = TWO_PI_F * k / n
-            px[k] = centerX + radius * cos(angle)
-            py[k] = centerY + radius * sin(angle)
+        val n = region.points.size / 2
+        require(n >= 2) { "Adaptive wall band is degenerate" }
+        val outerX = FloatArray(n) { region.points[it * 2] }
+        val outerY = FloatArray(n) { region.points[it * 2 + 1] }
+        val innerX = FloatArray(n)
+        val innerY = FloatArray(n)
+        for (i in 0 until n) {
+            val prev = if (i == 0) 0 else i - 1
+            val next = if (i == n - 1) n - 1 else i + 1
+            val tx = outerX[next] - outerX[prev]
+            val ty = outerY[next] - outerY[prev]
+            val len = hypot(tx, ty)
+            val ux = if (len > 1e-6f) tx / len else 0f
+            val uy = if (len > 1e-6f) ty / len else 0f
+            val nx = if (region.clockwise) uy else -uy
+            val ny = if (region.clockwise) -ux else ux
+            innerX[i] = outerX[i] + nx * depth
+            innerY[i] = outerY[i] + ny * depth
         }
         val vertices = mutableListOf<Float>()
         fun tri(ax: Float, ay: Float, az: Float, bx: Float, by: Float, bz: Float, cx: Float, cy: Float, cz: Float) {
@@ -231,16 +287,23 @@ object ThicknessAdaptiveWalls {
             vertices.add(bx); vertices.add(by); vertices.add(bz)
             vertices.add(cx); vertices.add(cy); vertices.add(cz)
         }
-        for (i in 1 until n - 1) {
-            tri(px[0], py[0], z1, px[i], py[i], z1, px[i + 1], py[i + 1], z1)
-            tri(px[0], py[0], z0, px[i + 1], py[i + 1], z0, px[i], py[i], z0)
+        for (j in 0 until n - 1) {
+            val k = j + 1
+            tri(outerX[j], outerY[j], z1, outerX[k], outerY[k], z1, innerX[k], innerY[k], z1)
+            tri(outerX[j], outerY[j], z1, innerX[k], innerY[k], z1, innerX[j], innerY[j], z1)
+            tri(outerX[j], outerY[j], z0, innerX[k], innerY[k], z0, outerX[k], outerY[k], z0)
+            tri(outerX[j], outerY[j], z0, innerX[j], innerY[j], z0, innerX[k], innerY[k], z0)
+            tri(outerX[j], outerY[j], z0, outerX[k], outerY[k], z0, outerX[k], outerY[k], z1)
+            tri(outerX[j], outerY[j], z0, outerX[k], outerY[k], z1, outerX[j], outerY[j], z1)
+            tri(innerX[j], innerY[j], z0, innerX[k], innerY[k], z1, innerX[k], innerY[k], z0)
+            tri(innerX[j], innerY[j], z0, innerX[j], innerY[j], z1, innerX[k], innerY[k], z1)
         }
-        for (k in 0 until n) {
-            val j = (k + 1) % n
-            tri(px[k], py[k], z0, px[j], py[j], z0, px[j], py[j], z1)
-            tri(px[k], py[k], z0, px[j], py[j], z1, px[k], py[k], z1)
-        }
-        require(vertices.size % 9 == 0) { "Adaptive wall disk produced a malformed shell" }
+        tri(outerX[0], outerY[0], z0, innerX[0], innerY[0], z0, innerX[0], innerY[0], z1)
+        tri(outerX[0], outerY[0], z0, innerX[0], innerY[0], z1, outerX[0], outerY[0], z1)
+        val last = n - 1
+        tri(outerX[last], outerY[last], z0, innerX[last], innerY[last], z1, innerX[last], innerY[last], z0)
+        tri(outerX[last], outerY[last], z0, outerX[last], outerY[last], z1, innerX[last], innerY[last], z1)
+        require(vertices.size % 9 == 0) { "Adaptive wall band produced a malformed shell" }
         writeShellStl(vertices.toFloatArray(), transform, file)
     }
 
