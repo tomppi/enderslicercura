@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Create
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.FileOpen
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.PlayArrow
@@ -147,6 +148,9 @@ fun EnderSlicerApp(
         ActivityResultContracts.CreateDocument("application/json"),
     ) { uri: Uri? ->
         uri?.let(viewModel::exportConfiguration)
+    }
+    val configImportPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let(viewModel::importConfiguration)
     }
     val gcodeExportPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("text/x-gcode"),
@@ -276,6 +280,15 @@ fun EnderSlicerApp(
                                 onClick = {
                                     menuExpanded = false
                                     configExportPicker.launch("printer-config.json")
+                                },
+                                enabled = !state.isBusy,
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Import configuration snapshot") },
+                                leadingIcon = { Icon(Icons.Filled.FileOpen, contentDescription = null) },
+                                onClick = {
+                                    menuExpanded = false
+                                    configImportPicker.launch(arrayOf("application/json", "*/*"))
                                 },
                                 enabled = !state.isBusy,
                             )
