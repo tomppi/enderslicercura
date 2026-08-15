@@ -159,6 +159,17 @@ class CuraEngineRunner(private val context: Context) {
                 ?.stageModifiers(workspace.directory, modelFile)
                 .orEmpty()
             throwIfInterrupted()
+            val adaptiveWallModifiers = if (effectiveSettings.thicknessAdaptiveWallsEnabled) {
+                ThicknessAdaptiveWalls.generate(
+                    modelFile = workspace.model,
+                    settings = effectiveSettings,
+                    destination = workspace.directory,
+                    transform = modelTransform,
+                )
+            } else {
+                emptyList()
+            }
+            throwIfInterrupted()
 
             val definitions = prepareDefinitions(workspace.directory, log, resolutionProfile)
             throwIfInterrupted()
@@ -178,6 +189,7 @@ class CuraEngineRunner(private val context: Context) {
                     resolved = resolved,
                     modelTransform = modelTransform,
                     smartInfillModifiers = smartInfillModifiers,
+                    adaptiveWallModifiers = adaptiveWallModifiers,
                 )
                 CuraEngineCommand.buildResolved(
                     executable.absolutePath,
@@ -199,6 +211,7 @@ class CuraEngineRunner(private val context: Context) {
                     endGcode = endGcode,
                     profile = null,
                     smartInfillModifiers = smartInfillModifiers,
+                    adaptiveWallModifiers = adaptiveWallModifiers,
                 )
             }
             appendCommandLog(log, definitions, resolved, workspace.resolvedSettings, command)

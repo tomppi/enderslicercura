@@ -169,9 +169,10 @@ private class ModelRenderer(
 
     fun setMesh(value: StlMesh?) {
         if (mesh === value) return
+        val isNewModel = value?.displayName != mesh?.displayName
         mesh = value
         meshBuffer = value?.interleavedVertices?.let(::floatBuffer)
-        resetCamera()
+        if (isNewModel) resetCamera()
     }
 
     fun rotate(deltaYaw: Float, deltaPitch: Float) {

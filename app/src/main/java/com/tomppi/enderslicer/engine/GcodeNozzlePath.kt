@@ -43,7 +43,7 @@ data class GcodeNozzlePath(
 }
 
 object GcodeNozzlePathParser {
-    private const val DEFAULT_MAX_MOVES = 120_000
+    private const val DEFAULT_MAX_MOVES = 1_000_000
     private const val MOTION_EPSILON = 1e-7
     private const val EXTRUSION_EPSILON = 1e-7
     private const val CANCELLATION_INTERVAL = 2_048

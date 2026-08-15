@@ -15,6 +15,7 @@ import com.tomppi.enderslicer.data.AppStateStore
 import com.tomppi.enderslicer.data.BuiltInGcode
 import com.tomppi.enderslicer.data.PendingDocumentExportStore
 import com.tomppi.enderslicer.data.PrinterDefinitionLoader
+import com.tomppi.enderslicer.data.SlicerSettingsJson
 import com.tomppi.enderslicer.data.WorkspaceStateStore
 import com.tomppi.enderslicer.engine.CuraEngineRunner
 import com.tomppi.enderslicer.engine.LayerEvent
@@ -54,6 +55,9 @@ import java.io.File
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicLong
 
+private const val CONFIG_SNAPSHOT_FORMAT = "enderslicer-config-snapshot"
+private const val CONFIG_SNAPSHOT_VERSION = 1
+
 class MainViewModel(application: Application) : AndroidViewModel(application) {
     private data class PendingImport(
         val config: ImportedCuraConfig,
@@ -63,11 +67,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val scene: CuraProjectScene? = null,
     )
 
+    private data class SnapshotImport(
+        val settings: SlicerSettings,
+        val startGcode: String,
+        val endGcode: String,
+        val sourceName: String,
+    )
+
     private data class RestoredImport(
         val config: ImportedCuraConfig?,
         val settings: SlicerSettings,
         val scene: CuraProjectScene?,
         val workspace: RestoredWorkspace?,
+        val startGcode: String,
+        val endGcode: String,
+        val profileName: String,
+        val profileSource: String,
+        val baselineSettings: SlicerSettings?,
     )
 
     private data class RestoredWorkspace(
@@ -794,6 +810,90 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun importConfiguration(uri: Uri) {
+        if (deferUntilRestoreCompletes { importConfiguration(uri) }) return
+        if (!beginOperation("Importing configuration snapshot…")) return
+        viewModelScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    retainReadPermission(uri)
+                    val sourceName = displayName(uri)
+                    val root = app.contentResolver.openInputStream(uri)
+                        ?.bufferedReader(Charsets.UTF_8)
+                        ?.use { JSONObject(it.readText()) }
+                        ?: error("Unable to open the selected configuration snapshot")
+                    val format = root.optString("format")
+                    val version = root.optInt("version", -1)
+                    require(format == CONFIG_SNAPSHOT_FORMAT) {
+                        "The selected file is not an EnderSlicerCura configuration snapshot"
+                    }
+                    require(version == CONFIG_SNAPSHOT_VERSION) {
+                        "Unsupported configuration snapshot version $version"
+                    }
+                    val values = root.optJSONObject("settings")
+                        ?: error("The configuration snapshot has no settings")
+                    val snapshot = SlicerSettingsJson.apply(SlicerSettings(), values, SlicerSettingsJson.allKeys)
+                        .copy(overriddenSettingKeys = emptySet())
+                    val startGcode = root.optString("startGcode", initialStartGcode)
+                    val endGcode = root.optString("endGcode", initialEndGcode)
+                    SnapshotImport(snapshot, startGcode, endGcode, sourceName)
+                }
+            }.onSuccess { pending -> commitSnapshotImport(pending) }
+                .onFailure(::showOperationFailure)
+        }
+    }
+
+    private suspend fun commitSnapshotImport(pending: SnapshotImport) {
+        val pendingSettingsWrite = settingsPersistenceJob
+        runCatching {
+            withContext(Dispatchers.IO) {
+                pendingSettingsWrite?.join()
+                stateStore.clearImport()
+                stateStore.saveSnapshotBaseline(
+                    AppStateStore.SnapshotBaseline(
+                        settings = pending.settings,
+                        startGcode = pending.startGcode,
+                        endGcode = pending.endGcode,
+                        profileName = pending.sourceName,
+                        profileSource = "Configuration snapshot",
+                    ),
+                )
+                stateStore.saveSettings(pending.settings)
+            }
+        }.onFailure {
+            showOperationFailure(it)
+            return
+        }
+        clearCalibrationState()
+        importedSettingsBaseline = pending.settings
+        importedScene = null
+        _uiState.update { current ->
+            current.copy(
+                settings = pending.settings,
+                startGcode = pending.startGcode,
+                endGcode = pending.endGcode,
+                profileName = pending.sourceName,
+                profileSource = "Configuration snapshot",
+                importedRawSettingCount = SlicerSettingsJson.allKeys.size,
+                curaVersion = null,
+                settingVersion = "25",
+                engineProfile = null,
+                importedSceneTransformAvailable = false,
+                importedSceneModelName = null,
+                sliceResultId = null,
+                gcodePath = null,
+                baseGcodePath = null,
+                layerPreview = null,
+                layerEvents = emptyList(),
+                estimatedPrintSeconds = null,
+                sliceLogPath = null,
+                sliceDurationMilliseconds = null,
+                isBusy = false,
+                statusMessage = "Imported ${pending.sourceName}; settings and custom G-code are active until overridden",
+            )
+        }
+    }
+
     private fun changePlacement(
         message: String,
         transform: (ModelPlacement, StlMesh) -> ModelPlacement,
@@ -908,12 +1008,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             fallbackEndGcode = initialEndGcode,
                         )
                     }
+                    val snapshotBaseline = if (saved == null) stateStore.snapshotBaseline() else null
                     val scene = saved?.takeIf { it.kind == AppStateStore.KIND_PROJECT }
                         ?.file
                         ?.inputStream()
                         ?.use(CuraProjectSceneParser::parse)
-                    val settings = stateStore.restoreSettings(config?.mappedSettings ?: SlicerSettings())
-                    val fingerprint = workspaceFingerprint(config, settings)
+                    val baseSettings = config?.mappedSettings ?: snapshotBaseline?.settings ?: SlicerSettings()
+                    val settings = stateStore.restoreSettings(baseSettings)
+                    val effectiveStartGcode = config?.startGcode ?: snapshotBaseline?.startGcode ?: initialStartGcode
+                    val effectiveEndGcode = config?.endGcode ?: snapshotBaseline?.endGcode ?: initialEndGcode
+                    val effectiveProfileName = config?.name
+                        ?: snapshotBaseline?.profileName
+                        ?: "Built-in current Cura settings"
+                    val effectiveProfileSource = config?.source
+                        ?: snapshotBaseline?.profileSource
+                        ?: "Cura 5.11 / setting version 25 reference"
+                    val fingerprint = workspaceFingerprint(
+                        config,
+                        settings,
+                        effectiveStartGcode,
+                        effectiveEndGcode,
+                        effectiveProfileName,
+                        effectiveProfileSource,
+                    )
                     val workspace = runCatching {
                         workspaceStore.load()?.let { snapshot ->
                             val modelFile = File(snapshot.modelPath)
@@ -933,7 +1050,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             )
                         }
                     }.getOrNull()
-                    RestoredImport(config, settings, scene, workspace)
+                    RestoredImport(
+                        config = config,
+                        settings = settings,
+                        scene = scene,
+                        workspace = workspace,
+                        startGcode = effectiveStartGcode,
+                        endGcode = effectiveEndGcode,
+                        profileName = effectiveProfileName,
+                        profileSource = effectiveProfileSource,
+                        baselineSettings = snapshotBaseline?.settings,
+                    )
                 }
             }
 
@@ -953,10 +1080,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     CalibrationSliceState.clear()
                 }
                 if (restored.config == null) {
-                    importedSettingsBaseline = null
+                    importedSettingsBaseline = restored.baselineSettings
                     _uiState.update {
                         it.copy(
                             settings = restored.settings,
+                            startGcode = restored.startGcode,
+                            endGcode = restored.endGcode,
+                            profileName = restored.profileName,
+                            profileSource = restored.profileSource,
                             importedSceneTransformAvailable = restored.scene?.affine != null,
                             importedSceneModelName = restored.scene?.modelName,
                             isBusy = false,
@@ -1053,14 +1184,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun workspaceFingerprint(
         config: ImportedCuraConfig?,
         settings: SlicerSettings,
+        startGcode: String,
+        endGcode: String,
+        profileName: String,
+        profileSource: String,
     ): String = WorkspaceStateStore.fingerprint(
-        config?.name ?: "Built-in current Cura settings",
-        config?.source ?: "Cura 5.11 / setting version 25 reference",
+        config?.name ?: profileName,
+        config?.source ?: profileSource,
         config?.curaVersion,
         config?.settingVersion ?: "25",
         settings,
-        config?.startGcode ?: initialStartGcode,
-        config?.endGcode ?: initialEndGcode,
+        startGcode,
+        endGcode,
     )
 
     private fun persistSettings(settings: SlicerSettings, generation: Long) {
@@ -1123,6 +1258,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 pendingSettingsWrite?.join()
                 stateStore.commitImport(pending.stagedFile, pending.kind, pending.displayName)
                 stateStore.clearSavedSettings()
+                stateStore.clearSnapshotBaseline()
             }
         }.onFailure {
             showOperationFailure(it)
@@ -1337,6 +1473,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val settings = state.settings
         val placement = state.modelPlacement
         return JSONObject()
+            .put("format", CONFIG_SNAPSHOT_FORMAT)
+            .put("version", CONFIG_SNAPSHOT_VERSION)
             .put("printer", state.printer.name)
             .put("profileName", state.profileName)
             .put("profileSource", state.profileSource)
@@ -1369,70 +1507,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         .put("linear", it.linear)
                 },
             )
-            .put(
-                "settings",
-                JSONObject()
-                    .put("layerHeightMm", settings.layerHeightMm)
-                    .put("initialLayerHeightMm", settings.initialLayerHeightMm)
-                    .put("adaptiveLayerHeightEnabled", settings.adaptiveLayerHeightEnabled)
-                    .put("adaptiveLayerHeightVariationMm", settings.adaptiveLayerHeightVariationMm)
-                    .put("adaptiveLayerHeightVariationStepMm", settings.adaptiveLayerHeightVariationStepMm)
-                    .put("adaptiveLayerHeightThreshold", settings.adaptiveLayerHeightThreshold)
-                    .put("lineWidthMm", settings.lineWidthMm)
-                    .put("wallThicknessMm", settings.wallThicknessMm)
-                    .put("topBottomThicknessMm", settings.topBottomThicknessMm)
-                    .put("initialBottomLayers", settings.initialBottomLayers)
-                    .put("holeHorizontalExpansionMm", settings.holeHorizontalExpansionMm)
-                    .put("initialLayerHorizontalExpansionMm", settings.initialLayerHorizontalExpansionMm)
-                    .put("zigZagConnectInfill", settings.zigZagConnectInfill)
-                    .put("printSpeedMmPerSecond", settings.printSpeedMmPerSecond)
-                    .put("nozzleTemperatureC", settings.nozzleTemperatureC)
-                    .put("initialNozzleTemperatureC", settings.initialNozzleTemperatureC)
-                    .put("bedTemperatureC", settings.bedTemperatureC)
-                    .put("infillDensityPercent", settings.infillDensityPercent)
-                    .put("supportsEnabled", settings.supportsEnabled)
-                    .put("supportPlacement", settings.supportPlacement)
-                    .put("supportStructure", settings.supportStructure)
-                    .put("supportAngleDegrees", settings.supportAngleDegrees)
-                    .put("supportDensityPercent", settings.supportDensityPercent)
-                    .put("supportPattern", settings.supportPattern)
-                    .put("supportInterfaceEnabled", settings.supportInterfaceEnabled)
-                    .put("supportInterfaceDensityPercent", settings.supportInterfaceDensityPercent)
-                    .put("supportInterfaceHeightMm", settings.supportInterfaceHeightMm)
-                    .put("supportZDistanceMm", settings.supportZDistanceMm)
-                    .put("supportXyDistanceMm", settings.supportXyDistanceMm)
-                    .put("supportSpeedMmPerSecond", settings.supportSpeedMmPerSecond)
-                    .put("supportInterfaceSpeedMmPerSecond", settings.supportInterfaceSpeedMmPerSecond)
-                    .put("adhesionType", settings.adhesionType)
-                    .put("retractionDistanceMm", settings.retractionDistanceMm)
-                    .put("retractionSpeedMmPerSecond", settings.retractionSpeedMmPerSecond)
-                    .put("retractAtLayerChange", settings.retractAtLayerChange)
-                    .put("zHopEnabled", settings.zHopEnabled)
-                    .put("firmwareRetraction", settings.firmwareRetraction)
-                    .put("fanSpeedPercent", settings.fanSpeedPercent)
-                    .put("buildVolumeTemperatureC", settings.buildVolumeTemperatureC)
-                    .put("materialStandbyTemperatureC", settings.materialStandbyTemperatureC)
-                    .put("materialDensityGPerCm3", settings.materialDensityGPerCm3)
-                    .put("materialAdhesionTendency", settings.materialAdhesionTendency)
-                    .put("materialSurfaceEnergyPercent", settings.materialSurfaceEnergyPercent)
-                    .put("materialBrand", settings.materialBrand)
-                    .put("materialType", settings.materialType)
-                    .put("materialGuid", settings.materialGuid)
-                    .put("enabledExtruderCount", settings.enabledExtruderCount)
-                    .put("materialFlowPercent", settings.materialFlowPercent)
-                    .put("arcOverhangEnabled", settings.arcOverhangEnabled)
-                    .put("arcOverhangSpeedMmPerSecond", settings.arcOverhangSpeedMmPerSecond)
-                    .put("arcOverhangFlowPercent", settings.arcOverhangFlowPercent)
-                    .put("arcOverhangLineSpacingPercent", settings.arcOverhangLineSpacingPercent)
-                    .put("arcOverhangMinRadiusMm", settings.arcOverhangMinRadiusMm)
-                    .put("arcOverhangMaxRadiusMm", settings.arcOverhangMaxRadiusMm)
-                    .put("arcOverhangMaxAreaMm2", settings.arcOverhangMaxAreaMm2)
-                    .put("arcOverhangResolutionMm", settings.arcOverhangResolutionMm)
-                    .put("arcOverhangFanSpeedPercent", settings.arcOverhangFanSpeedPercent)
-                    .put("smartOverhangStrategy", settings.smartOverhangStrategy)
-                    .put("raftMarginMm", settings.raftMarginMm)
-                    .put("ironingOnlyHighestLayer", settings.ironingOnlyHighestLayer),
-            )
+            .put("settings", SlicerSettingsJson.serialize(settings))
             .put("startGcode", state.startGcode)
             .put("endGcode", state.endGcode)
     }

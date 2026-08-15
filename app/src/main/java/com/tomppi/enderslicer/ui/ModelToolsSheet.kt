@@ -107,13 +107,26 @@ fun ModelToolsSheet(
         HorizontalDivider()
         Text("Rotate model", style = MaterialTheme.typography.titleMedium)
         ModelPlacement.Axis.entries.forEach { axis ->
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                Text(axis.name, modifier = Modifier.padding(top = 12.dp))
-                listOf(-90.0, -5.0, 5.0, 90.0).forEach { amount ->
-                    OutlinedButton(
-                        onClick = { onRotate(axis, amount) },
-                        modifier = Modifier.weight(1f),
-                    ) { Text("${if (amount > 0) "+" else ""}${amount.toInt()}°") }
+            Column(
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    Text(axis.name, modifier = Modifier.padding(top = 12.dp))
+                    listOf(-90.0, -5.0, 5.0, 90.0).forEach { amount ->
+                        OutlinedButton(
+                            onClick = { onRotate(axis, amount) },
+                            modifier = Modifier.weight(1f),
+                        ) { Text("${if (amount > 0) "+" else ""}${amount.toInt()}°") }
+                    }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    listOf(-1.0, 1.0).forEach { amount ->
+                        OutlinedButton(
+                            onClick = { onRotate(axis, amount) },
+                            modifier = Modifier.weight(1f),
+                        ) { Text("${if (amount > 0) "+" else ""}${amount.toInt()}°") }
+                    }
                 }
             }
         }

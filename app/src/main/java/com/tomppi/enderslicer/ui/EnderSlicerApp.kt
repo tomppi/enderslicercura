@@ -148,6 +148,9 @@ fun EnderSlicerApp(
     ) { uri: Uri? ->
         uri?.let(viewModel::exportConfiguration)
     }
+    val configImportPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let(viewModel::importConfiguration)
+    }
     val gcodeExportPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("text/x-gcode"),
     ) { uri: Uri? ->
@@ -276,6 +279,15 @@ fun EnderSlicerApp(
                                 onClick = {
                                     menuExpanded = false
                                     configExportPicker.launch("printer-config.json")
+                                },
+                                enabled = !state.isBusy,
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Import configuration snapshot") },
+                                leadingIcon = { Icon(Icons.Filled.Add, contentDescription = null) },
+                                onClick = {
+                                    menuExpanded = false
+                                    configImportPicker.launch(arrayOf("application/json", "*/*"))
                                 },
                                 enabled = !state.isBusy,
                             )
@@ -549,7 +561,7 @@ fun EnderSlicerApp(
                 onReset = viewModel::resetModelTransform,
                 onApplyImportedTransform = viewModel::applyImportedSceneTransform,
                 modifier = Modifier
-                    .fillMaxHeight(0.94f)
+                    .fillMaxHeight(0.5f)
                     .navigationBarsPadding(),
             )
         }

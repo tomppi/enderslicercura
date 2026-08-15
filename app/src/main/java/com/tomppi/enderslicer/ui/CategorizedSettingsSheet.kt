@@ -273,6 +273,43 @@ internal fun CategorizedSettingsSheet(
             ) {
                 onSettings(SlicerSettings.Keys.ZIG_ZAG_CONNECT_INFILL) { current -> current.copy(zigZagConnectInfill = it) }
             }
+            SwitchRow(
+                "Adaptive walls by thickness",
+                settings.thicknessAdaptiveWallsEnabled,
+                source(state, SlicerSettings.Keys.THICKNESS_ADAPTIVE_WALLS_ENABLED),
+            ) {
+                onSettings(SlicerSettings.Keys.THICKNESS_ADAPTIVE_WALLS_ENABLED) { current -> current.copy(thicknessAdaptiveWallsEnabled = it) }
+            }
+            if (settings.thicknessAdaptiveWallsEnabled) {
+                NumberField(
+                    "Extra wall flow (%)",
+                    settings.thicknessAdaptiveWallsFlowPercent,
+                    source(state, SlicerSettings.Keys.THICKNESS_ADAPTIVE_WALLS_FLOW),
+                ) {
+                    onSettings(SlicerSettings.Keys.THICKNESS_ADAPTIVE_WALLS_FLOW) { current ->
+                        current.copy(thicknessAdaptiveWallsFlowPercent = it.coerceIn(100.0, 200.0))
+                    }
+                }
+                NumberField(
+                    "Bend radius (mm)",
+                    settings.thicknessAdaptiveWallsBendRadiusMm,
+                    source(state, SlicerSettings.Keys.THICKNESS_ADAPTIVE_WALLS_BEND_RADIUS),
+                ) {
+                    onSettings(SlicerSettings.Keys.THICKNESS_ADAPTIVE_WALLS_BEND_RADIUS) { current ->
+                        current.copy(thicknessAdaptiveWallsBendRadiusMm = it.coerceIn(0.5, 100.0))
+                    }
+                }
+                NumberField(
+                    "Extra walls",
+                    settings.thicknessAdaptiveWallsExtraWalls.toDouble(),
+                    source(state, SlicerSettings.Keys.THICKNESS_ADAPTIVE_WALLS_EXTRA_WALLS),
+                    decimals = 0,
+                ) {
+                    onSettings(SlicerSettings.Keys.THICKNESS_ADAPTIVE_WALLS_EXTRA_WALLS) { current ->
+                        current.copy(thicknessAdaptiveWallsExtraWalls = it.toInt().coerceIn(0, 20))
+                    }
+                }
+            }
         }
 
         SettingsCategory("Speed") {
