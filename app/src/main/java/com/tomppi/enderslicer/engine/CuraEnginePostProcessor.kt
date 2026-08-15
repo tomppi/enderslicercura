@@ -1,6 +1,8 @@
 package com.tomppi.enderslicer.engine
 
 import com.tomppi.enderslicer.calibration.CalibrationPlacementPolicy
+import com.tomppi.enderslicer.conical.ConicalRuntime
+import com.tomppi.enderslicer.conical.ConicalStorage
 import com.tomppi.enderslicer.nonplanar.CurviSlicerFieldStorage
 import com.tomppi.enderslicer.nonplanar.CurviSlicerRuntime
 import java.io.File
@@ -9,6 +11,10 @@ import java.io.File
 internal object CuraEnginePostProcessor {
     private fun gcodeRequestsCurvi(file: File): Boolean = file.bufferedReader().useLines { lines ->
         lines.any { it.trim() == CurviSlicerRuntime.MACHINE_END_SENTINEL }
+    }
+
+    private fun gcodeRequestsConical(file: File): Boolean = file.bufferedReader().useLines { lines ->
+        lines.any { it.trim() == ConicalRuntime.MACHINE_END_SENTINEL }
     }
 
     data class Result(
@@ -29,8 +35,18 @@ internal object CuraEnginePostProcessor {
     ): Result {
         val effectiveEnvelope = resolvedEnvelope(outputFile.parentFile) ?: printerEnvelope
         val firmware = CalibrationFirmwareEncoder.fromFlavor(effectiveEnvelope.gcodeFlavor)
-        require(plannedLayerEvents.isEmpty() || !CurviSlicerFieldStorage.isPrepared(outputFile.parentFile)) {
-            "CurviSlicer cannot be combined with height-based calibration events"
+        require(
+            plannedLayerEvents.isEmpty() ||
+                (!CurviSlicerFieldStorage.isPrepared(outputFile.parentFile) &&
+                    !ConicalStorage.isPrepared(outputFile.parentFile)),
+        ) {
+            "Non-planar slicing cannot be combined with height-based calibration events"
+        }
+        require(
+            !(CurviSlicerFieldStorage.isPrepared(outputFile.parentFile) &&
+                ConicalStorage.isPrepared(outputFile.parentFile)),
+        ) {
+            "CurviSlicer and conical slicing cannot both be prepared for a single slice"
         }
         val curviDiagnostics = CurviSlicerFieldStorage.curveStagedGcode(outputFile, effectiveEnvelope)
         if (curviDiagnostics == null && gcodeRequestsCurvi(outputFile)) {
@@ -39,10 +55,17 @@ internal object CuraEnginePostProcessor {
                     "publish a planar G-code for a warped model",
             )
         }
-        val effectiveTransport = if (curviDiagnostics == null) {
-            settingsTransport
-        } else {
-            "$settingsTransport+curvislicer-android-v1"
+        val conicalDiagnostics = ConicalStorage.backtransformStagedGcode(outputFile, effectiveEnvelope)
+        if (conicalDiagnostics == null && gcodeRequestsConical(outputFile)) {
+            throw IllegalStateException(
+                "Conical slicing was requested for this slice but its transform data is missing; refusing " +
+                    "to publish a warped-model G-code without its back-transformation",
+            )
+        }
+        val effectiveTransport = when {
+            curviDiagnostics != null -> "$settingsTransport+curvislicer-android-v1"
+            conicalDiagnostics != null -> "$settingsTransport+conical-android-v1"
+            else -> settingsTransport
         }
         val baseSummary = GcodeSanitizer.validateAndRepair(
             file = outputFile,

@@ -1,6 +1,9 @@
 package com.tomppi.enderslicer.engine
 
 import com.tomppi.enderslicer.calibration.CalibrationSliceState
+import com.tomppi.enderslicer.conical.ConicalPipeline
+import com.tomppi.enderslicer.conical.ConicalRuntime
+import com.tomppi.enderslicer.conical.ConicalStorage
 import com.tomppi.enderslicer.model.PrinterDefinition
 import com.tomppi.enderslicer.model.SlicerSettings
 import com.tomppi.enderslicer.model.resolveEndGcode
@@ -116,9 +119,22 @@ object CuraEngineCommand {
             CurviSlicerFieldStorage.write(workspace, curviPrepared)
         }
 
+        val conicalPrepared = ConicalRuntime.snapshot()?.let { snapshot ->
+            require(effectiveSmartInfillModifiers.isEmpty()) {
+                "Conical slicing cannot be combined with Smart Infill modifier volumes"
+            }
+            ConicalPipeline.prepareAndWarp(modelFile = analyzedSource, settings = snapshot.settings)
+        }
+        if (conicalPrepared != null) {
+            printerEnvelope.requireBinaryStlFits(analyzedSource)
+            ConicalStorage.write(workspace, conicalPrepared)
+        }
+
         val effectiveStartGcode = effectiveSettings.resolveStartGcode(startGcode)
-        val effectiveEndGcode = CurviSlicerRuntime.markMachineEndGcode(
-            effectiveSettings.resolveEndGcode(endGcode),
+        val effectiveEndGcode = ConicalRuntime.markMachineEndGcode(
+            CurviSlicerRuntime.markMachineEndGcode(
+                effectiveSettings.resolveEndGcode(endGcode),
+            ),
         )
         val engineOffsetX = if (effectivePrinter.originAtCenter) 0.0 else -effectivePrinter.widthMm / 2.0
         val engineOffsetY = if (effectivePrinter.originAtCenter) 0.0 else -effectivePrinter.depthMm / 2.0

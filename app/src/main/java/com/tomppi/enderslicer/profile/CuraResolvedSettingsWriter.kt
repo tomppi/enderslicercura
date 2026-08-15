@@ -1,6 +1,9 @@
 package com.tomppi.enderslicer.profile
 
 import com.tomppi.enderslicer.calibration.CalibrationSliceState
+import com.tomppi.enderslicer.conical.ConicalPipeline
+import com.tomppi.enderslicer.conical.ConicalRuntime
+import com.tomppi.enderslicer.conical.ConicalStorage
 import com.tomppi.enderslicer.engine.AdaptiveWallModifier
 import com.tomppi.enderslicer.engine.PrinterEnvelope
 import com.tomppi.enderslicer.nonplanar.CurviSlicerFieldStorage
@@ -33,14 +36,22 @@ internal object CuraResolvedSettingsWriter {
             "Resolved Cura STL is missing or empty: ${modelFile.absolutePath}"
         }
         val curviSnapshot = CurviSlicerRuntime.snapshot()
+        val conicalSnapshot = ConicalRuntime.snapshot()
         val stagedForCurvi = modelTransform === CURVI_STAGED_IDENTITY
+        val stagedForConical = modelTransform === CONICAL_STAGED_IDENTITY
         require(!stagedForCurvi || curviSnapshot != null) {
             "The resolved model was staged for CurviSlicer but CurviSlicer is no longer active"
+        }
+        require(!stagedForConical || conicalSnapshot != null) {
+            "The resolved model was staged for conical slicing but conical slicing is no longer active"
         }
         require(curviSnapshot == null || stagedForCurvi) {
             "CurviSlicer resolved requests must explicitly stage displayed geometry"
         }
-        val effectiveModelTransform = if (stagedForCurvi) null else modelTransform
+        require(conicalSnapshot == null || stagedForConical) {
+            "Conical resolved requests must explicitly stage displayed geometry"
+        }
+        val effectiveModelTransform = if (stagedForCurvi || stagedForConical) null else modelTransform
 
         val effectiveSmartInfillModifiers = smartInfillModifiers
             .sortedBy(SmartInfillModifier::densityPercent)
@@ -98,6 +109,17 @@ internal object CuraResolvedSettingsWriter {
             effectiveSmartInfillModifiers.forEach { modifier -> printerEnvelope.requireBinaryStlFits(modifier.file) }
             CurviSlicerFieldStorage.write(modelDirectory, curviPrepared)
         }
+
+        val conicalPrepared = conicalSnapshot?.let { snapshot ->
+            require(effectiveSmartInfillModifiers.isEmpty()) {
+                "Conical slicing cannot be combined with Smart Infill modifier volumes"
+            }
+            ConicalPipeline.prepareAndWarp(modelFile = modelFile, settings = snapshot.settings)
+        }
+        if (conicalPrepared != null) {
+            printerEnvelope.requireBinaryStlFits(modelFile)
+            ConicalStorage.write(modelDirectory, conicalPrepared)
+        }
         printerEnvelope.writeTo(File(modelDirectory, PrinterEnvelope.METADATA_FILE_NAME))
 
         val machineCenterX = if (centerIsZero) 0.0 else machineWidth / 2.0
@@ -143,9 +165,11 @@ internal object CuraResolvedSettingsWriter {
         )
 
         val globalValues = LinkedHashMap(resolved.globalValues)
-        if (curviSnapshot != null) {
-            globalValues["machine_end_gcode"] = CurviSlicerRuntime.markMachineEndGcode(
-                globalValues["machine_end_gcode"].orEmpty(),
+        if (curviSnapshot != null || conicalSnapshot != null) {
+            globalValues["machine_end_gcode"] = ConicalRuntime.markMachineEndGcode(
+                CurviSlicerRuntime.markMachineEndGcode(
+                    globalValues["machine_end_gcode"].orEmpty(),
+                ),
             )
         }
         val root = JSONObject()
@@ -229,6 +253,18 @@ internal object CuraResolvedSettingsWriter {
                 "The displayed STL changed while it was being staged for CurviSlicer"
             }
             return CURVI_STAGED_IDENTITY
+        }
+        if (ConicalRuntime.snapshot() != null) {
+            val displayedStamp = fileStamp(stagedDisplayedFile)
+            removePreStagedRequestModel(destination)
+            copyFile(stagedDisplayedFile, destination)
+            check(destination.isFile && destination.length() == displayedStamp.length) {
+                "Unable to stage displayed STL geometry for conical slicing"
+            }
+            check(fileStamp(stagedDisplayedFile) == displayedStamp) {
+                "The displayed STL changed while it was being staged for conical slicing"
+            }
+            return CONICAL_STAGED_IDENTITY
         }
 
         val sourceFile = File(
@@ -337,6 +373,12 @@ internal object CuraResolvedSettingsWriter {
         0.0, 0.0, 1.0,
     )
     private val CURVI_STAGED_IDENTITY = StlSliceTransform(
+        linear = IDENTITY,
+        translationXmm = 0.0,
+        translationYmm = 0.0,
+        translationZmm = 0.0,
+    )
+    private val CONICAL_STAGED_IDENTITY = StlSliceTransform(
         linear = IDENTITY,
         translationXmm = 0.0,
         translationYmm = 0.0,

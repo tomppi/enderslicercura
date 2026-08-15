@@ -67,6 +67,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.tomppi.enderslicer.conical.ConicalSettingsStore
 import com.tomppi.enderslicer.mesh.MeshTriangleLimits
 import com.tomppi.enderslicer.model.withSettings
 import com.tomppi.enderslicer.nonplanar.NonPlanarSettingsStore
@@ -101,11 +102,14 @@ fun EnderSlicerApp(
     var layerEventsOpen by rememberSaveable { mutableStateOf(false) }
     var meshLimitOpen by rememberSaveable { mutableStateOf(false) }
     var nonPlanarOpen by rememberSaveable { mutableStateOf(false) }
+    var conicalOpen by rememberSaveable { mutableStateOf(false) }
     var viewerMode by rememberSaveable { mutableStateOf(ViewerMode.MODEL) }
     var selectedLayerIndex by rememberSaveable { mutableStateOf(0) }
     var lastAutoSelectedResultId by rememberSaveable { mutableStateOf<String?>(null) }
     val nonPlanarStore = remember(context) { NonPlanarSettingsStore(context.applicationContext) }
     var nonPlanarSettings by remember(nonPlanarStore) { mutableStateOf(nonPlanarStore.load()) }
+    val conicalStore = remember(context) { ConicalSettingsStore(context.applicationContext) }
+    var conicalSettings by remember(conicalStore) { mutableStateOf(conicalStore.load()) }
 
     LaunchedEffect(state.sliceResultId, state.layerPreview, nonPlanarSettings) {
         val gcodeAvailable = state.hasCurrentGcode()
@@ -362,6 +366,25 @@ fun EnderSlicerApp(
                                         },
                                         enabled = !state.isBusy,
                                     )
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                if (conicalSettings.enabled) {
+                                                    "Conical slicing options · enabled"
+                                                } else {
+                                                    "Conical slicing options"
+                                                },
+                                            )
+                                        },
+                                        leadingIcon = { Icon(Icons.Filled.PlayArrow, contentDescription = null) },
+                                        trailingIcon = { Icon(Icons.Filled.KeyboardArrowRight, contentDescription = null) },
+                                        onClick = {
+                                            advancedSubmenuExpanded = false
+                                            menuExpanded = false
+                                            conicalOpen = true
+                                        },
+                                        enabled = !state.isBusy,
+                                    )
                                     advancedMenuItems {
                                         advancedSubmenuExpanded = false
                                         menuExpanded = false
@@ -377,6 +400,7 @@ fun EnderSlicerApp(
             ActionBar(
                 state = state,
                 nonPlanarEnabled = nonPlanarSettings.enabled,
+                conicalEnabled = conicalSettings.enabled,
                 sliceBlockedReason = sliceBlockedReason,
                 onSlice = viewModel::sliceModel,
                 onExportGcode = { gcodeExportPicker.launch(GcodeExportName.suggest()) },
@@ -388,6 +412,7 @@ fun EnderSlicerApp(
             viewerMode = viewerMode,
             selectedLayerIndex = selectedLayerIndex,
             nonPlanarEnabled = nonPlanarSettings.enabled,
+            conicalEnabled = conicalSettings.enabled,
             onViewerMode = { viewerMode = it },
             onLayerSelected = { selectedLayerIndex = it },
             onEditLayerEvents = { layerEventsOpen = true },
@@ -481,6 +506,46 @@ fun EnderSlicerApp(
                             "CurviSlicer settings unchanged"
                         } else {
                             "CurviSlicer remains disabled"
+                        },
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                },
+                modifier = Modifier
+                    .fillMaxHeight(0.94f)
+                    .navigationBarsPadding(),
+            )
+        }
+    }
+
+    if (conicalOpen) {
+        AppBottomSheet(
+            onDismissRequest = { conicalOpen = false },
+        ) {
+            ConicalSettingsSheet(
+                initial = conicalSettings,
+                onSave = { value ->
+                    val safe = value.validated()
+                    val changed = safe != conicalSettings
+                    conicalStore.save(safe)
+                    conicalSettings = safe
+                    conicalOpen = false
+                    if (changed) {
+                        viewerMode = ViewerMode.MODEL
+                        selectedLayerIndex = 0
+                        lastAutoSelectedResultId = null
+                    }
+                    Toast.makeText(
+                        context,
+                        if (changed) {
+                            if (safe.enabled) {
+                                "Conical slicing settings saved; slice again before export"
+                            } else {
+                                "Conical slicing disabled; slice again before export"
+                            }
+                        } else if (safe.enabled) {
+                            "Conical slicing settings unchanged"
+                        } else {
+                            "Conical slicing remains disabled"
                         },
                         Toast.LENGTH_SHORT,
                     ).show()
@@ -618,6 +683,7 @@ private fun ViewerPanel(
     viewerMode: ViewerMode,
     selectedLayerIndex: Int,
     nonPlanarEnabled: Boolean,
+    conicalEnabled: Boolean,
     onViewerMode: (ViewerMode) -> Unit,
     onLayerSelected: (Int) -> Unit,
     onEditLayerEvents: () -> Unit,
@@ -698,6 +764,13 @@ private fun ViewerPanel(
                 if (nonPlanarEnabled) {
                     Text(
                         "CurviSlicer enabled",
+                        color = MaterialTheme.colorScheme.primary,
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                }
+                if (conicalEnabled) {
+                    Text(
+                        "Conical slicing enabled",
                         color = MaterialTheme.colorScheme.primary,
                         style = MaterialTheme.typography.labelSmall,
                     )
@@ -794,6 +867,7 @@ private fun ViewerModeButton(
 private fun ActionBar(
     state: MainUiState,
     nonPlanarEnabled: Boolean,
+    conicalEnabled: Boolean,
     sliceBlockedReason: String?,
     onSlice: () -> Unit,
     onExportGcode: () -> Unit,
@@ -832,6 +906,7 @@ private fun ActionBar(
                         when {
                             state.isBusy -> "Working…"
                             nonPlanarEnabled -> "Slice non-planar"
+                            conicalEnabled -> "Slice conical"
                             else -> "Slice"
                         },
                     )

@@ -64,6 +64,21 @@ UltiMaker and Cura are trademarks of their respective owners.
 
 EnderSlicerCura contains a CuraEngine-oriented native reimplementation of the Multiplex arc-overhang path-generation behavior. Attribution and implementation details are retained in `native/curaengine/patches/ARC_OVERHANG_NOTICE.md` and the native source headers.
 
+## EasyConical conical slicing
+
+- Project: `DigitalGrin/EasyConical`
+- License: GNU General Public License v3.0 (`GPL-3.0`)
+- Copyright: Alex Herskovitz and contributors
+
+The Android conical-slicing backend is a Kotlin port of EasyConical's forward cone
+transformation (`Transformation_MiniLibrary.py`) and G-code back-transformation
+(`Backtransformation_MiniLibrary.py`), integrated into the native slicing pipeline
+under `app/src/main/java/com/tomppi/enderslicer/conical/`. The underlying
+conical-slicing strategy is derived from `CNCKitchen/ConicalSlicer` and the paper
+"A Novel Slicing Strategy to Print Overhangs without Support Material" (Wüthrich et
+al., Applied Sciences, 2021). The original project source remains available from
+its upstream GitHub repository.
+
 ## Android Open Source Project and AndroidX
 
 The application uses Android platform APIs and AndroidX libraries under their respective licenses.

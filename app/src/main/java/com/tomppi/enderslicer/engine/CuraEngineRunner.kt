@@ -2,6 +2,7 @@ package com.tomppi.enderslicer.engine
 
 import android.content.Context
 import com.tomppi.enderslicer.calibration.CalibrationSliceState
+import com.tomppi.enderslicer.conical.ConicalRuntime
 import com.tomppi.enderslicer.model.PrinterDefinition
 import com.tomppi.enderslicer.model.SlicerSettings
 import com.tomppi.enderslicer.model.withSettings
@@ -114,6 +115,7 @@ class CuraEngineRunner(private val context: Context) {
         smartInfillSnapshot: SmartInfillSliceSnapshot?,
     ): SliceResult {
         val curviRequestSnapshot = CurviSlicerRuntime.snapshot()
+        val conicalRequestSnapshot = ConicalRuntime.snapshot()
         val workspace = createWorkspace("slice")
         val log = requestLog(workspace.id)
         val started = System.nanoTime()
@@ -259,9 +261,13 @@ class CuraEngineRunner(private val context: Context) {
             throwIfInterrupted()
 
             val currentCurviSnapshot = CurviSlicerRuntime.snapshot()
-            if (curviRequestSnapshot?.generation != currentCurviSnapshot?.generation) {
+            val currentConicalSnapshot = ConicalRuntime.snapshot()
+            if (
+                curviRequestSnapshot?.generation != currentCurviSnapshot?.generation ||
+                conicalRequestSnapshot?.generation != currentConicalSnapshot?.generation
+            ) {
                 throw SliceException(
-                    "CurviSlicer settings changed while slicing was in progress; " +
+                    "Non-planar settings changed while slicing was in progress; " +
                         "the result was discarded so no stale G-code is published. Slice again.",
                     log,
                 )

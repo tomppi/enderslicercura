@@ -54,6 +54,28 @@ internal object GcodeCommandPolicy {
         }
     }
 
+    fun requireConicalSupported(command: GcodeCommand.Parsed, inPrintableLayers: Boolean) {
+        requireUnframed(command, "Conical slicing")
+        when (command.family) {
+            'G' -> when (command.code) {
+                0, 1 -> requireLinearParameters(command)
+                2, 3 -> error(
+                    "Conical slicing cannot safely interpret G2/G3 arcs; disable arc fitting and custom arc purge paths",
+                )
+                in SAFE_NON_MOTION_G -> Unit
+                in TRUSTED_STARTUP_G -> require(!inPrintableLayers) {
+                    "Conical slicing does not allow ${command.opcode} after printable motion has started"
+                }
+                else -> error(
+                    "Conical slicing cannot safely interpret ${command.opcode}; remove unsupported motion or coordinate commands",
+                )
+            }
+            'M' -> requirePublishedM(command, lineNumber = null, consumer = "Conical slicing")
+            'T' -> require(command.code == 0) { "Conical slicing does not support tool changes (${command.opcode})" }
+            else -> error("Conical slicing cannot safely interpret command family ${command.family}")
+        }
+    }
+
     fun requirePublishedSafe(
         command: GcodeCommand.Parsed,
         currentLayer: Int?,

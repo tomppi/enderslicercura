@@ -11,6 +11,7 @@ import com.tomppi.enderslicer.calibration.CalibrationSliceState
 import com.tomppi.enderslicer.calibration.CalibrationTestType
 import com.tomppi.enderslicer.calibration.CalibrationTowerGenerator
 import com.tomppi.enderslicer.calibration.CalibrationTowerSpec
+import com.tomppi.enderslicer.conical.ConicalRuntime
 import com.tomppi.enderslicer.data.AppStateStore
 import com.tomppi.enderslicer.data.BuiltInGcode
 import com.tomppi.enderslicer.data.PendingDocumentExportStore
@@ -534,6 +535,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 it.copy(
                     isBusy = false,
                     statusMessage = "CurviSlicer cannot be combined with height-based calibration towers; disable non-planar slicing",
+                )
+            }
+            return
+        }
+        if (plannedEventsSnapshot.isNotEmpty() && ConicalRuntime.snapshot() != null) {
+            _uiState.update {
+                it.copy(
+                    isBusy = false,
+                    statusMessage = "Conical slicing cannot be combined with height-based calibration towers; disable conical slicing",
+                )
+            }
+            return
+        }
+        if (CurviSlicerRuntime.snapshot() != null && ConicalRuntime.snapshot() != null) {
+            _uiState.update {
+                it.copy(
+                    isBusy = false,
+                    statusMessage = "CurviSlicer and conical slicing are mutually exclusive; disable one before slicing",
                 )
             }
             return
