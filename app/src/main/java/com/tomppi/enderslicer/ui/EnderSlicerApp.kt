@@ -23,7 +23,6 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Create
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.FileOpen
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.PlayArrow
@@ -285,7 +284,7 @@ fun EnderSlicerApp(
                             )
                             DropdownMenuItem(
                                 text = { Text("Import configuration snapshot") },
-                                leadingIcon = { Icon(Icons.Filled.FileOpen, contentDescription = null) },
+                                leadingIcon = { Icon(Icons.Filled.Add, contentDescription = null) },
                                 onClick = {
                                     menuExpanded = false
                                     configImportPicker.launch(arrayOf("application/json", "*/*"))
