@@ -133,9 +133,6 @@ internal object ConicalGcodeTransformer {
                     appendRaw(rawLine)
                 }
                 "G0", "G1" -> {
-                    require(modal.absolutePosition) {
-                        "Conical slicing requires absolute positioning (G90); re-slice without relative XYZ mode"
-                    }
                     val hasX = command.has('X')
                     val hasY = command.has('Y')
                     val hasZ = command.has('Z')
@@ -146,6 +143,24 @@ internal object ConicalGcodeTransformer {
                     if (hasZ) zLayer = modal.position(zLayer, command.value('Z'))
                     val xNew = modal.position(xOld, command.value('X'))
                     val yNew = modal.position(yOld, command.value('Y'))
+
+                    // Start/end G-code is machine setup, not print geometry: pass it
+                    // through verbatim (prime lines sit far from the model centre).
+                    if (!inPrintableLayers) {
+                        appendRaw(rawLine)
+                        planarE = nextPlanarE
+                        if (hasE) {
+                            curvedE = nextPlanarE
+                            idealCurvedE = nextPlanarE
+                        }
+                        xOld = xNew
+                        yOld = yNew
+                        return
+                    }
+
+                    require(modal.absolutePosition) {
+                        "Conical slicing requires absolute positioning (G90); re-slice without relative XYZ mode"
+                    }
                     val spatial = hasX || hasY || hasZ
 
                     if (!spatial) {
@@ -299,6 +314,7 @@ internal object ConicalGcodeTransformer {
         val zDesired = settings.firstLayerHeightMm
         var zMin = Double.POSITIVE_INFINITY
         var zInitialized = false
+        var printable = false
         var afterEnd = false
         for (line in lines) {
             val trimmed = line.trimStart()
@@ -307,6 +323,15 @@ internal object ConicalGcodeTransformer {
                 continue
             }
             if (afterEnd) continue
+            if (trimmed.startsWith(";LAYER:")) {
+                printable = true
+                continue
+            }
+            if (trimmed.startsWith(";End of Gcode", ignoreCase = true) || trimmed.startsWith(";END_OF_PRINT")) {
+                printable = false
+                continue
+            }
+            if (!printable) continue
             val command = GcodeCommand.parse(line) ?: continue
             if (command.opcode != "G0" && command.opcode != "G1") continue
             val z = command.value('Z') ?: continue
@@ -319,6 +344,7 @@ internal object ConicalGcodeTransformer {
         val zTranslate = if (zInitialized) zDesired - zMin else 0.0
 
         val result = ArrayList<String>(lines.size)
+        printable = false
         afterEnd = false
         for (line in lines) {
             val trimmed = line.trimStart()
@@ -331,8 +357,22 @@ internal object ConicalGcodeTransformer {
                 result.add(line)
                 continue
             }
+            if (trimmed.startsWith(";LAYER:")) {
+                printable = true
+                result.add(line)
+                continue
+            }
+            if (trimmed.startsWith(";End of Gcode", ignoreCase = true) || trimmed.startsWith(";END_OF_PRINT")) {
+                printable = false
+                result.add(line)
+                continue
+            }
             val command = GcodeCommand.parse(line)
             if (command == null || (command.opcode != "G0" && command.opcode != "G1")) {
+                result.add(line)
+                continue
+            }
+            if (!printable) {
                 result.add(line)
                 continue
             }

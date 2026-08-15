@@ -169,6 +169,47 @@ class ConicalGcodeTransformerTest {
         assertTrue("Machine end temperature commands must pass through", "M140 S0" in endLines)
     }
 
+    @Test
+    fun startGcodePrimeLinesAreNotBackTransformed() {
+        val directory = createTempDirectory("conical-prime-test-").toFile()
+        val gcode = File(directory, "output.gcode")
+        gcode.writeText(
+            """
+            ;FLAVOR:Marlin
+            ;Generated with Cura
+            G90
+            M82
+            G92 E0
+            G1 X0.1 Y200.0 Z0.3 F1500.0 E15 ; Draw the first line
+            G1 X0.4 Y20 Z0.3 F1500.0 E30 ; Draw the second line
+            G92 E0
+            ;LAYER:0
+            G0 F6000 X5 Y5 Z0.28
+            G1 F1200 X5 Y5 E0.1
+            G1 X10 Y5 E0.2
+            ;End of Gcode
+            """.trimIndent(),
+        )
+        writePrepared(directory, ConicalSettings(enabled = true, coneAngleDegrees = 16.0, firstLayerHeightMm = 0.2))
+
+        ConicalStorage.backtransformStagedGcode(gcode, printerEnvelope())
+
+        val lines = gcode.readLines()
+        assertTrue(
+            "Prime line must pass through verbatim",
+            "G1 X0.1 Y200.0 Z0.3 F1500.0 E15 ; Draw the first line" in lines,
+        )
+        val extrudedZ = lines.mapNotNull(GcodeCommand::parse)
+            .filter { it.opcode == "G1" && it.has('E') && it.has('Z') }
+            .mapNotNull { it.value('Z') }
+        val minimum = extrudedZ.minOrNull()
+        val maximum = extrudedZ.maxOrNull()
+        assertNotNull(minimum)
+        assertNotNull(maximum)
+        assertTrue("Print must touch the bed (min extruded Z ${requireNotNull(minimum)})", requireNotNull(minimum) >= 0.19)
+        assertTrue("Print must not float above the bed (max extruded Z ${requireNotNull(maximum)})", requireNotNull(maximum) < 5.0)
+    }
+
     private fun writePrepared(directory: File, settings: ConicalSettings) {
         ConicalStorage.write(
             directory,

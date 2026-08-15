@@ -153,8 +153,8 @@ internal fun ConicalSettingsSheet(
                 Text("Printer safety", style = MaterialTheme.typography.titleSmall)
                 Text(
                     "Conical slicing is intended for a 4-axis printer with a 45° tilted nozzle. The final G-code is " +
-                        "rejected if any move leaves the configured machine envelope. Use relative extrusion and disable " +
-                        "skirts, brims and priming lines.",
+                        "rejected if any move leaves the configured machine envelope. Skirts, brims and nozzle priming " +
+                        "lines are disabled automatically for conical slices.",
                     style = MaterialTheme.typography.bodySmall,
                 )
                 Text(

@@ -2,6 +2,7 @@ package com.tomppi.enderslicer.engine
 
 import android.content.Context
 import com.tomppi.enderslicer.calibration.CalibrationSliceState
+import com.tomppi.enderslicer.conical.ConicalPreparations
 import com.tomppi.enderslicer.conical.ConicalRuntime
 import com.tomppi.enderslicer.model.PrinterDefinition
 import com.tomppi.enderslicer.model.SlicerSettings
@@ -116,11 +117,21 @@ class CuraEngineRunner(private val context: Context) {
     ): SliceResult {
         val curviRequestSnapshot = CurviSlicerRuntime.snapshot()
         val conicalRequestSnapshot = ConicalRuntime.snapshot()
+        val sliceSettings = if (conicalRequestSnapshot != null) {
+            ConicalPreparations.adjustSettings(settings)
+        } else {
+            settings
+        }
+        val sliceStartGcode = if (conicalRequestSnapshot != null) {
+            ConicalPreparations.stripPrimeLines(startGcode)
+        } else {
+            startGcode
+        }
         val workspace = createWorkspace("slice")
         val log = requestLog(workspace.id)
         val started = System.nanoTime()
         val effectiveSettings = CalibrationSliceState.effective(
-            settings,
+            sliceSettings,
             smartInfillSnapshot?.packageValue,
         )
         val printerEnvelope = PrinterEnvelope.from(printer.withSettings(effectiveSettings))
@@ -181,8 +192,8 @@ class CuraEngineRunner(private val context: Context) {
                 resolved = CuraSliceSettingsResolver.resolve(
                     resolutionProfile,
                     printer,
-                    settings,
-                    startGcode,
+                    sliceSettings,
+                    sliceStartGcode,
                     endGcode,
                 )
                 CuraResolvedSettingsWriter.write(
@@ -208,8 +219,8 @@ class CuraEngineRunner(private val context: Context) {
                     modelPath = workspace.model.absolutePath,
                     outputPath = workspace.output.absolutePath,
                     printer = printer,
-                    settings = settings,
-                    startGcode = startGcode,
+                    settings = sliceSettings,
+                    startGcode = sliceStartGcode,
                     endGcode = endGcode,
                     profile = null,
                     smartInfillModifiers = smartInfillModifiers,
