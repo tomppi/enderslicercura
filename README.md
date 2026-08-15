@@ -56,7 +56,22 @@ Imported values are kept as a persistent baseline: they stay in effect until you
 - Single printable model, single extruder; no duplicate/auto-arrange workflow or Cura plugins
 - Smart Infill, thermal FEA, arc/wave overhangs and the smart overhang strategy need broader physical print validation
 - High-density models and fine FEA grids may exceed the Android heap; thermal FEA lacks transient conduction and creep
+- Non-planar slicing (CurviSlicer and conical) buffers the full transformed G-code in memory, so very large or very dense prints can exhaust the Android heap (see "Increasing the Java heap")
 - OctoPrint needs broader real-server validation; printer-specific calibration commands must be checked against the installed firmware
+
+## Increasing the Java heap
+
+Non-planar slicing (CurviSlicer and conical) builds the transformed G-code in memory, so very large or very dense prints can exhaust Android's default 512 MB large-heap limit and fail with an out-of-memory error.
+
+On a rooted device the per-app heap can be raised through `dalvik.vm.heapsize`. In a root shell:
+
+```sh
+su
+resetprop dalvik.vm.heapsize 1024m
+resetprop dalvik.vm.heapgrowthlimit 512m
+```
+
+To persist across reboots, add the same `resetprop` lines to a Magisk boot script at `/data/adb/service.d/heap.sh`, then restart Zygote (`su -c "stop; start"`) or reboot. Verify with `getprop dalvik.vm.heapsize`. Only use larger values (for example `1536m`) on devices with 8 GB or more of RAM.
 
 ## Build
 
