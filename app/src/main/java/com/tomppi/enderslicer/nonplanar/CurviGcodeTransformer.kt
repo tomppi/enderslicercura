@@ -15,7 +15,7 @@ import kotlin.math.sqrt
 
 internal object CurviGcodeTransformer {
     private const val EPSILON = 1e-8
-    private const val MAX_EMITTED_MOVES = 3_000_000
+    private const val MAX_EMITTED_MOVES = 8_000_000
     private const val SLOPE_TOLERANCE_DEGREES = 0.05
 
     fun transform(

@@ -28,7 +28,7 @@ import kotlin.math.tan
 internal object ConicalGcodeTransformer {
     private const val EPSILON = 1e-8
     private const val MAX_SEGMENT_LENGTH_MM = 0.5
-    private const val MAX_EMITTED_MOVES = 3_000_000
+    private const val MAX_EMITTED_MOVES = 8_000_000
     private const val TRAVEL_CLEARANCE_MM = 1.0
 
     fun transform(
