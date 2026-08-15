@@ -2,7 +2,6 @@ package com.tomppi.enderslicer.data
 
 import com.tomppi.enderslicer.model.SlicerSettings
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SlicerSettingsJsonTest {
@@ -10,8 +9,11 @@ class SlicerSettingsJsonTest {
     @Test
     fun allKeysMatchesEverySerializedField() {
         val serialized = SlicerSettingsJson.serialize(SlicerSettings())
-        assertEquals(serialized.length(), SlicerSettingsJson.allKeys.size)
-        assertTrue(serialized.keySet().containsAll(SlicerSettingsJson.allKeys))
+        val serializedKeys = buildSet {
+            val iterator = serialized.keys()
+            while (iterator.hasNext()) add(iterator.next())
+        }
+        assertEquals(SlicerSettingsJson.allKeys, serializedKeys)
     }
 
     @Test
