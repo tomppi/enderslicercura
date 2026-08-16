@@ -181,6 +181,8 @@ jobs:
           grep -q 'EnderSlicer: Cura.*frontend applies the complete affine' .build/CuraEngine/src/communication/CommandLine.cpp
           grep -q 'EnderSlicer: resolved model values must live on the' .build/CuraEngine/src/communication/CommandLine.cpp
           grep -q 'EnderSlicer: zero cool_min_temperature is a Cura frontend sentinel' .build/CuraEngine/src/LayerPlanBuffer.cpp
+          grep -q 'wall_generator' .build/CuraEngine/src/WallToolPaths.cpp
+          grep -q 'WallToolPathGenerator::NaiveInset' .build/CuraEngine/src/WallToolPaths.cpp
           grep -q "Preserve the generator's inner-to-outer order" .build/CuraEngine/src/FffGcodeWriter.cpp
           grep -q 'One centre is retained for the complete connected island' .build/CuraEngine/include/ArcOverhang.h
           grep -q 'TYPE:ARC-OVERHANG' .build/CuraEngine/src/LayerPlan.cpp

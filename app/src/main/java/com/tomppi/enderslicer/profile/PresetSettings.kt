@@ -14,6 +14,7 @@ object PresetSettings {
         SlicerSettings.Keys.ADAPTIVE_LAYER_HEIGHT_THRESHOLD,
         SlicerSettings.Keys.LINE_WIDTH,
         SlicerSettings.Keys.SLICING_TOLERANCE,
+        SlicerSettings.Keys.WALL_GENERATOR,
         SlicerSettings.Keys.WALL_LINE_COUNT,
         SlicerSettings.Keys.WALL_THICKNESS,
         SlicerSettings.Keys.TOP_LAYERS,
@@ -146,6 +147,7 @@ object PresetSettings {
                 SlicerSettings.Keys.ADAPTIVE_LAYER_HEIGHT_THRESHOLD -> changed.copy(adaptiveLayerHeightThreshold = values.optDouble(key, changed.adaptiveLayerHeightThreshold))
                 SlicerSettings.Keys.LINE_WIDTH -> changed.copy(lineWidthMm = values.optDouble(key, changed.lineWidthMm))
                 SlicerSettings.Keys.SLICING_TOLERANCE -> changed.copy(slicingTolerance = values.optString(key, changed.slicingTolerance))
+                SlicerSettings.Keys.WALL_GENERATOR -> changed.copy(wallGenerator = values.optString(key, changed.wallGenerator))
                 SlicerSettings.Keys.WALL_LINE_COUNT -> changed.copy(wallLineCount = values.optInt(key, changed.wallLineCount))
                 SlicerSettings.Keys.WALL_THICKNESS -> changed.copy(wallThicknessMm = values.optDouble(key, changed.wallThicknessMm))
                 SlicerSettings.Keys.TOP_LAYERS -> changed.copy(topLayers = values.optInt(key, changed.topLayers))

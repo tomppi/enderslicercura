@@ -29,6 +29,7 @@ data class SlicerSettings(
     val adaptiveLayerHeightThreshold: Double = 0.20,
     val lineWidthMm: Double = 0.40,
     val slicingTolerance: String = "middle",
+    val wallGenerator: String = "arachne",
     val wallLineCount: Int = 2,
     val wallThicknessMm: Double = 0.8,
     val topLayers: Int = 5,
@@ -177,6 +178,7 @@ data class SlicerSettings(
         const val ADAPTIVE_LAYER_HEIGHT_THRESHOLD = "adaptiveLayerHeightThreshold"
         const val LINE_WIDTH = "lineWidthMm"
         const val SLICING_TOLERANCE = "slicingTolerance"
+        const val WALL_GENERATOR = "wallGenerator"
         const val WALL_LINE_COUNT = "wallLineCount"
         const val WALL_THICKNESS = "wallThicknessMm"
         const val TOP_LAYERS = "topLayers"

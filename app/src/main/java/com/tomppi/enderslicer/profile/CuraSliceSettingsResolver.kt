@@ -230,6 +230,7 @@ internal object CuraSliceSettingsResolver {
             }
         }
         option(extruder, "slicing_tolerance", setOf("middle", "exclusive", "inclusive"))
+        option(extruder, "wall_generator", setOf("arachne", "classic"))
         range(extruder, "machine_nozzle_size", 0.05, 5.0)
         range(extruder, "material_diameter", 0.5, 5.0)
         range(extruder, "line_width", 0.01, 5.0)
