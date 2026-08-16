@@ -173,41 +173,6 @@ replace(
                         }''',
 )
 
-# CuraEngine hardcodes Arachne for model walls; expose the wall_generator
-# setting so EnderSlicer can select the classic constant-width generator
-# (NaiveInset). Support and infill walls already pass their own generator and
-# keep it: the setting only promotes the Arachne default to NaiveInset.
-wall_tool_paths_cpp = root / "src" / "WallToolPaths.cpp"
-replace(
-    wall_tool_paths_cpp,
-    '''const std::vector<VariableWidthLines>& WallToolPaths::generate()
-{
-    switch (generator_)
-    {
-    case WallToolPathGenerator::Arachne:
-        generateArachne();
-        break;
-    case WallToolPathGenerator::NaiveInset:
-        generateNaiveInset();
-        break;
-    }''',
-    '''const std::vector<VariableWidthLines>& WallToolPaths::generate()
-{
-    const WallToolPathGenerator generator
-        = settings_.has("wall_generator", true) && settings_.get<std::string>("wall_generator") == "classic"
-            ? WallToolPathGenerator::NaiveInset
-            : generator_;
-    switch (generator)
-    {
-    case WallToolPathGenerator::Arachne:
-        generateArachne();
-        break;
-    case WallToolPathGenerator::NaiveInset:
-        generateNaiveInset();
-        break;
-    }''',
-)
-
 layer_plan_buffer_cpp = root / "src" / "LayerPlanBuffer.cpp"
 replace(
     layer_plan_buffer_cpp,

@@ -31,6 +31,15 @@ data class SupportPaintState(
 
     val isEmpty: Boolean get() = enforcerTriangles.isEmpty() && blockerTriangles.isEmpty()
 
+    /** Drops painted indices that do not exist in the current mesh (stale or corrupt restored workspace). */
+    fun clippedToMesh(triangleCount: Int): SupportPaintState {
+        require(triangleCount >= 0) { "Triangle count must not be negative" }
+        return copy(
+            enforcerTriangles = enforcerTriangles.filterTo(mutableSetOf()) { it in 0 until triangleCount },
+            blockerTriangles = blockerTriangles.filterTo(mutableSetOf()) { it in 0 until triangleCount },
+        )
+    }
+
     fun withEnforcer(triangles: Set<Int>): SupportPaintState = copy(
         enforcerTriangles = enforcerTriangles + triangles,
         blockerTriangles = blockerTriangles - triangles,

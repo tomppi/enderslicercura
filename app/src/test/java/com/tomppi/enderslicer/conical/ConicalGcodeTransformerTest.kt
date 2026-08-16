@@ -210,12 +210,70 @@ class ConicalGcodeTransformerTest {
         assertTrue("Print must not float above the bed (max extruded Z ${requireNotNull(maximum)})", requireNotNull(maximum) < 5.0)
     }
 
-    private fun writePrepared(directory: File, settings: ConicalSettings) {
+    @Test
+    fun offAxisWarpCentreRestoresTrueConeSlopeHeight() {
+        val directory = createTempDirectory("conical-offaxis-test-").toFile()
+        val gcode = File(directory, "output.gcode")
+        val settings = ConicalSettings(
+            enabled = true,
+            coneAngleDegrees = 16.0,
+            coneType = ConeType.OUTWARD,
+            firstLayerHeightMm = 0.2,
+        )
+        val centerX = 100.0
+        val centerY = 50.0
+        // One horizontal Cura layer cutting the warped cone: constant Z, XY
+        // pushed outward by 1/cos. Restored cone-slope heights must step down
+        // by radius * tan(angle) per point; a radius computed against the
+        // wrong centre coordinate breaks that spacing.
+        val layerZ = 3.0
+        val warpA = ConicalTransform.forward(100.0, 50.0, 0.0, centerX, centerY, settings)
+        val warpB = ConicalTransform.forward(110.0, 50.0, 0.0, centerX, centerY, settings)
+        val warpC = ConicalTransform.forward(120.0, 50.0, 0.0, centerX, centerY, settings)
+        gcode.writeText(
+            """
+            ;FLAVOR:Marlin
+            ;Generated with Cura
+            G90
+            M82
+            G92 E0
+            ;LAYER:0
+            G0 X${warpA[0]} Y${warpA[1]} Z$layerZ F6000
+            G1 X${warpB[0]} Y${warpB[1]} Z$layerZ E0.5 F1200
+            G1 X${warpC[0]} Y${warpC[1]} Z$layerZ E1.0 F1200
+            ;End of Gcode
+            """.trimIndent(),
+        )
+        writePrepared(directory, settings, centerX, centerY)
+
+        val result = ConicalStorage.backtransformStagedGcode(gcode, printerEnvelope())
+
+        assertNotNull(result)
+        val moves = gcode.readLines().mapNotNull(GcodeCommand::parse)
+        val zAtB = moves
+            .filter { it.opcode == "G1" && it.has('X') && it.has('E') }
+            .last { kotlin.math.abs(it.value('X')!! - 110.0) < 0.01 }
+            .value('Z')!!
+        val zAtC = moves
+            .filter { it.opcode == "G1" && it.has('X') && it.has('E') }
+            .last { kotlin.math.abs(it.value('X')!! - 120.0) < 0.01 }
+            .value('Z')!!
+        val expectedStep = 10.0 * kotlin.math.tan(Math.toRadians(16.0))
+        assertEquals(expectedStep, zAtB - zAtC, 0.01)
+        assertEquals(0.2, zAtC, 0.01)
+    }
+
+    private fun writePrepared(
+        directory: File,
+        settings: ConicalSettings,
+        centerX: Double = 0.0,
+        centerY: Double = 0.0,
+    ) {
         ConicalStorage.write(
             directory,
             ConicalPipeline.Prepared(
-                centerX = 0.0,
-                centerY = 0.0,
+                centerX = centerX,
+                centerY = centerY,
                 settings = settings.copy(enabled = true).validated(),
                 diagnostics = ConicalPipeline.Diagnostics(
                     sourceTriangles = 1,

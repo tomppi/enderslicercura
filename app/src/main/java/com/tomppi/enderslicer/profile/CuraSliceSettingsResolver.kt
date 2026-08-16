@@ -75,7 +75,17 @@ internal object CuraSliceSettingsResolver {
             }
         }
 
-        val rawResolved = resolveDefinitions(profile, globalOverrides, extruderOverrides)
+        // Imported projects embed flattened definitions that predate the settings
+        // the pinned engine reads unconditionally (wall_x_inset, support base
+        // family; Settings::get exits the process on a missing key). Seed Cura's
+        // own defaults; putIfAbsent keeps definition values and explicit edits.
+        val rawResolved = resolveDefinitions(profile, globalOverrides, extruderOverrides).let { base ->
+            base.copy(
+                extruderValues = LinkedHashMap(base.extruderValues).apply {
+                    ENGINE_DRIFT_DEFAULTS.forEach { (key, value) -> putIfAbsent(key, value) }
+                },
+            )
+        }
 
         val parityExtruder = linkedMapOf<String, String>().apply {
             putAll(rawResolved.extruderValues)
@@ -230,7 +240,6 @@ internal object CuraSliceSettingsResolver {
             }
         }
         option(extruder, "slicing_tolerance", setOf("middle", "exclusive", "inclusive"))
-        option(extruder, "wall_generator", setOf("arachne", "classic"))
         range(extruder, "machine_nozzle_size", 0.05, 5.0)
         range(extruder, "material_diameter", 0.5, 5.0)
         range(extruder, "line_width", 0.01, 5.0)
@@ -315,5 +324,16 @@ internal object CuraSliceSettingsResolver {
         "wall_line_width_x",
         "skin_line_width",
         "infill_line_width",
+    )
+
+    private val ENGINE_DRIFT_DEFAULTS = linkedMapOf(
+        "wall_x_inset" to "0",
+        "support_base_inside_width" to "0",
+        "support_base_outside_width" to "0",
+        "support_outer_brim_enable" to "false",
+        "support_inside_base_curve_magnitude" to "4",
+        "support_inside_base_height" to "0",
+        "support_outside_base_curve_magnitude" to "4",
+        "support_outside_base_height" to "0",
     )
 }

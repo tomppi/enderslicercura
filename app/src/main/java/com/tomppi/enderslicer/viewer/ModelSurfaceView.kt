@@ -31,9 +31,19 @@ class ModelSurfaceView(
     private var previousFocusX = 0f
     private var previousFocusY = 0f
     private var panning = false
+    private val paintPickExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
+    private val pendingPaintCoordinates = java.util.concurrent.atomic.AtomicReference<FloatArray?>(null)
+    private val paintPickLock = Any()
+    private var paintPickScheduled = false
 
     /** When not [SupportPaintMode.NONE], a single-finger drag paints instead of rotating. */
     var paintMode: SupportPaintMode = SupportPaintMode.NONE
+        set(value) {
+            if (field == value) return
+            field = value
+            queueEvent { modelRenderer.setPaintActive(value != SupportPaintMode.NONE) }
+            requestRender()
+        }
 
     /** Invoked on the UI thread with the model triangle hit by a paint stroke. */
     var onPaintHit: ((MeshPicker.Hit) -> Unit)? = null
@@ -126,12 +136,36 @@ class ModelSurfaceView(
     private fun handlePaintTouch(event: MotionEvent): Boolean {
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> {
-                val hit = modelRenderer.pickTriangle(event.x, event.y)
-                if (hit != null) onPaintHit?.invoke(hit)
+                pendingPaintCoordinates.set(floatArrayOf(event.x, event.y))
+                schedulePaintPick()
             }
             MotionEvent.ACTION_UP -> performClick()
         }
         return true
+    }
+
+    private fun schedulePaintPick() {
+        synchronized(paintPickLock) {
+            if (paintPickScheduled) return
+            paintPickScheduled = true
+        }
+        paintPickExecutor.execute {
+            try {
+                while (true) {
+                    val coordinates = pendingPaintCoordinates.getAndSet(null) ?: break
+                    val hit = modelRenderer.pickTriangle(coordinates[0], coordinates[1]) ?: continue
+                    post { onPaintHit?.invoke(hit) }
+                }
+            } finally {
+                synchronized(paintPickLock) { paintPickScheduled = false }
+                if (pendingPaintCoordinates.get() != null) schedulePaintPick()
+            }
+        }
+    }
+
+    override fun onDetachedFromWindow() {
+        paintPickExecutor.shutdown()
+        super.onDetachedFromWindow()
     }
 
     override fun performClick(): Boolean {
@@ -177,6 +211,7 @@ private class ModelRenderer(
     private var meshBuffer: FloatBuffer? = null
     private var colorBuffer: FloatBuffer? = null
     private var paintState: SupportPaintState = SupportPaintState()
+    private var paintActive = false
     private var meshProgram = 0
     private var lineProgram = 0
     private var gridBuffer: FloatBuffer? = null
@@ -209,6 +244,12 @@ private class ModelRenderer(
     fun setPaintState(value: SupportPaintState) {
         if (paintState == value) return
         paintState = value
+        rebuildColorBuffer()
+    }
+
+    fun setPaintActive(value: Boolean) {
+        if (paintActive == value) return
+        paintActive = value
         rebuildColorBuffer()
     }
 
@@ -303,6 +344,13 @@ private class ModelRenderer(
             colorBuffer = null
             return
         }
+        // A uniform base colour needs no buffer: the shader constant path in
+        // drawMesh covers it, keeping dense meshes off the direct-memory heap
+        // until painting actually starts.
+        if (!paintActive && paintState.isEmpty) {
+            colorBuffer = null
+            return
+        }
         val count = currentMesh.triangleCount
         val colors = FloatArray(count * 9)
         for (triangle in 0 until count) {
@@ -385,6 +433,7 @@ private class ModelRenderer(
             GLES20.glVertexAttribPointer(color, 3, GLES20.GL_FLOAT, false, 3 * 4, colors)
         } else {
             GLES20.glDisableVertexAttribArray(color)
+            GLES20.glVertexAttrib3f(color, BASE_COLOR[0], BASE_COLOR[1], BASE_COLOR[2])
         }
 
         GLES20.glUniformMatrix4fv(mvpLocation, 1, false, mvp, 0)

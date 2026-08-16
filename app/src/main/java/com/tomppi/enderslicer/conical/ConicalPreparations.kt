@@ -14,7 +14,15 @@ internal object ConicalPreparations {
     const val ADHESION_NONE = "none"
 
     fun adjustSettings(settings: SlicerSettings): SlicerSettings =
-        settings.copy(adhesionType = ADHESION_NONE)
+        settings.copy(
+            adhesionType = ADHESION_NONE,
+            customStartGcode = if (settings.customStartGcodeEnabled) {
+                stripPrimeLines(settings.customStartGcode)
+            } else {
+                settings.customStartGcode
+            },
+            overriddenSettingKeys = settings.overriddenSettingKeys + SlicerSettings.Keys.ADHESION_TYPE,
+        )
 
     fun stripPrimeLines(startGcode: String): String =
         startGcode.lineSequence()

@@ -112,7 +112,7 @@ fun EnderSlicerApp(
     val conicalStore = remember(context) { ConicalSettingsStore(context.applicationContext) }
     var conicalSettings by remember(conicalStore) { mutableStateOf(conicalStore.load()) }
 
-    LaunchedEffect(state.sliceResultId, state.layerPreview, nonPlanarSettings) {
+    LaunchedEffect(state.sliceResultId, state.layerPreview, nonPlanarSettings, conicalSettings) {
         val gcodeAvailable = state.hasCurrentGcode()
         val preview = state.layerPreview.takeIf { gcodeAvailable }
         val resultId = state.sliceResultId.takeIf { gcodeAvailable }
@@ -402,7 +402,12 @@ fun EnderSlicerApp(
                 state = state,
                 nonPlanarEnabled = nonPlanarSettings.enabled,
                 conicalEnabled = conicalSettings.enabled,
-                sliceBlockedReason = sliceBlockedReason,
+                sliceBlockedReason = sliceBlockedReason
+                    ?: if (nonPlanarSettings.enabled && conicalSettings.enabled) {
+                        "CurviSlicer and conical slicing are mutually exclusive; disable one before slicing"
+                    } else {
+                        null
+                    },
                 onSlice = viewModel::sliceModel,
                 onExportGcode = { gcodeExportPicker.launch(GcodeExportName.suggest()) },
             )

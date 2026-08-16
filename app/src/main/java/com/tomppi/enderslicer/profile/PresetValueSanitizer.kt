@@ -163,7 +163,6 @@ internal object PresetValueSanitizer {
 
     private val stringKeys = setOf(
         SlicerSettings.Keys.SLICING_TOLERANCE,
-        SlicerSettings.Keys.WALL_GENERATOR,
         SlicerSettings.Keys.Z_SEAM_TYPE,
         SlicerSettings.Keys.Z_SEAM_CORNER,
         SlicerSettings.Keys.INFILL_PATTERN,
@@ -177,7 +176,6 @@ internal object PresetValueSanitizer {
 
     private val strictOptions = mapOf(
         SlicerSettings.Keys.SLICING_TOLERANCE to setOf("middle", "exclusive", "inclusive"),
-        SlicerSettings.Keys.WALL_GENERATOR to setOf("arachne", "classic"),
         SlicerSettings.Keys.Z_SEAM_TYPE to setOf("back", "shortest", "random", "sharpest_corner"),
         SlicerSettings.Keys.Z_SEAM_CORNER to setOf(
             "z_seam_corner_none",

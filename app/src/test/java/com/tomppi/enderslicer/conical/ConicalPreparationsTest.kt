@@ -1,6 +1,7 @@
 package com.tomppi.enderslicer.conical
 
 import com.tomppi.enderslicer.model.SlicerSettings
+import com.tomppi.enderslicer.profile.CuraSettingDelta
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -11,6 +12,29 @@ class ConicalPreparationsTest {
     fun adjustSettingsDisablesAdhesion() {
         val adjusted = ConicalPreparations.adjustSettings(SlicerSettings(adhesionType = "skirt"))
         assertEquals("none", adjusted.adhesionType)
+    }
+
+    @Test
+    fun adjustSettingsEmitsAdhesionOverrideForResolvedSlices() {
+        val adjusted = ConicalPreparations.adjustSettings(SlicerSettings(adhesionType = "skirt"))
+        assertEquals("none", CuraSettingDelta.explicitValues(adjusted)["adhesion_type"])
+    }
+
+    @Test
+    fun adjustSettingsStripsCustomStartGcodePrimeLines() {
+        val adjusted = ConicalPreparations.adjustSettings(
+            SlicerSettings(
+                customStartGcodeEnabled = true,
+                customStartGcode = """
+                    G28
+                    G1 X0.1 Y200 Z0.3 F1500 E15 ; prime line
+                    G92 E0
+                """.trimIndent(),
+            ),
+        )
+        assertFalse("prime line" in adjusted.customStartGcode)
+        assertTrue("G28" in adjusted.customStartGcode)
+        assertTrue("G92 E0" in adjusted.customStartGcode)
     }
 
     @Test

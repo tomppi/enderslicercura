@@ -173,17 +173,6 @@ internal fun CategorizedSettingsSheet(
         }
 
         SettingsCategory("Walls and top/bottom") {
-            OptionField(
-                label = "Wall generator",
-                value = settings.wallGenerator,
-                options = listOf(
-                    "arachne" to "Arachne · variable width",
-                    "classic" to "Classic · constant width",
-                ),
-                source = source(state, SlicerSettings.Keys.WALL_GENERATOR),
-            ) {
-                onSettings(SlicerSettings.Keys.WALL_GENERATOR) { current -> current.copy(wallGenerator = it) }
-            }
             NumberField("Wall thickness (mm)", settings.wallThicknessMm, source(state, SlicerSettings.Keys.WALL_THICKNESS)) {
                 onSettings(SlicerSettings.Keys.WALL_THICKNESS) { current -> current.copy(wallThicknessMm = it.coerceIn(0.0, 100.0)) }
             }

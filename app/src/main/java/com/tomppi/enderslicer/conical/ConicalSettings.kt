@@ -54,7 +54,7 @@ data class ConicalSettings(
         const val MAX_CONE_ANGLE_DEGREES = 60.0
         const val MIN_REFINEMENT_ITERATIONS = 0
         const val MAX_REFINEMENT_ITERATIONS = 3
-        const val MIN_FIRST_LAYER_HEIGHT_MM = -5.0
+        const val MIN_FIRST_LAYER_HEIGHT_MM = 0.0
         const val MAX_FIRST_LAYER_HEIGHT_MM = 5.0
         const val MIN_SHIFT_MM = -2000.0
         const val MAX_SHIFT_MM = 2000.0

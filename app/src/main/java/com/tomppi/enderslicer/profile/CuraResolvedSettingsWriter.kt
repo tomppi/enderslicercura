@@ -93,6 +93,10 @@ internal object CuraResolvedSettingsWriter {
         }
 
         val curviPrepared = curviSnapshot?.let { snapshot ->
+            require(supportPaintModifiers.isEmpty() && adaptiveWallModifiers.isEmpty()) {
+                "Support painting and adaptive walls cannot be combined with CurviSlicer: " +
+                    "the modifier volumes are generated from the un-warped model and would misalign"
+            }
             CurviSlicerPipeline.prepareAndWarp(
                 modelFile = modelFile,
                 settings = snapshot.settings,
@@ -115,6 +119,10 @@ internal object CuraResolvedSettingsWriter {
         val conicalPrepared = conicalSnapshot?.let { snapshot ->
             require(effectiveSmartInfillModifiers.isEmpty()) {
                 "Conical slicing cannot be combined with Smart Infill modifier volumes"
+            }
+            require(supportPaintModifiers.isEmpty() && adaptiveWallModifiers.isEmpty()) {
+                "Support painting and adaptive walls cannot be combined with conical slicing: " +
+                    "the modifier volumes are generated from the un-warped model and would misalign"
             }
             ConicalPipeline.prepareAndWarp(modelFile = modelFile, settings = snapshot.settings)
         }

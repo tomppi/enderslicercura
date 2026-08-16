@@ -540,21 +540,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val snapshot = _uiState.value
         val mesh = snapshot.mesh ?: return
         if (snapshot.paintMode == SupportPaintMode.NONE) return
-        val triangles = SupportPaintBrush.expand(
-            mesh = mesh,
-            hitX = hit.x,
-            hitY = hit.y,
-            hitZ = hit.z,
-            radiusMm = snapshot.supportPaint.brushRadiusMm.toFloat(),
-        )
-        if (triangles.isEmpty()) return
-        val updated = when (snapshot.paintMode) {
-            SupportPaintMode.ENFORCER -> snapshot.supportPaint.withEnforcer(triangles)
-            SupportPaintMode.BLOCKER -> snapshot.supportPaint.withBlocker(triangles)
-            SupportPaintMode.ERASE -> snapshot.supportPaint.erased(triangles)
-            SupportPaintMode.NONE -> return
+        val radiusMm = snapshot.supportPaint.brushRadiusMm.toFloat()
+        viewModelScope.launch(Dispatchers.Default) {
+            val triangles = SupportPaintBrush.expand(
+                mesh = mesh,
+                hitX = hit.x,
+                hitY = hit.y,
+                hitZ = hit.z,
+                radiusMm = radiusMm,
+            )
+            if (triangles.isEmpty()) return@launch
+            _uiState.update { current ->
+                val updated = when (current.paintMode) {
+                    SupportPaintMode.ENFORCER -> current.supportPaint.withEnforcer(triangles)
+                    SupportPaintMode.BLOCKER -> current.supportPaint.withBlocker(triangles)
+                    SupportPaintMode.ERASE -> current.supportPaint.erased(triangles)
+                    SupportPaintMode.NONE -> current.supportPaint
+                }
+                current.copy(supportPaint = updated)
+            }
         }
-        _uiState.update { it.copy(supportPaint = updated) }
     }
 
     fun clearSupportPaint() {
@@ -1195,7 +1200,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 mesh = workspace.transformed,
                 modelPath = snapshot.modelPath,
                 modelPlacement = snapshot.placement,
-                supportPaint = snapshot.supportPaint,
+                supportPaint = snapshot.supportPaint.clippedToMesh(workspace.transformed.triangleCount),
                 sliceResultId = null,
                 gcodePath = null,
                 baseGcodePath = null,

@@ -108,17 +108,6 @@ ENGINE_DRIFT_SETTINGS = {
             "default_value": 0.0,
             "settable_per_mesh": True,
         },
-        "wall_generator": {
-            "label": "Wall Generator",
-            "description": "The wall generator to use: Arachne (variable line width) or Classic (constant line width).",
-            "type": "enum",
-            "options": {
-                "arachne": "Arachne",
-                "classic": "Classic",
-            },
-            "default_value": "arachne",
-            "settable_per_mesh": True,
-        },
     },
     "support": {
         "support_base_inside_width": {

@@ -53,6 +53,7 @@ internal object ConicalGcodeTransformer {
         var yOld = 0.0
         var zLayer = 0.0
         var zMax = 0.0
+        var sawExtrusion = false
         var planarE = 0.0
         var curvedE = 0.0
         var idealCurvedE = 0.0
@@ -211,14 +212,18 @@ internal object ConicalGcodeTransformer {
                         }
                     } else {
                         for (i in 0..segmentCount) {
-                            val radius = hypot(xVals[i] - centerX, yVals[i] - centerX)
+                            val radius = hypot(xVals[i] - centerX, yVals[i] - centerY)
                             zVals[i] = zLayer - sign * radius * tangent
                         }
                         val maxZ = zVals.maxOrNull() ?: zLayer
                         if (hasE) {
-                            if (maxZ > zMax || zMax == 0.0) zMax = maxZ
-                        } else if (maxZ > zMax) {
-                            for (i in zVals.indices) zVals[i] = min(zVals[i], zMax + TRAVEL_CLEARANCE_MM)
+                            if (!sawExtrusion || maxZ > zMax) zMax = maxZ
+                            sawExtrusion = true
+                        } else {
+                            val travelLimit = if (sawExtrusion) zMax else 0.0
+                            if (maxZ > travelLimit) {
+                                for (i in zVals.indices) zVals[i] = min(zVals[i], travelLimit + TRAVEL_CLEARANCE_MM)
+                            }
                         }
                     }
 
@@ -407,6 +412,9 @@ internal object ConicalGcodeTransformer {
         var maximumZ = Double.NEGATIVE_INFINITY
         var lineNumber = 0
         var layerNumber: Int? = null
+        var currentX = 0.0
+        var currentY = 0.0
+        var currentZ = 0.0
         for (line in lines) {
             lineNumber++
             val trimmed = line.trimStart()
@@ -416,21 +424,21 @@ internal object ConicalGcodeTransformer {
             val command = GcodeCommand.parse(line) ?: continue
             if (command.opcode != "G0" && command.opcode != "G1") continue
             if (!command.has('X') && !command.has('Y') && !command.has('Z')) continue
-            val x = command.value('X') ?: 0.0
-            val y = command.value('Y') ?: 0.0
-            val z = command.value('Z') ?: 0.0
+            command.value('X')?.let { currentX = it }
+            command.value('Y')?.let { currentY = it }
+            command.value('Z')?.let { currentZ = it }
             printerEnvelope.requireMotionMove(
-                startX = x,
-                startY = y,
-                startZ = z,
-                endX = x,
-                endY = y,
-                endZ = z,
+                startX = currentX,
+                startY = currentY,
+                startZ = currentZ,
+                endX = currentX,
+                endY = currentY,
+                endZ = currentZ,
                 lineNumber = lineNumber,
                 layerNumber = layerNumber,
             )
-            minimumZ = minOf(minimumZ, z)
-            maximumZ = maxOf(maximumZ, z)
+            minimumZ = minOf(minimumZ, currentZ)
+            maximumZ = maxOf(maximumZ, currentZ)
         }
         require(minimumZ >= -0.02) { "Conical slicing generated a path below the build plate: ${format(minimumZ)} mm" }
         require(maximumZ <= printerEnvelope.heightMm + 0.02) {

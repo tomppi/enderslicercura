@@ -17,7 +17,6 @@ class ExpandedSettingsMapperTest {
                 "adaptive_layer_height_variation_step" to "0.01",
                 "adaptive_layer_height_threshold" to "0.16",
                 "slicing_tolerance" to "inclusive",
-                "wall_generator" to "classic",
                 "wall_line_count" to "4",
                 "wall_thickness" to "1.6",
                 "top_layers" to "7",
@@ -76,7 +75,6 @@ class ExpandedSettingsMapperTest {
         assertEquals(0.01, mapped.adaptiveLayerHeightVariationStepMm, 0.0)
         assertEquals(0.16, mapped.adaptiveLayerHeightThreshold, 0.0)
         assertEquals("inclusive", mapped.slicingTolerance)
-        assertEquals("classic", mapped.wallGenerator)
         assertEquals(4, mapped.wallLineCount)
         assertEquals(1.6, mapped.wallThicknessMm, 0.0)
         assertEquals(7, mapped.topLayers)

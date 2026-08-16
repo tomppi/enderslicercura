@@ -61,7 +61,6 @@ internal object CuraSettingDelta {
         )
         putValue(SlicerSettings.Keys.LINE_WIDTH, "line_width", settings.lineWidthMm)
         putValue(SlicerSettings.Keys.SLICING_TOLERANCE, "slicing_tolerance", settings.slicingTolerance)
-        putValue(SlicerSettings.Keys.WALL_GENERATOR, "wall_generator", settings.wallGenerator)
         putValue(SlicerSettings.Keys.WALL_LINE_COUNT, "wall_line_count", settings.wallLineCount)
         putValue(SlicerSettings.Keys.INITIAL_LAYER_INSET_DIRECTION, "initial_layer_inset_direction", settings.initialLayerInsetDirection)
         putValue(SlicerSettings.Keys.WALL_THICKNESS, "wall_thickness", settings.wallThicknessMm)

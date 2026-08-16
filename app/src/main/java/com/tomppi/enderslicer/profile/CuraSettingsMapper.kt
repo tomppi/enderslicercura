@@ -39,7 +39,6 @@ object CuraSettingsMapper {
                 ?: base.adaptiveLayerHeightThreshold,
             lineWidthMm = number("line_width") ?: base.lineWidthMm,
             slicingTolerance = values["slicing_tolerance"] ?: base.slicingTolerance,
-            wallGenerator = values["wall_generator"] ?: base.wallGenerator,
             wallLineCount = number("wall_line_count")?.toInt() ?: base.wallLineCount,
             wallThicknessMm = number("wall_thickness") ?: base.wallThicknessMm,
             topLayers = number("top_layers")?.toInt() ?: base.topLayers,
