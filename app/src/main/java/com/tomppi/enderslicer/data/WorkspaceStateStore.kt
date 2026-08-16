@@ -6,6 +6,7 @@ import com.tomppi.enderslicer.engine.LayerEventType
 import com.tomppi.enderslicer.engine.PlannedLayerEvent
 import com.tomppi.enderslicer.model.ModelPlacement
 import com.tomppi.enderslicer.model.SlicerSettings
+import com.tomppi.enderslicer.supportpaint.SupportPaintState
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -25,6 +26,7 @@ class WorkspaceStateStore(private val filesDirectory: File) {
         val calibrationType: CalibrationTestType?,
         val calibrationFirstValue: Double?,
         val configurationFingerprint: String,
+        val supportPaint: SupportPaintState = SupportPaintState(),
     )
 
     private val stateDirectory = File(filesDirectory, "persistent-state").apply { mkdirs() }
@@ -148,6 +150,12 @@ class WorkspaceStateStore(private val filesDirectory: File) {
         require((snapshot.calibrationType == null) == (snapshot.calibrationFirstValue == null)) {
             "Workspace calibration identity is incomplete"
         }
+        require(snapshot.supportPaint.enforcerTriangles.all { it >= 0 }) {
+            "Workspace paint contains a negative enforcer triangle index"
+        }
+        require(snapshot.supportPaint.blockerTriangles.all { it >= 0 }) {
+            "Workspace paint contains a negative blocker triangle index"
+        }
     }
 
     private fun encode(snapshot: Snapshot): JSONObject {
@@ -180,6 +188,13 @@ class WorkspaceStateStore(private val filesDirectory: File) {
             .put("calibrationDescription", snapshot.calibrationDescription)
             .put("calibrationType", snapshot.calibrationType?.name)
             .put("calibrationFirstValue", snapshot.calibrationFirstValue)
+            .put(
+                "supportPaint",
+                JSONObject()
+                    .put("enforcer", JSONArray(snapshot.supportPaint.enforcerTriangles.toList()))
+                    .put("blocker", JSONArray(snapshot.supportPaint.blockerTriangles.toList()))
+                    .put("brushRadiusMm", snapshot.supportPaint.brushRadiusMm),
+            )
             .put("configurationFingerprint", snapshot.configurationFingerprint)
     }
 
@@ -215,6 +230,24 @@ class WorkspaceStateStore(private val filesDirectory: File) {
             calibrationType = root.optNullableString("calibrationType")?.let(CalibrationTestType::valueOf),
             calibrationFirstValue = root.optNullableDouble("calibrationFirstValue"),
             configurationFingerprint = root.getString("configurationFingerprint"),
+            supportPaint = decodeSupportPaint(root.optJSONObject("supportPaint")),
+        )
+    }
+
+    private fun decodeSupportPaint(json: JSONObject?): SupportPaintState {
+        if (json == null) return SupportPaintState()
+        val enforcer = json.optJSONArray("enforcer")?.let { array ->
+            (0 until array.length()).map { array.getInt(it) }.toSet()
+        } ?: emptySet()
+        val blocker = json.optJSONArray("blocker")?.let { array ->
+            (0 until array.length()).map { array.getInt(it) }.toSet()
+        } ?: emptySet()
+        val brush = json.optDouble("brushRadiusMm", SupportPaintState.DEFAULT_BRUSH_RADIUS_MM)
+            .coerceIn(SupportPaintState.MIN_BRUSH_RADIUS_MM, SupportPaintState.MAX_BRUSH_RADIUS_MM)
+        return SupportPaintState(
+            enforcerTriangles = enforcer,
+            blockerTriangles = blocker,
+            brushRadiusMm = brush,
         )
     }
 

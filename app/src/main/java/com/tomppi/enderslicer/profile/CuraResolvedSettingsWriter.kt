@@ -12,6 +12,7 @@ import com.tomppi.enderslicer.nonplanar.CurviSlicerRuntime
 import com.tomppi.enderslicer.smartinfill.SmartInfillCuraContract
 import com.tomppi.enderslicer.smartinfill.SmartInfillModifier
 import com.tomppi.enderslicer.smartinfill.requireValidBinaryStl
+import com.tomppi.enderslicer.supportpaint.SupportPaintModifier
 import com.tomppi.enderslicer.viewer.StlMeshWriter
 import com.tomppi.enderslicer.viewer.StlSliceTransform
 import org.json.JSONObject
@@ -25,6 +26,7 @@ internal object CuraResolvedSettingsWriter {
         modelTransform: StlSliceTransform? = null,
         smartInfillModifiers: List<SmartInfillModifier> = emptyList(),
         adaptiveWallModifiers: List<AdaptiveWallModifier> = emptyList(),
+        supportPaintModifiers: List<SupportPaintModifier> = emptyList(),
     ) {
         require(modelFileName.endsWith(".stl", ignoreCase = true)) {
             "Resolved Cura model must be an STL file"
@@ -214,6 +216,26 @@ internal object CuraResolvedSettingsWriter {
                 .put("wall_x_material_flow", modifier.wallFlowPercent)
                 .put("support_mesh", false)
                 .put("anti_overhang_mesh", false)
+                .put("cutting_mesh", false)
+            applyTransform(
+                values = values,
+                linear = IDENTITY,
+                translationX = 0.0,
+                translationY = 0.0,
+                translationZ = 0.0,
+                enginePositionX = enginePositionX,
+                enginePositionY = enginePositionY,
+                enginePositionZ = enginePositionZ,
+            )
+            root.put(modifier.file.name, values)
+        }
+
+        supportPaintModifiers.forEach { modifier ->
+            val values = JSONObject(resolved.modelValues)
+                .put("extruder_nr", 0)
+                .put("support_mesh", !modifier.isBlocker)
+                .put("anti_overhang_mesh", modifier.isBlocker)
+                .put("infill_mesh", false)
                 .put("cutting_mesh", false)
             applyTransform(
                 values = values,

@@ -18,6 +18,7 @@ import com.tomppi.enderslicer.smartinfill.SmartInfillCuraContract
 import com.tomppi.enderslicer.smartinfill.SmartInfillModifier
 import com.tomppi.enderslicer.smartinfill.SmartInfillRuntime
 import com.tomppi.enderslicer.smartinfill.requireValidBinaryStl
+import com.tomppi.enderslicer.supportpaint.SupportPaintModifier
 import java.io.File
 
 object CuraEngineCommand {
@@ -58,6 +59,7 @@ object CuraEngineCommand {
         profile: CuraEngineProfile? = null,
         smartInfillModifiers: List<SmartInfillModifier> = emptyList(),
         adaptiveWallModifiers: List<AdaptiveWallModifier> = emptyList(),
+        supportPaintModifiers: List<SupportPaintModifier> = emptyList(),
         threadCount: Int = recommendedThreadCount(),
     ): List<String> {
         require(profile == null) {
@@ -91,6 +93,10 @@ object CuraEngineCommand {
             requireSafeArgument(modifier.file.absolutePath)
             requireValidBinaryStl(modifier.file, Int.MAX_VALUE)
         }
+        supportPaintModifiers.forEach { modifier ->
+            requireSafeArgument(modifier.file.absolutePath)
+            requireValidBinaryStl(modifier.file, Int.MAX_VALUE)
+        }
 
         val effectiveSettings = CalibrationSliceState.effective(settings)
         val effectivePrinter = printer.withSettings(effectiveSettings)
@@ -98,6 +104,7 @@ object CuraEngineCommand {
         analyzedSource.takeIf(File::isFile)?.let(printerEnvelope::requireBinaryStlFits)
         effectiveSmartInfillModifiers.forEach { modifier -> printerEnvelope.requireBinaryStlFits(modifier.file) }
         adaptiveWallModifiers.forEach { modifier -> printerEnvelope.requireBinaryStlFits(modifier.file) }
+        supportPaintModifiers.forEach { modifier -> printerEnvelope.requireBinaryStlFits(modifier.file) }
 
         val curviPrepared = CurviSlicerRuntime.snapshot()?.let { snapshot ->
             CurviSlicerPipeline.prepareAndWarp(
@@ -208,10 +215,6 @@ object CuraEngineCommand {
             setting("infill_line_distance", regionalLineDistance)
             setting("infill_overlap", overlapPercent)
             setting("infill_overlap_mm", overlapMm)
-            setting(
-                "extra_infill_lines_to_support_skins",
-                if (densityPercent > 50.0) "none" else "walls_and_lines",
-            )
         }
 
         fun neutralizeSmartInfillModifierShell() {
@@ -329,6 +332,17 @@ object CuraEngineCommand {
             )
             setting("support_mesh", false)
             setting("anti_overhang_mesh", false)
+            setting("cutting_mesh", false)
+        }
+
+        supportPaintModifiers.forEach { modifier ->
+            prepareMeshLoad()
+            command += listOf("-l", modifier.file.absolutePath)
+            positionLoadedMesh()
+            setting("extruder_nr", 0)
+            setting("support_mesh", !modifier.isBlocker)
+            setting("anti_overhang_mesh", modifier.isBlocker)
+            setting("infill_mesh", false)
             setting("cutting_mesh", false)
         }
 

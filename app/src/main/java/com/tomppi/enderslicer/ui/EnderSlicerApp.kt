@@ -72,6 +72,7 @@ import com.tomppi.enderslicer.mesh.MeshTriangleLimits
 import com.tomppi.enderslicer.model.withSettings
 import com.tomppi.enderslicer.nonplanar.NonPlanarSettingsStore
 import com.tomppi.enderslicer.texturizer.BumpMeshActivity
+import com.tomppi.enderslicer.viewer.MeshPicker
 import com.tomppi.enderslicer.viewer.ModelSurfaceView
 import com.tomppi.enderslicer.viewer.StlMeshWriter
 import java.io.File
@@ -416,6 +417,7 @@ fun EnderSlicerApp(
             onViewerMode = { viewerMode = it },
             onLayerSelected = { selectedLayerIndex = it },
             onEditLayerEvents = { layerEventsOpen = true },
+            onPaintHit = viewModel::paintAt,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding),
@@ -625,6 +627,9 @@ fun EnderSlicerApp(
                 onLayFlat = viewModel::layModelFlat,
                 onReset = viewModel::resetModelTransform,
                 onApplyImportedTransform = viewModel::applyImportedSceneTransform,
+                onPaintMode = viewModel::setPaintMode,
+                onBrushRadius = viewModel::setBrushRadius,
+                onClearPaint = viewModel::clearSupportPaint,
                 modifier = Modifier
                     .fillMaxHeight(0.5f)
                     .navigationBarsPadding(),
@@ -687,6 +692,7 @@ private fun ViewerPanel(
     onViewerMode: (ViewerMode) -> Unit,
     onLayerSelected: (Int) -> Unit,
     onEditLayerEvents: () -> Unit,
+    onPaintHit: (MeshPicker.Hit) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val effectivePrinter = state.printer.withSettings(state.settings)
@@ -739,7 +745,12 @@ private fun ViewerPanel(
                     factory = { context ->
                         ModelSurfaceView(context, effectivePrinter).also { modelView = it }
                     },
-                    update = { view -> view.setMesh(state.mesh) },
+                    update = { view ->
+                        view.setMesh(state.mesh)
+                        view.paintMode = state.paintMode
+                        view.setPaintState(state.supportPaint)
+                        view.onPaintHit = onPaintHit
+                    },
                 )
             }
         }
