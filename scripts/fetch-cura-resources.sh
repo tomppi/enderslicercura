@@ -94,6 +94,23 @@ fdmprinter = json.loads(files["fdmprinter"].read_text(encoding="utf-8"))
 if not contains_key(fdmprinter, "roofing_layer_count"):
     raise SystemExit("fdmprinter.def.json does not define roofing_layer_count")
 
+# CuraEngine 5.14 main reads `wall_x_inset` (Inner Wall Inset), but the pinned
+# 5.14.0-alpha.0 frontend definitions were cut before that engine change. Inject
+# the setting with CuraEngine's default (0) so wall generation can retrieve it.
+fdmprinter.setdefault("settings", {}).setdefault("shell", {}).setdefault("children", {})
+if "wall_x_inset" not in fdmprinter["settings"]["shell"]["children"]:
+    fdmprinter["settings"]["shell"]["children"]["wall_x_inset"] = {
+        "label": "Inner Wall Inset",
+        "description": "Inset applied to the path of the inner walls to make them adhere better to the outer wall.",
+        "unit": "mm",
+        "type": "float",
+        "default_value": 0.0,
+        "minimum_value_warning": "0",
+        "maximum_value_warning": "machine_nozzle_size",
+        "settable_per_mesh": True,
+    }
+    files["fdmprinter"].write_text(json.dumps(fdmprinter, indent=4) + "\n", encoding="utf-8")
+
 print("Validated Cura definition closure: " + " -> ".join(sorted(seen)))
 PY
 

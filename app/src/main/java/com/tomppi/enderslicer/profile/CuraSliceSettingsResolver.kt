@@ -262,7 +262,7 @@ internal object CuraSliceSettingsResolver {
         range(global, "material_bed_temperature", 0.0, 200.0)
         anyRange("build_volume_temperature", -273.15, 285.0)
         anyRange("material_standby_temperature", -273.15, 500.0)
-        optionalAnyRange("material_density", 0.01, 100.0)
+        optionalAnyRange("material_density", 0.0, 100.0)
         anyRange("material_adhesion_tendency", 0.0, 10.0)
         anyRange("material_surface_energy", 0.0, 100.0)
         anyRange("extruders_enabled_count", 1.0, 16.0)
