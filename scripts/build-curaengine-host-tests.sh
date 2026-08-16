@@ -32,6 +32,7 @@ COMMON_ARGS=(
   -o '&:with_cura_resources=False'
   -o 'boost/*:header_only=True'
   -o '*:shared=False'
+  -o 'hwloc/*:shared=True'
 )
 
 pushd "$ENGINE_ROOT" >/dev/null
