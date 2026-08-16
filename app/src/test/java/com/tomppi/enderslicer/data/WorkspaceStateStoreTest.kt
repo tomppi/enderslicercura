@@ -91,7 +91,7 @@ class WorkspaceStateStoreTest {
         val liveFingerprint = WorkspaceStateStore.fingerprint(
             "Modified Ender 3 V2",
             "Cura project: reference.3mf",
-            "5.11.0-beta.1",
+            "5.14.0-alpha.0",
             "25",
             live,
             "start",
@@ -100,7 +100,7 @@ class WorkspaceStateStoreTest {
         val restoredFingerprint = WorkspaceStateStore.fingerprint(
             "Modified Ender 3 V2",
             "Cura project: reference.3mf",
-            "5.11.0-beta.1",
+            "5.14.0-alpha.0",
             "25",
             restored,
             "start",

@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DEST="${1:-$ROOT/app/src/main/assets/cura/definitions}"
-CURA_TAG="5.11.0-beta.1"
+CURA_TAG="5.14.0-alpha.0"
 RAW_BASE="https://raw.githubusercontent.com/Ultimaker/Cura/$CURA_TAG/resources"
 
 mkdir -p "$DEST"
@@ -98,9 +98,9 @@ print("Validated Cura definition closure: " + " -> ".join(sorted(seen)))
 PY
 
 cat > "$DEST/version.txt" <<'EOF'
-Cura resources: 5.11.0-beta.1
-Setting version: 25
+Cura resources: 5.14.0-alpha.0
+Setting version: 27
 Files: fdmprinter.def.json, fdmextruder.def.json, creality_base.def.json, creality_base_extruder_0.def.json, creality_ender3.def.json
 EOF
 
-printf 'Fetched and validated Cura 5.11.0-beta.1 definition chain into %s\n' "$DEST"
+printf 'Fetched and validated Cura 5.14.0-alpha.0 definition chain into %s\n' "$DEST"

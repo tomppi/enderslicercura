@@ -25,7 +25,7 @@ import org.junit.Assume.assumeTrue
 import org.junit.Test
 
 /**
- * Runs the exact patched CuraEngine built from 5.11.0-beta.1. Local unit runs
+ * Runs the exact patched CuraEngine built from 5.14.0-alpha.0. Local unit runs
  * skip when CURAENGINE_HOST_BINARY is absent; CI supplies the pinned host build.
  */
 class SmartInfillCuraEngineIntegrationTest {

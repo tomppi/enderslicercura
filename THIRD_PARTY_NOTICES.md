@@ -52,7 +52,7 @@ BumpMesh packages the published TypeScript source, generated distribution, metad
 
 ## CuraEngine and Cura resources
 
-CuraEngine is developed by UltiMaker and contributors and is licensed under GNU AGPL-3.0-or-later. The repository pins CuraEngine and matching Cura resources to `5.11.0-beta.1`.
+CuraEngine is developed by UltiMaker and contributors and is licensed under GNU AGPL-3.0-or-later. The repository pins CuraEngine and matching Cura resources to `5.14.0-alpha.0`.
 
 UltiMaker and Cura are trademarks of their respective owners.
 

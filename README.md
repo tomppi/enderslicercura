@@ -4,7 +4,7 @@
 
 # EnderSlicerCura
 
-EnderSlicerCura is an Android-first CuraEngine front end for importing, preparing, slicing, previewing and sending 3D prints from a phone or foldable. It is **0.9.0-dev**, targets Android 10+ on **ARM64**, and bundles CuraEngine with Cura resources from **5.11.0-beta.1**. Its most-tested baseline is a modified Creality Ender 3 V2.
+EnderSlicerCura is an Android-first CuraEngine front end for importing, preparing, slicing, previewing and sending 3D prints from a phone or foldable. It is **0.9.0-dev**, targets Android 10+ on **ARM64**, and bundles CuraEngine with Cura resources from **5.14.0-alpha.0**. Its most-tested baseline is a modified Creality Ender 3 V2.
 
 > This is development software, not a complete Cura replacement. Inspect every model, setting and generated G-code before printing.
 
@@ -14,7 +14,7 @@ The simplest way to reproduce your Cura setup is to save a **project** from Cura
 
 For just the print/filament settings, export a **profile** (**File → Save Profile…**, a `.curaprofile`) and use **Menu → Import Cura profile**. A profile may not include machine definitions; the app then falls back to its bundled Ender 3 V2 definitions.
 
-Imported values are kept as a persistent baseline: they stay in effect until you override them in the app, and app overrides are tracked separately. Formula resolution is verified against the pinned **5.11.0-beta.1** resources; projects from other Cura versions usually import, but verify the resolved settings before a critical print.
+Imported values are kept as a persistent baseline: they stay in effect until you override them in the app, and app overrides are tracked separately. Formula resolution is verified against the pinned **5.14.0-alpha.0** resources; projects from other Cura versions usually import, but verify the resolved settings before a critical print.
 
 ## Features
 

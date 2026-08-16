@@ -128,6 +128,22 @@ data class SlicerSettings(
     val ironingOnlyHighestLayer: Boolean = false,
     val ironingFlowPercent: Double = 10.0,
     val ironingSpeedMmPerSecond: Double = 20.0,
+    val initialLayerInsetDirection: String = "inside_out",
+    val travelRetractBeforeOuterWall: String = "automatic",
+    val infillStartEndPreference: String = "start_closest",
+    val infillMoveInwardsLengthMm: Double = 0.0,
+    val roofingExpansionMm: Double = 0.0,
+    val topBottomSkinMergeDistanceMm: Double = 1.2,
+    val skinSupportEnabled: Boolean = true,
+    val skinSupportDensityPercent: Double = 100.0,
+    val skinSupportSpeedMmPerSecond: Double = 15.0,
+    val skinSupportMaterialFlowPercent: Double = 60.0,
+    val skinSupportFanSpeedPercent: Double = 100.0,
+    val bridgeInterlaceLines: Boolean = false,
+    val supportInfillMultiplier: Int = 1,
+    val supportBrimMinimumHoleAreaMm2: Double = 16.0,
+    val machineTimeEstimationFactorPercent: Double = 100.0,
+    val minimumInfillLineLengthMm: Double = 0.0,
     val overriddenSettingKeys: Set<String> = emptySet(),
 ) {
     fun isOverridden(key: String): Boolean = key in overriddenSettingKeys
@@ -256,5 +272,21 @@ data class SlicerSettings(
         const val IRONING_ONLY_HIGHEST_LAYER = "ironingOnlyHighestLayer"
         const val IRONING_FLOW = "ironingFlowPercent"
         const val IRONING_SPEED = "ironingSpeedMmPerSecond"
+        const val INITIAL_LAYER_INSET_DIRECTION = "initialLayerInsetDirection"
+        const val TRAVEL_RETRACT_BEFORE_OUTER_WALL = "travelRetractBeforeOuterWall"
+        const val INFILL_START_END_PREFERENCE = "infillStartEndPreference"
+        const val INFILL_MOVE_INWARDS_LENGTH = "infillMoveInwardsLengthMm"
+        const val ROOFING_EXPANSION = "roofingExpansionMm"
+        const val TOP_BOTTOM_SKIN_MERGE_DISTANCE = "topBottomSkinMergeDistanceMm"
+        const val SKIN_SUPPORT_ENABLED = "skinSupportEnabled"
+        const val SKIN_SUPPORT_DENSITY = "skinSupportDensityPercent"
+        const val SKIN_SUPPORT_SPEED = "skinSupportSpeedMmPerSecond"
+        const val SKIN_SUPPORT_MATERIAL_FLOW = "skinSupportMaterialFlowPercent"
+        const val SKIN_SUPPORT_FAN_SPEED = "skinSupportFanSpeedPercent"
+        const val BRIDGE_INTERLACE_LINES = "bridgeInterlaceLines"
+        const val SUPPORT_INFILL_MULTIPLIER = "supportInfillMultiplier"
+        const val SUPPORT_BRIM_MINIMUM_HOLE_AREA = "supportBrimMinimumHoleAreaMm2"
+        const val MACHINE_TIME_ESTIMATION_FACTOR = "machineTimeEstimationFactorPercent"
+        const val MINIMUM_INFILL_LINE_LENGTH = "minimumInfillLineLengthMm"
     }
 }

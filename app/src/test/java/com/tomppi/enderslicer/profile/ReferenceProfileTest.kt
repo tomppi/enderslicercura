@@ -46,7 +46,7 @@ class ReferenceProfileTest {
     @Test
     fun projectUserOverridesWinAndUblGcodeIsPreserved() {
         val archive = zipOf(
-            "Cura/version.ini" to "[versions]\ncura_version = 5.11.0-beta.1\n",
+            "Cura/version.ini" to "[versions]\ncura_version = 5.14.0-alpha.0\n",
             "Cura/Test.global.cfg" to """
                 [general]
                 name = Modified Ender 3 V2
@@ -82,7 +82,7 @@ class ReferenceProfileTest {
             SlicerSettings(),
         )
 
-        assertEquals("5.11.0-beta.1", result.curaVersion)
+        assertEquals("5.14.0-alpha.0", result.curaVersion)
         assertEquals(200.0, result.mappedSettings.printSpeedMmPerSecond, 0.0)
         assertTrue(result.mappedSettings.supportsEnabled)
         assertEquals("everywhere", result.mappedSettings.supportPlacement)
