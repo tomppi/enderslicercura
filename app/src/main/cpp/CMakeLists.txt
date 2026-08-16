@@ -8,7 +8,7 @@ target_compile_features(enderslicer_native PRIVATE cxx_std_20)
 target_compile_definitions(
     enderslicer_native
     PRIVATE
-    ENDERSLICER_ENGINE_TARGET="CuraEngine-5.11.0"
+    ENDERSLICER_ENGINE_TARGET="CuraEngine-5.14.0-alpha.0"
 )
 
 find_library(log-lib log)

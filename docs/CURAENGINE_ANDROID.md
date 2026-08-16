@@ -4,7 +4,7 @@ The current APK deliberately contains only a JNI boundary. It does **not** gener
 
 ## Pin
 
-- CuraEngine: `5.11.0`
+- CuraEngine: `5.14.0-alpha.0`
 - Cura project compatibility target: Cura `5.14.0-alpha.0`, setting version `25`
 - Android ABI: `arm64-v8a`
 - NDK: `28.2.13676358`

@@ -29,7 +29,7 @@ if [[ ! -d "$ENGINE_ROOT/.git" ]]; then
   git -C "$ENGINE_ROOT" checkout FETCH_HEAD
 fi
 
-# CuraEngine 5.11 uses OneTBB only to cap its worker count. Android's linker
+# CuraEngine 5.14 uses OneTBB only to cap its worker count. Android's linker
 # rejects OneTBB's Linux version script, while CuraEngine's own ThreadPool works
 # normally on pthreads. Keep threading enabled and remove only the TBB controller.
 #

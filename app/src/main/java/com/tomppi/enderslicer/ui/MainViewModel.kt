@@ -1089,7 +1089,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         ?: "Built-in current Cura settings"
                     val effectiveProfileSource = config?.source
                         ?: snapshotBaseline?.profileSource
-                        ?: "Cura 5.11 / setting version 25 reference"
+                        ?: "Cura 5.14.0-alpha.0 / setting version 27 reference"
                     val fingerprint = workspaceFingerprint(
                         config,
                         settings,

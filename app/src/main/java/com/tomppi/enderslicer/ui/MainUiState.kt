@@ -33,7 +33,7 @@ data class MainUiState(
     val sliceLogPath: String? = null,
     val sliceDurationMilliseconds: Long? = null,
     val profileName: String = "Built-in current Cura settings",
-    val profileSource: String = "Cura 5.11 / setting version 25 reference",
+    val profileSource: String = "Cura 5.14.0-alpha.0 / setting version 27 reference",
     val importedRawSettingCount: Int = 0,
     val curaVersion: String? = null,
     val settingVersion: String? = "27",
