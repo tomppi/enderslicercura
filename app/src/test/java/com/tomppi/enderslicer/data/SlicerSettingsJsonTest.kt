@@ -70,6 +70,7 @@ class SlicerSettingsJsonTest {
         lineWidthMm = 0.5,
         slicingTolerance = "exclusive",
         wallGenerator = "classic",
+        fillOutlineGaps = false,
         wallLineCount = 3,
         wallThicknessMm = 1.2,
         topLayers = 6,

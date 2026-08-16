@@ -184,6 +184,13 @@ internal fun CategorizedSettingsSheet(
             ) {
                 onSettings(SlicerSettings.Keys.WALL_GENERATOR) { current -> current.copy(wallGenerator = it) }
             }
+            SwitchRow(
+                "Print thin walls",
+                settings.fillOutlineGaps,
+                source(state, SlicerSettings.Keys.FILL_OUTLINE_GAPS),
+            ) {
+                onSettings(SlicerSettings.Keys.FILL_OUTLINE_GAPS) { current -> current.copy(fillOutlineGaps = it) }
+            }
             NumberField("Wall thickness (mm)", settings.wallThicknessMm, source(state, SlicerSettings.Keys.WALL_THICKNESS)) {
                 onSettings(SlicerSettings.Keys.WALL_THICKNESS) { current -> current.copy(wallThicknessMm = it.coerceIn(0.0, 100.0)) }
             }

@@ -129,6 +129,7 @@ internal object PresetValueSanitizer {
 
     private val booleanKeys = setOf(
         SlicerSettings.Keys.ADAPTIVE_LAYER_HEIGHT_ENABLED,
+        SlicerSettings.Keys.FILL_OUTLINE_GAPS,
         SlicerSettings.Keys.Z_SEAM_RELATIVE,
         SlicerSettings.Keys.ZIG_ZAG_CONNECT_INFILL,
         SlicerSettings.Keys.SUPPORTS_ENABLED,

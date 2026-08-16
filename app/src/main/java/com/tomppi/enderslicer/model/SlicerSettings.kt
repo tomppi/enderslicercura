@@ -30,6 +30,7 @@ data class SlicerSettings(
     val lineWidthMm: Double = 0.40,
     val slicingTolerance: String = "middle",
     val wallGenerator: String = "arachne",
+    val fillOutlineGaps: Boolean = true,
     val wallLineCount: Int = 2,
     val wallThicknessMm: Double = 0.8,
     val topLayers: Int = 5,
@@ -179,6 +180,7 @@ data class SlicerSettings(
         const val LINE_WIDTH = "lineWidthMm"
         const val SLICING_TOLERANCE = "slicingTolerance"
         const val WALL_GENERATOR = "wallGenerator"
+        const val FILL_OUTLINE_GAPS = "fillOutlineGaps"
         const val WALL_LINE_COUNT = "wallLineCount"
         const val WALL_THICKNESS = "wallThicknessMm"
         const val TOP_LAYERS = "topLayers"

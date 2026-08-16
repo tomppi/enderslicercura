@@ -37,6 +37,7 @@ class UploadedCuraSettingsCoverageTest {
     fun everyNewEditableSettingProducesTheExpectedCuraDelta() {
         val settings = SlicerSettings(
             wallGenerator = "classic",
+            fillOutlineGaps = false,
             wallThicknessMm = 1.2,
             topBottomThicknessMm = 1.1,
             initialBottomLayers = 4,
@@ -53,6 +54,7 @@ class UploadedCuraSettingsCoverageTest {
             ironingOnlyHighestLayer = true,
             overriddenSettingKeys = setOf(
                 SlicerSettings.Keys.WALL_GENERATOR,
+                SlicerSettings.Keys.FILL_OUTLINE_GAPS,
                 SlicerSettings.Keys.WALL_THICKNESS,
                 SlicerSettings.Keys.TOP_BOTTOM_THICKNESS,
                 SlicerSettings.Keys.INITIAL_BOTTOM_LAYERS,
@@ -72,6 +74,7 @@ class UploadedCuraSettingsCoverageTest {
 
         val values = CuraSettingDelta.explicitValues(settings)
         assertEquals("classic", values["wall_generator"])
+        assertEquals("false", values["fill_outline_gaps"])
         assertEquals("1.2", values["wall_thickness"])
         assertEquals("1.1", values["top_bottom_thickness"])
         assertEquals("4", values["initial_bottom_layers"])

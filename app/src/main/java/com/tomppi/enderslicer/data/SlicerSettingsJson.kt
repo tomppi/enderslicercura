@@ -39,6 +39,7 @@ object SlicerSettingsJson {
         SlicerSettings.Keys.LINE_WIDTH,
         SlicerSettings.Keys.SLICING_TOLERANCE,
         SlicerSettings.Keys.WALL_GENERATOR,
+        SlicerSettings.Keys.FILL_OUTLINE_GAPS,
         SlicerSettings.Keys.WALL_LINE_COUNT,
         SlicerSettings.Keys.WALL_THICKNESS,
         SlicerSettings.Keys.TOP_LAYERS,
@@ -186,6 +187,7 @@ object SlicerSettingsJson {
         .put(SlicerSettings.Keys.LINE_WIDTH, settings.lineWidthMm)
         .put(SlicerSettings.Keys.SLICING_TOLERANCE, settings.slicingTolerance)
         .put(SlicerSettings.Keys.WALL_GENERATOR, settings.wallGenerator)
+        .put(SlicerSettings.Keys.FILL_OUTLINE_GAPS, settings.fillOutlineGaps)
         .put(SlicerSettings.Keys.WALL_LINE_COUNT, settings.wallLineCount)
         .put(SlicerSettings.Keys.WALL_THICKNESS, settings.wallThicknessMm)
         .put(SlicerSettings.Keys.TOP_LAYERS, settings.topLayers)
@@ -343,6 +345,7 @@ object SlicerSettingsJson {
                 SlicerSettings.Keys.LINE_WIDTH -> restored.copy(lineWidthMm = values.optDouble(key, restored.lineWidthMm))
                 SlicerSettings.Keys.SLICING_TOLERANCE -> restored.copy(slicingTolerance = values.optString(key, restored.slicingTolerance))
                 SlicerSettings.Keys.WALL_GENERATOR -> restored.copy(wallGenerator = values.optString(key, restored.wallGenerator))
+                SlicerSettings.Keys.FILL_OUTLINE_GAPS -> restored.copy(fillOutlineGaps = values.optBoolean(key, restored.fillOutlineGaps))
                 SlicerSettings.Keys.WALL_LINE_COUNT -> restored.copy(wallLineCount = values.optInt(key, restored.wallLineCount))
                 SlicerSettings.Keys.WALL_THICKNESS -> restored.copy(wallThicknessMm = values.optDouble(key, restored.wallThicknessMm))
                 SlicerSettings.Keys.TOP_LAYERS -> restored.copy(topLayers = values.optInt(key, restored.topLayers))

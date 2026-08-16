@@ -8,7 +8,7 @@ object CuraProjectAudit {
         "machine_start_gcode", "machine_end_gcode", "layer_height", "layer_height_0",
         "adaptive_layer_height_enabled", "adaptive_layer_height_variation",
         "adaptive_layer_height_variation_step", "adaptive_layer_height_threshold", "line_width",
-        "slicing_tolerance", "wall_generator", "wall_line_count", "wall_thickness", "top_layers", "bottom_layers",
+        "slicing_tolerance", "wall_generator", "fill_outline_gaps", "wall_line_count", "wall_thickness", "top_layers", "bottom_layers",
         "top_bottom_thickness", "initial_bottom_layers", "hole_xy_offset", "xy_offset_layer_0",
         "z_seam_type", "z_seam_x", "z_seam_y", "z_seam_relative", "z_seam_corner",
         "infill_sparse_density", "infill_pattern", "zig_zaggify_infill",
