@@ -77,7 +77,7 @@ project(":app") {
     }
 
     plugins.withId("com.android.application") {
-        tasks.named("preBuild").configure {
+        tasks.matching { it.name.startsWith("assemble") || it.name == "bundleDebug" || it.name == "bundleRelease" }.configureEach {
             dependsOn(prepareFilaSimAssets)
             dependsOn(verifyBumpMeshAssets)
         }
