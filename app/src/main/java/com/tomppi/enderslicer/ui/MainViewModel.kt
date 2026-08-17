@@ -379,9 +379,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     ) {
         val current = _uiState.value
         if (current.isBusy) return
-        val changed = transform(current.settings).copy(
-            overriddenSettingKeys = current.settings.overriddenSettingKeys + key,
-        )
+        val changed = transform(current.settings)
+            .copy(overriddenSettingKeys = current.settings.overriddenSettingKeys + key)
+            .withRecomputedDerived()
         CalibrationSliceState.clear()
         plannedCalibrationEvents = emptyList()
         _uiState.update { state ->
@@ -405,7 +405,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun resetAllSettingOverrides() {
         if (_uiState.value.isBusy) return
         val baseline = importedSettingsBaseline ?: SlicerSettings()
-        val restored = baseline.copy(overriddenSettingKeys = emptySet())
+        val restored = baseline.copy(overriddenSettingKeys = emptySet()).withRecomputedDerived()
         CalibrationSliceState.clear()
         plannedCalibrationEvents = emptyList()
         persistSettings(restored, workspaceMutationGeneration.incrementAndGet())
@@ -1092,7 +1092,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         ?.inputStream()
                         ?.use(CuraProjectSceneParser::parse)
                     val baseSettings = config?.mappedSettings ?: snapshotBaseline?.settings ?: SlicerSettings()
-                    val settings = stateStore.restoreSettings(baseSettings)
+                    val settings = stateStore.restoreSettings(baseSettings).withRecomputedDerived()
                     val effectiveStartGcode = config?.startGcode ?: snapshotBaseline?.startGcode ?: initialStartGcode
                     val effectiveEndGcode = config?.endGcode ?: snapshotBaseline?.endGcode ?: initialEndGcode
                     val effectiveProfileName = config?.name

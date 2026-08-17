@@ -1,5 +1,9 @@
 package com.tomppi.enderslicer.model
 
+import java.math.BigDecimal
+import java.math.RoundingMode
+import kotlin.math.ceil
+
 data class SlicerSettings(
     val printerName: String = "Modified Ender 3 V2",
     val machineWidthMm: Double = 230.0,
@@ -31,10 +35,10 @@ data class SlicerSettings(
     val slicingTolerance: String = "middle",
     val wallLineCount: Int = 2,
     val wallThicknessMm: Double = 0.8,
-    val topLayers: Int = 5,
-    val bottomLayers: Int = 5,
+    val topLayers: Int = 4,
+    val bottomLayers: Int = 4,
     val topBottomThicknessMm: Double = 0.8,
-    val initialBottomLayers: Int = 5,
+    val initialBottomLayers: Int = 4,
     val holeHorizontalExpansionMm: Double = 0.0,
     val initialLayerHorizontalExpansionMm: Double = 0.0,
     val zSeamType: String = "sharpest_corner",
@@ -51,14 +55,14 @@ data class SlicerSettings(
     val thicknessAdaptiveWallsExtraWalls: Int = 4,
     val printSpeedMmPerSecond: Double = 200.0,
     val wallSpeedMmPerSecond: Double = 100.0,
-    val outerWallSpeedMmPerSecond: Double = 50.0,
+    val outerWallSpeedMmPerSecond: Double = 100.0,
     val innerWallSpeedMmPerSecond: Double = 100.0,
     val infillSpeedMmPerSecond: Double = 200.0,
     val topBottomSpeedMmPerSecond: Double = 100.0,
     val travelSpeedMmPerSecond: Double = 250.0,
     val initialLayerSpeedMmPerSecond: Double = 30.0,
     val nozzleTemperatureC: Int = 210,
-    val initialNozzleTemperatureC: Int = 235,
+    val initialNozzleTemperatureC: Int = 210,
     val bedTemperatureC: Int = 60,
     val buildVolumeTemperatureC: Double = 28.0,
     val materialStandbyTemperatureC: Double = 180.0,
@@ -147,6 +151,57 @@ data class SlicerSettings(
     val overriddenSettingKeys: Set<String> = emptySet(),
 ) {
     fun isOverridden(key: String): Boolean = key in overriddenSettingKeys
+
+    fun withRecomputedDerived(): SlicerSettings {
+        var result = this
+        if (!isOverridden(Keys.WALL_THICKNESS)) {
+            result = result.copy(wallThicknessMm = wallLineCount * lineWidthMm)
+        }
+        val layerCount = if (result.layerHeightMm > 0.0) {
+            val ratio = BigDecimal.valueOf(result.topBottomThicknessMm / result.layerHeightMm)
+                .setScale(4, RoundingMode.HALF_EVEN)
+                .toDouble()
+            ceil(ratio).toInt().coerceAtLeast(0)
+        } else {
+            null
+        }
+        if (layerCount != null) {
+            if (!isOverridden(Keys.TOP_LAYERS)) {
+                result = result.copy(topLayers = layerCount)
+            }
+            if (!isOverridden(Keys.BOTTOM_LAYERS)) {
+                result = result.copy(bottomLayers = layerCount)
+            }
+        }
+        if (!isOverridden(Keys.INITIAL_BOTTOM_LAYERS)) {
+            result = result.copy(initialBottomLayers = result.bottomLayers)
+        }
+        if (!isOverridden(Keys.WALL_SPEED)) {
+            result = result.copy(wallSpeedMmPerSecond = result.printSpeedMmPerSecond / 2.0)
+        }
+        if (!isOverridden(Keys.OUTER_WALL_SPEED)) {
+            result = result.copy(outerWallSpeedMmPerSecond = result.wallSpeedMmPerSecond)
+        }
+        if (!isOverridden(Keys.INNER_WALL_SPEED)) {
+            result = result.copy(innerWallSpeedMmPerSecond = result.wallSpeedMmPerSecond)
+        }
+        if (!isOverridden(Keys.INFILL_SPEED)) {
+            result = result.copy(infillSpeedMmPerSecond = result.printSpeedMmPerSecond)
+        }
+        if (!isOverridden(Keys.TOP_BOTTOM_SPEED)) {
+            result = result.copy(topBottomSpeedMmPerSecond = result.printSpeedMmPerSecond / 2.0)
+        }
+        if (!isOverridden(Keys.SUPPORT_SPEED)) {
+            result = result.copy(supportSpeedMmPerSecond = result.wallSpeedMmPerSecond)
+        }
+        if (!isOverridden(Keys.SUPPORT_INTERFACE_SPEED)) {
+            result = result.copy(supportInterfaceSpeedMmPerSecond = result.supportSpeedMmPerSecond)
+        }
+        if (!isOverridden(Keys.INITIAL_NOZZLE_TEMPERATURE)) {
+            result = result.copy(initialNozzleTemperatureC = result.nozzleTemperatureC)
+        }
+        return result
+    }
 
     object Keys {
         const val PRINTER_NAME = "printerName"
