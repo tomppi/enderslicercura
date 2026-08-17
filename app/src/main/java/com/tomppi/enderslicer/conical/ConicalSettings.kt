@@ -10,6 +10,9 @@ import kotlin.math.tan
  * Which cone orientation the conical (EasyConical) warp uses. The forward
  * transform lifts points radially by `sign * sqrt(x^2 + y^2) * tan(theta)`;
  * `OUTWARD` radiates prints outward from the inside, `INWARD` from the outside.
+ * INWARD is disabled for slicing: its warp dips below the build plate, so
+ * [ConicalSettings.validated] always resolves to OUTWARD. The enum value is
+ * retained for the transform math and its tests.
  */
 enum class ConeType(val sign: Double) {
     OUTWARD(1.0),
@@ -27,6 +30,7 @@ data class ConicalSettings(
     val yShiftMm: Double = 0.0,
 ) {
     fun validated(): ConicalSettings = copy(
+        coneType = ConeType.OUTWARD,
         coneAngleDegrees = coneAngleDegrees.coerceIn(MIN_CONE_ANGLE_DEGREES, MAX_CONE_ANGLE_DEGREES),
         refinementIterations = refinementIterations.coerceIn(
             MIN_REFINEMENT_ITERATIONS,
