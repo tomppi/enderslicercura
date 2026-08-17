@@ -77,7 +77,7 @@ project(":app") {
     }
 
     plugins.withId("com.android.application") {
-        tasks.matching { it.name.startsWith("assemble") || it.name == "bundleDebug" || it.name == "bundleRelease" }.configureEach {
+        tasks.matching { it.name == "mergeDebugAssets" || it.name == "mergeReleaseAssets" }.configureEach {
             dependsOn(prepareFilaSimAssets)
             dependsOn(verifyBumpMeshAssets)
         }
