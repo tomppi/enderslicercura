@@ -8,6 +8,8 @@ import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import com.tomppi.enderslicer.model.PrinterDefinition
+import com.tomppi.enderslicer.supportpaint.SupportPaintMode
+import com.tomppi.enderslicer.supportpaint.SupportPaintState
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer
@@ -29,6 +31,22 @@ class ModelSurfaceView(
     private var previousFocusX = 0f
     private var previousFocusY = 0f
     private var panning = false
+    private val paintPickExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
+    private val pendingPaintCoordinates = java.util.concurrent.atomic.AtomicReference<FloatArray?>(null)
+    private val paintPickLock = Any()
+    private var paintPickScheduled = false
+
+    /** When not [SupportPaintMode.NONE], a single-finger drag paints instead of rotating. */
+    var paintMode: SupportPaintMode = SupportPaintMode.NONE
+        set(value) {
+            if (field == value) return
+            field = value
+            queueEvent { modelRenderer.setPaintActive(value != SupportPaintMode.NONE) }
+            requestRender()
+        }
+
+    /** Invoked on the UI thread with the model triangle hit by a paint stroke. */
+    var onPaintHit: ((MeshPicker.Hit) -> Unit)? = null
 
     init {
         setEGLContextClientVersion(2)
@@ -44,7 +62,16 @@ class ModelSurfaceView(
         requestRender()
     }
 
+    fun setPaintState(paint: SupportPaintState) {
+        queueEvent { modelRenderer.setPaintState(paint) }
+        requestRender()
+    }
+
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (paintMode != SupportPaintMode.NONE) {
+            return handlePaintTouch(event)
+        }
+
         gestureDetector.onTouchEvent(event)
         scaleDetector.onTouchEvent(event)
 
@@ -106,6 +133,41 @@ class ModelSurfaceView(
         return true
     }
 
+    private fun handlePaintTouch(event: MotionEvent): Boolean {
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> {
+                pendingPaintCoordinates.set(floatArrayOf(event.x, event.y))
+                schedulePaintPick()
+            }
+            MotionEvent.ACTION_UP -> performClick()
+        }
+        return true
+    }
+
+    private fun schedulePaintPick() {
+        synchronized(paintPickLock) {
+            if (paintPickScheduled) return
+            paintPickScheduled = true
+        }
+        paintPickExecutor.execute {
+            try {
+                while (true) {
+                    val coordinates = pendingPaintCoordinates.getAndSet(null) ?: break
+                    val hit = modelRenderer.pickTriangle(coordinates[0], coordinates[1]) ?: continue
+                    post { onPaintHit?.invoke(hit) }
+                }
+            } finally {
+                synchronized(paintPickLock) { paintPickScheduled = false }
+                if (pendingPaintCoordinates.get() != null) schedulePaintPick()
+            }
+        }
+    }
+
+    override fun onDetachedFromWindow() {
+        paintPickExecutor.shutdown()
+        super.onDetachedFromWindow()
+    }
+
     override fun performClick(): Boolean {
         super.performClick()
         return true
@@ -145,8 +207,11 @@ class ModelSurfaceView(
 private class ModelRenderer(
     private val printer: PrinterDefinition,
 ) : GLSurfaceView.Renderer {
-    private var mesh: StlMesh? = null
+    @Volatile private var mesh: StlMesh? = null
     private var meshBuffer: FloatBuffer? = null
+    private var colorBuffer: FloatBuffer? = null
+    private var paintState: SupportPaintState = SupportPaintState()
+    private var paintActive = false
     private var meshProgram = 0
     private var lineProgram = 0
     private var gridBuffer: FloatBuffer? = null
@@ -172,7 +237,40 @@ private class ModelRenderer(
         val isNewModel = value?.displayName != mesh?.displayName
         mesh = value
         meshBuffer = value?.interleavedVertices?.let(::floatBuffer)
+        rebuildColorBuffer()
         if (isNewModel) resetCamera()
+    }
+
+    fun setPaintState(value: SupportPaintState) {
+        if (paintState == value) return
+        paintState = value
+        rebuildColorBuffer()
+    }
+
+    fun setPaintActive(value: Boolean) {
+        if (paintActive == value) return
+        paintActive = value
+        rebuildColorBuffer()
+    }
+
+    fun pickTriangle(screenX: Float, screenY: Float): MeshPicker.Hit? {
+        val currentMesh = mesh ?: return null
+        return MeshPicker.pick(
+            mesh = currentMesh,
+            printer = printer,
+            camera = MeshPicker.CameraSnapshot(
+                viewportWidth = viewportWidth.toFloat(),
+                viewportHeight = viewportHeight.toFloat(),
+                yaw = yaw,
+                pitch = pitch,
+                zoom = zoom,
+                panX = panX,
+                panY = panY,
+                meshBounds = currentMesh.bounds,
+            ),
+            screenX = screenX,
+            screenY = screenY,
+        )
     }
 
     fun rotate(deltaYaw: Float, deltaPitch: Float) {
@@ -241,6 +339,36 @@ private class ModelRenderer(
         drawMesh()
     }
 
+    private fun rebuildColorBuffer() {
+        val currentMesh = mesh ?: run {
+            colorBuffer = null
+            return
+        }
+        // A uniform base colour needs no buffer: the shader constant path in
+        // drawMesh covers it, keeping dense meshes off the direct-memory heap
+        // until painting actually starts.
+        if (!paintActive && paintState.isEmpty) {
+            colorBuffer = null
+            return
+        }
+        val count = currentMesh.triangleCount
+        val colors = FloatArray(count * 9)
+        for (triangle in 0 until count) {
+            val color = when {
+                triangle in paintState.enforcerTriangles -> ENFORCER_COLOR
+                triangle in paintState.blockerTriangles -> BLOCKER_COLOR
+                else -> BASE_COLOR
+            }
+            for (vertex in 0 until 3) {
+                val offset = triangle * 9 + vertex * 3
+                colors[offset] = color[0]
+                colors[offset + 1] = color[1]
+                colors[offset + 2] = color[2]
+            }
+        }
+        colorBuffer = floatBuffer(colors)
+    }
+
     private fun cameraDistance(): Float = sceneFit(
         viewportWidth.toFloat() / max(viewportHeight, 1).toFloat(),
     ).distance
@@ -287,6 +415,7 @@ private class ModelRenderer(
         GLES20.glUseProgram(meshProgram)
         val position = GLES20.glGetAttribLocation(meshProgram, "aPosition")
         val normal = GLES20.glGetAttribLocation(meshProgram, "aNormal")
+        val color = GLES20.glGetAttribLocation(meshProgram, "aColor")
         val mvpLocation = GLES20.glGetUniformLocation(meshProgram, "uMvpMatrix")
         val modelLocation = GLES20.glGetUniformLocation(meshProgram, "uModelMatrix")
 
@@ -296,11 +425,23 @@ private class ModelRenderer(
         buffer.position(3)
         GLES20.glEnableVertexAttribArray(normal)
         GLES20.glVertexAttribPointer(normal, 3, GLES20.GL_FLOAT, false, 6 * 4, buffer)
+
+        val colors = colorBuffer
+        if (colors != null) {
+            colors.position(0)
+            GLES20.glEnableVertexAttribArray(color)
+            GLES20.glVertexAttribPointer(color, 3, GLES20.GL_FLOAT, false, 3 * 4, colors)
+        } else {
+            GLES20.glDisableVertexAttribArray(color)
+            GLES20.glVertexAttrib3f(color, BASE_COLOR[0], BASE_COLOR[1], BASE_COLOR[2])
+        }
+
         GLES20.glUniformMatrix4fv(mvpLocation, 1, false, mvp, 0)
         GLES20.glUniformMatrix4fv(modelLocation, 1, false, modelMatrix, 0)
         GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, currentMesh.triangleCount * 3)
         GLES20.glDisableVertexAttribArray(position)
         GLES20.glDisableVertexAttribArray(normal)
+        GLES20.glDisableVertexAttribArray(color)
     }
 
     private fun buildGrid() {
@@ -376,20 +517,28 @@ private class ModelRenderer(
         // target is distance * sqrt(1 + 0.62^2).
         const val CAMERA_EYE_DISTANCE_SCALE = 1.17666f
 
+        val BASE_COLOR = floatArrayOf(0.14f, 0.58f, 0.86f)
+        val ENFORCER_COLOR = floatArrayOf(0.20f, 0.85f, 0.32f)
+        val BLOCKER_COLOR = floatArrayOf(0.90f, 0.25f, 0.22f)
+
         const val MESH_VERTEX_SHADER = """
             uniform mat4 uMvpMatrix;
             uniform mat4 uModelMatrix;
             attribute vec3 aPosition;
             attribute vec3 aNormal;
+            attribute vec3 aColor;
             varying vec3 vNormal;
+            varying vec3 vColor;
             void main() {
                 gl_Position = uMvpMatrix * vec4(aPosition, 1.0);
                 vNormal = normalize(mat3(uModelMatrix) * aNormal);
+                vColor = aColor;
             }
         """
         const val MESH_FRAGMENT_SHADER = """
             precision mediump float;
             varying vec3 vNormal;
+            varying vec3 vColor;
             void main() {
                 vec3 normal = normalize(vNormal);
                 if (!gl_FrontFacing) {
@@ -400,8 +549,7 @@ private class ModelRenderer(
                 float key = max(dot(normal, keyLight), 0.0);
                 float fill = max(dot(normal, fillLight), 0.0);
                 float lighting = 0.28 + key * 0.62 + fill * 0.22;
-                vec3 base = vec3(0.14, 0.58, 0.86);
-                gl_FragColor = vec4(base * min(lighting, 1.12), 1.0);
+                gl_FragColor = vec4(vColor * min(lighting, 1.12), 1.0);
             }
         """
         const val LINE_VERTEX_SHADER = """

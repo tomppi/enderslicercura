@@ -62,10 +62,18 @@ internal object CuraSettingDelta {
         putValue(SlicerSettings.Keys.LINE_WIDTH, "line_width", settings.lineWidthMm)
         putValue(SlicerSettings.Keys.SLICING_TOLERANCE, "slicing_tolerance", settings.slicingTolerance)
         putValue(SlicerSettings.Keys.WALL_LINE_COUNT, "wall_line_count", settings.wallLineCount)
+        putValue(SlicerSettings.Keys.INITIAL_LAYER_INSET_DIRECTION, "initial_layer_inset_direction", settings.initialLayerInsetDirection)
         putValue(SlicerSettings.Keys.WALL_THICKNESS, "wall_thickness", settings.wallThicknessMm)
         putValue(SlicerSettings.Keys.TOP_LAYERS, "top_layers", settings.topLayers)
         putValue(SlicerSettings.Keys.BOTTOM_LAYERS, "bottom_layers", settings.bottomLayers)
         putValue(SlicerSettings.Keys.TOP_BOTTOM_THICKNESS, "top_bottom_thickness", settings.topBottomThicknessMm)
+        putValue(SlicerSettings.Keys.ROOFING_EXPANSION, "roofing_expansion", settings.roofingExpansionMm)
+        putValue(SlicerSettings.Keys.TOP_BOTTOM_SKIN_MERGE_DISTANCE, "top_bottom_skin_merge_distance", settings.topBottomSkinMergeDistanceMm)
+        putValue(SlicerSettings.Keys.SKIN_SUPPORT_ENABLED, "skin_support", settings.skinSupportEnabled)
+        putValue(SlicerSettings.Keys.SKIN_SUPPORT_DENSITY, "skin_support_density", settings.skinSupportDensityPercent)
+        putValue(SlicerSettings.Keys.SKIN_SUPPORT_SPEED, "skin_support_speed", settings.skinSupportSpeedMmPerSecond)
+        putValue(SlicerSettings.Keys.SKIN_SUPPORT_MATERIAL_FLOW, "skin_support_material_flow", settings.skinSupportMaterialFlowPercent)
+        putValue(SlicerSettings.Keys.SKIN_SUPPORT_FAN_SPEED, "skin_support_fan_speed", settings.skinSupportFanSpeedPercent)
         putValue(SlicerSettings.Keys.INITIAL_BOTTOM_LAYERS, "initial_bottom_layers", settings.initialBottomLayers)
         putValue(SlicerSettings.Keys.HOLE_HORIZONTAL_EXPANSION, "hole_xy_offset", settings.holeHorizontalExpansionMm)
         putValue(
@@ -81,6 +89,10 @@ internal object CuraSettingDelta {
         putValue(SlicerSettings.Keys.INFILL_DENSITY, "infill_sparse_density", settings.infillDensityPercent)
         putValue(SlicerSettings.Keys.INFILL_PATTERN, "infill_pattern", settings.infillPattern)
         putValue(SlicerSettings.Keys.ZIG_ZAG_CONNECT_INFILL, "zig_zaggify_infill", settings.zigZagConnectInfill)
+        putValue(SlicerSettings.Keys.INFILL_START_END_PREFERENCE, "infill_start_end_preference", settings.infillStartEndPreference)
+        putValue(SlicerSettings.Keys.INFILL_MOVE_INWARDS_LENGTH, "infill_move_inwards_length", settings.infillMoveInwardsLengthMm)
+        putValue(SlicerSettings.Keys.MINIMUM_INFILL_LINE_LENGTH, "minimum_infill_line_length", settings.minimumInfillLineLengthMm)
+        putValue(SlicerSettings.Keys.BRIDGE_INTERLACE_LINES, "bridge_interlace_lines", settings.bridgeInterlaceLines)
 
         putValue(SlicerSettings.Keys.PRINT_SPEED, "speed_print", settings.printSpeedMmPerSecond)
         putValue(SlicerSettings.Keys.WALL_SPEED, "speed_wall", settings.wallSpeedMmPerSecond)
@@ -141,6 +153,8 @@ internal object CuraSettingDelta {
             )
         }
         putValue(SlicerSettings.Keys.SUPPORT_PATTERN, "support_pattern", settings.supportPattern)
+        putValue(SlicerSettings.Keys.SUPPORT_INFILL_MULTIPLIER, "support_infill_multiplier", settings.supportInfillMultiplier)
+        putValue(SlicerSettings.Keys.SUPPORT_BRIM_MINIMUM_HOLE_AREA, "support_brim_minimum_hole_area", settings.supportBrimMinimumHoleAreaMm2)
         putValue(
             SlicerSettings.Keys.SUPPORT_INTERFACE_ENABLED,
             "support_interface_enable",
@@ -181,6 +195,7 @@ internal object CuraSettingDelta {
             settings.retractAtLayerChange,
         )
         putValue(SlicerSettings.Keys.COMBING_MODE, "retraction_combing", settings.combingMode)
+        putValue(SlicerSettings.Keys.TRAVEL_RETRACT_BEFORE_OUTER_WALL, "travel_retract_before_outer_wall", settings.travelRetractBeforeOuterWall)
         putValue(SlicerSettings.Keys.AVOID_PRINTED_PARTS, "travel_avoid_other_parts", settings.avoidPrintedParts)
         putValue(SlicerSettings.Keys.TRAVEL_AVOID_DISTANCE, "travel_avoid_distance", settings.travelAvoidDistanceMm)
         putValue(SlicerSettings.Keys.Z_HOP, "retraction_hop_enabled", settings.zHopEnabled)
@@ -207,6 +222,7 @@ internal object CuraSettingDelta {
         )
         putValue(SlicerSettings.Keys.IRONING_FLOW, "ironing_flow", settings.ironingFlowPercent)
         putValue(SlicerSettings.Keys.IRONING_SPEED, "speed_ironing", settings.ironingSpeedMmPerSecond)
+        putValue(SlicerSettings.Keys.MACHINE_TIME_ESTIMATION_FACTOR, "machine_time_estimation_factor", settings.machineTimeEstimationFactorPercent)
     }
 
     fun requireResolvedMatch(

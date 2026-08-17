@@ -2,6 +2,9 @@ package com.tomppi.enderslicer.engine
 
 import android.content.Context
 import com.tomppi.enderslicer.calibration.CalibrationSliceState
+import com.tomppi.enderslicer.conical.ConicalPreparations
+import com.tomppi.enderslicer.conical.ConicalRuntime
+import com.tomppi.enderslicer.mesh.MeshTriangleLimits
 import com.tomppi.enderslicer.model.PrinterDefinition
 import com.tomppi.enderslicer.model.SlicerSettings
 import com.tomppi.enderslicer.model.withSettings
@@ -11,6 +14,9 @@ import com.tomppi.enderslicer.profile.CuraResolvedSettingsWriter
 import com.tomppi.enderslicer.profile.CuraSliceSettingsResolver
 import com.tomppi.enderslicer.smartinfill.SmartInfillRuntime
 import com.tomppi.enderslicer.smartinfill.SmartInfillSliceSnapshot
+import com.tomppi.enderslicer.supportpaint.SupportPaintModifiers
+import com.tomppi.enderslicer.supportpaint.SupportPaintState
+import com.tomppi.enderslicer.viewer.StlParser
 import java.io.File
 import java.time.Instant
 import java.util.UUID
@@ -68,10 +74,10 @@ class CuraEngineRunner(private val context: Context) {
     fun isAvailable(): Boolean = executable.isFile && executable.length() > 0L
 
     fun status(): String = when {
-        !executable.exists() -> "CuraEngine 5.11.0-beta.1 ARM64 is not packaged in this APK"
+        !executable.exists() -> "CuraEngine 5.14.0-alpha.0 ARM64 is not packaged in this APK"
         !executable.isFile -> "CuraEngine package path is invalid"
         executable.length() == 0L -> "CuraEngine package is empty"
-        else -> "CuraEngine 5.11.0-beta.1 ARM64 ready"
+        else -> "CuraEngine 5.14.0-alpha.0 ARM64 ready"
     }
 
     fun releaseArtifact(id: String) = publisher.release(id)
@@ -85,6 +91,7 @@ class CuraEngineRunner(private val context: Context) {
         profile: CuraEngineProfile? = null,
         layerEvents: List<LayerEvent> = emptyList(),
         plannedLayerEvents: List<PlannedLayerEvent> = emptyList(),
+        supportPaint: SupportPaintState = SupportPaintState(),
     ): SliceResult = runInterruptible(Dispatchers.IO) {
         val smartInfillSnapshot = SmartInfillRuntime.snapshot()
         SmartInfillRuntime.withSnapshot(smartInfillSnapshot) {
@@ -98,6 +105,7 @@ class CuraEngineRunner(private val context: Context) {
                 layerEvents,
                 plannedLayerEvents,
                 smartInfillSnapshot,
+                supportPaint,
             )
         }
     }
@@ -112,13 +120,25 @@ class CuraEngineRunner(private val context: Context) {
         layerEvents: List<LayerEvent>,
         plannedLayerEvents: List<PlannedLayerEvent>,
         smartInfillSnapshot: SmartInfillSliceSnapshot?,
+        supportPaint: SupportPaintState,
     ): SliceResult {
         val curviRequestSnapshot = CurviSlicerRuntime.snapshot()
+        val conicalRequestSnapshot = ConicalRuntime.snapshot()
+        val sliceSettings = if (conicalRequestSnapshot != null) {
+            ConicalPreparations.adjustSettings(settings)
+        } else {
+            settings
+        }
+        val sliceStartGcode = if (conicalRequestSnapshot != null) {
+            ConicalPreparations.stripPrimeLines(startGcode)
+        } else {
+            startGcode
+        }
         val workspace = createWorkspace("slice")
         val log = requestLog(workspace.id)
         val started = System.nanoTime()
         val effectiveSettings = CalibrationSliceState.effective(
-            settings,
+            sliceSettings,
             smartInfillSnapshot?.packageValue,
         )
         val printerEnvelope = PrinterEnvelope.from(printer.withSettings(effectiveSettings))
@@ -170,6 +190,18 @@ class CuraEngineRunner(private val context: Context) {
                 emptyList()
             }
             throwIfInterrupted()
+            val supportPaintModifiers = if (supportPaint.isEmpty) {
+                emptyList()
+            } else {
+                SupportPaintModifiers.generate(
+                    mesh = StlParser.parse(workspace.model, workspace.model.name, MeshTriangleLimits.current()),
+                    paint = supportPaint,
+                    destination = workspace.directory,
+                    thicknessMm = effectiveSettings.lineWidthMm * 2.0,
+                    transform = modelTransform,
+                )
+            }
+            throwIfInterrupted()
 
             val definitions = prepareDefinitions(workspace.directory, log, resolutionProfile)
             throwIfInterrupted()
@@ -179,8 +211,8 @@ class CuraEngineRunner(private val context: Context) {
                 resolved = CuraSliceSettingsResolver.resolve(
                     resolutionProfile,
                     printer,
-                    settings,
-                    startGcode,
+                    sliceSettings,
+                    sliceStartGcode,
                     endGcode,
                 )
                 CuraResolvedSettingsWriter.write(
@@ -190,6 +222,7 @@ class CuraEngineRunner(private val context: Context) {
                     modelTransform = modelTransform,
                     smartInfillModifiers = smartInfillModifiers,
                     adaptiveWallModifiers = adaptiveWallModifiers,
+                    supportPaintModifiers = supportPaintModifiers,
                 )
                 CuraEngineCommand.buildResolved(
                     executable.absolutePath,
@@ -206,12 +239,13 @@ class CuraEngineRunner(private val context: Context) {
                     modelPath = workspace.model.absolutePath,
                     outputPath = workspace.output.absolutePath,
                     printer = printer,
-                    settings = settings,
-                    startGcode = startGcode,
+                    settings = sliceSettings,
+                    startGcode = sliceStartGcode,
                     endGcode = endGcode,
                     profile = null,
                     smartInfillModifiers = smartInfillModifiers,
                     adaptiveWallModifiers = adaptiveWallModifiers,
+                    supportPaintModifiers = supportPaintModifiers,
                 )
             }
             appendCommandLog(log, definitions, resolved, workspace.resolvedSettings, command)
@@ -259,9 +293,13 @@ class CuraEngineRunner(private val context: Context) {
             throwIfInterrupted()
 
             val currentCurviSnapshot = CurviSlicerRuntime.snapshot()
-            if (curviRequestSnapshot?.generation != currentCurviSnapshot?.generation) {
+            val currentConicalSnapshot = ConicalRuntime.snapshot()
+            if (
+                curviRequestSnapshot?.generation != currentCurviSnapshot?.generation ||
+                conicalRequestSnapshot?.generation != currentConicalSnapshot?.generation
+            ) {
                 throw SliceException(
-                    "CurviSlicer settings changed while slicing was in progress; " +
+                    "Non-planar settings changed while slicing was in progress; " +
                         "the result was discarded so no stale G-code is published. Slice again.",
                     log,
                 )
@@ -565,7 +603,7 @@ class CuraEngineRunner(private val context: Context) {
             }
             check(target.length() > 0L) { "Bundled Cura definition is empty: $name" }
         }
-        val source = "bundled Cura 5.11.0-beta.1 standalone fallback"
+        val source = "bundled Cura 5.14.0-alpha.0 standalone fallback"
         logDefinitions(log, source, destination)
         return PreparedDefinitions(
             destination,

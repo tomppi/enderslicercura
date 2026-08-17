@@ -4,7 +4,7 @@
 
 # EnderSlicerCura
 
-EnderSlicerCura is an Android-first CuraEngine front end for importing, preparing, slicing, previewing and sending 3D prints from a phone or foldable. It is **0.9.0-dev**, targets Android 10+ on **ARM64**, and bundles CuraEngine with Cura resources from **5.11.0-beta.1**. Its most-tested baseline is a modified Creality Ender 3 V2.
+EnderSlicerCura is an Android-first CuraEngine front end for importing, preparing, slicing, previewing and sending 3D prints from a phone or foldable. It is **0.9.0-dev**, targets Android 10+ on **ARM64**, and bundles CuraEngine with Cura resources from **5.14.0-alpha.0**. Its most-tested baseline is a modified Creality Ender 3 V2.
 
 > This is development software, not a complete Cura replacement. Inspect every model, setting and generated G-code before printing.
 
@@ -14,7 +14,7 @@ The simplest way to reproduce your Cura setup is to save a **project** from Cura
 
 For just the print/filament settings, export a **profile** (**File → Save Profile…**, a `.curaprofile`) and use **Menu → Import Cura profile**. A profile may not include machine definitions; the app then falls back to its bundled Ender 3 V2 definitions.
 
-Imported values are kept as a persistent baseline: they stay in effect until you override them in the app, and app overrides are tracked separately. Formula resolution is verified against the pinned **5.11.0-beta.1** resources; projects from other Cura versions usually import, but verify the resolved settings before a critical print.
+Imported values are kept as a persistent baseline: they stay in effect until you override them in the app, and app overrides are tracked separately. Formula resolution is verified against the pinned **5.14.0-alpha.0** resources; projects from other Cura versions usually import, but verify the resolved settings before a critical print.
 
 ## Features
 
@@ -56,7 +56,22 @@ Imported values are kept as a persistent baseline: they stay in effect until you
 - Single printable model, single extruder; no duplicate/auto-arrange workflow or Cura plugins
 - Smart Infill, thermal FEA, arc/wave overhangs and the smart overhang strategy need broader physical print validation
 - High-density models and fine FEA grids may exceed the Android heap; thermal FEA lacks transient conduction and creep
+- Non-planar slicing (CurviSlicer and conical) buffers the full transformed G-code in memory, so very large or very dense prints can exhaust the Android heap (see "Increasing the Java heap")
 - OctoPrint needs broader real-server validation; printer-specific calibration commands must be checked against the installed firmware
+
+## Increasing the Java heap
+
+Non-planar slicing (CurviSlicer and conical) builds the transformed G-code in memory, so very large or very dense prints can exhaust Android's default 512 MB large-heap limit and fail with an out-of-memory error.
+
+On a rooted device the per-app heap can be raised through `dalvik.vm.heapsize`. In a root shell:
+
+```sh
+su
+resetprop dalvik.vm.heapsize 1024m
+resetprop dalvik.vm.heapgrowthlimit 512m
+```
+
+To persist across reboots, add the same `resetprop` lines to a Magisk boot script at `/data/adb/service.d/heap.sh`, then restart Zygote (`su -c "stop; start"`) or reboot. Verify with `getprop dalvik.vm.heapsize`. Only use larger values (for example `1536m`) on devices with 8 GB or more of RAM.
 
 ## Build
 

@@ -14,7 +14,7 @@ class CuraProjectParserTest {
     @Test
     fun userLayerOverridesQualityLayer() {
         val archive = zipOf(
-            "Cura/version.ini" to "[versions]\ncura_version = 5.11.0-beta.1\n",
+            "Cura/version.ini" to "[versions]\ncura_version = 5.14.0-alpha.0\n",
             "Cura/Test.global.cfg" to """
                 [general]
                 name = Test printer
@@ -45,13 +45,13 @@ class CuraProjectParserTest {
 
         assertTrue(result.mappedSettings.supportsEnabled)
         assertEquals(200.0, result.mappedSettings.printSpeedMmPerSecond, 0.0)
-        assertEquals("5.11.0-beta.1", result.curaVersion)
+        assertEquals("5.14.0-alpha.0", result.curaVersion)
     }
 
     @Test
     fun importsProjectDefinitionsMaterialAndConcreteProfileValues() {
         val archive = zipOf(
-            "Cura/version.ini" to "[versions]\ncura_version = 5.11.0-beta.1\n",
+            "Cura/version.ini" to "[versions]\ncura_version = 5.14.0-alpha.0\n",
             "Cura/Printer.global.cfg" to """
                 [general]
                 name = Modified Ender 3 V2

@@ -70,16 +70,16 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.conan2/p
-          key: conan-curaengine-5.11-beta1-android-host-v6-${{ hashFiles('scripts/build-curaengine-android.sh', 'scripts/build-curaengine-host-tests.sh', 'native/curaengine/profiles/android-arm64') }}
+          key: conan-curaengine-5.14-alpha0-android-host-v1-${{ hashFiles('scripts/build-curaengine-android.sh', 'scripts/build-curaengine-host-tests.sh', 'native/curaengine/profiles/android-arm64') }}
           restore-keys: |
-            conan-curaengine-5.11-beta1-android-host-v6-
-            conan-curaengine-5.11-beta1-android-arm64-v5-
+            conan-curaengine-5.14-alpha0-android-host-v1-
+            conan-curaengine-5.14-alpha0-android-arm64-v1-
 
       - name: Fetch and validate pinned Cura definitions
         run: |
           chmod +x scripts/fetch-cura-resources.sh
           scripts/fetch-cura-resources.sh
-          grep -q 'Cura resources: 5.11.0-beta.1' app/src/main/assets/cura/definitions/version.txt
+          grep -q 'Cura resources: 5.14.0-alpha.0' app/src/main/assets/cura/definitions/version.txt
           for name in \
             fdmprinter \
             fdmextruder \
@@ -177,7 +177,7 @@ jobs:
           chmod +x scripts/build-curaengine-android.sh
           set -o pipefail
           scripts/build-curaengine-android.sh 2>&1 | tee curaengine-android-build.log
-          grep -q 'CuraEngine Android artifacts (5.11.0-beta.1)' curaengine-android-build.log
+          grep -q 'CuraEngine Android artifacts (5.14.0-alpha.0)' curaengine-android-build.log
           grep -q 'EnderSlicer: Cura.*frontend applies the complete affine' .build/CuraEngine/src/communication/CommandLine.cpp
           grep -q 'EnderSlicer: resolved model values must live on the' .build/CuraEngine/src/communication/CommandLine.cpp
           grep -q 'EnderSlicer: zero cool_min_temperature is a Cura frontend sentinel' .build/CuraEngine/src/LayerPlanBuffer.cpp
@@ -219,6 +219,7 @@ jobs:
           unzip -l app/build/outputs/apk/debug/app-debug.apk | tee apk-contents.log
           sha256sum app/build/outputs/apk/debug/app-debug.apk | tee apk-sha256.log
           grep -q 'lib/arm64-v8a/libcuraengine_exec.so' apk-contents.log
+          grep -q 'lib/arm64-v8a/libcura-formulae-engine.so' apk-contents.log
           grep -q 'assets/cura/definitions/version.txt' apk-contents.log
           grep -q 'assets/bumpmesh/index.html' apk-contents.log
           grep -q 'assets/bumpmesh/LICENSE' apk-contents.log

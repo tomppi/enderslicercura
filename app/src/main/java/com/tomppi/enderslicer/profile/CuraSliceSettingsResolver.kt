@@ -75,7 +75,17 @@ internal object CuraSliceSettingsResolver {
             }
         }
 
-        val rawResolved = resolveDefinitions(profile, globalOverrides, extruderOverrides)
+        // Imported projects embed flattened definitions that predate the settings
+        // the pinned engine reads unconditionally (wall_x_inset, support base
+        // family; Settings::get exits the process on a missing key). Seed Cura's
+        // own defaults; putIfAbsent keeps definition values and explicit edits.
+        val rawResolved = resolveDefinitions(profile, globalOverrides, extruderOverrides).let { base ->
+            base.copy(
+                extruderValues = LinkedHashMap(base.extruderValues).apply {
+                    ENGINE_DRIFT_DEFAULTS.forEach { (key, value) -> putIfAbsent(key, value) }
+                },
+            )
+        }
 
         val parityExtruder = linkedMapOf<String, String>().apply {
             putAll(rawResolved.extruderValues)
@@ -262,7 +272,7 @@ internal object CuraSliceSettingsResolver {
         range(global, "material_bed_temperature", 0.0, 200.0)
         anyRange("build_volume_temperature", -273.15, 285.0)
         anyRange("material_standby_temperature", -273.15, 500.0)
-        optionalAnyRange("material_density", 0.01, 100.0)
+        optionalAnyRange("material_density", 0.0, 100.0)
         anyRange("material_adhesion_tendency", 0.0, 10.0)
         anyRange("material_surface_energy", 0.0, 100.0)
         anyRange("extruders_enabled_count", 1.0, 16.0)
@@ -314,5 +324,16 @@ internal object CuraSliceSettingsResolver {
         "wall_line_width_x",
         "skin_line_width",
         "infill_line_width",
+    )
+
+    private val ENGINE_DRIFT_DEFAULTS = linkedMapOf(
+        "wall_x_inset" to "0",
+        "support_base_inside_width" to "0",
+        "support_base_outside_width" to "0",
+        "support_outer_brim_enable" to "false",
+        "support_inside_base_curve_magnitude" to "4",
+        "support_inside_base_height" to "0",
+        "support_outside_base_curve_magnitude" to "4",
+        "support_outside_base_height" to "0",
     )
 }

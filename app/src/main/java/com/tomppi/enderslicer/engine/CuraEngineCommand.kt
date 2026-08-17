@@ -1,6 +1,9 @@
 package com.tomppi.enderslicer.engine
 
 import com.tomppi.enderslicer.calibration.CalibrationSliceState
+import com.tomppi.enderslicer.conical.ConicalPipeline
+import com.tomppi.enderslicer.conical.ConicalRuntime
+import com.tomppi.enderslicer.conical.ConicalStorage
 import com.tomppi.enderslicer.model.PrinterDefinition
 import com.tomppi.enderslicer.model.SlicerSettings
 import com.tomppi.enderslicer.model.resolveEndGcode
@@ -15,6 +18,7 @@ import com.tomppi.enderslicer.smartinfill.SmartInfillCuraContract
 import com.tomppi.enderslicer.smartinfill.SmartInfillModifier
 import com.tomppi.enderslicer.smartinfill.SmartInfillRuntime
 import com.tomppi.enderslicer.smartinfill.requireValidBinaryStl
+import com.tomppi.enderslicer.supportpaint.SupportPaintModifier
 import java.io.File
 
 object CuraEngineCommand {
@@ -55,6 +59,7 @@ object CuraEngineCommand {
         profile: CuraEngineProfile? = null,
         smartInfillModifiers: List<SmartInfillModifier> = emptyList(),
         adaptiveWallModifiers: List<AdaptiveWallModifier> = emptyList(),
+        supportPaintModifiers: List<SupportPaintModifier> = emptyList(),
         threadCount: Int = recommendedThreadCount(),
     ): List<String> {
         require(profile == null) {
@@ -88,6 +93,10 @@ object CuraEngineCommand {
             requireSafeArgument(modifier.file.absolutePath)
             requireValidBinaryStl(modifier.file, Int.MAX_VALUE)
         }
+        supportPaintModifiers.forEach { modifier ->
+            requireSafeArgument(modifier.file.absolutePath)
+            requireValidBinaryStl(modifier.file, Int.MAX_VALUE)
+        }
 
         val effectiveSettings = CalibrationSliceState.effective(settings)
         val effectivePrinter = printer.withSettings(effectiveSettings)
@@ -95,8 +104,13 @@ object CuraEngineCommand {
         analyzedSource.takeIf(File::isFile)?.let(printerEnvelope::requireBinaryStlFits)
         effectiveSmartInfillModifiers.forEach { modifier -> printerEnvelope.requireBinaryStlFits(modifier.file) }
         adaptiveWallModifiers.forEach { modifier -> printerEnvelope.requireBinaryStlFits(modifier.file) }
+        supportPaintModifiers.forEach { modifier -> printerEnvelope.requireBinaryStlFits(modifier.file) }
 
         val curviPrepared = CurviSlicerRuntime.snapshot()?.let { snapshot ->
+            require(supportPaintModifiers.isEmpty() && adaptiveWallModifiers.isEmpty()) {
+                "Support painting and adaptive walls cannot be combined with CurviSlicer: " +
+                    "the modifier volumes are generated from the un-warped model and would misalign"
+            }
             CurviSlicerPipeline.prepareAndWarp(
                 modelFile = analyzedSource,
                 settings = snapshot.settings,
@@ -116,9 +130,26 @@ object CuraEngineCommand {
             CurviSlicerFieldStorage.write(workspace, curviPrepared)
         }
 
+        val conicalPrepared = ConicalRuntime.snapshot()?.let { snapshot ->
+            require(effectiveSmartInfillModifiers.isEmpty()) {
+                "Conical slicing cannot be combined with Smart Infill modifier volumes"
+            }
+            require(supportPaintModifiers.isEmpty() && adaptiveWallModifiers.isEmpty()) {
+                "Support painting and adaptive walls cannot be combined with conical slicing: " +
+                    "the modifier volumes are generated from the un-warped model and would misalign"
+            }
+            ConicalPipeline.prepareAndWarp(modelFile = analyzedSource, settings = snapshot.settings)
+        }
+        if (conicalPrepared != null) {
+            printerEnvelope.requireBinaryStlFits(analyzedSource)
+            ConicalStorage.write(workspace, conicalPrepared)
+        }
+
         val effectiveStartGcode = effectiveSettings.resolveStartGcode(startGcode)
-        val effectiveEndGcode = CurviSlicerRuntime.markMachineEndGcode(
-            effectiveSettings.resolveEndGcode(endGcode),
+        val effectiveEndGcode = ConicalRuntime.markMachineEndGcode(
+            CurviSlicerRuntime.markMachineEndGcode(
+                effectiveSettings.resolveEndGcode(endGcode),
+            ),
         )
         val engineOffsetX = if (effectivePrinter.originAtCenter) 0.0 else -effectivePrinter.widthMm / 2.0
         val engineOffsetY = if (effectivePrinter.originAtCenter) 0.0 else -effectivePrinter.depthMm / 2.0
@@ -192,10 +223,6 @@ object CuraEngineCommand {
             setting("infill_line_distance", regionalLineDistance)
             setting("infill_overlap", overlapPercent)
             setting("infill_overlap_mm", overlapMm)
-            setting(
-                "extra_infill_lines_to_support_skins",
-                if (densityPercent > 50.0) "none" else "walls_and_lines",
-            )
         }
 
         fun neutralizeSmartInfillModifierShell() {
@@ -313,6 +340,17 @@ object CuraEngineCommand {
             )
             setting("support_mesh", false)
             setting("anti_overhang_mesh", false)
+            setting("cutting_mesh", false)
+        }
+
+        supportPaintModifiers.forEach { modifier ->
+            prepareMeshLoad()
+            command += listOf("-l", modifier.file.absolutePath)
+            positionLoadedMesh()
+            setting("extruder_nr", 0)
+            setting("support_mesh", !modifier.isBlocker)
+            setting("anti_overhang_mesh", modifier.isBlocker)
+            setting("infill_mesh", false)
             setting("cutting_mesh", false)
         }
 

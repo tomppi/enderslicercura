@@ -137,6 +137,22 @@ object SlicerSettingsJson {
         SlicerSettings.Keys.IRONING_ONLY_HIGHEST_LAYER,
         SlicerSettings.Keys.IRONING_FLOW,
         SlicerSettings.Keys.IRONING_SPEED,
+        SlicerSettings.Keys.INITIAL_LAYER_INSET_DIRECTION,
+        SlicerSettings.Keys.TRAVEL_RETRACT_BEFORE_OUTER_WALL,
+        SlicerSettings.Keys.INFILL_START_END_PREFERENCE,
+        SlicerSettings.Keys.INFILL_MOVE_INWARDS_LENGTH,
+        SlicerSettings.Keys.ROOFING_EXPANSION,
+        SlicerSettings.Keys.TOP_BOTTOM_SKIN_MERGE_DISTANCE,
+        SlicerSettings.Keys.SKIN_SUPPORT_ENABLED,
+        SlicerSettings.Keys.SKIN_SUPPORT_DENSITY,
+        SlicerSettings.Keys.SKIN_SUPPORT_SPEED,
+        SlicerSettings.Keys.SKIN_SUPPORT_MATERIAL_FLOW,
+        SlicerSettings.Keys.SKIN_SUPPORT_FAN_SPEED,
+        SlicerSettings.Keys.BRIDGE_INTERLACE_LINES,
+        SlicerSettings.Keys.SUPPORT_INFILL_MULTIPLIER,
+        SlicerSettings.Keys.SUPPORT_BRIM_MINIMUM_HOLE_AREA,
+        SlicerSettings.Keys.MACHINE_TIME_ESTIMATION_FACTOR,
+        SlicerSettings.Keys.MINIMUM_INFILL_LINE_LENGTH,
     )
 
     fun serialize(settings: SlicerSettings): JSONObject = JSONObject()
@@ -267,6 +283,22 @@ object SlicerSettingsJson {
         .put(SlicerSettings.Keys.IRONING_ONLY_HIGHEST_LAYER, settings.ironingOnlyHighestLayer)
         .put(SlicerSettings.Keys.IRONING_FLOW, settings.ironingFlowPercent)
         .put(SlicerSettings.Keys.IRONING_SPEED, settings.ironingSpeedMmPerSecond)
+        .put(SlicerSettings.Keys.INITIAL_LAYER_INSET_DIRECTION, settings.initialLayerInsetDirection)
+        .put(SlicerSettings.Keys.TRAVEL_RETRACT_BEFORE_OUTER_WALL, settings.travelRetractBeforeOuterWall)
+        .put(SlicerSettings.Keys.INFILL_START_END_PREFERENCE, settings.infillStartEndPreference)
+        .put(SlicerSettings.Keys.INFILL_MOVE_INWARDS_LENGTH, settings.infillMoveInwardsLengthMm)
+        .put(SlicerSettings.Keys.ROOFING_EXPANSION, settings.roofingExpansionMm)
+        .put(SlicerSettings.Keys.TOP_BOTTOM_SKIN_MERGE_DISTANCE, settings.topBottomSkinMergeDistanceMm)
+        .put(SlicerSettings.Keys.SKIN_SUPPORT_ENABLED, settings.skinSupportEnabled)
+        .put(SlicerSettings.Keys.SKIN_SUPPORT_DENSITY, settings.skinSupportDensityPercent)
+        .put(SlicerSettings.Keys.SKIN_SUPPORT_SPEED, settings.skinSupportSpeedMmPerSecond)
+        .put(SlicerSettings.Keys.SKIN_SUPPORT_MATERIAL_FLOW, settings.skinSupportMaterialFlowPercent)
+        .put(SlicerSettings.Keys.SKIN_SUPPORT_FAN_SPEED, settings.skinSupportFanSpeedPercent)
+        .put(SlicerSettings.Keys.BRIDGE_INTERLACE_LINES, settings.bridgeInterlaceLines)
+        .put(SlicerSettings.Keys.SUPPORT_INFILL_MULTIPLIER, settings.supportInfillMultiplier)
+        .put(SlicerSettings.Keys.SUPPORT_BRIM_MINIMUM_HOLE_AREA, settings.supportBrimMinimumHoleAreaMm2)
+        .put(SlicerSettings.Keys.MACHINE_TIME_ESTIMATION_FACTOR, settings.machineTimeEstimationFactorPercent)
+        .put(SlicerSettings.Keys.MINIMUM_INFILL_LINE_LENGTH, settings.minimumInfillLineLengthMm)
 
     fun apply(base: SlicerSettings, values: JSONObject, keys: Set<String>): SlicerSettings {
         var restored = base.copy(overriddenSettingKeys = emptySet())
@@ -417,6 +449,22 @@ object SlicerSettingsJson {
                 SlicerSettings.Keys.IRONING_ONLY_HIGHEST_LAYER -> restored.copy(ironingOnlyHighestLayer = values.optBoolean(key, restored.ironingOnlyHighestLayer))
                 SlicerSettings.Keys.IRONING_FLOW -> restored.copy(ironingFlowPercent = values.optDouble(key, restored.ironingFlowPercent))
                 SlicerSettings.Keys.IRONING_SPEED -> restored.copy(ironingSpeedMmPerSecond = values.optDouble(key, restored.ironingSpeedMmPerSecond))
+                SlicerSettings.Keys.INITIAL_LAYER_INSET_DIRECTION -> restored.copy(initialLayerInsetDirection = values.optString(key, restored.initialLayerInsetDirection))
+                SlicerSettings.Keys.TRAVEL_RETRACT_BEFORE_OUTER_WALL -> restored.copy(travelRetractBeforeOuterWall = values.optString(key, restored.travelRetractBeforeOuterWall))
+                SlicerSettings.Keys.INFILL_START_END_PREFERENCE -> restored.copy(infillStartEndPreference = values.optString(key, restored.infillStartEndPreference))
+                SlicerSettings.Keys.INFILL_MOVE_INWARDS_LENGTH -> restored.copy(infillMoveInwardsLengthMm = values.optDouble(key, restored.infillMoveInwardsLengthMm))
+                SlicerSettings.Keys.ROOFING_EXPANSION -> restored.copy(roofingExpansionMm = values.optDouble(key, restored.roofingExpansionMm))
+                SlicerSettings.Keys.TOP_BOTTOM_SKIN_MERGE_DISTANCE -> restored.copy(topBottomSkinMergeDistanceMm = values.optDouble(key, restored.topBottomSkinMergeDistanceMm))
+                SlicerSettings.Keys.SKIN_SUPPORT_ENABLED -> restored.copy(skinSupportEnabled = values.optBoolean(key, restored.skinSupportEnabled))
+                SlicerSettings.Keys.SKIN_SUPPORT_DENSITY -> restored.copy(skinSupportDensityPercent = values.optDouble(key, restored.skinSupportDensityPercent))
+                SlicerSettings.Keys.SKIN_SUPPORT_SPEED -> restored.copy(skinSupportSpeedMmPerSecond = values.optDouble(key, restored.skinSupportSpeedMmPerSecond))
+                SlicerSettings.Keys.SKIN_SUPPORT_MATERIAL_FLOW -> restored.copy(skinSupportMaterialFlowPercent = values.optDouble(key, restored.skinSupportMaterialFlowPercent))
+                SlicerSettings.Keys.SKIN_SUPPORT_FAN_SPEED -> restored.copy(skinSupportFanSpeedPercent = values.optDouble(key, restored.skinSupportFanSpeedPercent))
+                SlicerSettings.Keys.BRIDGE_INTERLACE_LINES -> restored.copy(bridgeInterlaceLines = values.optBoolean(key, restored.bridgeInterlaceLines))
+                SlicerSettings.Keys.SUPPORT_INFILL_MULTIPLIER -> restored.copy(supportInfillMultiplier = values.optInt(key, restored.supportInfillMultiplier))
+                SlicerSettings.Keys.SUPPORT_BRIM_MINIMUM_HOLE_AREA -> restored.copy(supportBrimMinimumHoleAreaMm2 = values.optDouble(key, restored.supportBrimMinimumHoleAreaMm2))
+                SlicerSettings.Keys.MACHINE_TIME_ESTIMATION_FACTOR -> restored.copy(machineTimeEstimationFactorPercent = values.optDouble(key, restored.machineTimeEstimationFactorPercent))
+                SlicerSettings.Keys.MINIMUM_INFILL_LINE_LENGTH -> restored.copy(minimumInfillLineLengthMm = values.optDouble(key, restored.minimumInfillLineLengthMm))
                 else -> restored
             }
         }

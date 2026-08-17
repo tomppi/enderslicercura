@@ -8,6 +8,8 @@ import com.tomppi.enderslicer.model.PrinterDefinition
 import com.tomppi.enderslicer.model.SlicerSettings
 import com.tomppi.enderslicer.profile.CuraComputedValue
 import com.tomppi.enderslicer.profile.CuraEngineProfile
+import com.tomppi.enderslicer.supportpaint.SupportPaintMode
+import com.tomppi.enderslicer.supportpaint.SupportPaintState
 import com.tomppi.enderslicer.viewer.StlMesh
 import java.io.File
 
@@ -17,6 +19,8 @@ data class MainUiState(
     val mesh: StlMesh? = null,
     val modelPath: String? = null,
     val modelPlacement: ModelPlacement? = null,
+    val supportPaint: SupportPaintState = SupportPaintState(),
+    val paintMode: SupportPaintMode = SupportPaintMode.NONE,
     val importedSceneTransformAvailable: Boolean = false,
     val importedSceneModelName: String? = null,
     val sliceResultId: String? = null,
@@ -29,10 +33,10 @@ data class MainUiState(
     val sliceLogPath: String? = null,
     val sliceDurationMilliseconds: Long? = null,
     val profileName: String = "Built-in current Cura settings",
-    val profileSource: String = "Cura 5.11 / setting version 25 reference",
+    val profileSource: String = "Cura 5.14.0-alpha.0 / setting version 27 reference",
     val importedRawSettingCount: Int = 0,
     val curaVersion: String? = null,
-    val settingVersion: String? = "25",
+    val settingVersion: String? = "27",
     val engineProfile: CuraEngineProfile? = null,
     val computedCuraValues: List<CuraComputedValue> = emptyList(),
     val computedCuraPasses: Int? = null,

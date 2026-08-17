@@ -6,7 +6,10 @@ ENGINE_ROOT="${ENGINE_ROOT:-$ROOT/.build/CuraEngine}"
 OUTPUT_ROOT="${OUTPUT_ROOT:-$ROOT/.build/curaengine-android}"
 PROFILE="$ROOT/native/curaengine/profiles/android-arm64"
 NDK_PATH="${ANDROID_NDK_HOME:-${ANDROID_NDK_ROOT:-}}"
-CURA_ENGINE_TAG="5.11.0-beta.1"
+CURA_ENGINE_TAG="5.14.0-alpha.0"
+# 5.14.0-alpha.0 has no release tag yet; pin the exact main-branch commit so the
+# Android ARM64 build stays reproducible until a stable tag is cut.
+CURA_ENGINE_COMMIT="a27787d68548bef9725e1126468394fb8a661e1b"
 
 if [[ -z "$NDK_PATH" ]]; then
   echo "ANDROID_NDK_HOME or ANDROID_NDK_ROOT must point to Android NDK 28.2.13676358" >&2
@@ -21,10 +24,12 @@ fi
 mkdir -p "$(dirname "$ENGINE_ROOT")" "$OUTPUT_ROOT"
 
 if [[ ! -d "$ENGINE_ROOT/.git" ]]; then
-  git clone --depth 1 --branch "$CURA_ENGINE_TAG" https://github.com/Ultimaker/CuraEngine.git "$ENGINE_ROOT"
+  git clone --depth 1 https://github.com/Ultimaker/CuraEngine.git "$ENGINE_ROOT"
+  git -C "$ENGINE_ROOT" fetch --depth 1 origin "$CURA_ENGINE_COMMIT"
+  git -C "$ENGINE_ROOT" checkout FETCH_HEAD
 fi
 
-# CuraEngine 5.11 uses OneTBB only to cap its worker count. Android's linker
+# CuraEngine 5.14 uses OneTBB only to cap its worker count. Android's linker
 # rejects OneTBB's Linux version script, while CuraEngine's own ThreadPool works
 # normally on pthreads. Keep threading enabled and remove only the TBB controller.
 #
@@ -80,8 +85,8 @@ replace(
 )
 replace(
     cmake,
-    'if(NOT EMSCRIPTEN)\n    find_package(TBB REQUIRED)\nendif()',
-    'if(ENABLE_TBB AND NOT EMSCRIPTEN)\n    find_package(TBB REQUIRED)\nendif()',
+    'if (NOT EMSCRIPTEN)\n    find_package(TBB REQUIRED)\nendif ()',
+    'if (ENABLE_TBB AND NOT EMSCRIPTEN)\n    find_package(TBB REQUIRED)\nendif ()',
 )
 replace(
     cmake,
@@ -136,14 +141,22 @@ replace(
 )
 replace(
     command_line_cpp,
-    '''                        if (! loadMeshIntoMeshGroup(&slice->scene.mesh_groups[mesh_group_index], model_name.c_str(), transformation, slice->scene.extruders[extruder_nr].settings_))
+    '''                        if (! loadMeshIntoMeshGroup(
+                                &slice->scene.mesh_groups[mesh_group_index],
+                                settings_folder / model_name,
+                                transformation,
+                                slice->scene.extruders[extruder_nr].settings_))
                         {
-                            spdlog::error("Failed to load model: {}. (error number {})", model_name, errno);
+                            spdlog::error("Failed to load model: {} (error number {})", model_name, errno);
                             exit(1);
                         }''',
-    '''                        if (! loadMeshIntoMeshGroup(&slice->scene.mesh_groups[mesh_group_index], model_name.c_str(), transformation, slice->scene.extruders[extruder_nr].settings_))
+    '''                        if (! loadMeshIntoMeshGroup(
+                                &slice->scene.mesh_groups[mesh_group_index],
+                                settings_folder / model_name,
+                                transformation,
+                                slice->scene.extruders[extruder_nr].settings_))
                         {
-                            spdlog::error("Failed to load model: {}. (error number {})", model_name, errno);
+                            spdlog::error("Failed to load model: {} (error number {})", model_name, errno);
                             exit(1);
                         }
 
@@ -258,17 +271,6 @@ replace(
 )
 replace(
     fff_gcode_writer_cpp,
-    '''    const bool monotonic = mesh.settings.get<bool>("skin_monotonic");
-    processSkinPrintFeature(''',
-    '''    // EnderSlicer: overhang fill is emitted before the walls in
-    // addMeshPartToGCode, so any island that reached the skin phase was either
-    // already filled (empty skin_fill returns above) or rejected by the
-    // generator. Keep the normal bridge/skin path for the rejected islands.
-    const bool monotonic = mesh.settings.get<bool>("skin_monotonic");
-    processSkinPrintFeature(''',
-)
-replace(
-    fff_gcode_writer_cpp,
     '''void FffGcodeWriter::addMeshPartToGCode(
     const SliceDataStorage& storage,
     const SliceMeshStorage& mesh,
@@ -278,15 +280,29 @@ replace(
     LayerPlan& gcode_layer) const
 {
     const Settings& mesh_group_settings = Application::getInstance().current_slice_->scene.current_mesh_group->settings;
-
+    const bool infill_before_walls = mesh.settings.get<bool>("infill_before_walls");
     bool added_something = false;
 
-    if (mesh.settings.get<bool>("infill_before_walls"))
+    const bool end_infill_close_to_seam
+        = infill_before_walls && mesh.settings.get<InfillStartEndPreference>("infill_start_end_preference") == InfillStartEndPreference::END_CLOSE_TO_SEAM;
+
+    // Pre-process the insets without actually adding them, so that we know where they are going to start printing
+    InsetsPreprocessResult insets_preprocess_result = preProcessInsets(storage, gcode_layer, mesh, extruder_nr, mesh_config, part, end_infill_close_to_seam);
+    bool infill_added = false;
+
+    if (infill_before_walls)
     {
-        added_something = added_something | processInfill(storage, gcode_layer, mesh, extruder_nr, mesh_config, part);
+        std::optional<Point2LL> near_end_location;
+        if (end_infill_close_to_seam && insets_preprocess_result.walls_optimizer)
+        {
+            near_end_location = insets_preprocess_result.walls_optimizer->getStartPosition();
+        }
+
+        infill_added = processInfill(storage, gcode_layer, mesh, extruder_nr, mesh_config, part, near_end_location);
+        added_something = added_something | infill_added;
     }
 
-    added_something = added_something | processInsets(storage, gcode_layer, mesh, extruder_nr, mesh_config, part);''',
+    added_something |= endProcessInsets(insets_preprocess_result, storage, gcode_layer, mesh, extruder_nr, mesh_config, part, infill_added);''',
     '''static bool emitOverhangFillForSkinPart(
     const SliceDataStorage& storage,
     LayerPlan& gcode_layer,
@@ -301,7 +317,7 @@ replace(
     // void. Returns whether the fill was emitted; the caller clears the handled
     // island so the skin phase does not print it again.
     Shape supported;
-    bridgeAngle(mesh.settings, skin_part.skin_fill, storage, layer_nr, 1, nullptr, supported);
+    bridgeAngle(mesh, skin_part.skin_fill, storage, layer_nr, 1, nullptr, supported);
     if (supported.empty())
     {
         return false;
@@ -422,8 +438,15 @@ void FffGcodeWriter::addMeshPartToGCode(
     LayerPlan& gcode_layer) const
 {
     const Settings& mesh_group_settings = Application::getInstance().current_slice_->scene.current_mesh_group->settings;
-
+    const bool infill_before_walls = mesh.settings.get<bool>("infill_before_walls");
     bool added_something = false;
+
+    const bool end_infill_close_to_seam
+        = infill_before_walls && mesh.settings.get<InfillStartEndPreference>("infill_start_end_preference") == InfillStartEndPreference::END_CLOSE_TO_SEAM;
+
+    // Pre-process the insets without actually adding them, so that we know where they are going to start printing
+    InsetsPreprocessResult insets_preprocess_result = preProcessInsets(storage, gcode_layer, mesh, extruder_nr, mesh_config, part, end_infill_close_to_seam);
+    bool infill_added = false;
 
     // EnderSlicer: emit overhang fill before the walls. A step-out wall must
     // print onto the freshly laid overhang floor instead of into the void.
@@ -445,12 +468,19 @@ void FffGcodeWriter::addMeshPartToGCode(
         }
     }
 
-    if (mesh.settings.get<bool>("infill_before_walls"))
+    if (infill_before_walls)
     {
-        added_something = added_something | processInfill(storage, gcode_layer, mesh, extruder_nr, mesh_config, part);
+        std::optional<Point2LL> near_end_location;
+        if (end_infill_close_to_seam && insets_preprocess_result.walls_optimizer)
+        {
+            near_end_location = insets_preprocess_result.walls_optimizer->getStartPosition();
+        }
+
+        infill_added = processInfill(storage, gcode_layer, mesh, extruder_nr, mesh_config, part, near_end_location);
+        added_something = added_something | infill_added;
     }
 
-    added_something = added_something | processInsets(storage, gcode_layer, mesh, extruder_nr, mesh_config, part);''',
+    added_something |= endProcessInsets(insets_preprocess_result, storage, gcode_layer, mesh, extruder_nr, mesh_config, part, infill_added);''',
 )
 PY
 
@@ -504,6 +534,31 @@ if [[ -n "$ENGINE_BINARY" ]]; then
   if [[ -n "${APP_JNILIBS_DIR:-}" ]]; then
     mkdir -p "$APP_JNILIBS_DIR/arm64-v8a"
     cp -v "$ENGINE_APK_BINARY" "$APP_JNILIBS_DIR/arm64-v8a/libcuraengine_exec.so"
+  fi
+
+  # CuraEngine 5.14 links dynamically against cura-formulae-engine: its recipe
+  # always emits a shared library regardless of the `shared` conan option, so the
+  # engine binary records a NEEDED dependency on libcura-formulae-engine.so. That
+  # library must ship in the APK jniLibs next to the engine, or the Android
+  # linker refuses to load the engine at runtime. The Conan cache can also hold
+  # an x86-64 copy from the host test build, so candidates must be filtered by
+  # ELF machine: packaging the x86-64 library crashes the linker on-device.
+  READELF_TOOL="$NDK_PATH/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"
+  FORMULAE_ENGINE_LIB=""
+  while IFS= read -r candidate; do
+    if "$READELF_TOOL" -h "$candidate" 2>/dev/null | grep -q 'Machine:.*AArch64'; then
+      FORMULAE_ENGINE_LIB="$candidate"
+      break
+    fi
+  done < <(find "$(conan config home)/p" -type f -name 'libcura-formulae-engine.so' 2>/dev/null | sort)
+  if [[ -z "$FORMULAE_ENGINE_LIB" ]]; then
+    echo "No AArch64 libcura-formulae-engine.so was found in the Conan cache; the APK will fail to load CuraEngine" >&2
+    exit 4
+  fi
+  cp -v "$FORMULAE_ENGINE_LIB" "$OUTPUT_ROOT/artifacts/libcura-formulae-engine.so"
+  "$STRIP_TOOL" --strip-unneeded "$OUTPUT_ROOT/artifacts/libcura-formulae-engine.so"
+  if [[ -n "${APP_JNILIBS_DIR:-}" ]]; then
+    cp -v "$OUTPUT_ROOT/artifacts/libcura-formulae-engine.so" "$APP_JNILIBS_DIR/arm64-v8a/libcura-formulae-engine.so"
   fi
 fi
 [[ -n "$ENGINE_LIBRARY" ]] && cp -v "$ENGINE_LIBRARY" "$OUTPUT_ROOT/artifacts/libCuraEngine-arm64-v8a.a"

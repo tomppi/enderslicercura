@@ -52,7 +52,7 @@ BumpMesh packages the published TypeScript source, generated distribution, metad
 
 ## CuraEngine and Cura resources
 
-CuraEngine is developed by UltiMaker and contributors and is licensed under GNU AGPL-3.0-or-later. The repository pins CuraEngine and matching Cura resources to `5.11.0-beta.1`.
+CuraEngine is developed by UltiMaker and contributors and is licensed under GNU AGPL-3.0-or-later. The repository pins CuraEngine and matching Cura resources to `5.14.0-alpha.0`.
 
 UltiMaker and Cura are trademarks of their respective owners.
 
@@ -63,6 +63,21 @@ UltiMaker and Cura are trademarks of their respective owners.
 - Licenses: GPL-3.0 for the original prototype and AGPL-3.0 for SuperPleccer
 
 EnderSlicerCura contains a CuraEngine-oriented native reimplementation of the Multiplex arc-overhang path-generation behavior. Attribution and implementation details are retained in `native/curaengine/patches/ARC_OVERHANG_NOTICE.md` and the native source headers.
+
+## EasyConical conical slicing
+
+- Project: `DigitalGrin/EasyConical`
+- License: GNU General Public License v3.0 (`GPL-3.0`)
+- Copyright: Alex Herskovitz and contributors
+
+The Android conical-slicing backend is a Kotlin port of EasyConical's forward cone
+transformation (`Transformation_MiniLibrary.py`) and G-code back-transformation
+(`Backtransformation_MiniLibrary.py`), integrated into the native slicing pipeline
+under `app/src/main/java/com/tomppi/enderslicer/conical/`. The underlying
+conical-slicing strategy is derived from `CNCKitchen/ConicalSlicer` and the paper
+"A Novel Slicing Strategy to Print Overhangs without Support Material" (Wüthrich et
+al., Applied Sciences, 2021). The original project source remains available from
+its upstream GitHub repository.
 
 ## Android Open Source Project and AndroidX
 

@@ -1,6 +1,9 @@
 package com.tomppi.enderslicer.profile
 
 import com.tomppi.enderslicer.calibration.CalibrationSliceState
+import com.tomppi.enderslicer.conical.ConicalPipeline
+import com.tomppi.enderslicer.conical.ConicalRuntime
+import com.tomppi.enderslicer.conical.ConicalStorage
 import com.tomppi.enderslicer.engine.AdaptiveWallModifier
 import com.tomppi.enderslicer.engine.PrinterEnvelope
 import com.tomppi.enderslicer.nonplanar.CurviSlicerFieldStorage
@@ -9,6 +12,7 @@ import com.tomppi.enderslicer.nonplanar.CurviSlicerRuntime
 import com.tomppi.enderslicer.smartinfill.SmartInfillCuraContract
 import com.tomppi.enderslicer.smartinfill.SmartInfillModifier
 import com.tomppi.enderslicer.smartinfill.requireValidBinaryStl
+import com.tomppi.enderslicer.supportpaint.SupportPaintModifier
 import com.tomppi.enderslicer.viewer.StlMeshWriter
 import com.tomppi.enderslicer.viewer.StlSliceTransform
 import org.json.JSONObject
@@ -22,6 +26,7 @@ internal object CuraResolvedSettingsWriter {
         modelTransform: StlSliceTransform? = null,
         smartInfillModifiers: List<SmartInfillModifier> = emptyList(),
         adaptiveWallModifiers: List<AdaptiveWallModifier> = emptyList(),
+        supportPaintModifiers: List<SupportPaintModifier> = emptyList(),
     ) {
         require(modelFileName.endsWith(".stl", ignoreCase = true)) {
             "Resolved Cura model must be an STL file"
@@ -33,14 +38,22 @@ internal object CuraResolvedSettingsWriter {
             "Resolved Cura STL is missing or empty: ${modelFile.absolutePath}"
         }
         val curviSnapshot = CurviSlicerRuntime.snapshot()
+        val conicalSnapshot = ConicalRuntime.snapshot()
         val stagedForCurvi = modelTransform === CURVI_STAGED_IDENTITY
+        val stagedForConical = modelTransform === CONICAL_STAGED_IDENTITY
         require(!stagedForCurvi || curviSnapshot != null) {
             "The resolved model was staged for CurviSlicer but CurviSlicer is no longer active"
+        }
+        require(!stagedForConical || conicalSnapshot != null) {
+            "The resolved model was staged for conical slicing but conical slicing is no longer active"
         }
         require(curviSnapshot == null || stagedForCurvi) {
             "CurviSlicer resolved requests must explicitly stage displayed geometry"
         }
-        val effectiveModelTransform = if (stagedForCurvi) null else modelTransform
+        require(conicalSnapshot == null || stagedForConical) {
+            "Conical resolved requests must explicitly stage displayed geometry"
+        }
+        val effectiveModelTransform = if (stagedForCurvi || stagedForConical) null else modelTransform
 
         val effectiveSmartInfillModifiers = smartInfillModifiers
             .sortedBy(SmartInfillModifier::densityPercent)
@@ -80,6 +93,10 @@ internal object CuraResolvedSettingsWriter {
         }
 
         val curviPrepared = curviSnapshot?.let { snapshot ->
+            require(supportPaintModifiers.isEmpty() && adaptiveWallModifiers.isEmpty()) {
+                "Support painting and adaptive walls cannot be combined with CurviSlicer: " +
+                    "the modifier volumes are generated from the un-warped model and would misalign"
+            }
             CurviSlicerPipeline.prepareAndWarp(
                 modelFile = modelFile,
                 settings = snapshot.settings,
@@ -97,6 +114,21 @@ internal object CuraResolvedSettingsWriter {
             printerEnvelope.requireBinaryStlFits(modelFile)
             effectiveSmartInfillModifiers.forEach { modifier -> printerEnvelope.requireBinaryStlFits(modifier.file) }
             CurviSlicerFieldStorage.write(modelDirectory, curviPrepared)
+        }
+
+        val conicalPrepared = conicalSnapshot?.let { snapshot ->
+            require(effectiveSmartInfillModifiers.isEmpty()) {
+                "Conical slicing cannot be combined with Smart Infill modifier volumes"
+            }
+            require(supportPaintModifiers.isEmpty() && adaptiveWallModifiers.isEmpty()) {
+                "Support painting and adaptive walls cannot be combined with conical slicing: " +
+                    "the modifier volumes are generated from the un-warped model and would misalign"
+            }
+            ConicalPipeline.prepareAndWarp(modelFile = modelFile, settings = snapshot.settings)
+        }
+        if (conicalPrepared != null) {
+            printerEnvelope.requireBinaryStlFits(modelFile)
+            ConicalStorage.write(modelDirectory, conicalPrepared)
         }
         printerEnvelope.writeTo(File(modelDirectory, PrinterEnvelope.METADATA_FILE_NAME))
 
@@ -143,9 +175,11 @@ internal object CuraResolvedSettingsWriter {
         )
 
         val globalValues = LinkedHashMap(resolved.globalValues)
-        if (curviSnapshot != null) {
-            globalValues["machine_end_gcode"] = CurviSlicerRuntime.markMachineEndGcode(
-                globalValues["machine_end_gcode"].orEmpty(),
+        if (curviSnapshot != null || conicalSnapshot != null) {
+            globalValues["machine_end_gcode"] = ConicalRuntime.markMachineEndGcode(
+                CurviSlicerRuntime.markMachineEndGcode(
+                    globalValues["machine_end_gcode"].orEmpty(),
+                ),
             )
         }
         val root = JSONObject()
@@ -204,6 +238,26 @@ internal object CuraResolvedSettingsWriter {
             root.put(modifier.file.name, values)
         }
 
+        supportPaintModifiers.forEach { modifier ->
+            val values = JSONObject(resolved.modelValues)
+                .put("extruder_nr", 0)
+                .put("support_mesh", !modifier.isBlocker)
+                .put("anti_overhang_mesh", modifier.isBlocker)
+                .put("infill_mesh", false)
+                .put("cutting_mesh", false)
+            applyTransform(
+                values = values,
+                linear = IDENTITY,
+                translationX = 0.0,
+                translationY = 0.0,
+                translationZ = 0.0,
+                enginePositionX = enginePositionX,
+                enginePositionY = enginePositionY,
+                enginePositionZ = enginePositionZ,
+            )
+            root.put(modifier.file.name, values)
+        }
+
         destination.writeText(root.toString())
         check(destination.isFile && destination.length() > 0L) {
             "Unable to write resolved Cura settings"
@@ -229,6 +283,18 @@ internal object CuraResolvedSettingsWriter {
                 "The displayed STL changed while it was being staged for CurviSlicer"
             }
             return CURVI_STAGED_IDENTITY
+        }
+        if (ConicalRuntime.snapshot() != null) {
+            val displayedStamp = fileStamp(stagedDisplayedFile)
+            removePreStagedRequestModel(destination)
+            copyFile(stagedDisplayedFile, destination)
+            check(destination.isFile && destination.length() == displayedStamp.length) {
+                "Unable to stage displayed STL geometry for conical slicing"
+            }
+            check(fileStamp(stagedDisplayedFile) == displayedStamp) {
+                "The displayed STL changed while it was being staged for conical slicing"
+            }
+            return CONICAL_STAGED_IDENTITY
         }
 
         val sourceFile = File(
@@ -337,6 +403,12 @@ internal object CuraResolvedSettingsWriter {
         0.0, 0.0, 1.0,
     )
     private val CURVI_STAGED_IDENTITY = StlSliceTransform(
+        linear = IDENTITY,
+        translationXmm = 0.0,
+        translationYmm = 0.0,
+        translationZmm = 0.0,
+    )
+    private val CONICAL_STAGED_IDENTITY = StlSliceTransform(
         linear = IDENTITY,
         translationXmm = 0.0,
         translationYmm = 0.0,

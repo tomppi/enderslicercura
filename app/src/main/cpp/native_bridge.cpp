@@ -3,7 +3,7 @@
 
 namespace {
 constexpr const char* kStatus =
-    "JNI bridge ready; CuraEngine 5.11.0 source is not linked yet";
+    "JNI bridge ready; CuraEngine 5.14.0-alpha.0 source is not linked yet";
 }
 
 extern "C" JNIEXPORT jstring JNICALL

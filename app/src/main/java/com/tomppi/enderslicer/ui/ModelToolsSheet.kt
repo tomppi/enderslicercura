@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import com.tomppi.enderslicer.model.ModelPlacement
 import com.tomppi.enderslicer.profile.CuraComputedSettings
 import com.tomppi.enderslicer.profile.CuraComputedSnapshot
+import com.tomppi.enderslicer.supportpaint.SupportPaintMode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -39,6 +40,9 @@ fun ModelToolsSheet(
     onLayFlat: () -> Unit,
     onReset: () -> Unit,
     onApplyImportedTransform: () -> Unit,
+    onPaintMode: (SupportPaintMode) -> Unit,
+    onBrushRadius: (Double) -> Unit,
+    onClearPaint: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val placement = state.modelPlacement
@@ -46,6 +50,9 @@ fun ModelToolsSheet(
     var yText by rememberSaveable(placement) { mutableStateOf(placement?.centerYmm?.formatPosition().orEmpty()) }
     var zText by rememberSaveable(placement) { mutableStateOf(placement?.baseZmm?.formatPosition().orEmpty()) }
     var scaleText by rememberSaveable(placement) { mutableStateOf("100") }
+    var brushText by rememberSaveable(state.supportPaint.brushRadiusMm) {
+        mutableStateOf(state.supportPaint.brushRadiusMm.formatPosition())
+    }
     val computedSnapshot by produceState<CuraComputedSnapshot?>(
         initialValue = null,
         state.engineProfile,
@@ -170,6 +177,43 @@ fun ModelToolsSheet(
         }
         OutlinedButton(onClick = onReset, modifier = Modifier.fillMaxWidth()) {
             Text("Reset and center model")
+        }
+
+        HorizontalDivider()
+        Text("Support painting", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "Switch to Model view and drag on the model to paint where supports should be generated (green) or blocked (red).",
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            listOf(
+                SupportPaintMode.NONE to "Off",
+                SupportPaintMode.ENFORCER to "Support",
+                SupportPaintMode.BLOCKER to "Block",
+                SupportPaintMode.ERASE to "Erase",
+            ).forEach { (mode, label) ->
+                OutlinedButton(
+                    onClick = { onPaintMode(mode) },
+                    modifier = Modifier.weight(1f),
+                ) { Text(label) }
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            PositionField("Brush radius (mm)", brushText, { brushText = it }, Modifier.weight(1f))
+            Button(
+                onClick = { brushText.toDoubleOrNull()?.let(onBrushRadius) },
+                modifier = Modifier.weight(1f),
+            ) { Text("Apply brush") }
+        }
+        if (!state.supportPaint.isEmpty) {
+            Text(
+                "${state.supportPaint.enforcerTriangles.size} support + ${state.supportPaint.blockerTriangles.size} block triangles painted",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        OutlinedButton(onClick = onClearPaint, modifier = Modifier.fillMaxWidth()) {
+            Text("Clear painted supports")
         }
 
         if (state.importedSceneTransformAvailable) {

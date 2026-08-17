@@ -11,6 +11,7 @@ import com.tomppi.enderslicer.calibration.CalibrationSliceState
 import com.tomppi.enderslicer.calibration.CalibrationTestType
 import com.tomppi.enderslicer.calibration.CalibrationTowerGenerator
 import com.tomppi.enderslicer.calibration.CalibrationTowerSpec
+import com.tomppi.enderslicer.conical.ConicalRuntime
 import com.tomppi.enderslicer.data.AppStateStore
 import com.tomppi.enderslicer.data.BuiltInGcode
 import com.tomppi.enderslicer.data.PendingDocumentExportStore
@@ -37,6 +38,10 @@ import com.tomppi.enderslicer.profile.CuraProjectParser
 import com.tomppi.enderslicer.profile.CuraProjectScene
 import com.tomppi.enderslicer.profile.CuraProjectSceneParser
 import com.tomppi.enderslicer.profile.ImportedCuraConfig
+import com.tomppi.enderslicer.supportpaint.SupportPaintBrush
+import com.tomppi.enderslicer.supportpaint.SupportPaintMode
+import com.tomppi.enderslicer.supportpaint.SupportPaintState
+import com.tomppi.enderslicer.viewer.MeshPicker
 import com.tomppi.enderslicer.viewer.StlMesh
 import com.tomppi.enderslicer.viewer.StlMeshWriter
 import com.tomppi.enderslicer.viewer.StlParser
@@ -212,6 +217,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         mesh = prepared.transformed,
                         modelPath = prepared.modelFile.absolutePath,
                         modelPlacement = prepared.placement,
+                        supportPaint = SupportPaintState(),
+                        paintMode = SupportPaintMode.NONE,
                         importedSceneTransformAvailable = sceneSnapshot?.affine != null,
                         importedSceneModelName = sceneSnapshot?.modelName,
                         sliceResultId = null,
@@ -294,6 +301,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         mesh = prepared.transformed,
                         modelPath = prepared.modelFile.absolutePath,
                         modelPlacement = prepared.placement,
+                        supportPaint = SupportPaintState(),
+                        paintMode = SupportPaintMode.NONE,
                         importedSceneTransformAvailable = false,
                         importedSceneModelName = null,
                         sliceResultId = null,
@@ -515,6 +524,48 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun setPaintMode(mode: SupportPaintMode) {
+        _uiState.update { it.copy(paintMode = mode) }
+    }
+
+    fun setBrushRadius(mm: Double) {
+        if (!mm.isFinite()) return
+        val radius = mm.coerceIn(SupportPaintState.MIN_BRUSH_RADIUS_MM, SupportPaintState.MAX_BRUSH_RADIUS_MM)
+        _uiState.update { current ->
+            current.copy(supportPaint = current.supportPaint.copy(brushRadiusMm = radius))
+        }
+    }
+
+    fun paintAt(hit: MeshPicker.Hit) {
+        val snapshot = _uiState.value
+        val mesh = snapshot.mesh ?: return
+        if (snapshot.paintMode == SupportPaintMode.NONE) return
+        val radiusMm = snapshot.supportPaint.brushRadiusMm.toFloat()
+        viewModelScope.launch(Dispatchers.Default) {
+            val triangles = SupportPaintBrush.expand(
+                mesh = mesh,
+                hitX = hit.x,
+                hitY = hit.y,
+                hitZ = hit.z,
+                radiusMm = radiusMm,
+            )
+            if (triangles.isEmpty()) return@launch
+            _uiState.update { current ->
+                val updated = when (current.paintMode) {
+                    SupportPaintMode.ENFORCER -> current.supportPaint.withEnforcer(triangles)
+                    SupportPaintMode.BLOCKER -> current.supportPaint.withBlocker(triangles)
+                    SupportPaintMode.ERASE -> current.supportPaint.erased(triangles)
+                    SupportPaintMode.NONE -> current.supportPaint
+                }
+                current.copy(supportPaint = updated)
+            }
+        }
+    }
+
+    fun clearSupportPaint() {
+        _uiState.update { it.copy(supportPaint = SupportPaintState()) }
+    }
+
     fun sliceModel() {
         val snapshot = _uiState.value
         val originalPath = snapshot.modelPath
@@ -534,6 +585,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 it.copy(
                     isBusy = false,
                     statusMessage = "CurviSlicer cannot be combined with height-based calibration towers; disable non-planar slicing",
+                )
+            }
+            return
+        }
+        if (plannedEventsSnapshot.isNotEmpty() && ConicalRuntime.snapshot() != null) {
+            _uiState.update {
+                it.copy(
+                    isBusy = false,
+                    statusMessage = "Conical slicing cannot be combined with height-based calibration towers; disable conical slicing",
+                )
+            }
+            return
+        }
+        if (CurviSlicerRuntime.snapshot() != null && ConicalRuntime.snapshot() != null) {
+            _uiState.update {
+                it.copy(
+                    isBusy = false,
+                    statusMessage = "CurviSlicer and conical slicing are mutually exclusive; disable one before slicing",
                 )
             }
             return
@@ -575,6 +644,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             profile = snapshot.engineProfile,
                             layerEvents = snapshot.layerEvents.filter { it.source == LayerEventSource.USER },
                             plannedLayerEvents = plannedEventsSnapshot,
+                            supportPaint = snapshot.supportPaint,
                         )
                     } finally {
                         stagingDirectory.deleteRecursively()
@@ -661,6 +731,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         mesh = prepared.transformed,
                         modelPath = prepared.modelFile.absolutePath,
                         modelPlacement = prepared.placement,
+                        supportPaint = SupportPaintState(),
+                        paintMode = SupportPaintMode.NONE,
                         importedSceneTransformAvailable = false,
                         importedSceneModelName = null,
                         sliceResultId = null,
@@ -876,7 +948,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 profileSource = "Configuration snapshot",
                 importedRawSettingCount = SlicerSettingsJson.allKeys.size,
                 curaVersion = null,
-                settingVersion = "25",
+                settingVersion = "27",
                 engineProfile = null,
                 importedSceneTransformAvailable = false,
                 importedSceneModelName = null,
@@ -1022,7 +1094,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         ?: "Built-in current Cura settings"
                     val effectiveProfileSource = config?.source
                         ?: snapshotBaseline?.profileSource
-                        ?: "Cura 5.11 / setting version 25 reference"
+                        ?: "Cura 5.14.0-alpha.0 / setting version 27 reference"
                     val fingerprint = workspaceFingerprint(
                         config,
                         settings,
@@ -1128,6 +1200,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 mesh = workspace.transformed,
                 modelPath = snapshot.modelPath,
                 modelPlacement = snapshot.placement,
+                supportPaint = snapshot.supportPaint.clippedToMesh(workspace.transformed.triangleCount),
                 sliceResultId = null,
                 gcodePath = null,
                 baseGcodePath = null,
@@ -1168,6 +1241,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             calibrationType = calibrationType,
             calibrationFirstValue = if (calibrationType == null) null else plannedEvents.firstOrNull()?.value,
             configurationFingerprint = workspaceFingerprint(state),
+            supportPaint = state.supportPaint,
         )
     }
 
@@ -1192,7 +1266,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         config?.name ?: profileName,
         config?.source ?: profileSource,
         config?.curaVersion,
-        config?.settingVersion ?: "25",
+        config?.settingVersion ?: "27",
         settings,
         startGcode,
         endGcode,
@@ -1328,7 +1402,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 profileSource = config.source,
                 importedRawSettingCount = concreteCount,
                 curaVersion = config.curaVersion,
-                settingVersion = config.settingVersion ?: "25",
+                settingVersion = config.settingVersion ?: "27",
                 engineProfile = config.engineProfile,
                 startGcode = config.startGcode ?: initialStartGcode,
                 endGcode = config.endGcode ?: initialEndGcode,

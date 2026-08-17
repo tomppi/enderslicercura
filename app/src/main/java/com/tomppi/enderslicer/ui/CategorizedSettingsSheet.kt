@@ -237,6 +237,43 @@ internal fun CategorizedSettingsSheet(
                     onSettings(SlicerSettings.Keys.Z_SEAM_CORNER) { current -> current.copy(zSeamCorner = it) }
                 }
             }
+            OptionField(
+                label = "First-layer wall order",
+                value = settings.initialLayerInsetDirection,
+                options = listOf(
+                    "inside_out" to "Inside to outside",
+                    "outside_in" to "Outside to inside",
+                ),
+                source = source(state, SlicerSettings.Keys.INITIAL_LAYER_INSET_DIRECTION),
+            ) {
+                onSettings(SlicerSettings.Keys.INITIAL_LAYER_INSET_DIRECTION) { current -> current.copy(initialLayerInsetDirection = it) }
+            }
+            NumberField("Roofing expansion (mm)", settings.roofingExpansionMm, source(state, SlicerSettings.Keys.ROOFING_EXPANSION), decimals = 3) {
+                onSettings(SlicerSettings.Keys.ROOFING_EXPANSION) { current -> current.copy(roofingExpansionMm = it.coerceIn(0.0, 10.0)) }
+            }
+            NumberField("Skin merge distance (mm)", settings.topBottomSkinMergeDistanceMm, source(state, SlicerSettings.Keys.TOP_BOTTOM_SKIN_MERGE_DISTANCE), decimals = 3) {
+                onSettings(SlicerSettings.Keys.TOP_BOTTOM_SKIN_MERGE_DISTANCE) { current -> current.copy(topBottomSkinMergeDistanceMm = it.coerceIn(0.0, 50.0)) }
+            }
+            SwitchRow("Skin support", settings.skinSupportEnabled, source(state, SlicerSettings.Keys.SKIN_SUPPORT_ENABLED)) {
+                onSettings(SlicerSettings.Keys.SKIN_SUPPORT_ENABLED) { current -> current.copy(skinSupportEnabled = it) }
+            }
+            if (settings.skinSupportEnabled) {
+                NumberField("Skin support density (%)", settings.skinSupportDensityPercent, source(state, SlicerSettings.Keys.SKIN_SUPPORT_DENSITY)) {
+                    onSettings(SlicerSettings.Keys.SKIN_SUPPORT_DENSITY) { current -> current.copy(skinSupportDensityPercent = it.coerceIn(0.0, 100.0)) }
+                }
+                NumberField("Skin support speed (mm/s)", settings.skinSupportSpeedMmPerSecond, source(state, SlicerSettings.Keys.SKIN_SUPPORT_SPEED)) {
+                    onSettings(SlicerSettings.Keys.SKIN_SUPPORT_SPEED) { current -> current.copy(skinSupportSpeedMmPerSecond = it.coerceIn(0.1, 1000.0)) }
+                }
+                NumberField("Skin support flow (%)", settings.skinSupportMaterialFlowPercent, source(state, SlicerSettings.Keys.SKIN_SUPPORT_MATERIAL_FLOW)) {
+                    onSettings(SlicerSettings.Keys.SKIN_SUPPORT_MATERIAL_FLOW) { current -> current.copy(skinSupportMaterialFlowPercent = it.coerceIn(1.0, 300.0)) }
+                }
+                NumberField("Skin support fan speed (%)", settings.skinSupportFanSpeedPercent, source(state, SlicerSettings.Keys.SKIN_SUPPORT_FAN_SPEED), decimals = 0) {
+                    onSettings(SlicerSettings.Keys.SKIN_SUPPORT_FAN_SPEED) { current -> current.copy(skinSupportFanSpeedPercent = it.coerceIn(0.0, 100.0)) }
+                }
+            }
+            SwitchRow("Interlace bridge lines", settings.bridgeInterlaceLines, source(state, SlicerSettings.Keys.BRIDGE_INTERLACE_LINES)) {
+                onSettings(SlicerSettings.Keys.BRIDGE_INTERLACE_LINES) { current -> current.copy(bridgeInterlaceLines = it) }
+            }
         }
 
         SettingsCategory("Infill") {
@@ -309,6 +346,24 @@ internal fun CategorizedSettingsSheet(
                         current.copy(thicknessAdaptiveWallsExtraWalls = it.toInt().coerceIn(0, 20))
                     }
                 }
+            }
+            OptionField(
+                label = "Infill start/end",
+                value = settings.infillStartEndPreference,
+                options = listOf(
+                    "start_closest" to "Start at closest point",
+                    "start_random" to "Start at random point",
+                    "end_close_to_seam" to "End close to seam",
+                ),
+                source = source(state, SlicerSettings.Keys.INFILL_START_END_PREFERENCE),
+            ) {
+                onSettings(SlicerSettings.Keys.INFILL_START_END_PREFERENCE) { current -> current.copy(infillStartEndPreference = it) }
+            }
+            NumberField("Infill move inwards length (mm)", settings.infillMoveInwardsLengthMm, source(state, SlicerSettings.Keys.INFILL_MOVE_INWARDS_LENGTH), decimals = 3) {
+                onSettings(SlicerSettings.Keys.INFILL_MOVE_INWARDS_LENGTH) { current -> current.copy(infillMoveInwardsLengthMm = it.coerceIn(0.0, 100.0)) }
+            }
+            NumberField("Minimum infill line length (mm)", settings.minimumInfillLineLengthMm, source(state, SlicerSettings.Keys.MINIMUM_INFILL_LINE_LENGTH), decimals = 3) {
+                onSettings(SlicerSettings.Keys.MINIMUM_INFILL_LINE_LENGTH) { current -> current.copy(minimumInfillLineLengthMm = it.coerceIn(0.0, 100.0)) }
             }
         }
 
@@ -459,6 +514,12 @@ internal fun CategorizedSettingsSheet(
                 NumberField("Support speed (mm/s)", settings.supportSpeedMmPerSecond, source(state, SlicerSettings.Keys.SUPPORT_SPEED)) {
                     onSettings(SlicerSettings.Keys.SUPPORT_SPEED) { current -> current.copy(supportSpeedMmPerSecond = it.coerceIn(0.1, 1000.0)) }
                 }
+                NumberField("Support infill multiplier", settings.supportInfillMultiplier.toDouble(), source(state, SlicerSettings.Keys.SUPPORT_INFILL_MULTIPLIER), decimals = 0) {
+                    onSettings(SlicerSettings.Keys.SUPPORT_INFILL_MULTIPLIER) { current -> current.copy(supportInfillMultiplier = it.toInt().coerceIn(1, 100)) }
+                }
+                NumberField("Support brim minimum hole area (mm²)", settings.supportBrimMinimumHoleAreaMm2, source(state, SlicerSettings.Keys.SUPPORT_BRIM_MINIMUM_HOLE_AREA), decimals = 2) {
+                    onSettings(SlicerSettings.Keys.SUPPORT_BRIM_MINIMUM_HOLE_AREA) { current -> current.copy(supportBrimMinimumHoleAreaMm2 = it.coerceIn(0.0, 10000.0)) }
+                }
             }
         }
 
@@ -487,6 +548,19 @@ internal fun CategorizedSettingsSheet(
                 source = source(state, SlicerSettings.Keys.COMBING_MODE),
             ) {
                 onSettings(SlicerSettings.Keys.COMBING_MODE) { current -> current.copy(combingMode = it) }
+            }
+            OptionField(
+                label = "Retract before outer wall",
+                value = settings.travelRetractBeforeOuterWall,
+                options = listOf(
+                    "automatic" to "Automatic",
+                    "force_retracted" to "Always retract",
+                    "force_not_retracted" to "Never retract",
+                    "force_not_retracted_from_infill" to "Unretracted from infill",
+                ),
+                source = source(state, SlicerSettings.Keys.TRAVEL_RETRACT_BEFORE_OUTER_WALL),
+            ) {
+                onSettings(SlicerSettings.Keys.TRAVEL_RETRACT_BEFORE_OUTER_WALL) { current -> current.copy(travelRetractBeforeOuterWall = it) }
             }
             SwitchRow("Avoid printed parts when travelling", settings.avoidPrintedParts, source(state, SlicerSettings.Keys.AVOID_PRINTED_PARTS)) {
                 onSettings(SlicerSettings.Keys.AVOID_PRINTED_PARTS) { current -> current.copy(avoidPrintedParts = it) }
@@ -550,6 +624,9 @@ internal fun CategorizedSettingsSheet(
         }
 
         SettingsCategory("Experimental") {
+            NumberField("Time estimate factor (%)", settings.machineTimeEstimationFactorPercent, source(state, SlicerSettings.Keys.MACHINE_TIME_ESTIMATION_FACTOR)) {
+                onSettings(SlicerSettings.Keys.MACHINE_TIME_ESTIMATION_FACTOR) { current -> current.copy(machineTimeEstimationFactorPercent = it.coerceIn(1.0, 1000.0)) }
+            }
             SwitchRow(
                 "Smart overhang strategy",
                 settings.smartOverhangStrategy,

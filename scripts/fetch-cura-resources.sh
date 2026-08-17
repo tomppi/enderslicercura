@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DEST="${1:-$ROOT/app/src/main/assets/cura/definitions}"
-CURA_TAG="5.11.0-beta.1"
+CURA_TAG="5.14.0-alpha.0"
 RAW_BASE="https://raw.githubusercontent.com/Ultimaker/Cura/$CURA_TAG/resources"
 
 mkdir -p "$DEST"
@@ -94,13 +94,94 @@ fdmprinter = json.loads(files["fdmprinter"].read_text(encoding="utf-8"))
 if not contains_key(fdmprinter, "roofing_layer_count"):
     raise SystemExit("fdmprinter.def.json does not define roofing_layer_count")
 
+# CuraEngine 5.14 main reads several settings (Inner Wall Inset + the support
+# base feature) that the pinned 5.14.0-alpha.0 frontend definitions predate.
+# Inject them with their safe defaults (no wall inset, support base disabled) so
+# the engine can retrieve them without failing.
+ENGINE_DRIFT_SETTINGS = {
+    "shell": {
+        "wall_x_inset": {
+            "label": "Inner Wall Inset",
+            "description": "Inset applied to the path of the inner wall(s).",
+            "unit": "mm",
+            "type": "float",
+            "default_value": 0.0,
+            "settable_per_mesh": True,
+        },
+    },
+    "support": {
+        "support_base_inside_width": {
+            "label": "Support Base Inside Width",
+            "description": "The width of the inside support base.",
+            "unit": "mm",
+            "type": "float",
+            "default_value": 0.0,
+            "settable_per_extruder": True,
+        },
+        "support_base_outside_width": {
+            "label": "Support Base Outside Width",
+            "description": "The width of the outside support base.",
+            "unit": "mm",
+            "type": "float",
+            "default_value": 0.0,
+            "settable_per_extruder": True,
+        },
+        "support_outer_brim_enable": {
+            "label": "Enable Outer Support Base",
+            "description": "Generate a base around the support infill regions.",
+            "type": "bool",
+            "default_value": False,
+            "settable_per_extruder": True,
+        },
+        "support_inside_base_curve_magnitude": {
+            "label": "Support Inside Base Slope",
+            "description": "The magnitude factor used for the slope of the inside support base.",
+            "type": "float",
+            "default_value": 4.0,
+            "settable_per_extruder": True,
+        },
+        "support_inside_base_height": {
+            "label": "Support Inside Base Height",
+            "description": "The height of the inside support base.",
+            "unit": "mm",
+            "type": "float",
+            "default_value": 0.0,
+            "settable_per_extruder": True,
+        },
+        "support_outside_base_curve_magnitude": {
+            "label": "Support Outside Base Slope",
+            "description": "The magnitude factor used for the slope of the outside support base.",
+            "type": "float",
+            "default_value": 4.0,
+            "settable_per_extruder": True,
+        },
+        "support_outside_base_height": {
+            "label": "Support Outside Base Height",
+            "description": "The height of the outside support base.",
+            "unit": "mm",
+            "type": "float",
+            "default_value": 0.0,
+            "settable_per_extruder": True,
+        },
+    },
+}
+injected = False
+for category, settings in ENGINE_DRIFT_SETTINGS.items():
+    children = fdmprinter.setdefault("settings", {}).setdefault(category, {}).setdefault("children", {})
+    for name, definition in settings.items():
+        if name not in children:
+            children[name] = definition
+            injected = True
+if injected:
+    files["fdmprinter"].write_text(json.dumps(fdmprinter, indent=4) + "\n", encoding="utf-8")
+
 print("Validated Cura definition closure: " + " -> ".join(sorted(seen)))
 PY
 
 cat > "$DEST/version.txt" <<'EOF'
-Cura resources: 5.11.0-beta.1
-Setting version: 25
+Cura resources: 5.14.0-alpha.0
+Setting version: 27
 Files: fdmprinter.def.json, fdmextruder.def.json, creality_base.def.json, creality_base_extruder_0.def.json, creality_ender3.def.json
 EOF
 
-printf 'Fetched and validated Cura 5.11.0-beta.1 definition chain into %s\n' "$DEST"
+printf 'Fetched and validated Cura 5.14.0-alpha.0 definition chain into %s\n' "$DEST"

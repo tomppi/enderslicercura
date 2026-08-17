@@ -516,7 +516,6 @@ internal object CuraDefinitionResolver {
         "infill_line_distance",
         "infill_overlap",
         "infill_overlap_mm",
-        "extra_infill_lines_to_support_skins",
     )
     private val BOOLEAN_LITERALS = setOf("true", "false", "1", "0", "yes", "no", "on", "off")
     private val FORMULA_OPERATORS = charArrayOf('+', '-', '*', '/', '%', '=', '<', '>', '!')
