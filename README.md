@@ -4,7 +4,7 @@
 
 # EnderSlicerCura
 
-EnderSlicerCura is an Android-first CuraEngine front end for importing, preparing, slicing, previewing and sending 3D prints from a phone or foldable. It is **0.9.0-dev**, targets Android 10+ on **ARM64**, and bundles CuraEngine with Cura resources from **5.14.0-alpha.0**. Its most-tested baseline is a modified Creality Ender 3 V2.
+EnderSlicerCura is an Android-first CuraEngine front end for importing, preparing, slicing, previewing and sending 3D prints from a phone or foldable. It is **1.0.0**, targets Android 10+ on **ARM64**, and bundles CuraEngine with Cura resources from **5.14.0-alpha.0**. Its most-tested baseline is a modified Creality Ender 3 V2.
 
 > This is development software, not a complete Cura replacement. Inspect every model, setting and generated G-code before printing.
 
