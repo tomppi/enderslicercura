@@ -6,7 +6,6 @@ import com.tomppi.enderslicer.engine.SliceArtifactPublisher
 import com.tomppi.enderslicer.model.ModelPlacement
 import com.tomppi.enderslicer.model.PrinterDefinition
 import com.tomppi.enderslicer.model.SlicerSettings
-import com.tomppi.enderslicer.profile.CuraComputedValue
 import com.tomppi.enderslicer.profile.CuraEngineProfile
 import com.tomppi.enderslicer.supportpaint.SupportPaintMode
 import com.tomppi.enderslicer.supportpaint.SupportPaintState
@@ -38,8 +37,6 @@ data class MainUiState(
     val curaVersion: String? = null,
     val settingVersion: String? = "27",
     val engineProfile: CuraEngineProfile? = null,
-    val computedCuraValues: List<CuraComputedValue> = emptyList(),
-    val computedCuraPasses: Int? = null,
     val startGcode: String = "",
     val endGcode: String = "",
     val engineStatus: String = "",

@@ -125,7 +125,7 @@ class ConicalSettingsStore(context: Context) {
             .putString(KEY_FIRST_LAYER, safe.firstLayerHeightMm.toString())
             .putString(KEY_X_SHIFT, safe.xShiftMm.toString())
             .putString(KEY_Y_SHIFT, safe.yShiftMm.toString())
-            .apply()
+            .commit()
         ConicalRuntime.activate(safe)
         if (changed) invalidatePublishedSlices()
     }

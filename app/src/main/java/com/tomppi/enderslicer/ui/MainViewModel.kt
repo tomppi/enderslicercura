@@ -382,6 +382,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val changed = transform(current.settings).copy(
             overriddenSettingKeys = current.settings.overriddenSettingKeys + key,
         )
+        CalibrationSliceState.clear()
+        plannedCalibrationEvents = emptyList()
         _uiState.update { state ->
             state.copy(
                 settings = changed,
@@ -390,6 +392,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 baseGcodePath = null,
                 layerPreview = null,
                 layerEvents = emptyList(),
+                calibrationDescription = null,
                 estimatedPrintSeconds = null,
                 sliceLogPath = null,
                 sliceDurationMilliseconds = null,
@@ -403,6 +406,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (_uiState.value.isBusy) return
         val baseline = importedSettingsBaseline ?: SlicerSettings()
         val restored = baseline.copy(overriddenSettingKeys = emptySet())
+        CalibrationSliceState.clear()
+        plannedCalibrationEvents = emptyList()
         persistSettings(restored, workspaceMutationGeneration.incrementAndGet())
         _uiState.update {
             it.copy(
@@ -412,6 +417,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 baseGcodePath = null,
                 layerPreview = null,
                 layerEvents = emptyList(),
+                calibrationDescription = null,
                 estimatedPrintSeconds = null,
                 sliceLogPath = null,
                 sliceDurationMilliseconds = null,
