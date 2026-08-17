@@ -74,7 +74,7 @@ class SmartInfillActivity : ComponentActivity() {
         }
         toolbar.addView(
             TextView(this).apply {
-                text = "Smart Infill / Thermal FEA · filaSim"
+                text = "Smart Infill / Thermal FEA · filaSim (experimental)"
                 textSize = 17f
                 setTextColor(Color.WHITE)
             },

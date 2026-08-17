@@ -700,7 +700,7 @@ internal fun CategorizedSettingsSheet(
             }
 
             SwitchRow(
-                "Arc overhangs (Multiplex)",
+                "Arc overhangs (Multiplex, experimental)",
                 settings.arcOverhangEnabled,
                 source(state, SlicerSettings.Keys.ARC_OVERHANG_ENABLED),
             ) {
