@@ -540,17 +540,25 @@ if [[ -n "$ENGINE_BINARY" ]]; then
   # always emits a shared library regardless of the `shared` conan option, so the
   # engine binary records a NEEDED dependency on libcura-formulae-engine.so. That
   # library must ship in the APK jniLibs next to the engine, or the Android
-  # linker refuses to load the engine at runtime.
-  FORMULAE_ENGINE_LIB="$(find "$(conan config home)/p" -type f -name 'libcura-formulae-engine.so' 2>/dev/null | head -n 1 || true)"
-  if [[ -n "$FORMULAE_ENGINE_LIB" ]]; then
-    cp -v "$FORMULAE_ENGINE_LIB" "$OUTPUT_ROOT/artifacts/libcura-formulae-engine.so"
-    "$STRIP_TOOL" --strip-unneeded "$OUTPUT_ROOT/artifacts/libcura-formulae-engine.so"
-    if [[ -n "${APP_JNILIBS_DIR:-}" ]]; then
-      cp -v "$OUTPUT_ROOT/artifacts/libcura-formulae-engine.so" "$APP_JNILIBS_DIR/arm64-v8a/libcura-formulae-engine.so"
+  # linker refuses to load the engine at runtime. The Conan cache can also hold
+  # an x86-64 copy from the host test build, so candidates must be filtered by
+  # ELF machine: packaging the x86-64 library crashes the linker on-device.
+  READELF_TOOL="$NDK_PATH/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"
+  FORMULAE_ENGINE_LIB=""
+  while IFS= read -r candidate; do
+    if "$READELF_TOOL" -h "$candidate" 2>/dev/null | grep -q 'Machine:.*AArch64'; then
+      FORMULAE_ENGINE_LIB="$candidate"
+      break
     fi
-  else
-    echo "libcura-formulae-engine.so was not found in the Conan cache; the APK will fail to load CuraEngine" >&2
+  done < <(find "$(conan config home)/p" -type f -name 'libcura-formulae-engine.so' 2>/dev/null | sort)
+  if [[ -z "$FORMULAE_ENGINE_LIB" ]]; then
+    echo "No AArch64 libcura-formulae-engine.so was found in the Conan cache; the APK will fail to load CuraEngine" >&2
     exit 4
+  fi
+  cp -v "$FORMULAE_ENGINE_LIB" "$OUTPUT_ROOT/artifacts/libcura-formulae-engine.so"
+  "$STRIP_TOOL" --strip-unneeded "$OUTPUT_ROOT/artifacts/libcura-formulae-engine.so"
+  if [[ -n "${APP_JNILIBS_DIR:-}" ]]; then
+    cp -v "$OUTPUT_ROOT/artifacts/libcura-formulae-engine.so" "$APP_JNILIBS_DIR/arm64-v8a/libcura-formulae-engine.so"
   fi
 fi
 [[ -n "$ENGINE_LIBRARY" ]] && cp -v "$ENGINE_LIBRARY" "$OUTPUT_ROOT/artifacts/libCuraEngine-arm64-v8a.a"
