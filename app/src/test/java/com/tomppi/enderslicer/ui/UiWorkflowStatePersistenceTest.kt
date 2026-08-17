@@ -15,7 +15,7 @@ class UiWorkflowStatePersistenceTest {
         assertTrue(source.contains("var lastAutoSelectedResultId by rememberSaveable"))
         assertTrue(
             source.contains(
-                "LaunchedEffect(state.sliceResultId, state.layerPreview, nonPlanarSettings)",
+                "LaunchedEffect(state.sliceResultId, state.layerPreview, nonPlanarSettings, conicalSettings)",
             ),
         )
         assertTrue(source.contains("lastAutoSelectedResultId != resultId"))
