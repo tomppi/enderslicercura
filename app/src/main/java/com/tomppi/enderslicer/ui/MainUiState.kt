@@ -27,7 +27,6 @@ data class MainUiState(
     val baseGcodePath: String? = null,
     val layerPreview: GcodeLayerPreview? = null,
     val layerEvents: List<LayerEvent> = emptyList(),
-    val calibrationDescription: String? = null,
     val estimatedPrintSeconds: Int? = null,
     val sliceLogPath: String? = null,
     val sliceDurationMilliseconds: Long? = null,

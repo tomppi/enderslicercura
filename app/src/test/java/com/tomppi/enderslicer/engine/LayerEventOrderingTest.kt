@@ -42,27 +42,15 @@ class LayerEventOrderingTest {
         assertTrue(text.lastIndexOf("M106 S153") > text.lastIndexOf("M106 S102"))
     }
 
-    @Test
-    fun sourcePrecedenceRemainsExplicitAndStable() {
-        val calibration = fanEvent("calibration-0-1", 50.0, LayerEventSource.CALIBRATION)
-        val user = fanEvent("user-12", 60.0, LayerEventSource.USER)
-
-        val normalized = LayerEventOrdering.normalize(listOf(calibration, user))
-
-        assertEquals(listOf(LayerEventSource.USER, LayerEventSource.CALIBRATION), normalized.map(LayerEvent::source))
-    }
-
     private fun fanEvent(
         id: String,
         value: Double,
-        source: LayerEventSource = LayerEventSource.USER,
     ): LayerEvent = LayerEvent(
         id = id,
         layerNumber = 1,
         zMm = 0.4f,
         type = LayerEventType.FAN_SPEED,
         value = value,
-        source = source,
     )
 
     private fun baseGcode(): String = """

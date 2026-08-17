@@ -5,12 +5,6 @@ import android.content.Intent
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.tomppi.enderslicer.calibration.CalibrationPlacementPolicy
-import com.tomppi.enderslicer.calibration.CalibrationPlanValidator
-import com.tomppi.enderslicer.calibration.CalibrationSliceState
-import com.tomppi.enderslicer.calibration.CalibrationTestType
-import com.tomppi.enderslicer.calibration.CalibrationTowerGenerator
-import com.tomppi.enderslicer.calibration.CalibrationTowerSpec
 import com.tomppi.enderslicer.conical.ConicalRuntime
 import com.tomppi.enderslicer.data.AppStateStore
 import com.tomppi.enderslicer.data.BuiltInGcode
@@ -22,7 +16,6 @@ import com.tomppi.enderslicer.engine.CuraEngineRunner
 import com.tomppi.enderslicer.engine.LayerEvent
 import com.tomppi.enderslicer.engine.LayerEventSource
 import com.tomppi.enderslicer.engine.LayerEventType
-import com.tomppi.enderslicer.engine.PlannedLayerEvent
 import com.tomppi.enderslicer.engine.PrinterEnvelope
 import com.tomppi.enderslicer.engine.SliceArtifactPublisher
 import com.tomppi.enderslicer.mesh.MeshTriangleLimits
@@ -95,7 +88,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val snapshot: WorkspaceStateStore.Snapshot,
         val source: StlMesh,
         val transformed: StlMesh,
-        val plannedEvents: List<PlannedLayerEvent>,
         val fingerprintMatches: Boolean,
     )
 
@@ -106,13 +98,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val placement: ModelPlacement,
         val automaticImportedPlacement: Boolean,
         val mismatchWarning: String?,
-    )
-
-    private data class PreparedCalibration(
-        val result: com.tomppi.enderslicer.calibration.CalibrationTowerResult,
-        val transformed: StlMesh,
-        val modelFile: File,
-        val placement: ModelPlacement,
     )
 
     private val app = application
@@ -126,7 +111,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var importedSettingsBaseline: SlicerSettings? = null
     private var sourceMesh: StlMesh? = null
     private var importedScene: CuraProjectScene? = null
-    private var plannedCalibrationEvents: List<PlannedLayerEvent> = emptyList()
     private var settingsPersistenceJob: Job? = null
     private val workspaceMutationGeneration = AtomicLong(0L)
     private val layerEventSequence = AtomicLong(0L)
@@ -201,17 +185,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             modelFile = prepared.modelFile,
                             displayName = prepared.source.displayName,
                             placement = prepared.placement,
-                            plannedEvents = emptyList(),
-                            calibrationDescription = null,
                             state = stateSnapshot,
                         ),
                     )
                 }
                 prepared
             }.onSuccess { prepared ->
-                clearCalibrationState()
                 sourceMesh = prepared.source
-                plannedCalibrationEvents = emptyList()
                 _uiState.update { current ->
                     current.copy(
                         mesh = prepared.transformed,
@@ -226,7 +206,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         baseGcodePath = null,
                         layerPreview = null,
                         layerEvents = emptyList(),
-                        calibrationDescription = null,
                         estimatedPrintSeconds = null,
                         sliceLogPath = null,
                         sliceDurationMilliseconds = null,
@@ -280,8 +259,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 modelFile = prepared.modelFile,
                                 displayName = prepared.source.displayName,
                                 placement = prepared.placement,
-                                plannedEvents = emptyList(),
-                                calibrationDescription = null,
                                 state = stateSnapshot,
                             ),
                         )
@@ -292,10 +269,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 prepared
             }.onSuccess { prepared ->
-                CalibrationSliceState.clear()
                 sourceMesh = prepared.source
                 importedScene = null
-                plannedCalibrationEvents = emptyList()
                 _uiState.update { current ->
                     current.copy(
                         mesh = prepared.transformed,
@@ -310,7 +285,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         baseGcodePath = null,
                         layerPreview = null,
                         layerEvents = emptyList(),
-                        calibrationDescription = null,
                         estimatedPrintSeconds = null,
                         sliceLogPath = null,
                         sliceDurationMilliseconds = null,
@@ -382,8 +356,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val changed = transform(current.settings)
             .copy(overriddenSettingKeys = current.settings.overriddenSettingKeys + key)
             .withRecomputedDerived()
-        CalibrationSliceState.clear()
-        plannedCalibrationEvents = emptyList()
         _uiState.update { state ->
             state.copy(
                 settings = changed,
@@ -392,7 +364,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 baseGcodePath = null,
                 layerPreview = null,
                 layerEvents = emptyList(),
-                calibrationDescription = null,
                 estimatedPrintSeconds = null,
                 sliceLogPath = null,
                 sliceDurationMilliseconds = null,
@@ -406,8 +377,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (_uiState.value.isBusy) return
         val baseline = importedSettingsBaseline ?: SlicerSettings()
         val restored = baseline.copy(overriddenSettingKeys = emptySet()).withRecomputedDerived()
-        CalibrationSliceState.clear()
-        plannedCalibrationEvents = emptyList()
         persistSettings(restored, workspaceMutationGeneration.incrementAndGet())
         _uiState.update {
             it.copy(
@@ -417,7 +386,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 baseGcodePath = null,
                 layerPreview = null,
                 layerEvents = emptyList(),
-                calibrationDescription = null,
                 estimatedPrintSeconds = null,
                 sliceLogPath = null,
                 sliceDurationMilliseconds = null,
@@ -444,10 +412,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     artifactId?.let(engine::releaseArtifact)
                 }
             }.onSuccess {
-                CalibrationSliceState.clear()
                 sourceMesh = null
                 importedScene = null
-                plannedCalibrationEvents = emptyList()
                 _uiState.update { current ->
                     current.copy(
                         mesh = null,
@@ -460,7 +426,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         baseGcodePath = null,
                         layerPreview = null,
                         layerEvents = emptyList(),
-                        calibrationDescription = null,
                         estimatedPrintSeconds = null,
                         sliceLogPath = null,
                         sliceDurationMilliseconds = null,
@@ -585,25 +550,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
         if (!beginOperation("CuraEngine is slicing…")) return
-        val plannedEventsSnapshot = plannedCalibrationEvents.toList()
-        if (plannedEventsSnapshot.isNotEmpty() && CurviSlicerRuntime.snapshot() != null) {
-            _uiState.update {
-                it.copy(
-                    isBusy = false,
-                    statusMessage = "CurviSlicer cannot be combined with height-based calibration towers; disable non-planar slicing",
-                )
-            }
-            return
-        }
-        if (plannedEventsSnapshot.isNotEmpty() && ConicalRuntime.snapshot() != null) {
-            _uiState.update {
-                it.copy(
-                    isBusy = false,
-                    statusMessage = "Conical slicing cannot be combined with height-based calibration towers; disable conical slicing",
-                )
-            }
-            return
-        }
         if (CurviSlicerRuntime.snapshot() != null && ConicalRuntime.snapshot() != null) {
             _uiState.update {
                 it.copy(
@@ -627,12 +573,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     try {
                         val transformedFile = File(stagingDirectory, "transformed.stl")
                         StlMeshWriter.writeBinary(transformedMesh, transformedFile)
-                        if (plannedEventsSnapshot.isNotEmpty()) {
-                            val transform = requireNotNull(
-                                StlMeshWriter.resolvedSliceSource(transformedFile)?.transform,
-                            ) { "Calibration slice transform is unavailable" }
-                            CalibrationPlacementPolicy.requireAllowed(transform)
-                        }
                         val smartResolution = SmartOverhangStrategy.resolve(
                             settings = snapshot.settings,
                             curviSettings = CurviSlicerRuntime.current(),
@@ -649,7 +589,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             endGcode = snapshot.endGcode,
                             profile = snapshot.engineProfile,
                             layerEvents = snapshot.layerEvents.filter { it.source == LayerEventSource.USER },
-                            plannedLayerEvents = plannedEventsSnapshot,
                             supportPaint = snapshot.supportPaint,
                         )
                     } finally {
@@ -686,83 +625,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun generateCalibrationTower(spec: CalibrationTowerSpec) {
-        if (!beginOperation("Generating calibration tower…")) return
-        val snapshot = _uiState.value
-        val previousModelPath = snapshot.modelPath
-        viewModelScope.launch {
-            runCatching {
-                val result = withContext(Dispatchers.Default) {
-                    CalibrationPlanValidator.validate(
-                        spec = spec,
-                        gcodeFlavor = snapshot.settings.gcodeFlavor,
-                        retractionSpeedMmPerSecond = snapshot.settings.retractionSpeedMmPerSecond,
-                    )
-                    CalibrationTowerGenerator.generate(spec, snapshot.settings.retractionSpeedMmPerSecond)
-                }
-                val placement = ModelPlacement.centeredOnBed(
-                    mesh = result.mesh,
-                    bedWidthMm = snapshot.settings.machineWidthMm,
-                    bedDepthMm = snapshot.settings.machineDepthMm,
-                    originAtCenter = snapshot.settings.originAtCenter,
-                )
-                val transformed = withContext(Dispatchers.Default) { placement.transformed(result.mesh) }
-                val modelFile = withContext(Dispatchers.IO) {
-                    val directory = File(app.filesDir, "models").apply { mkdirs() }
-                    val target = File(directory, "calibration-${System.nanoTime()}.stl")
-                    StlMeshWriter.writeBinary(result.mesh, target)
-                    target
-                }
-                val prepared = PreparedCalibration(result, transformed, modelFile, placement)
-                withContext(Dispatchers.IO) {
-                    workspaceStore.save(
-                        workspaceSnapshot(
-                            modelFile = prepared.modelFile,
-                            displayName = prepared.result.mesh.displayName,
-                            placement = prepared.placement,
-                            plannedEvents = prepared.result.plannedEvents,
-                            calibrationDescription = prepared.result.description,
-                            state = snapshot,
-                        ),
-                    )
-                }
-                prepared
-            }.onSuccess { prepared ->
-                CalibrationSliceState.activate(spec.type, prepared.result.levelValues.first())
-                sourceMesh = prepared.result.mesh
-                importedScene = null
-                plannedCalibrationEvents = prepared.result.plannedEvents
-                _uiState.update { current ->
-                    current.copy(
-                        mesh = prepared.transformed,
-                        modelPath = prepared.modelFile.absolutePath,
-                        modelPlacement = prepared.placement,
-                        supportPaint = SupportPaintState(),
-                        paintMode = SupportPaintMode.NONE,
-                        importedSceneTransformAvailable = false,
-                        importedSceneModelName = null,
-                        sliceResultId = null,
-                        gcodePath = null,
-                        baseGcodePath = null,
-                        layerPreview = null,
-                        layerEvents = emptyList(),
-                        calibrationDescription = prepared.result.description,
-                        estimatedPrintSeconds = null,
-                        sliceLogPath = null,
-                        sliceDurationMilliseconds = null,
-                        isBusy = false,
-                        statusMessage = "Generated ${prepared.result.description}; slice to create the stepped calibration G-code",
-                    )
-                }
-                previousModelPath
-                    ?.takeIf { it != prepared.modelFile.absolutePath }
-                    ?.let(::File)
-                    ?.takeIf { it.parentFile == prepared.modelFile.parentFile }
-                    ?.delete()
-            }.onFailure(::showOperationFailure)
-        }
-    }
-
     fun addLayerEvent(
         layerNumber: Int,
         zMm: Float,
@@ -788,8 +650,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun clearLayerEvents() {
-        val retainedCalibration = _uiState.value.layerEvents.filter { it.source == LayerEventSource.CALIBRATION }
-        reapplyLayerEvents(retainedCalibration, "User layer events cleared")
+        reapplyLayerEvents(emptyList(), "User layer events cleared")
     }
 
     private fun reapplyLayerEvents(events: List<LayerEvent>, message: String) {
@@ -942,7 +803,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             showOperationFailure(it)
             return
         }
-        clearCalibrationState()
         importedSettingsBaseline = pending.settings
         importedScene = null
         _uiState.update { current ->
@@ -990,13 +850,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val prepared = withContext(Dispatchers.Default) {
                     val changed = transform(current, original)
                     val transformed = changed.transformed(original)
-                    if (plannedCalibrationEvents.isNotEmpty()) {
-                        CalibrationPlacementPolicy.requireAllowed(
-                            requireNotNull(transformed.slicingTransform) {
-                                "Calibration placement transform is unavailable"
-                            },
-                        )
-                    }
                     // Reject placements that leave the model hanging off the
                     // build volume or above the printer height so the user gets
                     // immediate feedback instead of a slice-time failure.
@@ -1011,8 +864,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             modelFile = durableModel,
                             displayName = original.displayName,
                             placement = prepared.first,
-                            plannedEvents = plannedCalibrationEvents,
-                            calibrationDescription = stateSnapshot.calibrationDescription,
                             state = stateSnapshot,
                         ),
                     )
@@ -1123,7 +974,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 snapshot = snapshot,
                                 source = source,
                                 transformed = transformed,
-                                plannedEvents = if (fingerprintMatches) snapshot.plannedEvents else emptyList(),
                                 fingerprintMatches = fingerprintMatches,
                             )
                         }
@@ -1145,18 +995,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             result.onSuccess { restored ->
                 importedScene = restored.scene
                 sourceMesh = restored.workspace?.source
-                plannedCalibrationEvents = restored.workspace?.plannedEvents.orEmpty()
-                val restoredCalibration = restored.workspace?.snapshot
-                    ?.takeIf { restored.workspace.fingerprintMatches }
-                    ?.takeIf { it.calibrationType != null && it.calibrationFirstValue != null }
-                if (restoredCalibration != null) {
-                    CalibrationSliceState.activate(
-                        requireNotNull(restoredCalibration.calibrationType),
-                        requireNotNull(restoredCalibration.calibrationFirstValue),
-                    )
-                } else {
-                    CalibrationSliceState.clear()
-                }
                 if (restored.config == null) {
                     importedSettingsBaseline = restored.baselineSettings
                     _uiState.update {
@@ -1182,7 +1020,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         settings = restored.settings,
                         scene = restored.scene,
                         statusMessage = "Restored ${restored.config.name} and ${restored.settings.overriddenSettingKeys.size} app overrides",
-                        preserveCalibration = true,
                     )
                 }
                 restoreWorkspace(restored.workspace)
@@ -1212,17 +1049,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 baseGcodePath = null,
                 layerPreview = null,
                 layerEvents = emptyList(),
-                calibrationDescription = if (workspace.fingerprintMatches) snapshot.calibrationDescription else null,
                 estimatedPrintSeconds = null,
                 sliceLogPath = null,
                 sliceDurationMilliseconds = null,
                 isBusy = false,
-                statusMessage = buildString {
-                    append("Restored ${snapshot.modelDisplayName} workspace; slice again to create validated G-code")
-                    if (!workspace.fingerprintMatches) {
-                        append(" · configuration changed, so calibration events were cleared")
-                    }
-                },
+                statusMessage = "Restored ${snapshot.modelDisplayName} workspace; slice again to create validated G-code",
             )
         }
     }
@@ -1231,21 +1062,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         modelFile: File,
         displayName: String,
         placement: ModelPlacement,
-        plannedEvents: List<PlannedLayerEvent>,
-        calibrationDescription: String?,
         state: MainUiState,
     ): WorkspaceStateStore.Snapshot {
-        val calibrationType = plannedEvents.firstOrNull()?.type?.let { eventType ->
-            CalibrationTestType.entries.firstOrNull { it.eventType == eventType }
-        }
         return WorkspaceStateStore.Snapshot(
             modelPath = modelFile.absolutePath,
             modelDisplayName = displayName,
             placement = placement,
-            plannedEvents = plannedEvents,
-            calibrationDescription = calibrationDescription,
-            calibrationType = calibrationType,
-            calibrationFirstValue = if (calibrationType == null) null else plannedEvents.firstOrNull()?.value,
             configurationFingerprint = workspaceFingerprint(state),
             supportPaint = state.supportPaint,
         )
@@ -1301,8 +1123,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 modelFile = modelFile,
                 displayName = source.displayName,
                 placement = placement,
-                plannedEvents = plannedCalibrationEvents,
-                calibrationDescription = state.calibrationDescription,
                 state = state,
             ),
         )
@@ -1368,9 +1188,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         settings: SlicerSettings,
         scene: CuraProjectScene?,
         statusMessage: String?,
-        preserveCalibration: Boolean = false,
     ) {
-        if (!preserveCalibration) clearCalibrationState()
         importedSettingsBaseline = config.mappedSettings.copy(overriddenSettingKeys = emptySet())
         importedScene = scene
         val original = sourceMesh
@@ -1435,12 +1253,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         withContext(Dispatchers.IO) { persistCurrentWorkspace(_uiState.value) }
         _uiState.update { it.copy(isBusy = false) }
-    }
-
-    private fun clearCalibrationState() {
-        CalibrationSliceState.clear()
-        plannedCalibrationEvents = emptyList()
-        _uiState.update { it.copy(calibrationDescription = null) }
     }
 
     private fun materializeModel(uri: Uri, maxTriangles: Int): File {
@@ -1563,7 +1375,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             .put("importedValues", state.importedRawSettingCount)
             .put("appOverrideKeys", settings.overriddenSettingKeys.sorted())
             .put("estimatedPrintSeconds", state.estimatedPrintSeconds)
-            .put("calibration", state.calibrationDescription)
             .put("maxMeshTriangles", MeshTriangleLimits.current())
             .put("layerEvents", state.layerEvents.map { event ->
                 JSONObject()

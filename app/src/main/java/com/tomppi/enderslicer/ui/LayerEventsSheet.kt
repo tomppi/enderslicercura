@@ -138,14 +138,9 @@ internal fun LayerEventsSheet(
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(event.label.ifBlank(event::displayName), style = MaterialTheme.typography.bodyMedium)
-                            Text(
-                                if (event.source == LayerEventSource.CALIBRATION) "Calibration event" else "User event",
-                                style = MaterialTheme.typography.labelSmall,
-                            )
+                            Text("User event", style = MaterialTheme.typography.labelSmall)
                         }
-                        if (event.source == LayerEventSource.USER) {
-                            TextButton(onClick = { onRemove(event.id) }, enabled = !isBusy) { Text("Remove") }
-                        }
+                        TextButton(onClick = { onRemove(event.id) }, enabled = !isBusy) { Text("Remove") }
                     }
                 }
             }

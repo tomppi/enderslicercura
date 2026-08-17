@@ -1,8 +1,5 @@
 package com.tomppi.enderslicer.data
 
-import com.tomppi.enderslicer.calibration.CalibrationTestType
-import com.tomppi.enderslicer.engine.LayerEventType
-import com.tomppi.enderslicer.engine.PlannedLayerEvent
 import com.tomppi.enderslicer.model.ModelPlacement
 import com.tomppi.enderslicer.model.SlicerSettings
 import org.junit.Assert.assertEquals
@@ -64,10 +61,6 @@ class WorkspaceStateStoreTest {
             modelPath = external.absolutePath,
             modelDisplayName = "external.stl",
             placement = ModelPlacement(centerXmm = 0.0, centerYmm = 0.0, baseZmm = 0.0),
-            plannedEvents = emptyList(),
-            calibrationDescription = null,
-            calibrationType = null,
-            calibrationFirstValue = null,
             configurationFingerprint = WorkspaceStateStore.fingerprint("settings"),
         )
 
@@ -111,24 +104,13 @@ class WorkspaceStateStoreTest {
 
     private fun snapshot(model: File): WorkspaceStateStore.Snapshot = WorkspaceStateStore.Snapshot(
         modelPath = model.absolutePath,
-        modelDisplayName = "calibration.stl",
+        modelDisplayName = "model.stl",
         placement = ModelPlacement(
             centerXmm = 115.0,
             centerYmm = 115.0,
             baseZmm = 0.0,
             source = "Test placement",
         ),
-        plannedEvents = listOf(
-            PlannedLayerEvent(
-                targetZMm = 0.8f,
-                type = LayerEventType.NOZZLE_TEMPERATURE,
-                value = 200.0,
-                label = "Level 1",
-            ),
-        ),
-        calibrationDescription = "Temperature tower",
-        calibrationType = CalibrationTestType.TEMPERATURE,
-        calibrationFirstValue = 200.0,
         configurationFingerprint = WorkspaceStateStore.fingerprint("profile", "settings"),
     )
 }

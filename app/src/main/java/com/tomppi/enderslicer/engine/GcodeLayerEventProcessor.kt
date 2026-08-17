@@ -1,49 +1,9 @@
 package com.tomppi.enderslicer.engine
 
-import com.tomppi.enderslicer.calibration.CalibrationSliceState
 import com.tomppi.enderslicer.nonplanar.CurviSlicerRuntime
 import java.io.File
 
 object GcodeLayerEventProcessor {
-    fun resolve(
-        planned: List<PlannedLayerEvent>,
-        preview: GcodeLayerPreview,
-    ): List<LayerEvent> {
-        if (planned.isEmpty()) return emptyList()
-        require(planned.zipWithNext().all { (first, second) -> second.targetZMm > first.targetZMm }) {
-            "Calibration target heights must be strictly increasing"
-        }
-        val printableLayers = preview.layers.filter(GcodeLayerPreview.Layer::hasPrintablePaths)
-        require(printableLayers.isNotEmpty()) { "The sliced model has no printable calibration layers" }
-
-        val resolved = planned.mapIndexed { index, event ->
-            val layer = printableLayers.firstOrNull { it.z + Z_EPSILON >= event.targetZMm }
-                ?: throw IllegalArgumentException(
-                    "Calibration target ${formatTarget(event.targetZMm)} mm is above the last printable layer",
-                )
-            val targetError = layer.z - event.targetZMm
-            require(targetError >= -Z_EPSILON && targetError <= MAX_TARGET_ERROR_MM) {
-                "Calibration target ${formatTarget(event.targetZMm)} mm resolves too far away at " +
-                    "${formatTarget(layer.z)} mm"
-            }
-            LayerEvent(
-                id = "calibration-$index-${layer.number}",
-                layerNumber = layer.number,
-                zMm = layer.z,
-                type = event.type,
-                value = event.value,
-                secondaryValue = event.secondaryValue,
-                text = event.text,
-                source = LayerEventSource.CALIBRATION,
-                label = event.label,
-            )
-        }
-        require(resolved.zipWithNext().all { (first, second) -> second.layerNumber > first.layerNumber }) {
-            "Calibration levels collapse onto the same printable layer; use a taller model or finer layers"
-        }
-        return resolved
-    }
-
     fun materialize(
         baseFile: File,
         destination: File,
@@ -56,17 +16,12 @@ object GcodeLayerEventProcessor {
         val orderedEvents = LayerEventOrdering.normalize(events).onEach(::validate)
         val grouped = orderedEvents.groupBy(LayerEvent::layerNumber)
         val eventTypes = orderedEvents.mapTo(linkedSetOf(), LayerEvent::type)
-        val calibrationTypes = orderedEvents
-            .filter { it.source == LayerEventSource.CALIBRATION }
-            .mapTo(linkedSetOf(), LayerEvent::type)
-        val fanCalibration = LayerEventType.FAN_SPEED in calibrationTypes
 
         destination.parentFile?.mkdirs()
         val temporary = File(destination.parentFile, "${destination.name}.events.tmp")
         temporary.delete()
         temporary.bufferedWriter().use { writer ->
             var firmwareRetracted = false
-            var calibrationFanStarted = false
             val deferredRetraction = mutableListOf<LayerEvent>()
 
             fun writeEvent(event: LayerEvent) {
@@ -78,9 +33,6 @@ object GcodeLayerEventProcessor {
                 commands(event, firmware).forEach { command ->
                     writer.write(command)
                     writer.newLine()
-                }
-                if (event.source == LayerEventSource.CALIBRATION && event.type == LayerEventType.FAN_SPEED) {
-                    calibrationFanStarted = true
                 }
             }
 
@@ -100,28 +52,6 @@ object GcodeLayerEventProcessor {
                     writer.write("M221 S100 ; enderslicercura restore flow factor")
                     writer.newLine()
                 }
-                if (LayerEventType.RETRACTION in calibrationTypes) {
-                    CalibrationSliceState.retractionRestoreCommand(firmware)?.let { command ->
-                        writer.write("$command ; enderslicercura restore firmware retraction")
-                        writer.newLine()
-                    }
-                }
-                if (LayerEventType.PRESSURE_ADVANCE in calibrationTypes) {
-                    CalibrationSliceState.pressureAdvanceRestoreCommand(firmware)?.let { command ->
-                        writer.write("$command ; enderslicercura restore pressure advance")
-                        writer.newLine()
-                    }
-                }
-                if (LayerEventType.JUNCTION_DEVIATION in calibrationTypes) {
-                    CalibrationSliceState.junctionDeviationRestoreCommand(firmware)?.let { command ->
-                        writer.write("$command ; enderslicercura restore junction deviation")
-                        writer.newLine()
-                    }
-                }
-                if (fanCalibration && calibrationFanStarted) {
-                    writer.write("M107 ; enderslicercura fan calibration safety shutdown")
-                    writer.newLine()
-                }
             }
 
             baseFile.bufferedReader().useLines { lines ->
@@ -129,11 +59,7 @@ object GcodeLayerEventProcessor {
                     val parsedCommand = GcodeCommand.parse(line)
                     val opcode = parsedCommand?.opcode
 
-                    if (fanCalibration && calibrationFanStarted && (opcode == "M106" || opcode == "M107")) {
-                        return@forEach
-                    }
-
-                    // The end-G-code runs with whatever calibration values are
+                    // The end-G-code runs with whatever event factors are
                     // active when it starts (e.g. an M221 flow factor scales the
                     // final retract). Restore the factors before that boundary so
                     // the end script executes at safe, nominal settings.
@@ -155,9 +81,9 @@ object GcodeLayerEventProcessor {
                         parsedCommand != null && firmware.isFirmwareUnretract(parsedCommand) -> {
                             firmwareRetracted = false
                             // This G11 line has already been written by the time
-                            // we reach here, so any retraction-calibration events
-                            // that were deferred while the firmware was retracted
-                            // can now be flushed safely.
+                            // we reach here, so any retraction events that were
+                            // deferred while the firmware was retracted can now
+                            // be flushed safely.
                             if (deferredRetraction.isNotEmpty()) {
                                 deferredRetraction.forEach(::writeEvent)
                                 deferredRetraction.clear()
@@ -178,7 +104,7 @@ object GcodeLayerEventProcessor {
             }
 
             // Fallback for files without an end-G-code marker: keep the restores
-            // at the end so calibration values are still reset before the next job.
+            // at the end so event factors are still reset before the next job.
             writeRestores()
         }
         check(temporary.isFile && temporary.length() > 0L) { "Layer-event G-code output is empty" }
@@ -265,9 +191,4 @@ object GcodeLayerEventProcessor {
         .trim()
         .take(80)
         .ifBlank { "event" }
-
-    private fun formatTarget(value: Float): String = formatDecimal(value.toDouble(), 3)
-
-    private const val Z_EPSILON = 0.01f
-    private const val MAX_TARGET_ERROR_MM = 0.6f
 }

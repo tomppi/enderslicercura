@@ -21,7 +21,6 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Build
-import androidx.compose.material.icons.filled.Create
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.KeyboardArrowRight
@@ -99,7 +98,6 @@ fun EnderSlicerApp(
     var profilesOpen by rememberSaveable { mutableStateOf(false) }
     var machineSettingsOpen by rememberSaveable { mutableStateOf(false) }
     var modelToolsOpen by rememberSaveable { mutableStateOf(false) }
-    var calibrationOpen by rememberSaveable { mutableStateOf(false) }
     var layerEventsOpen by rememberSaveable { mutableStateOf(false) }
     var meshLimitOpen by rememberSaveable { mutableStateOf(false) }
     var nonPlanarOpen by rememberSaveable { mutableStateOf(false) }
@@ -232,16 +230,6 @@ fun EnderSlicerApp(
                                 onClick = {
                                     menuExpanded = false
                                     meshLimitOpen = true
-                                },
-                                enabled = !state.isBusy,
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Calibration generator") },
-                                leadingIcon = { Icon(Icons.Filled.Create, contentDescription = null) },
-                                trailingIcon = { Icon(Icons.Filled.KeyboardArrowRight, contentDescription = null) },
-                                onClick = {
-                                    menuExpanded = false
-                                    calibrationOpen = true
                                 },
                                 enabled = !state.isBusy,
                             )
@@ -579,23 +567,6 @@ fun EnderSlicerApp(
         }
     }
 
-    if (calibrationOpen) {
-        AppBottomSheet(
-            onDismissRequest = { calibrationOpen = false },
-        ) {
-            CalibrationGeneratorSheet(
-                isBusy = state.isBusy,
-                onGenerate = { spec ->
-                    calibrationOpen = false
-                    viewModel.generateCalibrationTower(spec)
-                },
-                modifier = Modifier
-                    .fillMaxHeight(0.94f)
-                    .navigationBarsPadding(),
-            )
-        }
-    }
-
     if (layerEventsOpen && state.layerPreview != null && state.hasCurrentGcode()) {
         val preview = requireNotNull(state.layerPreview)
         val layer = preview.layers[selectedLayerIndex.coerceIn(preview.layers.indices)]
@@ -815,9 +786,6 @@ private fun ViewerPanel(
                         )
                         Text(placement.source, style = MaterialTheme.typography.labelSmall)
                     }
-                }
-                state.calibrationDescription?.let { description ->
-                    Text(description, style = MaterialTheme.typography.bodySmall)
                 }
                 state.estimatedPrintSeconds?.takeIf { gcodeAvailable }?.let { seconds ->
                     Text("Estimated print: ${formatPrintTime(seconds)}", style = MaterialTheme.typography.bodySmall)
