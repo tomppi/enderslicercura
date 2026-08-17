@@ -81,8 +81,8 @@ object ThicknessAdaptiveWalls {
         val wallCount = baseWalls + extraWalls
         val modifiers = mutableListOf<AdaptiveWallModifier>()
         var order = 0
-        val slabZ0 = zMin - SLAB_Z_PAD
-        val slabZ1 = zMax + SLAB_Z_PAD
+        val slabZ0 = (zMin - SLAB_Z_PAD).coerceAtLeast(0f)
+        val slabZ1 = (zMax + SLAB_Z_PAD).coerceAtMost(settings.machineHeightMm.toFloat())
         // CuraEngine insets a modifier mesh's outermost wall past its outline by the base
         // wall count, so grow the band's outer boundary outward to keep wall 0 on the part.
         val outerOffset = baseWalls * lineWidth
