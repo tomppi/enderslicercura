@@ -999,7 +999,8 @@ private fun HoldToPaintButton(
         contentColor = if (active) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = modifier.pointerInput(mode) {
             awaitEachGesture {
-                awaitFirstDown()
+                val down = awaitFirstDown()
+                down.consume()
                 onPaintMode(mode)
                 waitForUpOrCancellation()
                 onPaintMode(SupportPaintMode.NONE)
