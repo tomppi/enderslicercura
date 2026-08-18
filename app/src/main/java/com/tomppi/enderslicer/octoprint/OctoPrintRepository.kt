@@ -51,6 +51,8 @@ class OctoPrintRepository(
     private var cachedServerInfo: OctoPrintServerInfo? = null
     private var cachedWebcam: OctoPrintWebcamConfig? = null
     private var lastStaticRefreshMillis = 0L
+    private var lastAutoConnectAttemptMillis = 0L
+    private var lastManualDisconnectMillis = 0L
 
     private val initialConfig = store.loadConfig()
     private val initialApiKey = store.loadApiKey()
@@ -449,10 +451,13 @@ class OctoPrintRepository(
         guard = noActiveJobGuard("reconnecting the printer"),
     ) { connect(port, baudrate, printerProfile, save, autoConnect) }
 
-    fun disconnect() = operation(
-        message = "Disconnecting printer…",
-        guard = noActiveJobGuard("disconnecting the printer"),
-    ) { disconnect() }
+    fun disconnect() {
+        lastManualDisconnectMillis = System.currentTimeMillis()
+        operation(
+            message = "Disconnecting printer…",
+            guard = noActiveJobGuard("disconnecting the printer"),
+        ) { disconnect() }
+    }
 
     fun jog(x: Double? = null, y: Double? = null, z: Double? = null) = operation(
         message = "Jogging printer…",
@@ -593,6 +598,8 @@ class OctoPrintRepository(
         cachedServerInfo = null
         cachedWebcam = null
         lastStaticRefreshMillis = 0L
+        lastAutoConnectAttemptMillis = 0L
+        lastManualDisconnectMillis = 0L
         webcamRequestId++
     }
 
@@ -604,6 +611,7 @@ class OctoPrintRepository(
             if (!immediate) delay(1_000L)
             while (isActive && isCurrent(requestGeneration) && _state.value.isReady) {
                 refreshAll(showSpinner = false, forceStatic = false)
+                maybeAutoConnect()
                 val seconds = if (_state.value.hasActiveJob) {
                     ACTIVE_PRINT_POLL_SECONDS
                 } else {
@@ -613,6 +621,18 @@ class OctoPrintRepository(
             }
         }
         if (webcamVisible) restartWebcamPolling()
+    }
+
+    private fun maybeAutoConnect() {
+        val current = _state.value
+        if (!current.isReady) return
+        if (!current.connection.autoConnect) return
+        if (!current.printer.closedOrError) return
+        val now = System.currentTimeMillis()
+        if (now - lastAutoConnectAttemptMillis < AUTO_CONNECT_RETRY_MILLIS) return
+        if (now - lastManualDisconnectMillis < AUTO_CONNECT_DISCONNECT_GRACE_MILLIS) return
+        lastAutoConnectAttemptMillis = now
+        connect(null, null, null, save = false, autoConnect = current.connection.autoConnect)
     }
 
     private suspend fun refreshAll(showSpinner: Boolean, forceStatic: Boolean) {
@@ -1050,5 +1070,7 @@ class OctoPrintRepository(
         const val UPLOAD_SNAPSHOT_MAX_AGE_MILLIS = 24L * 60L * 60L * 1_000L
         const val STATIC_REFRESH_INTERVAL_MILLIS = 5L * 60L * 1_000L
         const val WEBCAM_POLL_MILLIS = 1_500L
+        const val AUTO_CONNECT_RETRY_MILLIS = 30_000L
+        const val AUTO_CONNECT_DISCONNECT_GRACE_MILLIS = 60_000L
     }
 }
