@@ -6,6 +6,9 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -57,6 +60,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -70,6 +74,7 @@ import com.tomppi.enderslicer.conical.ConicalSettingsStore
 import com.tomppi.enderslicer.mesh.MeshTriangleLimits
 import com.tomppi.enderslicer.model.withSettings
 import com.tomppi.enderslicer.nonplanar.NonPlanarSettingsStore
+import com.tomppi.enderslicer.supportpaint.SupportPaintMode
 import com.tomppi.enderslicer.texturizer.BumpMeshActivity
 import com.tomppi.enderslicer.viewer.MeshPicker
 import com.tomppi.enderslicer.viewer.ModelSurfaceView
@@ -98,6 +103,7 @@ fun EnderSlicerApp(
     var profilesOpen by rememberSaveable { mutableStateOf(false) }
     var machineSettingsOpen by rememberSaveable { mutableStateOf(false) }
     var modelToolsOpen by rememberSaveable { mutableStateOf(false) }
+    var supportPaintUiOpen by rememberSaveable { mutableStateOf(false) }
     var layerEventsOpen by rememberSaveable { mutableStateOf(false) }
     var meshLimitOpen by rememberSaveable { mutableStateOf(false) }
     var nonPlanarOpen by rememberSaveable { mutableStateOf(false) }
@@ -407,10 +413,16 @@ fun EnderSlicerApp(
             selectedLayerIndex = selectedLayerIndex,
             nonPlanarEnabled = nonPlanarSettings.enabled,
             conicalEnabled = conicalSettings.enabled,
+            supportPaintUiOpen = supportPaintUiOpen,
             onViewerMode = { viewerMode = it },
             onLayerSelected = { selectedLayerIndex = it },
             onEditLayerEvents = { layerEventsOpen = true },
             onPaintHit = viewModel::paintAt,
+            onPaintMode = viewModel::setPaintMode,
+            onCloseSupportPaintUi = {
+                viewModel.setPaintMode(SupportPaintMode.NONE)
+                supportPaintUiOpen = false
+            },
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding),
@@ -603,7 +615,10 @@ fun EnderSlicerApp(
                 onLayFlat = viewModel::layModelFlat,
                 onReset = viewModel::resetModelTransform,
                 onApplyImportedTransform = viewModel::applyImportedSceneTransform,
-                onPaintMode = viewModel::setPaintMode,
+                onOpenSupportPaintUi = {
+                    modelToolsOpen = false
+                    supportPaintUiOpen = true
+                },
                 onBrushRadius = viewModel::setBrushRadius,
                 onClearPaint = viewModel::clearSupportPaint,
                 modifier = Modifier
@@ -665,10 +680,13 @@ private fun ViewerPanel(
     selectedLayerIndex: Int,
     nonPlanarEnabled: Boolean,
     conicalEnabled: Boolean,
+    supportPaintUiOpen: Boolean,
     onViewerMode: (ViewerMode) -> Unit,
     onLayerSelected: (Int) -> Unit,
     onEditLayerEvents: () -> Unit,
     onPaintHit: (MeshPicker.Hit) -> Unit,
+    onPaintMode: (SupportPaintMode) -> Unit,
+    onCloseSupportPaintUi: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val effectivePrinter = state.printer.withSettings(state.settings)
@@ -729,6 +747,17 @@ private fun ViewerPanel(
                     },
                 )
             }
+        }
+
+        if (supportPaintUiOpen && viewerMode == ViewerMode.MODEL) {
+            SupportPaintOverlay(
+                activeMode = state.paintMode,
+                onPaintMode = onPaintMode,
+                onClose = onCloseSupportPaintUi,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(12.dp),
+            )
         }
 
         Card(
@@ -904,6 +933,84 @@ private fun ActionBar(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun SupportPaintOverlay(
+    activeMode: SupportPaintMode,
+    onPaintMode: (SupportPaintMode) -> Unit,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    DisposableEffect(Unit) {
+        onDispose { onPaintMode(SupportPaintMode.NONE) }
+    }
+    Card(modifier = modifier) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text("Support painting", style = MaterialTheme.typography.titleSmall)
+            Text(
+                "Hold a button while dragging on the model. Release to rotate and zoom.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                HoldToPaintButton(
+                    label = "Draw",
+                    mode = SupportPaintMode.ENFORCER,
+                    active = activeMode == SupportPaintMode.ENFORCER,
+                    onPaintMode = onPaintMode,
+                    modifier = Modifier.weight(1f),
+                )
+                HoldToPaintButton(
+                    label = "Block",
+                    mode = SupportPaintMode.BLOCKER,
+                    active = activeMode == SupportPaintMode.BLOCKER,
+                    onPaintMode = onPaintMode,
+                    modifier = Modifier.weight(1f),
+                )
+                HoldToPaintButton(
+                    label = "Erase",
+                    mode = SupportPaintMode.ERASE,
+                    active = activeMode == SupportPaintMode.ERASE,
+                    onPaintMode = onPaintMode,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            OutlinedButton(onClick = onClose) { Text("Stop painting") }
+        }
+    }
+}
+
+@Composable
+private fun HoldToPaintButton(
+    label: String,
+    mode: SupportPaintMode,
+    active: Boolean,
+    onPaintMode: (SupportPaintMode) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        shape = MaterialTheme.shapes.medium,
+        color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+        contentColor = if (active) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = modifier.pointerInput(mode) {
+            awaitEachGesture {
+                awaitFirstDown()
+                onPaintMode(mode)
+                waitForUpOrCancellation()
+                onPaintMode(SupportPaintMode.NONE)
+            }
+        },
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelLarge,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+        )
     }
 }
 

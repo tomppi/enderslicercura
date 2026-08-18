@@ -26,7 +26,6 @@ import androidx.compose.ui.unit.dp
 import com.tomppi.enderslicer.model.ModelPlacement
 import com.tomppi.enderslicer.profile.CuraComputedSettings
 import com.tomppi.enderslicer.profile.CuraComputedSnapshot
-import com.tomppi.enderslicer.supportpaint.SupportPaintMode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -40,7 +39,7 @@ fun ModelToolsSheet(
     onLayFlat: () -> Unit,
     onReset: () -> Unit,
     onApplyImportedTransform: () -> Unit,
-    onPaintMode: (SupportPaintMode) -> Unit,
+    onOpenSupportPaintUi: () -> Unit,
     onBrushRadius: (Double) -> Unit,
     onClearPaint: () -> Unit,
     modifier: Modifier = Modifier,
@@ -182,26 +181,16 @@ fun ModelToolsSheet(
         HorizontalDivider()
         Text("Support painting", style = MaterialTheme.typography.titleMedium)
         Text(
-            "Switch to Model view and drag on the model to paint where supports should be generated (green) or blocked (red).",
+            "Set the brush radius and tap Apply brush to open the paint controls. Hold Draw or Block while dragging on the model to paint supports (green) or blockers (red); hold Erase to remove paint. Release the button to rotate and zoom the camera normally.",
             style = MaterialTheme.typography.bodySmall,
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            listOf(
-                SupportPaintMode.NONE to "Off",
-                SupportPaintMode.ENFORCER to "Support",
-                SupportPaintMode.BLOCKER to "Block",
-                SupportPaintMode.ERASE to "Erase",
-            ).forEach { (mode, label) ->
-                OutlinedButton(
-                    onClick = { onPaintMode(mode) },
-                    modifier = Modifier.weight(1f),
-                ) { Text(label) }
-            }
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
             PositionField("Brush radius (mm)", brushText, { brushText = it }, Modifier.weight(1f))
             Button(
-                onClick = { brushText.toDoubleOrNull()?.let(onBrushRadius) },
+                onClick = {
+                    brushText.toDoubleOrNull()?.let(onBrushRadius)
+                    onOpenSupportPaintUi()
+                },
                 modifier = Modifier.weight(1f),
             ) { Text("Apply brush") }
         }
