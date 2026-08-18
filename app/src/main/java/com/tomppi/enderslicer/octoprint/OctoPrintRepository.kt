@@ -54,6 +54,8 @@ class OctoPrintRepository(
 
     private val initialConfig = store.loadConfig()
     private val initialApiKey = store.loadApiKey()
+    @Volatile
+    private var cachedApiKey: String? = initialApiKey
     private val _state = MutableStateFlow(
         OctoPrintUiState(
             config = initialConfig,
@@ -224,6 +226,7 @@ class OctoPrintRepository(
         authorizationJob = null
         resetSession()
         store.clearAll()
+        cachedApiKey = null
         _state.value = OctoPrintUiState(statusMessage = "OctoPrint configuration removed")
     }
 
@@ -383,6 +386,7 @@ class OctoPrintRepository(
         message = "Deleting OctoPrint file…",
         refreshFileList = true,
         guard = activeFileGuard("deleted", path),
+        optimisticFiles = { files -> filesWithoutDeleted(files, path) },
     ) { deleteFile(path) }
 
     fun createFolder(parentPath: String, name: String) = operation(
@@ -394,12 +398,14 @@ class OctoPrintRepository(
         message = "Moving OctoPrint file…",
         refreshFileList = true,
         guard = activeFileGuard("moved", path),
+        optimisticFiles = { files -> filesWithMoved(files, path, destination) },
     ) { moveFile(path, destination) }
 
     fun copyFile(path: String, destination: String) = operation(
         message = "Copying OctoPrint file…",
         refreshFileList = true,
         guard = activeFileGuard("copied", path),
+        optimisticFiles = { files -> filesWithCopied(files, path, destination) },
     ) { copyFile(path, destination) }
 
     fun startJob() = operation(
@@ -555,6 +561,7 @@ class OctoPrintRepository(
     private fun activateConfiguration(config: OctoPrintConfig, key: String, info: OctoPrintServerInfo) {
         resetSession()
         store.saveConfiguration(config, key)
+        cachedApiKey = key
         cachedServerInfo = info
         lastStaticRefreshMillis = 0L
         _state.value = OctoPrintUiState(
@@ -720,6 +727,7 @@ class OctoPrintRepository(
         message: String,
         refreshFileList: Boolean = false,
         guard: ((OctoPrintUiState) -> String?)? = null,
+        optimisticFiles: ((List<OctoPrintFileEntry>) -> List<OctoPrintFileEntry>)? = null,
         block: OctoPrintClient.() -> Unit,
     ) {
         val requestGeneration = generation
@@ -757,6 +765,9 @@ class OctoPrintRepository(
                     }
                 }.onSuccess {
                     if (!isCurrent(requestGeneration)) return@onSuccess
+                    optimisticFiles?.let { transform ->
+                        _state.update { current -> current.copy(files = transform(current.files)) }
+                    }
                     if (refreshFileList) refreshFiles(force = true)
                     refreshAll(showSpinner = false, forceStatic = false)
                 }.onFailure { error ->
@@ -859,10 +870,40 @@ class OctoPrintRepository(
         .filter { it.isNotBlank() && it != "." }
         .joinToString("/")
 
+    private fun filesWithoutDeleted(files: List<OctoPrintFileEntry>, path: String): List<OctoPrintFileEntry> {
+        val target = normalizeForCompare(path)
+        return files.filterNot { entry ->
+            val normalized = normalizeForCompare(entry.path)
+            normalized == target || normalized.startsWith("$target/")
+        }
+    }
+
+    private fun filesWithMoved(files: List<OctoPrintFileEntry>, path: String, destination: String): List<OctoPrintFileEntry> {
+        val leaf = path.substringAfterLast('/')
+        val cleanDestination = OctoPrintClient.normalizeRemotePath(destination, allowBlank = true)
+        val newRoot = if (cleanDestination.isBlank()) leaf else "$cleanDestination/$leaf"
+        return files.map { entry ->
+            when {
+                entry.path == path -> entry.copy(path = newRoot)
+                entry.path.startsWith("$path/") -> entry.copy(path = newRoot + entry.path.removePrefix(path))
+                else -> entry
+            }
+        }
+    }
+
+    private fun filesWithCopied(files: List<OctoPrintFileEntry>, path: String, destination: String): List<OctoPrintFileEntry> {
+        val source = files.firstOrNull { it.path == path } ?: return files
+        val leaf = path.substringAfterLast('/')
+        val cleanDestination = OctoPrintClient.normalizeRemotePath(destination, allowBlank = true)
+        val newPath = if (cleanDestination.isBlank()) leaf else "$cleanDestination/$leaf"
+        if (files.any { it.path == newPath }) return files
+        return files + source.copy(path = newPath)
+    }
+
     private fun requireClient(): OctoPrintClient {
         val current = _state.value
         require(current.config.isConfigured) { "Configure the OctoPrint server first" }
-        val key = store.loadApiKey()
+        val key = cachedApiKey
         if (key == null) {
             error("OctoPrint API key is missing or unreadable; authorize the app again")
         }
@@ -897,6 +938,7 @@ class OctoPrintRepository(
         val dialogNonce = current.authorizationDialogLaunchNonce
         resetSession()
         store.clearApiKey()
+        cachedApiKey = null
         _state.value = OctoPrintUiState(
             config = config,
             hasApiKey = false,
