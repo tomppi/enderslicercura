@@ -68,9 +68,7 @@ class ModelSurfaceView(
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        if (paintMode != SupportPaintMode.NONE) {
-            return handlePaintTouch(event)
-        }
+        val painting = paintMode != SupportPaintMode.NONE
 
         gestureDetector.onTouchEvent(event)
         scaleDetector.onTouchEvent(event)
@@ -80,6 +78,10 @@ class ModelSurfaceView(
                 previousX = event.x
                 previousY = event.y
                 panning = false
+                if (painting) {
+                    pendingPaintCoordinates.set(floatArrayOf(event.x, event.y))
+                    schedulePaintPick()
+                }
             }
 
             MotionEvent.ACTION_POINTER_DOWN -> {
@@ -105,12 +107,17 @@ class ModelSurfaceView(
                     panning = true
                     requestRender()
                 } else if (!scaleDetector.isInProgress) {
-                    val dx = event.x - previousX
-                    val dy = event.y - previousY
-                    modelRenderer.rotate(dx * 0.35f, dy * 0.35f)
-                    previousX = event.x
-                    previousY = event.y
-                    requestRender()
+                    if (painting) {
+                        pendingPaintCoordinates.set(floatArrayOf(event.x, event.y))
+                        schedulePaintPick()
+                    } else {
+                        val dx = event.x - previousX
+                        val dy = event.y - previousY
+                        modelRenderer.rotate(dx * 0.35f, dy * 0.35f)
+                        previousX = event.x
+                        previousY = event.y
+                        requestRender()
+                    }
                 }
             }
 
@@ -129,17 +136,6 @@ class ModelSurfaceView(
             }
 
             MotionEvent.ACTION_CANCEL -> panning = false
-        }
-        return true
-    }
-
-    private fun handlePaintTouch(event: MotionEvent): Boolean {
-        when (event.actionMasked) {
-            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> {
-                pendingPaintCoordinates.set(floatArrayOf(event.x, event.y))
-                schedulePaintPick()
-            }
-            MotionEvent.ACTION_UP -> performClick()
         }
         return true
     }

@@ -6,8 +6,6 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -31,7 +29,6 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -953,31 +950,13 @@ private fun SupportPaintOverlay(
         ) {
             Text("Support painting", style = MaterialTheme.typography.titleSmall)
             Text(
-                "Hold a button while dragging on the model. Release to rotate and zoom.",
+                "Tap Draw, Block or Erase, then drag on the model. Use two fingers to rotate and zoom.",
                 style = MaterialTheme.typography.bodySmall,
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                HoldToPaintButton(
-                    label = "Draw",
-                    mode = SupportPaintMode.ENFORCER,
-                    active = activeMode == SupportPaintMode.ENFORCER,
-                    onPaintMode = onPaintMode,
-                    modifier = Modifier.weight(1f),
-                )
-                HoldToPaintButton(
-                    label = "Block",
-                    mode = SupportPaintMode.BLOCKER,
-                    active = activeMode == SupportPaintMode.BLOCKER,
-                    onPaintMode = onPaintMode,
-                    modifier = Modifier.weight(1f),
-                )
-                HoldToPaintButton(
-                    label = "Erase",
-                    mode = SupportPaintMode.ERASE,
-                    active = activeMode == SupportPaintMode.ERASE,
-                    onPaintMode = onPaintMode,
-                    modifier = Modifier.weight(1f),
-                )
+                PaintModeButton("Draw", SupportPaintMode.ENFORCER, activeMode, onPaintMode, Modifier.weight(1f))
+                PaintModeButton("Block", SupportPaintMode.BLOCKER, activeMode, onPaintMode, Modifier.weight(1f))
+                PaintModeButton("Erase", SupportPaintMode.ERASE, activeMode, onPaintMode, Modifier.weight(1f))
             }
             OutlinedButton(onClick = onClose) { Text("Stop painting") }
         }
@@ -985,36 +964,17 @@ private fun SupportPaintOverlay(
 }
 
 @Composable
-private fun HoldToPaintButton(
+private fun PaintModeButton(
     label: String,
     mode: SupportPaintMode,
-    active: Boolean,
+    activeMode: SupportPaintMode,
     onPaintMode: (SupportPaintMode) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val pressed by interactionSource.collectIsPressedAsState()
-    LaunchedEffect(pressed) {
-        onPaintMode(if (pressed) mode else SupportPaintMode.NONE)
-    }
-    Button(
-        onClick = {},
-        interactionSource = interactionSource,
-        colors = ButtonDefaults.buttonColors(
-            containerColor = if (active) {
-                MaterialTheme.colorScheme.primary
-            } else {
-                MaterialTheme.colorScheme.surfaceVariant
-            },
-            contentColor = if (active) {
-                MaterialTheme.colorScheme.onPrimary
-            } else {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            },
-        ),
-        modifier = modifier,
-    ) {
-        Text(label)
+    if (activeMode == mode) {
+        Button(onClick = { onPaintMode(SupportPaintMode.NONE) }, modifier = modifier) { Text(label) }
+    } else {
+        OutlinedButton(onClick = { onPaintMode(mode) }, modifier = modifier) { Text(label) }
     }
 }
 

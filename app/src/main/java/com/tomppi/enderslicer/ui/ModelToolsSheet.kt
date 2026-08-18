@@ -181,7 +181,7 @@ fun ModelToolsSheet(
         HorizontalDivider()
         Text("Support painting", style = MaterialTheme.typography.titleMedium)
         Text(
-            "Set the brush radius and tap Apply brush to open the paint controls. Hold Draw or Block while dragging on the model to paint supports (green) or blockers (red); hold Erase to remove paint. Release the button to rotate and zoom the camera normally.",
+            "Set the brush radius and tap Apply brush to open the paint controls. Tap Draw or Block, then drag on the model to paint supports (green) or blockers (red); tap Erase to remove paint. Use two fingers to rotate and zoom the camera.",
             style = MaterialTheme.typography.bodySmall,
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
