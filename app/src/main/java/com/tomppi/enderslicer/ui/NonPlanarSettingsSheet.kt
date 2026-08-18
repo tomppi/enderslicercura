@@ -58,6 +58,7 @@ internal fun NonPlanarSettingsSheet(
     var warpSmartInfill by rememberSaveable(initial.warpSmartInfillModifiers) {
         mutableStateOf(initial.warpSmartInfillModifiers)
     }
+    var pauseAfterProbe by rememberSaveable(initial.pauseAfterProbe) { mutableStateOf(initial.pauseAfterProbe) }
 
     val parsedStrength = parseDecimal(strength, NonPlanarSettings.MIN_STRENGTH_PERCENT, NonPlanarSettings.MAX_STRENGTH_PERCENT)
     val parsedSmoothing = parseDecimal(
@@ -114,6 +115,7 @@ internal fun NonPlanarSettingsSheet(
             maximumZSpeedMmPerSecond = parsedMaximumZSpeed,
             compensateExtrusion = compensateExtrusion,
             warpSmartInfillModifiers = warpSmartInfill,
+            pauseAfterProbe = pauseAfterProbe,
         )
     } else {
         null
@@ -221,6 +223,12 @@ internal fun NonPlanarSettingsSheet(
             description = "Keep filaSim density regions aligned with the flattened model",
             checked = warpSmartInfill,
             onChecked = { warpSmartInfill = it },
+        )
+        SettingSwitch(
+            title = "Pause after bed probing",
+            description = "Insert M117 + M0 after the last G29 so you can raise a deployable probe before printing",
+            checked = pauseAfterProbe,
+            onChecked = { pauseAfterProbe = it },
         )
 
         Card(modifier = Modifier.fillMaxWidth()) {

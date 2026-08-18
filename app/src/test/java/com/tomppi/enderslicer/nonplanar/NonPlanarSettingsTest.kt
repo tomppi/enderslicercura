@@ -18,6 +18,7 @@ class NonPlanarSettingsTest {
             fieldResolution = 500,
             maximumSegmentLengthMm = 0.01,
             maximumZSpeedMmPerSecond = 100.0,
+            pauseAfterProbe = true,
         ).validated()
 
         assertEquals(100.0, settings.strengthPercent, 0.0)
@@ -31,5 +32,6 @@ class NonPlanarSettingsTest {
         assertEquals(20.0, settings.maximumZSpeedMmPerSecond, 0.0)
         assertEquals(15.0, settings.effectiveSlopeLimitDegrees, 0.0)
         assertTrue(settings.enabled)
+        assertTrue(settings.pauseAfterProbe)
     }
 }

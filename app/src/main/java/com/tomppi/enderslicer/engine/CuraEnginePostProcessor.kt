@@ -53,11 +53,19 @@ internal object CuraEnginePostProcessor {
                     "to publish a warped-model G-code without its back-transformation",
             )
         }
+        val probePauseInjected = if (
+            (curviDiagnostics != null && CurviSlicerRuntime.current().pauseAfterProbe) ||
+            (conicalDiagnostics != null && ConicalRuntime.current().pauseAfterProbe)
+        ) {
+            GcodeProbePauseInjector.inject(outputFile)
+        } else {
+            false
+        }
         val effectiveTransport = when {
             curviDiagnostics != null -> "$settingsTransport+curvislicer-android-v1"
             conicalDiagnostics != null -> "$settingsTransport+conical-android-v1"
             else -> settingsTransport
-        }
+        }.let { if (probePauseInjected) "$it+probe-pause" else it }
         val baseSummary = GcodeSanitizer.validateAndRepair(
             file = outputFile,
             settingsTransport = effectiveTransport,

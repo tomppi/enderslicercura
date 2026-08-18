@@ -15,6 +15,7 @@ class ConicalSettingsTest {
             firstLayerHeightMm = 50.0,
             xShiftMm = 99999.0,
             yShiftMm = -99999.0,
+            pauseAfterProbe = true,
         ).validated()
 
         assertEquals(60.0, settings.coneAngleDegrees, 0.0)
@@ -24,6 +25,7 @@ class ConicalSettingsTest {
         assertEquals(2000.0, settings.xShiftMm, 0.0)
         assertEquals(-2000.0, settings.yShiftMm, 0.0)
         assertTrue(settings.enabled)
+        assertTrue(settings.pauseAfterProbe)
     }
 
     @Test
@@ -37,6 +39,7 @@ class ConicalSettingsTest {
         assertEquals(0.0, settings.xShiftMm, 0.0)
         assertEquals(0.0, settings.yShiftMm, 0.0)
         assertTrue(!settings.enabled)
+        assertTrue(!settings.pauseAfterProbe)
         assertEquals(Math.toRadians(16.0), settings.coneAngleRadians, 1e-12)
     }
 

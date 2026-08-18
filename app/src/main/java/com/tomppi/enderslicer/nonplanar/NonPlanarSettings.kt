@@ -17,6 +17,7 @@ data class NonPlanarSettings(
     val maximumZSpeedMmPerSecond: Double = 5.0,
     val compensateExtrusion: Boolean = true,
     val warpSmartInfillModifiers: Boolean = true,
+    val pauseAfterProbe: Boolean = false,
 ) {
     fun validated(): NonPlanarSettings = copy(
         strengthPercent = strengthPercent.coerceIn(MIN_STRENGTH_PERCENT, MAX_STRENGTH_PERCENT),
@@ -119,6 +120,7 @@ class NonPlanarSettingsStore(context: Context) {
         maximumZSpeedMmPerSecond = number(KEY_MAX_Z_SPEED, 5.0),
         compensateExtrusion = preferences.getBoolean(KEY_EXTRUSION_COMPENSATION, true),
         warpSmartInfillModifiers = preferences.getBoolean(KEY_WARP_SMART_INFILL, true),
+        pauseAfterProbe = preferences.getBoolean(KEY_PAUSE_AFTER_PROBE, false),
     ).validated().also(CurviSlicerRuntime::activate)
 
     fun save(settings: NonPlanarSettings) {
@@ -137,6 +139,7 @@ class NonPlanarSettingsStore(context: Context) {
             .putString(KEY_MAX_Z_SPEED, safe.maximumZSpeedMmPerSecond.toString())
             .putBoolean(KEY_EXTRUSION_COMPENSATION, safe.compensateExtrusion)
             .putBoolean(KEY_WARP_SMART_INFILL, safe.warpSmartInfillModifiers)
+            .putBoolean(KEY_PAUSE_AFTER_PROBE, safe.pauseAfterProbe)
             .commit()
         CurviSlicerRuntime.activate(safe)
         if (changed) invalidatePublishedSlices()
@@ -169,5 +172,6 @@ class NonPlanarSettingsStore(context: Context) {
         private const val KEY_MAX_Z_SPEED = "maximum-z-speed-mm-s"
         private const val KEY_EXTRUSION_COMPENSATION = "compensate-extrusion"
         private const val KEY_WARP_SMART_INFILL = "warp-smart-infill"
+        private const val KEY_PAUSE_AFTER_PROBE = "pause-after-probe"
     }
 }

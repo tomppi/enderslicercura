@@ -45,6 +45,7 @@ internal fun ConicalSettingsSheet(
     }
     var xShift by rememberSaveable(initial.xShiftMm) { mutableStateOf(initial.xShiftMm.toString()) }
     var yShift by rememberSaveable(initial.yShiftMm) { mutableStateOf(initial.yShiftMm.toString()) }
+    var pauseAfterProbe by rememberSaveable(initial.pauseAfterProbe) { mutableStateOf(initial.pauseAfterProbe) }
 
     val parsedConeAngle = parseDecimal(
         coneAngle,
@@ -76,6 +77,7 @@ internal fun ConicalSettingsSheet(
             firstLayerHeightMm = parsedFirstLayerHeight,
             xShiftMm = parsedXShift,
             yShiftMm = parsedYShift,
+            pauseAfterProbe = pauseAfterProbe,
         )
     } else {
         null
@@ -107,6 +109,12 @@ internal fun ConicalSettingsSheet(
             description = "Warp the model into a cone for the next slice",
             checked = enabled,
             onChecked = { enabled = it },
+        )
+        SettingSwitch(
+            title = "Pause after bed probing",
+            description = "Insert M117 + M0 after the last G29 so you can raise a deployable probe before printing",
+            checked = pauseAfterProbe,
+            onChecked = { pauseAfterProbe = it },
         )
         DecimalSettingField(
             "Cone angle (degrees)",

@@ -28,6 +28,7 @@ data class ConicalSettings(
     val firstLayerHeightMm: Double = 0.2,
     val xShiftMm: Double = 0.0,
     val yShiftMm: Double = 0.0,
+    val pauseAfterProbe: Boolean = false,
 ) {
     fun validated(): ConicalSettings = copy(
         coneType = ConeType.OUTWARD,
@@ -112,6 +113,7 @@ class ConicalSettingsStore(context: Context) {
         firstLayerHeightMm = number(KEY_FIRST_LAYER, 0.2),
         xShiftMm = number(KEY_X_SHIFT, 0.0),
         yShiftMm = number(KEY_Y_SHIFT, 0.0),
+        pauseAfterProbe = preferences.getBoolean(KEY_PAUSE_AFTER_PROBE, false),
     ).validated().also(ConicalRuntime::activate)
 
     fun save(settings: ConicalSettings) {
@@ -125,6 +127,7 @@ class ConicalSettingsStore(context: Context) {
             .putString(KEY_FIRST_LAYER, safe.firstLayerHeightMm.toString())
             .putString(KEY_X_SHIFT, safe.xShiftMm.toString())
             .putString(KEY_Y_SHIFT, safe.yShiftMm.toString())
+            .putBoolean(KEY_PAUSE_AFTER_PROBE, safe.pauseAfterProbe)
             .commit()
         ConicalRuntime.activate(safe)
         if (changed) invalidatePublishedSlices()
@@ -156,5 +159,6 @@ class ConicalSettingsStore(context: Context) {
         private const val KEY_FIRST_LAYER = "first-layer-height-mm"
         private const val KEY_X_SHIFT = "x-shift-mm"
         private const val KEY_Y_SHIFT = "y-shift-mm"
+        private const val KEY_PAUSE_AFTER_PROBE = "pause-after-probe"
     }
 }
