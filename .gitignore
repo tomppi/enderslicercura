@@ -1,4 +1,5 @@
 *.iml
+__pycache__/
 .gradle/
 .idea/
 local.properties

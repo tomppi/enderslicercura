@@ -1,6 +1,5 @@
 package com.tomppi.enderslicer.profile
 
-import com.tomppi.enderslicer.calibration.CalibrationSliceState
 import com.tomppi.enderslicer.conical.ConicalPipeline
 import com.tomppi.enderslicer.conical.ConicalRuntime
 import com.tomppi.enderslicer.conical.ConicalStorage
@@ -143,10 +142,8 @@ internal object CuraResolvedSettingsWriter {
         val affineTranslationY = effectiveModelTransform?.translationYmm ?: 0.0
         val affineTranslationZ = effectiveModelTransform?.translationZmm ?: 0.0
 
-        val calibrationOverrides = CalibrationSliceState.engineOverrides()
         val extruderValues = JSONObject(resolved.extruderValues)
         resolved.modelValues.forEach { (key, value) -> extruderValues.put(key, value) }
-        calibrationOverrides.forEach { (key, value) -> extruderValues.put(key, value) }
         applyTransform(
             values = extruderValues,
             linear = linear,
@@ -159,9 +156,6 @@ internal object CuraResolvedSettingsWriter {
         )
 
         val modelValues = JSONObject(resolved.modelValues)
-        calibrationOverrides.forEach { (key, value) ->
-            if (resolved.modelValues.containsKey(key)) modelValues.put(key, value)
-        }
         modelValues.put("extruder_nr", 0)
         applyTransform(
             values = modelValues,

@@ -18,8 +18,8 @@ android {
         applicationId = "com.tomppi.enderslicercura"
         minSdk = 29
         targetSdk = 36
-        versionCode = 36
-        versionName = "0.9.0-dev"
+        versionCode = 37
+        versionName = "1.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -396,8 +396,11 @@ val prepareBumpMeshAssets by tasks.registering {
     }
 }
 
-tasks.matching { it.name == "preBuild" }.configureEach {
+tasks.matching { it.name == "mergeDebugAssets" || it.name == "mergeReleaseAssets" }.configureEach {
     dependsOn(prepareBumpMeshAssets)
+}
+
+tasks.matching { it.name.startsWith("assemble") || it.name == "bundleDebug" || it.name == "bundleRelease" }.configureEach {
     dependsOn(verifyCuraEngineExecutable)
 }
 

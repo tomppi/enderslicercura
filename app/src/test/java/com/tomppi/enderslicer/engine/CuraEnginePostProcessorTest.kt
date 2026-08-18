@@ -21,7 +21,6 @@ class CuraEnginePostProcessorTest {
             baseGcodeFile = base,
             settingsTransport = "resolved-json",
             layerEvents = emptyList(),
-            plannedLayerEvents = emptyList(),
             printerEnvelope = envelope(),
         )
 
@@ -54,7 +53,6 @@ class CuraEnginePostProcessorTest {
             baseGcodeFile = base,
             settingsTransport = "resolved-json",
             layerEvents = listOf(invalid),
-            plannedLayerEvents = emptyList(),
             printerEnvelope = envelope(),
         )
 
@@ -82,7 +80,6 @@ class CuraEnginePostProcessorTest {
             baseGcodeFile = base,
             settingsTransport = "resolved-json",
             layerEvents = listOf(event),
-            plannedLayerEvents = emptyList(),
             printerEnvelope = envelope(),
         )
 
@@ -114,7 +111,6 @@ class CuraEnginePostProcessorTest {
                 baseGcodeFile = base,
                 settingsTransport = "resolved-json",
                 layerEvents = emptyList(),
-                plannedLayerEvents = emptyList(),
                 printerEnvelope = envelope(),
             )
         }.exceptionOrNull()

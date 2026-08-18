@@ -26,7 +26,6 @@ class UiWorkflowStatePersistenceTest {
     fun userEnteredSheetDraftsUseSaveableState() {
         val model = source("ui/ModelToolsSheet.kt")
         val events = source("ui/LayerEventsSheet.kt")
-        val calibration = source("ui/CalibrationGeneratorSheet.kt")
         val meshLimit = source("ui/MeshTriangleLimitSheet.kt")
         val machine = source("ui/MachineSettingsSheet.kt")
         val octoPrint = source("ui/HardenedOctoPrintSheet.kt")
@@ -34,7 +33,6 @@ class UiWorkflowStatePersistenceTest {
         assertTrue(model.contains("rememberSaveable(placement)"))
         assertFalse(model.contains("LaunchedEffect(placement)"))
         assertTrue(events.contains("rememberSaveable(layer.number, type)"))
-        assertTrue(calibration.contains("var start by rememberSaveable(type)"))
         assertTrue(meshLimit.contains("var valueText by rememberSaveable(currentLimit)"))
         assertTrue(machine.contains("var text by rememberSaveable"))
         assertFalse(machine.contains("rememberSaveable(value)"))

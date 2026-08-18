@@ -1,7 +1,8 @@
 package com.tomppi.enderslicer.profile
 
-import com.tomppi.enderslicer.calibration.CalibrationSliceState
 import com.tomppi.enderslicer.model.SlicerSettings
+import com.tomppi.enderslicer.smartinfill.SmartInfillRuntime
+import com.tomppi.enderslicer.smartinfill.applyTo
 import kotlin.math.abs
 
 /**
@@ -24,7 +25,7 @@ internal object CuraSettingDelta {
         inputSettings: SlicerSettings,
         includeAll: Boolean,
     ): LinkedHashMap<String, String> = linkedMapOf<String, String>().apply {
-        val settings = CalibrationSliceState.effective(inputSettings)
+        val settings = SmartInfillRuntime.current()?.applyTo(inputSettings) ?: inputSettings
         fun include(appKey: String): Boolean = includeAll || settings.isOverridden(appKey)
         fun putValue(appKey: String, curaKey: String, value: Any) {
             if (!include(appKey)) return

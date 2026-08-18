@@ -7,10 +7,10 @@ import org.junit.Test
 
 class GeneralAuditSourceContractTest {
     @Test
-    fun curviCalibrationAndSmartInfillValidationFailClosed() {
+    fun nonPlanarMutualExclusionAndSmartInfillValidationFailClosed() {
         val viewModel = source("ui/MainViewModel.kt")
         val integrated = source("ui/IntegratedEnderSlicerApp.kt")
-        assertTrue(viewModel.contains("plannedEventsSnapshot.isNotEmpty() && CurviSlicerRuntime.snapshot() != null"))
+        assertTrue(viewModel.contains("CurviSlicerRuntime.snapshot() != null && ConicalRuntime.snapshot() != null"))
         assertTrue(integrated.contains("smartInfillValidating"))
         assertTrue(integrated.contains("SmartInfillRuntime.activate(null)"))
         assertTrue(integrated.contains("sliceBlockedReason"))

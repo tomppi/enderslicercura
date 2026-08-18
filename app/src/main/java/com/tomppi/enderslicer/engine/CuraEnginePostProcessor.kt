@@ -1,6 +1,5 @@
 package com.tomppi.enderslicer.engine
 
-import com.tomppi.enderslicer.calibration.CalibrationPlacementPolicy
 import com.tomppi.enderslicer.conical.ConicalRuntime
 import com.tomppi.enderslicer.conical.ConicalStorage
 import com.tomppi.enderslicer.nonplanar.CurviSlicerFieldStorage
@@ -30,18 +29,10 @@ internal object CuraEnginePostProcessor {
         baseGcodeFile: File,
         settingsTransport: String,
         layerEvents: List<LayerEvent>,
-        plannedLayerEvents: List<PlannedLayerEvent>,
         printerEnvelope: PrinterEnvelope,
     ): Result {
         val effectiveEnvelope = resolvedEnvelope(outputFile.parentFile) ?: printerEnvelope
         val firmware = CalibrationFirmwareEncoder.fromFlavor(effectiveEnvelope.gcodeFlavor)
-        require(
-            plannedLayerEvents.isEmpty() ||
-                (!CurviSlicerFieldStorage.isPrepared(outputFile.parentFile) &&
-                    !ConicalStorage.isPrepared(outputFile.parentFile)),
-        ) {
-            "Non-planar slicing cannot be combined with height-based calibration events"
-        }
         require(
             !(CurviSlicerFieldStorage.isPrepared(outputFile.parentFile) &&
                 ConicalStorage.isPrepared(outputFile.parentFile)),
@@ -80,20 +71,8 @@ internal object CuraEnginePostProcessor {
         val basePreview = GcodeLayerPreviewParser.parse(baseGcodeFile)
         val validLayerNumbers = basePreview.layers.mapTo(hashSetOf()) { it.number }
         val resolvedEvents = LayerEventOrdering.normalize(
-            layerEvents.filter { it.layerNumber in validLayerNumbers } +
-                GcodeLayerEventProcessor.resolve(plannedLayerEvents, basePreview),
+            layerEvents.filter { it.layerNumber in validLayerNumbers },
         )
-
-        if (plannedLayerEvents.isNotEmpty()) {
-            CalibrationPlacementPolicy.requireNoRaft(baseGcodeFile)
-            firmware.requireDistinctCalibrationSequence(
-                type = plannedLayerEvents.first().type,
-                values = plannedLayerEvents.map { event ->
-                    requireNotNull(event.value) { "Calibration event ${event.label} has no value" }
-                },
-                secondaryValue = plannedLayerEvents.first().secondaryValue,
-            )
-        }
 
         if (resolvedEvents.isEmpty()) {
             return Result(

@@ -49,7 +49,9 @@ private data class BinaryExpr(val left: CuraExpression, val op: TokenType, val r
                     TokenType.MINUS -> number(lhs) - number(rhs)
                     TokenType.STAR -> number(lhs) * number(rhs)
                     TokenType.SLASH -> number(lhs) / number(rhs)
-                    TokenType.PERCENT -> number(lhs) % number(rhs)
+                    TokenType.POWER -> number(lhs).pow(number(rhs))
+                    TokenType.FLOOR_DIV -> floor(number(lhs) / number(rhs))
+                    TokenType.PERCENT -> modulo(number(lhs), number(rhs))
                     TokenType.EQ -> equalValues(lhs, rhs)
                     TokenType.NE -> !equalValues(lhs, rhs)
                     TokenType.LT -> compareValues(lhs, rhs) < 0
@@ -94,6 +96,7 @@ internal class CuraEvaluationContext(
         if (name == "False") return false
         if (name == "None") return null
         if (name == "math.pi") return Math.PI
+        if (name == "math.e") return Math.E
         if (name in BUILTIN_FUNCTIONS) return FunctionRef(name)
         return localValues[name] ?: globalValues[name] ?: error("Unknown variable: $name")
     }
@@ -132,6 +135,45 @@ internal class CuraEvaluationContext(
         "math.radians" -> Math.toRadians(number(args.getOrNull(0)))
         "math.degrees" -> Math.toDegrees(number(args.getOrNull(0)))
         "math.atan" -> atan(number(args.getOrNull(0)))
+        "math.atan2" -> atan2(number(args.getOrNull(0)), number(args.getOrNull(1)))
+        "math.sin" -> sin(number(args.getOrNull(0)))
+        "math.cos" -> cos(number(args.getOrNull(0)))
+        "math.sinh" -> sinh(number(args.getOrNull(0)))
+        "math.cosh" -> cosh(number(args.getOrNull(0)))
+        "math.tanh" -> tanh(number(args.getOrNull(0)))
+        "math.asin" -> {
+            val value = number(args.getOrNull(0))
+            require(value in -1.0..1.0) { "math.asin domain error" }
+            asin(value)
+        }
+        "math.acos" -> {
+            val value = number(args.getOrNull(0))
+            require(value in -1.0..1.0) { "math.acos domain error" }
+            acos(value)
+        }
+        "math.sqrt" -> {
+            val value = number(args.getOrNull(0))
+            require(value >= 0.0) { "math.sqrt domain error" }
+            sqrt(value)
+        }
+        "math.exp" -> exp(number(args.getOrNull(0)))
+        "math.log" -> {
+            val value = number(args.getOrNull(0))
+            require(value > 0.0) { "math.log domain error" }
+            ln(value)
+        }
+        "math.log10" -> {
+            val value = number(args.getOrNull(0))
+            require(value > 0.0) { "math.log10 domain error" }
+            log10(value)
+        }
+        "math.log2" -> {
+            val value = number(args.getOrNull(0))
+            require(value > 0.0) { "math.log2 domain error" }
+            log2(value)
+        }
+        "math.pow" -> number(args.getOrNull(0)).pow(number(args.getOrNull(1)))
+        "math.hypot" -> hypot(number(args.getOrNull(0)), number(args.getOrNull(1)))
         else -> error("Unsupported function: $name")
     }
 
@@ -239,6 +281,7 @@ private class Parser(private val tokens: List<Token>) {
             expression = when {
                 match(TokenType.STAR) -> BinaryExpr(expression, TokenType.STAR, parseUnary())
                 match(TokenType.SLASH) -> BinaryExpr(expression, TokenType.SLASH, parseUnary())
+                match(TokenType.FLOOR_DIV) -> BinaryExpr(expression, TokenType.FLOOR_DIV, parseUnary())
                 match(TokenType.PERCENT) -> BinaryExpr(expression, TokenType.PERCENT, parseUnary())
                 else -> return expression
             }
@@ -249,8 +292,16 @@ private class Parser(private val tokens: List<Token>) {
         return when {
             match(TokenType.PLUS) -> UnaryExpr(TokenType.PLUS, parseUnary())
             match(TokenType.MINUS) -> UnaryExpr(TokenType.MINUS, parseUnary())
-            else -> parsePrimary()
+            else -> parsePower()
         }
+    }
+
+    private fun parsePower(): CuraExpression {
+        var expression = parsePrimary()
+        if (match(TokenType.POWER)) {
+            expression = BinaryExpr(expression, TokenType.POWER, parseUnary())
+        }
+        return expression
     }
 
     private fun parsePrimary(): CuraExpression {
@@ -394,8 +445,8 @@ private class Lexer(private val source: String) {
         when (character) {
             '+' -> add(TokenType.PLUS)
             '-' -> add(TokenType.MINUS)
-            '*' -> add(TokenType.STAR)
-            '/' -> add(TokenType.SLASH)
+            '*' -> if (source.getOrNull(index) == '*') { index++; add(TokenType.POWER, "**") } else add(TokenType.STAR)
+            '/' -> if (source.getOrNull(index) == '/') { index++; add(TokenType.FLOOR_DIV, "//") } else add(TokenType.SLASH)
             '%' -> add(TokenType.PERCENT)
             '(' -> add(TokenType.LEFT_PAREN)
             ')' -> add(TokenType.RIGHT_PAREN)
@@ -424,7 +475,7 @@ private enum class TokenType {
     NUMBER, STRING, IDENTIFIER,
     TRUE, FALSE, NONE,
     IF, ELSE, AND, OR, NOT, IN, NOT_IN,
-    PLUS, MINUS, STAR, SLASH, PERCENT,
+    PLUS, MINUS, STAR, SLASH, PERCENT, POWER, FLOOR_DIV,
     EQ, NE, LT, LE, GT, GE,
     LEFT_PAREN, RIGHT_PAREN, LEFT_BRACKET, RIGHT_BRACKET, COMMA, DOT,
     EOF,
@@ -450,6 +501,13 @@ private fun plus(left: Any?, right: Any?): Any? = when {
     left is String || right is String -> left.toString() + right.toString()
     left is Collection<*> && right is Collection<*> -> left + right
     else -> number(left) + number(right)
+}
+
+private fun modulo(left: Double, right: Double): Double {
+    require(right != 0.0) { "modulo by zero" }
+    val remainder = left % right
+    if (remainder == 0.0) return 0.0
+    return if ((remainder < 0.0) != (right < 0.0)) remainder + right else remainder
 }
 
 private fun equalValues(left: Any?, right: Any?): Boolean {

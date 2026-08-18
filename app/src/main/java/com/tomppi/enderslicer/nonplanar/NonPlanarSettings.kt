@@ -137,7 +137,7 @@ class NonPlanarSettingsStore(context: Context) {
             .putString(KEY_MAX_Z_SPEED, safe.maximumZSpeedMmPerSecond.toString())
             .putBoolean(KEY_EXTRUSION_COMPENSATION, safe.compensateExtrusion)
             .putBoolean(KEY_WARP_SMART_INFILL, safe.warpSmartInfillModifiers)
-            .apply()
+            .commit()
         CurviSlicerRuntime.activate(safe)
         if (changed) invalidatePublishedSlices()
     }

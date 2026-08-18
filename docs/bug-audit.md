@@ -1,6 +1,6 @@
 # Whole-app bug audit
 
-This audit covers the current slicer, Cura import and persistence paths, model and G-code lifecycle, calibration state, layer preview/event rewriting, BumpMesh handoff, and the new OctoPrint subsystem.
+This audit covers the current slicer, Cura import and persistence paths, model and G-code lifecycle, layer preview/event rewriting, BumpMesh handoff, and the new OctoPrint subsystem.
 
 ## Fixed in this pass
 
@@ -21,7 +21,7 @@ This audit covers the current slicer, Cura import and persistence paths, model a
 
 - Model imports, model transforms, Cura profile/project imports and print-setting changes invalidate the current G-code path before OctoPrint can upload it.
 - Failed imports keep the last valid model and G-code instead of partially committing new state.
-- Cura archive/XML input limits, STL size/triangle limits, G-code validation, layer-event rebuilding and calibration state cleanup remain isolated from the OctoPrint subsystem.
+- Cura archive/XML input limits, STL size/triangle limits, G-code validation and layer-event rebuilding remain isolated from the OctoPrint subsystem.
 - OctoPrint credentials are sent only to the configured origin; external webcam snapshot URLs and redirects do not receive the API key.
 
 ## Remaining device validation

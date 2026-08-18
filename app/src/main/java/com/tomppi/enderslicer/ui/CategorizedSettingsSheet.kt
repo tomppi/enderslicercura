@@ -173,24 +173,16 @@ internal fun CategorizedSettingsSheet(
         }
 
         SettingsCategory("Walls and top/bottom") {
-            NumberField("Wall thickness (mm)", settings.wallThicknessMm, source(state, SlicerSettings.Keys.WALL_THICKNESS)) {
-                onSettings(SlicerSettings.Keys.WALL_THICKNESS) { current -> current.copy(wallThicknessMm = it.coerceIn(0.0, 100.0)) }
-            }
+            CalculatedField("Wall thickness (mm)", settings.wallThicknessMm, "Wall line count × line width")
             NumberField("Wall line count", settings.wallLineCount.toDouble(), source(state, SlicerSettings.Keys.WALL_LINE_COUNT), decimals = 0) {
                 onSettings(SlicerSettings.Keys.WALL_LINE_COUNT) { current -> current.copy(wallLineCount = it.toInt().coerceIn(0, 1000)) }
-            }
-            NumberField("Top layers", settings.topLayers.toDouble(), source(state, SlicerSettings.Keys.TOP_LAYERS), decimals = 0) {
-                onSettings(SlicerSettings.Keys.TOP_LAYERS) { current -> current.copy(topLayers = it.toInt().coerceIn(0, 1000000)) }
-            }
-            NumberField("Bottom layers", settings.bottomLayers.toDouble(), source(state, SlicerSettings.Keys.BOTTOM_LAYERS), decimals = 0) {
-                onSettings(SlicerSettings.Keys.BOTTOM_LAYERS) { current -> current.copy(bottomLayers = it.toInt().coerceIn(0, 1000000)) }
             }
             NumberField("Top/bottom thickness (mm)", settings.topBottomThicknessMm, source(state, SlicerSettings.Keys.TOP_BOTTOM_THICKNESS)) {
                 onSettings(SlicerSettings.Keys.TOP_BOTTOM_THICKNESS) { current -> current.copy(topBottomThicknessMm = it.coerceIn(0.0, current.machineHeightMm)) }
             }
-            NumberField("Initial bottom layers", settings.initialBottomLayers.toDouble(), source(state, SlicerSettings.Keys.INITIAL_BOTTOM_LAYERS), decimals = 0) {
-                onSettings(SlicerSettings.Keys.INITIAL_BOTTOM_LAYERS) { current -> current.copy(initialBottomLayers = it.toInt().coerceIn(0, 1000000)) }
-            }
+            CalculatedField("Top layers", settings.topLayers.toDouble(), "Top/bottom thickness ÷ layer height")
+            CalculatedField("Bottom layers", settings.bottomLayers.toDouble(), "Top/bottom thickness ÷ layer height")
+            CalculatedField("Initial bottom layers", settings.initialBottomLayers.toDouble(), "Bottom layers")
             NumberField("Hole horizontal expansion (mm)", settings.holeHorizontalExpansionMm, source(state, SlicerSettings.Keys.HOLE_HORIZONTAL_EXPANSION), decimals = 3) {
                 onSettings(SlicerSettings.Keys.HOLE_HORIZONTAL_EXPANSION) { current -> current.copy(holeHorizontalExpansionMm = it.coerceIn(-10.0, 10.0)) }
             }
@@ -700,7 +692,7 @@ internal fun CategorizedSettingsSheet(
             }
 
             SwitchRow(
-                "Arc overhangs (Multiplex)",
+                "Arc overhangs (Multiplex, experimental)",
                 settings.arcOverhangEnabled,
                 source(state, SlicerSettings.Keys.ARC_OVERHANG_ENABLED),
             ) {
@@ -893,6 +885,25 @@ private fun NumberField(
                 .onFocusChanged { isFocused = it.isFocused },
         )
         SettingSource(source)
+    }
+}
+
+@Composable
+private fun CalculatedField(
+    label: String,
+    value: Double,
+    explanation: String,
+) {
+    Column {
+        OutlinedTextField(
+            value = "%.3f".format(value).trimEnd('0').trimEnd('.'),
+            onValueChange = {},
+            label = { Text(label) },
+            singleLine = true,
+            readOnly = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Text(explanation, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 

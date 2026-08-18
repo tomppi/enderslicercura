@@ -1,7 +1,6 @@
 package com.tomppi.enderslicer.engine
 
 import android.content.Context
-import com.tomppi.enderslicer.calibration.CalibrationSliceState
 import com.tomppi.enderslicer.conical.ConicalPreparations
 import com.tomppi.enderslicer.conical.ConicalRuntime
 import com.tomppi.enderslicer.mesh.MeshTriangleLimits
@@ -90,7 +89,6 @@ class CuraEngineRunner(private val context: Context) {
         endGcode: String,
         profile: CuraEngineProfile? = null,
         layerEvents: List<LayerEvent> = emptyList(),
-        plannedLayerEvents: List<PlannedLayerEvent> = emptyList(),
         supportPaint: SupportPaintState = SupportPaintState(),
     ): SliceResult = runInterruptible(Dispatchers.IO) {
         val smartInfillSnapshot = SmartInfillRuntime.snapshot()
@@ -103,7 +101,6 @@ class CuraEngineRunner(private val context: Context) {
                 endGcode,
                 profile,
                 layerEvents,
-                plannedLayerEvents,
                 smartInfillSnapshot,
                 supportPaint,
             )
@@ -118,7 +115,6 @@ class CuraEngineRunner(private val context: Context) {
         endGcode: String,
         profile: CuraEngineProfile?,
         layerEvents: List<LayerEvent>,
-        plannedLayerEvents: List<PlannedLayerEvent>,
         smartInfillSnapshot: SmartInfillSliceSnapshot?,
         supportPaint: SupportPaintState,
     ): SliceResult {
@@ -137,10 +133,7 @@ class CuraEngineRunner(private val context: Context) {
         val workspace = createWorkspace("slice")
         val log = requestLog(workspace.id)
         val started = System.nanoTime()
-        val effectiveSettings = CalibrationSliceState.effective(
-            sliceSettings,
-            smartInfillSnapshot?.packageValue,
-        )
+        val effectiveSettings = smartInfillSnapshot?.effective(sliceSettings) ?: sliceSettings
         val printerEnvelope = PrinterEnvelope.from(printer.withSettings(effectiveSettings))
         writeInitialLog(
             log,
@@ -150,7 +143,6 @@ class CuraEngineRunner(private val context: Context) {
             effectiveSettings,
             profile,
             layerEvents,
-            plannedLayerEvents,
             printerEnvelope,
             smartInfillSnapshot,
         )
@@ -287,7 +279,6 @@ class CuraEngineRunner(private val context: Context) {
                 baseGcodeFile = workspace.base,
                 settingsTransport = transport,
                 layerEvents = layerEvents,
-                plannedLayerEvents = plannedLayerEvents,
                 printerEnvelope = printerEnvelope,
             )
             throwIfInterrupted()
@@ -448,7 +439,6 @@ class CuraEngineRunner(private val context: Context) {
         settings: SlicerSettings,
         profile: CuraEngineProfile?,
         layerEvents: List<LayerEvent>,
-        plannedEvents: List<PlannedLayerEvent>,
         printerEnvelope: PrinterEnvelope,
         smartInfillSnapshot: SmartInfillSliceSnapshot?,
     ) {
@@ -465,7 +455,7 @@ class CuraEngineRunner(private val context: Context) {
                 appendLine("Nozzle: ${printer.nozzleSizeMm} mm")
                 appendLine("Layer height: ${settings.layerHeightMm} mm")
                 appendLine("Smart Infill package/generation: ${smartInfillSnapshot?.packageId ?: "none"}/${smartInfillSnapshot?.generation ?: 0L}")
-                appendLine("User/calibration events: ${layerEvents.size}/${plannedEvents.size}")
+                appendLine("Layer events: ${layerEvents.size}")
                 appendLine("Imported Cura values: ${profile?.globalValues?.size ?: 0}/${profile?.extruderValues?.size ?: 0}")
                 appendLine()
             },

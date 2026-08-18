@@ -213,8 +213,8 @@ class AppStateStore(context: Context) {
         // commit() is required here: the caller writes the workspace descriptor
         // (with its settings-derived fingerprint) immediately afterwards. An
         // async apply() could flush the settings after the workspace file, so a
-        // process death between the two would restore stale settings with a new
-        // fingerprint and clear calibration state on the next launch.
+        // process death between the two would restore stale settings against a
+        // mismatched workspace fingerprint on the next launch.
         // A failed commit is reported to the caller instead of crashing the app.
         return preferences.edit().putString(KEY_SETTINGS, values.toString()).commit()
     }

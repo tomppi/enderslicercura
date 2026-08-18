@@ -1,7 +1,5 @@
 package com.tomppi.enderslicer.profile
 
-import com.tomppi.enderslicer.calibration.CalibrationSliceState
-import com.tomppi.enderslicer.calibration.CalibrationTestType
 import com.tomppi.enderslicer.conical.ConicalPreparations
 import com.tomppi.enderslicer.conical.ConicalRuntime
 import com.tomppi.enderslicer.conical.ConicalSettings
@@ -51,7 +49,6 @@ class AdvancedFeatureSettingsLeakTest {
         assertEquals("false", resolved.extruderValues["enderslicer_arc_overhang_enabled"])
         assertEquals("false", resolved.extruderValues["enderslicer_wave_overhang_enabled"])
         assertTrue(resolved.smartInfillModelValues.isEmpty())
-        assertTrue(CalibrationSliceState.engineOverrides().isEmpty())
         assertFalse(resolved.globalValues.getValue("machine_end_gcode").contains("ENDERSLICER"))
 
         val directory = Files.createTempDirectory("enderslicer-leak-off").toFile()
@@ -179,23 +176,6 @@ class AdvancedFeatureSettingsLeakTest {
     }
 
     @Test
-    fun calibrationActivateThenClearLeavesNoSettingsResidue() {
-        val pristine = resolve(SlicerSettings())
-        val settings = SlicerSettings()
-
-        CalibrationSliceState.activate(CalibrationTestType.RETRACTION, 0.8)
-        val activeOverrides = CalibrationSliceState.engineOverrides()
-        assertEquals("true", activeOverrides["retraction_enable"])
-        assertNotEquals(settings, CalibrationSliceState.effective(settings))
-        assertNotEquals(pristine, resolve(settings))
-
-        CalibrationSliceState.clear()
-        assertTrue(CalibrationSliceState.engineOverrides().isEmpty())
-        assertEquals(settings, CalibrationSliceState.effective(settings))
-        assertEquals(pristine, resolve(settings))
-    }
-
-    @Test
     fun smartInfillActivateThenDeactivateLeavesNoSettingsResidue() {
         val pristine = resolve(SlicerSettings())
 
@@ -209,7 +189,6 @@ class AdvancedFeatureSettingsLeakTest {
 
         SmartInfillRuntime.activate(null)
         assertNull(SmartInfillRuntime.current())
-        assertEquals(SlicerSettings(), CalibrationSliceState.effective(SlicerSettings()))
         assertEquals(pristine, resolve(SlicerSettings()))
     }
 
@@ -221,8 +200,6 @@ class AdvancedFeatureSettingsLeakTest {
         ConicalRuntime.activate(ConicalSettings(enabled = false))
         CurviSlicerRuntime.activate(NonPlanarSettings(enabled = true))
         CurviSlicerRuntime.activate(NonPlanarSettings(enabled = false))
-        CalibrationSliceState.activate(CalibrationTestType.FAN, 100.0)
-        CalibrationSliceState.clear()
         SmartInfillRuntime.activate(packageValue("cycle"))
         SmartInfillRuntime.activate(null)
 
@@ -266,7 +243,6 @@ class AdvancedFeatureSettingsLeakTest {
     }
 
     private fun resetAllFeatures() {
-        CalibrationSliceState.clear()
         SmartInfillRuntime.activate(null)
         CurviSlicerRuntime.activate(NonPlanarSettings())
         ConicalRuntime.activate(ConicalSettings())

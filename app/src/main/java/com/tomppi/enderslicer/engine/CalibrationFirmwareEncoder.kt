@@ -50,35 +50,6 @@ class CalibrationFirmwareEncoder private constructor(
         LayerEventType.CUSTOM_GCODE -> text.lineSequence().map(String::trim).filter(String::isNotEmpty).toList()
     }
 
-    fun requireVerifiedCalibrationDialect() {
-        if (dialect == FirmwareDialect.GENERIC) {
-            throw UnsupportedFirmwareCommand(
-                "$declaredFlavor is not a verified calibration firmware dialect",
-            )
-        }
-    }
-
-    fun requireDistinctCalibrationSequence(
-        type: LayerEventType,
-        values: List<Double>,
-        secondaryValue: Double? = null,
-    ) {
-        require(values.size >= 2) { "Calibration requires at least two levels" }
-        val signatures = values.mapIndexed { index, value ->
-            commands(
-                type = type,
-                layerNumber = index,
-                value = value,
-                secondaryValue = secondaryValue,
-            ).joinToString("\n")
-        }
-        signatures.zipWithNext().forEachIndexed { index, (first, second) ->
-            require(first != second) {
-                "Calibration levels ${index + 1} and ${index + 2} encode to the same $declaredFlavor command"
-            }
-        }
-    }
-
     fun hotendOffCommand(): String = "M104 S0"
 
     internal fun isFirmwareRetract(command: GcodeCommand.Parsed): Boolean = when (dialect) {

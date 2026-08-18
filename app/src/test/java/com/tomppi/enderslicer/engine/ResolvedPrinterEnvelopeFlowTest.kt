@@ -36,7 +36,6 @@ class ResolvedPrinterEnvelopeFlowTest {
                 baseGcodeFile = base,
                 settingsTransport = "resolved-json",
                 layerEvents = emptyList(),
-                plannedLayerEvents = emptyList(),
                 printerEnvelope = fallback,
             )
         }.exceptionOrNull()

@@ -16,7 +16,7 @@ enum class LayerEventType {
     CUSTOM_GCODE,
 }
 
-enum class LayerEventSource { USER, CALIBRATION }
+enum class LayerEventSource { USER }
 
 data class LayerEvent(
     val id: String,
@@ -57,12 +57,3 @@ data class LayerEvent(
         ?.let { formatDecimal(it, 3) }
         ?: "?"
 }
-
-data class PlannedLayerEvent(
-    val targetZMm: Float,
-    val type: LayerEventType,
-    val value: Double? = null,
-    val secondaryValue: Double? = null,
-    val text: String = "",
-    val label: String = "",
-)

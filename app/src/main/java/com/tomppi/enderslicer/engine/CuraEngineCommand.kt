@@ -1,6 +1,5 @@
 package com.tomppi.enderslicer.engine
 
-import com.tomppi.enderslicer.calibration.CalibrationSliceState
 import com.tomppi.enderslicer.conical.ConicalPipeline
 import com.tomppi.enderslicer.conical.ConicalRuntime
 import com.tomppi.enderslicer.conical.ConicalStorage
@@ -17,6 +16,7 @@ import com.tomppi.enderslicer.profile.CuraSettingDelta
 import com.tomppi.enderslicer.smartinfill.SmartInfillCuraContract
 import com.tomppi.enderslicer.smartinfill.SmartInfillModifier
 import com.tomppi.enderslicer.smartinfill.SmartInfillRuntime
+import com.tomppi.enderslicer.smartinfill.applyTo
 import com.tomppi.enderslicer.smartinfill.requireValidBinaryStl
 import com.tomppi.enderslicer.supportpaint.SupportPaintModifier
 import java.io.File
@@ -98,7 +98,7 @@ object CuraEngineCommand {
             requireValidBinaryStl(modifier.file, Int.MAX_VALUE)
         }
 
-        val effectiveSettings = CalibrationSliceState.effective(settings)
+        val effectiveSettings = SmartInfillRuntime.current()?.applyTo(settings) ?: settings
         val effectivePrinter = printer.withSettings(effectiveSettings)
         val printerEnvelope = PrinterEnvelope.from(effectivePrinter)
         analyzedSource.takeIf(File::isFile)?.let(printerEnvelope::requireBinaryStlFits)
@@ -188,7 +188,6 @@ object CuraEngineCommand {
             CuraSettingDelta.standaloneValues(effectiveSettings).forEach { (key, value) -> setting(key, value) }
             ArcOverhangEngineSettings.values(effectiveSettings).forEach { (key, value) -> setting(key, value) }
             WaveOverhangEngineSettings.values(effectiveSettings).forEach { (key, value) -> setting(key, value) }
-            CalibrationSliceState.engineOverrides().forEach { (key, value) -> setting(key, value) }
             applySmartInfillWidths()
         }
 

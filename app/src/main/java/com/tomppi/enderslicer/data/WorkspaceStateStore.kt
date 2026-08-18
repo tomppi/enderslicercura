@@ -1,9 +1,6 @@
 package com.tomppi.enderslicer.data
 
 import android.content.Context
-import com.tomppi.enderslicer.calibration.CalibrationTestType
-import com.tomppi.enderslicer.engine.LayerEventType
-import com.tomppi.enderslicer.engine.PlannedLayerEvent
 import com.tomppi.enderslicer.model.ModelPlacement
 import com.tomppi.enderslicer.model.SlicerSettings
 import com.tomppi.enderslicer.supportpaint.SupportPaintState
@@ -21,10 +18,6 @@ class WorkspaceStateStore(private val filesDirectory: File) {
         val modelPath: String,
         val modelDisplayName: String,
         val placement: ModelPlacement,
-        val plannedEvents: List<PlannedLayerEvent>,
-        val calibrationDescription: String?,
-        val calibrationType: CalibrationTestType?,
-        val calibrationFirstValue: Double?,
         val configurationFingerprint: String,
         val supportPaint: SupportPaintState = SupportPaintState(),
     )
@@ -132,24 +125,6 @@ class WorkspaceStateStore(private val filesDirectory: File) {
             "Workspace model is outside the private model directory"
         }
         require(model.isFile && model.length() > 0L) { "Workspace model is unavailable" }
-        require(snapshot.plannedEvents.size <= MAX_PLANNED_EVENTS) {
-            "Workspace contains too many calibration events"
-        }
-        snapshot.plannedEvents.forEach { event ->
-            require(event.targetZMm.isFinite() && event.targetZMm >= 0f) {
-                "Workspace event has an invalid target height"
-            }
-            require(event.value?.isFinite() != false && event.secondaryValue?.isFinite() != false) {
-                "Workspace event has a non-finite value"
-            }
-            require(event.label.length <= MAX_EVENT_LABEL_LENGTH) { "Workspace event label is too long" }
-        }
-        require(snapshot.calibrationFirstValue?.isFinite() != false) {
-            "Workspace calibration value is non-finite"
-        }
-        require((snapshot.calibrationType == null) == (snapshot.calibrationFirstValue == null)) {
-            "Workspace calibration identity is incomplete"
-        }
         require(snapshot.supportPaint.enforcerTriangles.all { it >= 0 }) {
             "Workspace paint contains a negative enforcer triangle index"
         }
@@ -160,17 +135,6 @@ class WorkspaceStateStore(private val filesDirectory: File) {
 
     private fun encode(snapshot: Snapshot): JSONObject {
         val placement = snapshot.placement
-        val events = JSONArray()
-        snapshot.plannedEvents.forEach { event ->
-            events.put(
-                JSONObject()
-                    .put("targetZMm", event.targetZMm.toDouble())
-                    .put("type", event.type.name)
-                    .put("value", event.value)
-                    .put("secondaryValue", event.secondaryValue)
-                    .put("label", event.label),
-            )
-        }
         return JSONObject()
             .put("version", VERSION)
             .put("modelPath", snapshot.modelPath)
@@ -184,10 +148,6 @@ class WorkspaceStateStore(private val filesDirectory: File) {
                     .put("baseZmm", placement.baseZmm)
                     .put("source", placement.source),
             )
-            .put("plannedEvents", events)
-            .put("calibrationDescription", snapshot.calibrationDescription)
-            .put("calibrationType", snapshot.calibrationType?.name)
-            .put("calibrationFirstValue", snapshot.calibrationFirstValue)
             .put(
                 "supportPaint",
                 JSONObject()
@@ -203,18 +163,6 @@ class WorkspaceStateStore(private val filesDirectory: File) {
         val placementJson = root.getJSONObject("placement")
         val linearJson = placementJson.getJSONArray("linear")
         require(linearJson.length() == 9) { "Workspace placement matrix must contain nine values" }
-        val eventsJson = root.optJSONArray("plannedEvents") ?: JSONArray()
-        require(eventsJson.length() <= MAX_PLANNED_EVENTS) { "Workspace contains too many events" }
-        val events = List(eventsJson.length()) { index ->
-            val event = eventsJson.getJSONObject(index)
-            PlannedLayerEvent(
-                targetZMm = event.getDouble("targetZMm").toFloat(),
-                type = LayerEventType.valueOf(event.getString("type")),
-                value = event.optNullableDouble("value"),
-                secondaryValue = event.optNullableDouble("secondaryValue"),
-                label = event.optString("label", ""),
-            )
-        }
         return Snapshot(
             modelPath = root.getString("modelPath"),
             modelDisplayName = root.getString("modelDisplayName"),
@@ -225,10 +173,6 @@ class WorkspaceStateStore(private val filesDirectory: File) {
                 baseZmm = placementJson.getDouble("baseZmm"),
                 source = placementJson.optString("source", "Restored workspace"),
             ),
-            plannedEvents = events,
-            calibrationDescription = root.optNullableString("calibrationDescription"),
-            calibrationType = root.optNullableString("calibrationType")?.let(CalibrationTestType::valueOf),
-            calibrationFirstValue = root.optNullableDouble("calibrationFirstValue"),
             configurationFingerprint = root.getString("configurationFingerprint"),
             supportPaint = decodeSupportPaint(root.optJSONObject("supportPaint")),
         )
@@ -264,17 +208,9 @@ class WorkspaceStateStore(private val filesDirectory: File) {
             return digest.digest().joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
         }
 
-        private fun JSONObject.optNullableString(key: String): String? =
-            if (isNull(key)) null else optString(key).takeIf(String::isNotBlank)
-
-        private fun JSONObject.optNullableDouble(key: String): Double? =
-            if (isNull(key) || !has(key)) null else getDouble(key)
-
         private const val VERSION = 1
         private const val MAX_WORKSPACE_BYTES = 512 * 1024
         private const val MAX_DISPLAY_NAME_LENGTH = 512
-        private const val MAX_EVENT_LABEL_LENGTH = 512
-        private const val MAX_PLANNED_EVENTS = 256
         private val FINGERPRINT_PATTERN = Regex("[0-9a-f]{64}")
     }
 }

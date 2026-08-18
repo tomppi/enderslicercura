@@ -19,7 +19,7 @@ class ConicalSettingsTest {
 
         assertEquals(60.0, settings.coneAngleDegrees, 0.0)
         assertEquals(3, settings.refinementIterations)
-        assertEquals(ConeType.INWARD, settings.coneType)
+        assertEquals(ConeType.OUTWARD, settings.coneType)
         assertEquals(5.0, settings.firstLayerHeightMm, 0.0)
         assertEquals(2000.0, settings.xShiftMm, 0.0)
         assertEquals(-2000.0, settings.yShiftMm, 0.0)

@@ -1,6 +1,5 @@
 package com.tomppi.enderslicer.profile
 
-import com.tomppi.enderslicer.calibration.CalibrationSliceState
 import com.tomppi.enderslicer.engine.ArcOverhangEngineSettings
 import com.tomppi.enderslicer.engine.WaveOverhangEngineSettings
 import com.tomppi.enderslicer.model.PrinterDefinition
@@ -10,6 +9,7 @@ import com.tomppi.enderslicer.model.resolveStartGcode
 import com.tomppi.enderslicer.model.withSettings
 import com.tomppi.enderslicer.smartinfill.SmartInfillCuraContract
 import com.tomppi.enderslicer.smartinfill.SmartInfillRuntime
+import com.tomppi.enderslicer.smartinfill.applyTo
 
 internal object CuraSliceSettingsResolver {
     data class Result(
@@ -33,7 +33,7 @@ internal object CuraSliceSettingsResolver {
         }
 
         val smartInfillPackage = SmartInfillRuntime.current()
-        val effectiveSettings = CalibrationSliceState.effective(settings)
+        val effectiveSettings = smartInfillPackage?.applyTo(settings) ?: settings
         val effectivePrinter = printer.withSettings(effectiveSettings)
         val effectiveStartGcode = effectiveSettings.resolveStartGcode(startGcode)
         val effectiveEndGcode = effectiveSettings.resolveEndGcode(endGcode)
@@ -118,7 +118,6 @@ internal object CuraSliceSettingsResolver {
 
         val resolvedExtruder = linkedMapOf<String, String>().apply {
             putAll(parityExtruder)
-            putAll(CalibrationSliceState.engineOverrides())
         }
         validateResolvedSettings(rawResolved.globalValues, resolvedExtruder)
 

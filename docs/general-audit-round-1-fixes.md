@@ -5,7 +5,6 @@ This revision resolves the 13 retained findings from the first whole-application
 Key safety changes:
 
 - final G-code publication uses an exhaustive command-family policy and rejects unmodeled M commands and macros;
-- CurviSlicer cannot run with scalar-height calibration plans;
 - Layers and print-time estimates apply M220 feed factors consistently with Path;
 - RepRapFirmware parameterized G10 is not treated as firmware retraction;
 - workspace, Cura import, OctoPrint credential, Smart Infill pointer, and SAF export state have serialized or recoverable transactions;

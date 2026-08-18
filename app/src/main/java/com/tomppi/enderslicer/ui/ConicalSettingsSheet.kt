@@ -11,7 +11,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -41,7 +40,6 @@ internal fun ConicalSettingsSheet(
     var refinement by rememberSaveable(initial.refinementIterations) {
         mutableStateOf(initial.refinementIterations.toString())
     }
-    var coneType by rememberSaveable(initial.coneType.name) { mutableStateOf(initial.coneType.name) }
     var firstLayerHeight by rememberSaveable(initial.firstLayerHeightMm) {
         mutableStateOf(initial.firstLayerHeightMm.toString())
     }
@@ -65,7 +63,6 @@ internal fun ConicalSettingsSheet(
     )
     val parsedXShift = parseDecimal(xShift, ConicalSettings.MIN_SHIFT_MM, ConicalSettings.MAX_SHIFT_MM)
     val parsedYShift = parseDecimal(yShift, ConicalSettings.MIN_SHIFT_MM, ConicalSettings.MAX_SHIFT_MM)
-    val selectedConeType = runCatching { ConeType.valueOf(coneType) }.getOrNull() ?: ConeType.OUTWARD
 
     val draft = if (
         parsedConeAngle != null && parsedRefinement != null && parsedFirstLayerHeight != null &&
@@ -75,7 +72,7 @@ internal fun ConicalSettingsSheet(
             enabled = enabled,
             coneAngleDegrees = parsedConeAngle,
             refinementIterations = parsedRefinement,
-            coneType = selectedConeType,
+            coneType = ConeType.OUTWARD,
             firstLayerHeightMm = parsedFirstLayerHeight,
             xShiftMm = parsedXShift,
             yShiftMm = parsedYShift,
@@ -125,7 +122,6 @@ internal fun ConicalSettingsSheet(
             ConicalSettings.MAX_REFINEMENT_ITERATIONS,
             onText = { refinement = it },
         )
-        ConeTypeSelector(selected = selectedConeType, onSelect = { coneType = it.name })
         DecimalSettingField(
             "First layer height (mm)",
             firstLayerHeight,
@@ -171,39 +167,6 @@ internal fun ConicalSettingsSheet(
         ) {
             Text("Save conical options")
         }
-    }
-}
-
-@Composable
-private fun ConeTypeSelector(
-    selected: ConeType,
-    onSelect: (ConeType) -> Unit,
-) {
-    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.weight(1f)) {
-            Text("Cone type")
-            Text(
-                "Outward radiates prints from the inside; inward from the outside",
-                style = MaterialTheme.typography.labelSmall,
-            )
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            ConeTypeButton("Outward", selected == ConeType.OUTWARD) { onSelect(ConeType.OUTWARD) }
-            ConeTypeButton("Inward", selected == ConeType.INWARD) { onSelect(ConeType.INWARD) }
-        }
-    }
-}
-
-@Composable
-private fun ConeTypeButton(
-    label: String,
-    selected: Boolean,
-    onClick: () -> Unit,
-) {
-    if (selected) {
-        Button(onClick = onClick) { Text(label) }
-    } else {
-        OutlinedButton(onClick = onClick) { Text(label) }
     }
 }
 
