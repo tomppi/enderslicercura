@@ -31,10 +31,9 @@ Imported values are kept as a persistent baseline: they stay in effect until you
 - OpenGL model viewer, speed-colored layer preview and nozzle-path view
 - Offline BumpMesh displacement texturing (planar/triplanar/cubic or cylindrical mapping, 100k–8M triangle limit)
 
-### Print editing & calibration
+### Print editing
 
 - Non-destructive layer events — pause, filament change, temperature, fan, speed, flow, retraction, camera, message and guarded custom G-code — without re-slicing
-- Temperature, flow, speed, fan, retraction, pressure-advance and junction-deviation calibration models with Marlin/Klipper/RepRapFirmware encoders
 
 ### Smart Infill & build-process thermal FEA (filaSim)
 
@@ -57,7 +56,7 @@ Imported values are kept as a persistent baseline: they stay in effect until you
 - Smart Infill, thermal FEA, arc/wave overhangs and the smart overhang strategy need broader physical print validation
 - High-density models and fine FEA grids may exceed the Android heap; thermal FEA lacks transient conduction and creep
 - Non-planar slicing (CurviSlicer and conical) buffers the full transformed G-code in memory, so very large or very dense prints can exhaust the Android heap (see "Increasing the Java heap")
-- OctoPrint needs broader real-server validation; printer-specific calibration commands must be checked against the installed firmware
+- OctoPrint needs broader real-server validation; printer-specific firmware commands must be checked against the installed firmware
 
 ## Increasing the Java heap
 

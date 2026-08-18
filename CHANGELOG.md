@@ -21,7 +21,6 @@ First stable release.
 - Arc-overhang and wave-overhang engine paths (experimental, off by default),
   smart overhang strategy, and CurviSlicer non-planar slicing.
 - Smart Infill workspace with offline filaSim thermal FEA (experimental).
-- Support-free calibration models with Marlin/Klipper/RepRapFirmware encoders.
 - Settings-leak validation suite pinning that advanced features, when disabled,
   leave core Cura slicing untouched in both engine transports.
 - Real Gradle wrapper (9.4.1); JVM unit tests now run on a clean checkout
