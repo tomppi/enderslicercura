@@ -387,6 +387,11 @@ class OctoPrintRepository(
         refreshFileList = true,
         guard = activeFileGuard("deleted", path),
         optimisticFiles = { files -> filesWithoutDeleted(files, path) },
+        onHttpFailure = { client, error ->
+            error is OctoPrintClient.OctoPrintHttpException &&
+                error.statusCode in 500..599 &&
+                fileTreeIsGone(client, path)
+        },
     ) { deleteFile(path) }
 
     fun createFolder(parentPath: String, name: String) = operation(
@@ -728,6 +733,7 @@ class OctoPrintRepository(
         refreshFileList: Boolean = false,
         guard: ((OctoPrintUiState) -> String?)? = null,
         optimisticFiles: ((List<OctoPrintFileEntry>) -> List<OctoPrintFileEntry>)? = null,
+        onHttpFailure: (suspend (OctoPrintClient, Throwable) -> Boolean)? = null,
         block: OctoPrintClient.() -> Unit,
     ) {
         val requestGeneration = generation
@@ -765,18 +771,38 @@ class OctoPrintRepository(
                     }
                 }.onSuccess {
                     if (!isCurrent(requestGeneration)) return@onSuccess
-                    optimisticFiles?.let { transform ->
-                        _state.update { current -> current.copy(files = transform(current.files)) }
-                    }
-                    if (refreshFileList) refreshFiles(force = true)
-                    refreshAll(showSpinner = false, forceStatic = false)
+                    applyOperationSuccess(optimisticFiles, refreshFileList)
                 }.onFailure { error ->
-                    if (error !is CancellationException) {
+                    if (error is CancellationException) return@onFailure
+                    val reconciled = onHttpFailure?.let { recover ->
+                        try {
+                            recover(client, error)
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (verifyError: Throwable) {
+                            false
+                        }
+                    } ?: false
+                    if (reconciled) {
+                        if (!isCurrent(requestGeneration)) return@onFailure
+                        applyOperationSuccess(optimisticFiles, refreshFileList)
+                    } else {
                         handleSessionError(error, requestGeneration, forbiddenMeansInvalidKey = false)
                     }
                 }
             }
         }
+    }
+
+    private suspend fun applyOperationSuccess(
+        optimisticFiles: ((List<OctoPrintFileEntry>) -> List<OctoPrintFileEntry>)?,
+        refreshFileList: Boolean,
+    ) {
+        optimisticFiles?.let { transform ->
+            _state.update { current -> current.copy(files = transform(current.files)) }
+        }
+        if (refreshFileList) refreshFiles(force = true)
+        refreshAll(showSpinner = false, forceStatic = false)
     }
 
     /**
@@ -898,6 +924,15 @@ class OctoPrintRepository(
         val newPath = if (cleanDestination.isBlank()) leaf else "$cleanDestination/$leaf"
         if (files.any { it.path == newPath }) return files
         return files + source.copy(path = newPath)
+    }
+
+    private suspend fun fileTreeIsGone(client: OctoPrintClient, path: String): Boolean {
+        val files = withContext(Dispatchers.IO) { client.files(force = true) }.first
+        val target = normalizeForCompare(path)
+        return files.none { entry ->
+            val normalized = normalizeForCompare(entry.path)
+            normalized == target || normalized.startsWith("$target/")
+        }
     }
 
     private fun requireClient(): OctoPrintClient {
