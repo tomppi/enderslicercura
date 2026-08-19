@@ -34,6 +34,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   exported G-code; painting is now ignored while the app is busy.
 - Conical slices now auto-select the nozzle Path preview like CurviSlicer
   slices do.
+- The Curvi G-code transform is now cooperatively cancellable (per-line and
+  per-segment checks), resolved Cura requests reject duplicate modifier mesh
+  names, and the settings-leak contract covers painted-support x non-planar
+  combinations.
 
 ## [1.0.0] - 2026-08-17
 

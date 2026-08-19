@@ -152,6 +152,34 @@ class CuraResolvedSettingsWriterSupportPaintTest {
         }
     }
 
+    @Test
+    fun duplicateModifierMeshNamesAreRejected() {
+        val directory = Files.createTempDirectory("resolved-duplicate-mesh").toFile()
+        try {
+            val model = File(directory, "model.stl")
+            writeTriangle(model, 100f, 100f, 0.2f)
+            val clash = File(directory, "clash.stl")
+            writeTriangle(clash, 101f, 101f, 0.4f)
+
+            val error = runCatching {
+                CuraResolvedSettingsWriter.write(
+                    destination = File(directory, "resolved.json"),
+                    modelFileName = model.name,
+                    resolved = resolvedResult(),
+                    supportPaintModifiers = listOf(
+                        SupportPaintModifier(isBlocker = false, file = clash),
+                        SupportPaintModifier(isBlocker = true, file = clash),
+                    ),
+                )
+            }.exceptionOrNull()
+
+            assertTrue(error is IllegalArgumentException)
+            assertTrue(error?.message.orEmpty().contains("duplicate mesh names"))
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
     private fun resolvedResult(): CuraSliceSettingsResolver.Result = CuraSliceSettingsResolver.Result(
         globalValues = mapOf(
             "machine_width" to "230",

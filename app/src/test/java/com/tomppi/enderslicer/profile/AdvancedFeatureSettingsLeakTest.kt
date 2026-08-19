@@ -11,6 +11,7 @@ import com.tomppi.enderslicer.nonplanar.NonPlanarSettings
 import com.tomppi.enderslicer.smartinfill.SmartInfillActivity
 import com.tomppi.enderslicer.smartinfill.SmartInfillPackage
 import com.tomppi.enderslicer.smartinfill.SmartInfillRuntime
+import com.tomppi.enderslicer.supportpaint.SupportPaintModifier
 import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -242,6 +243,31 @@ class AdvancedFeatureSettingsLeakTest {
         )
     }
 
+    @Test
+    fun paintedSupportsWithNonPlanarOnNeverLeakPaintMeshesWhenUnpainted() {
+        // Paint OFF + CurviSlicer ON: the slice must load exactly one mesh (the
+        // model) and carry no support_mesh/anti_overhang_mesh roles.
+        CurviSlicerRuntime.activate(NonPlanarSettings(enabled = true, flatBaseLayers = 1))
+        val command = buildStandaloneCommand(SlicerSettings(), paint = false)
+
+        assertEquals("Only the model mesh may be loaded", 1, command.count { it == "-l" })
+        assertFalse(command.contains("support_mesh=true"))
+        assertFalse(command.contains("anti_overhang_mesh=true"))
+    }
+
+    @Test
+    fun paintedSupportsWithNonPlanarOffEmitThePaintedEnforcerMeshAndNoWarpSidecars() {
+        // Paint ON + non-planar OFF: exactly one painted enforcer mesh is
+        // loaded with its support role, and the non-planar pipelines contribute
+        // nothing (no sentinels, no extra mesh loads).
+        val command = buildStandaloneCommand(SlicerSettings(), paint = true)
+
+        assertEquals("Model plus one painted enforcer mesh", 2, command.count { it == "-l" })
+        assertTrue(command.contains("<WORKSPACE>" + File.separator + "support-enforcer.stl"))
+        assertTrue(command.contains("support_mesh=true"))
+        assertFalse(command.any { it.contains("ENDERSLICER_NON_PLANAR") || it.contains("ENDERSLICER_CONICAL") })
+    }
+
     private fun resetAllFeatures() {
         SmartInfillRuntime.activate(null)
         CurviSlicerRuntime.activate(NonPlanarSettings())
@@ -263,11 +289,18 @@ class AdvancedFeatureSettingsLeakTest {
             endGcode = END_GCODE,
         )
 
-    private fun buildStandaloneCommand(settings: SlicerSettings): List<String> {
+    private fun buildStandaloneCommand(settings: SlicerSettings, paint: Boolean = false): List<String> {
         val directory = Files.createTempDirectory("enderslicer-leak-command").toFile()
         try {
             val modelFile = File(directory, "model.stl")
             writeTriangle(modelFile, 100f, 100f, 1f)
+            val paintModifiers = if (paint) {
+                val enforcer = File(directory, "support-enforcer.stl")
+                writeTriangle(enforcer, 101f, 101f, 1f)
+                listOf(SupportPaintModifier(isBlocker = false, file = enforcer))
+            } else {
+                emptyList()
+            }
             return CuraEngineCommand.build(
                 executablePath = "/native/libcuraengine_exec.so",
                 definitionsDirectory = "/files/definitions",
@@ -279,6 +312,7 @@ class AdvancedFeatureSettingsLeakTest {
                 settings = settings,
                 startGcode = START_GCODE,
                 endGcode = END_GCODE,
+                supportPaintModifiers = paintModifiers,
                 threadCount = 4,
             ).map { it.replace(directory.absolutePath, "<WORKSPACE>") }
         } finally {

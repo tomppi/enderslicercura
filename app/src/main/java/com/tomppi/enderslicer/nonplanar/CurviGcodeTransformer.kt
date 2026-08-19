@@ -282,6 +282,7 @@ internal object CurviGcodeTransformer {
                                 var previousRelativeY = 0.0
                                 var previousRelativeZ = 0.0
                                 for (segment in 0 until segmentCount) {
+                                    checkCurviCancellation(segment)
                                     val from = points[segment]
                                     val to = points[segment + 1]
                                     cumulativeLength += lengths[segment]
@@ -436,6 +437,7 @@ internal object CurviGcodeTransformer {
                         val rawLine = lines[index]
                         index++
                         lineNumber++
+                        checkCurviCancellation(lineNumber)
                         val trimmed = rawLine.trimStart()
                         val startsOverhang = trimmed.startsWith(";TYPE:") &&
                             (trimmed.contains("WAVE-OVERHANG") || trimmed.contains("ARC-OVERHANG"))

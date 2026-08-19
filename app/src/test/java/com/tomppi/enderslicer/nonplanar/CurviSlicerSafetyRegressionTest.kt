@@ -457,6 +457,41 @@ class CurviSlicerSafetyRegressionTest {
         }
     }
 
+    @Test
+    fun interruptedThreadAbortsCurvingAndLeavesThePlanarSourceIntact() {
+        val directory = Files.createTempDirectory("curvi-cancel").toFile()
+        try {
+            val gcode = File(directory, "output.gcode").apply {
+                writeText(
+                    """
+                    ;FLAVOR:Marlin
+                    G90
+                    M82
+                    G92 E0
+                    G0 X0 Y5 Z0.2 F6000
+                    ;LAYER:0
+                    G1 X10 Y5 Z6 E1 F1200
+                    """.trimIndent(),
+                )
+            }
+            val original = gcode.readBytes()
+            writePreparedField(directory, simpleField(), NonPlanarSettings(enabled = true))
+
+            Thread.currentThread().interrupt()
+            try {
+                val failure = runCatching {
+                    CurviSlicerFieldStorage.curveStagedGcode(gcode, printerEnvelope())
+                }.exceptionOrNull()
+                assertTrue("Expected InterruptedException", failure is InterruptedException)
+            } finally {
+                Thread.interrupted()
+            }
+            assertArrayEquals(original, gcode.readBytes())
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
     private fun writePreparedField(
         directory: File,
         field: CurviSlicerField,

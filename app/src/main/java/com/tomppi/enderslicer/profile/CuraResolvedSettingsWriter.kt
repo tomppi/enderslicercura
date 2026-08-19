@@ -56,6 +56,16 @@ internal object CuraResolvedSettingsWriter {
 
         val effectiveSmartInfillModifiers = smartInfillModifiers
             .sortedBy(SmartInfillModifier::densityPercent)
+        val meshNames = buildList {
+            add(modelFileName)
+            addAll(effectiveSmartInfillModifiers.map { it.file.name })
+            addAll(adaptiveWallModifiers.map { it.file.name })
+            addAll(supportPaintModifiers.map { it.file.name })
+        }
+        val duplicatedNames = meshNames.groupBy { it }.filterValues { it.size > 1 }.keys
+        require(duplicatedNames.isEmpty()) {
+            "Resolved Cura request contains duplicate mesh names: " + duplicatedNames.joinToString(", ")
+        }
         if (effectiveSmartInfillModifiers.isNotEmpty()) {
             val requestedDensities = effectiveSmartInfillModifiers
                 .map(SmartInfillModifier::densityPercent)

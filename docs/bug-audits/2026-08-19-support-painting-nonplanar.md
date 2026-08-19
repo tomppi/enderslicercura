@@ -20,7 +20,7 @@ the resolved-settings writer). Adaptive-wall modifiers remain rejected.
 | Critical | 0 | 0 |
 | High / stop-ship | 1 | 1 |
 | Medium | 4 | 4 |
-| Low | 5 | 4 |
+| Low | 8 | 7 |
 
 ## High findings
 
@@ -113,18 +113,30 @@ call sites pass "Support-paint modifier <file>". The conservative warped-space
 check itself is intentional: CuraEngine enforces the build volume on the warped
 geometry, so rejecting early with a clear message is correct.
 
-## Follow-ups (not fixed, tracked)
+## Follow-up round (fixed after the first pass)
 
-- resolved.json mesh sections are keyed by file name only
-  (CuraResolvedSettingsWriter). No collision is possible today (fixed distinct
-  names, fresh UUID workspace per slice); worth keying by an explicit id if a
-  second modifier source ever lands in the same directory.
-- AdvancedFeatureSettingsLeakTest has no paint x non-planar cross-product cases
-  (paint off + non-planar on; paint on + non-planar off). Engine behavior was
-  verified by inspection.
-- The Curvi G-code transformer in main has no per-segment cooperative
-  cancellation checks (the safety hardening exists only in a local backup
-  patch, documents/enderslicercura-uncommitted-backup-20260819).
+- CURV-01 — The Curvi G-code transformer had no cooperative cancellation in
+  the line loop or the segment-emission loop, so interrupting a long
+  G-code transform did nothing until the whole file was curved.
+  Status: Fixed. checkCurviCancellation(segment) in the emission loop and
+  checkCurviCancellation(lineNumber) in the line loop.
+  Regression: CurviSlicerSafetyRegressionTest.interruptedThreadAbortsCurvingAndLeavesThePlanarSourceIntact.
+- ENV-02 — resolved.json mesh sections were keyed by file name only; a future
+  second modifier source sharing a name would silently overwrite a section.
+  Status: Fixed. CuraResolvedSettingsWriter now rejects duplicate mesh names
+  across the model and all modifier sets.
+  Regression: CuraResolvedSettingsWriterSupportPaintTest.duplicateModifierMeshNamesAreRejected.
+- LEAK-01 — AdvancedFeatureSettingsLeakTest had no paint x non-planar
+  cross-product cases.
+  Status: Fixed. paintedSupportsWithNonPlanarOnNeverLeakPaintMeshesWhenUnpainted
+  and paintedSupportsWithNonPlanarOffEmitThePaintedEnforcerMeshAndNoWarpSidecars.
+
+## Remaining notes (not bugs)
+
+- The feed-rate fail-closed guard for printable moves without a positive F
+  exists only in the local backup patch
+  (documents/enderslicercura-uncommitted-backup-20260819); reapply it if a
+  stricter pre-slice validation pass is desired.
 
 ## Checked and fine
 
@@ -154,5 +166,6 @@ geometry, so rejecting early with a clear message is correct.
   excluded): 89 tests / 0 failures on the feature commit; the same suite stays
   green after every round fix (final run below).
 - New regression tests this round: 2 support-anchoring transformer tests,
-  2 interrupt-cancellation tests (conical + Curvi), joining the 7 feature tests
-  already on the branch.
+  3 interrupt-cancellation tests (conical prep, Curvi prep, Curvi G-code),
+  1 duplicate-mesh-name rejection, 2 leak-contract cross-product cases,
+  joining the 7 feature tests already on the branch.
