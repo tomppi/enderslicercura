@@ -44,8 +44,8 @@ internal object ConicalPipeline {
          * back-transform restores both together.
          */
         fun warpModifier(file: File) {
-            val mesh = StlParser.parse(file, file.name)
-            checkConicalCancellation(1)
+            val mesh = parseCancellable(file)
+            checkConicalCancellation(1, 1)
             val refined = ConicalTransform.refine(mesh, settings.refinementIterations)
             val warped = ConicalTransform.warpAround(refined, centerX, centerY, settings)
             writeWarped(file, warped)
@@ -74,8 +74,8 @@ internal object ConicalPipeline {
         val safe = settings.validated()
         require(safe.enabled) { "Conical slicing is not enabled" }
 
-        val mesh = StlParser.parse(modelFile, modelFile.name)
-        checkConicalCancellation(1)
+        val mesh = parseCancellable(modelFile)
+        checkConicalCancellation(1, 1)
         val refined = ConicalTransform.refine(mesh, safe.refinementIterations)
         val warped = ConicalTransform.warp(refined, safe)
         writeWarped(modelFile, warped)
@@ -91,6 +91,12 @@ internal object ConicalPipeline {
                 coneAngleDegrees = safe.coneAngleDegrees,
             ),
         )
+    }
+
+    private fun parseCancellable(file: File): StlMesh = try {
+        StlParser.parse(file, file.name)
+    } catch (closed: java.nio.channels.ClosedByInterruptException) {
+        throw InterruptedException("Conical slicing was cancelled")
     }
 
     private fun writeWarped(destination: File, warped: StlMesh) {

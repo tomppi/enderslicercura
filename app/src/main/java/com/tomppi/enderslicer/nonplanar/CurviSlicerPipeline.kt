@@ -88,7 +88,7 @@ internal object CurviSlicerPipeline {
         require(layerHeightMm.isFinite() && layerHeightMm in 0.04..1.2) { "Invalid CurviSlicer layer height" }
         require(nozzleDiameterMm.isFinite() && nozzleDiameterMm in 0.1..2.0) { "Invalid CurviSlicer nozzle diameter" }
 
-        val mesh = StlParser.parse(modelFile, modelFile.name)
+        val mesh = parseCancellable(modelFile)
         require(mesh.bounds.height > layerHeightMm * (safe.flatBaseLayers + 2)) {
             "The model is too short for ${safe.flatBaseLayers} flat CurviSlicer base layers"
         }
@@ -97,8 +97,14 @@ internal object CurviSlicerPipeline {
         return Prepared(built.field, built.diagnostics, safe)
     }
 
+    private fun parseCancellable(file: File): StlMesh = try {
+        StlParser.parse(file, file.name)
+    } catch (closed: java.nio.channels.ClosedByInterruptException) {
+        throw InterruptedException("CurviSlicer processing was cancelled")
+    }
+
     private fun warpStl(source: File, destination: File, field: CurviSlicerField) {
-        warpMesh(destination, StlParser.parse(source, source.name), field)
+        warpMesh(destination, parseCancellable(source), field)
     }
 
     private fun warpMesh(destination: File, mesh: StlMesh, field: CurviSlicerField) {

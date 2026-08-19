@@ -113,7 +113,9 @@ internal object CuraResolvedSettingsWriter {
             supportPaintModifiers.forEach { modifier -> curviPrepared.warpModifier(modifier.file) }
             printerEnvelope.requireBinaryStlFits(modelFile)
             effectiveSmartInfillModifiers.forEach { modifier -> printerEnvelope.requireBinaryStlFits(modifier.file) }
-            supportPaintModifiers.forEach { modifier -> printerEnvelope.requireBinaryStlFits(modifier.file) }
+            supportPaintModifiers.forEach { modifier ->
+                printerEnvelope.requireBinaryStlFits(modifier.file, label = "Support-paint modifier " + modifier.file.name)
+            }
             CurviSlicerFieldStorage.write(modelDirectory, curviPrepared)
         }
 
@@ -130,7 +132,9 @@ internal object CuraResolvedSettingsWriter {
         if (conicalPrepared != null) {
             supportPaintModifiers.forEach { modifier -> conicalPrepared.warpModifier(modifier.file) }
             printerEnvelope.requireBinaryStlFits(modelFile)
-            supportPaintModifiers.forEach { modifier -> printerEnvelope.requireBinaryStlFits(modifier.file) }
+            supportPaintModifiers.forEach { modifier ->
+                printerEnvelope.requireBinaryStlFits(modifier.file, label = "Support-paint modifier " + modifier.file.name)
+            }
             ConicalStorage.write(modelDirectory, conicalPrepared)
         }
         printerEnvelope.writeTo(File(modelDirectory, PrinterEnvelope.METADATA_FILE_NAME))

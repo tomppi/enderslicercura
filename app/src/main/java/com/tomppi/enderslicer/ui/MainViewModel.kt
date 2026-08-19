@@ -40,6 +40,7 @@ import com.tomppi.enderslicer.viewer.StlMeshWriter
 import com.tomppi.enderslicer.viewer.StlParser
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -55,6 +56,7 @@ import java.util.concurrent.atomic.AtomicLong
 
 private const val CONFIG_SNAPSHOT_FORMAT = "enderslicer-config-snapshot"
 private const val CONFIG_SNAPSHOT_VERSION = 1
+private const val PAINT_PERSIST_DEBOUNCE_MILLIS = 400L
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
     private data class PendingImport(
@@ -112,6 +114,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var sourceMesh: StlMesh? = null
     private var importedScene: CuraProjectScene? = null
     private var settingsPersistenceJob: Job? = null
+    private var paintPersistenceJob: Job? = null
     private val workspaceMutationGeneration = AtomicLong(0L)
     private val layerEventSequence = AtomicLong(0L)
     private val deferredRestoreActions = ArrayDeque<() -> Unit>()
@@ -185,7 +188,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             modelFile = prepared.modelFile,
                             displayName = prepared.source.displayName,
                             placement = prepared.placement,
-                            state = stateSnapshot,
+                            state = stateSnapshot.copy(supportPaint = SupportPaintState()),
                         ),
                     )
                 }
@@ -259,7 +262,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 modelFile = prepared.modelFile,
                                 displayName = prepared.source.displayName,
                                 placement = prepared.placement,
-                                state = stateSnapshot,
+                                state = stateSnapshot.copy(supportPaint = SupportPaintState()),
                             ),
                         )
                     }
@@ -505,12 +508,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.update { current ->
             current.copy(supportPaint = current.supportPaint.copy(brushRadiusMm = radius))
         }
+        persistPaintSoon()
+    }
+
+    private fun persistPaintSoon() {
+        val snapshot = _uiState.value
+        paintPersistenceJob?.cancel()
+        paintPersistenceJob = viewModelScope.launch {
+            delay(PAINT_PERSIST_DEBOUNCE_MILLIS)
+            persistCurrentWorkspace(snapshot)
+        }
     }
 
     fun paintAt(hit: MeshPicker.Hit) {
         val snapshot = _uiState.value
         val mesh = snapshot.mesh ?: return
         if (snapshot.paintMode == SupportPaintMode.NONE) return
+        if (snapshot.isBusy) return
         val radiusMm = snapshot.supportPaint.brushRadiusMm.toFloat()
         viewModelScope.launch(Dispatchers.Default) {
             val triangles = SupportPaintBrush.expand(
@@ -530,11 +544,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 current.copy(supportPaint = updated)
             }
+            persistPaintSoon()
         }
     }
 
     fun clearSupportPaint() {
         _uiState.update { it.copy(supportPaint = SupportPaintState()) }
+        persistPaintSoon()
     }
 
     fun sliceModel() {
@@ -555,6 +571,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 it.copy(
                     isBusy = false,
                     statusMessage = "CurviSlicer and conical slicing are mutually exclusive; disable one before slicing",
+                    sliceResultId = null,
+                    gcodePath = null,
+                    baseGcodePath = null,
+                    layerPreview = null,
+                    estimatedPrintSeconds = null,
                 )
             }
             return

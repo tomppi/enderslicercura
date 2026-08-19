@@ -50,7 +50,7 @@ data class PrinterEnvelope(
     }
 
     /** Streams the transformed binary STL staged for CuraEngine without a second mesh allocation. */
-    fun requireBinaryStlFits(file: File, transform: StlSliceTransform? = null) {
+    fun requireBinaryStlFits(file: File, transform: StlSliceTransform? = null, label: String? = null) {
         require(file.isFile && file.length() >= STL_HEADER_BYTES) { "Staged model STL is unavailable" }
         file.inputStream().channel.use { channel ->
             val header = ByteBuffer.allocate(STL_HEADER_BYTES.toInt()).order(ByteOrder.LITTLE_ENDIAN)
@@ -86,7 +86,11 @@ data class PrinterEnvelope(
                             x = transformedX(transform, x, y, z),
                             y = transformedY(transform, x, y, z),
                             z = transformedZ(transform, x, y, z),
-                            context = "Model vertex $vertexNumber",
+                            context = if (label == null) {
+                                "Model vertex $vertexNumber"
+                            } else {
+                                "$label vertex $vertexNumber"
+                            },
                         )
                         vertexNumber++
                     }

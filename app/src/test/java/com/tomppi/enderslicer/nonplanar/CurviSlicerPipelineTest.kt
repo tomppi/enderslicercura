@@ -2,8 +2,12 @@ package com.tomppi.enderslicer.nonplanar
 
 import com.tomppi.enderslicer.engine.GcodeCommand
 import com.tomppi.enderslicer.engine.PrinterEnvelope
+import com.tomppi.enderslicer.viewer.MeshBounds
+import com.tomppi.enderslicer.viewer.StlMesh
+import com.tomppi.enderslicer.viewer.StlMeshWriter
 import java.io.File
 import kotlin.io.path.createTempDirectory
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -118,6 +122,64 @@ class CurviSlicerPipelineTest {
         assertEquals(2, eOnly.size)
         assertEquals(spatialExtrusionEnd - 0.5, eOnly[0], 0.00001)
         assertEquals(spatialExtrusionEnd, eOnly[1], 0.00001)
+    }
+
+    @Test
+    fun interruptedThreadAbortsPreparationAndLeavesTheModelIntact() {
+        val directory = createTempDirectory("curvi-cancel-").toFile()
+        val modelFile = File(directory, "model.stl")
+        StlMeshWriter.writeBinary(pyramidMesh(), modelFile)
+        val original = modelFile.readBytes()
+
+        Thread.currentThread().interrupt()
+        try {
+            val failure = runCatching {
+                CurviSlicerPipeline.prepareAndWarp(
+                    modelFile = modelFile,
+                    settings = NonPlanarSettings(enabled = true),
+                    layerHeightMm = 0.2,
+                    nozzleDiameterMm = 0.4,
+                )
+            }.exceptionOrNull()
+            assertTrue("Expected InterruptedException but got: " + failure, failure is InterruptedException)
+        } finally {
+            Thread.interrupted()
+        }
+        assertArrayEquals(original, modelFile.readBytes())
+    }
+
+    private fun pyramidMesh(): StlMesh {
+        val apexX = 5f
+        val apexY = 5f
+        val apexZ = 1.2f
+        val triangles = listOf(
+            floatArrayOf(0f, 0f, 0f, 10f, 0f, 0f, 10f, 10f, 0f),
+            floatArrayOf(0f, 0f, 0f, 10f, 10f, 0f, 0f, 10f, 0f),
+            floatArrayOf(0f, 0f, 0f, 10f, 0f, 0f, apexX, apexY, apexZ),
+            floatArrayOf(10f, 0f, 0f, 10f, 10f, 0f, apexX, apexY, apexZ),
+            floatArrayOf(10f, 10f, 0f, 0f, 10f, 0f, apexX, apexY, apexZ),
+            floatArrayOf(0f, 10f, 0f, 0f, 0f, 0f, apexX, apexY, apexZ),
+        )
+        val interleaved = FloatArray(triangles.size * 18)
+        var offset = 0
+        for (triangle in triangles) {
+            repeat(3) { vertex ->
+                val base = offset + vertex * 6
+                interleaved[base] = triangle[vertex * 3]
+                interleaved[base + 1] = triangle[vertex * 3 + 1]
+                interleaved[base + 2] = triangle[vertex * 3 + 2]
+                interleaved[base + 3] = 0f
+                interleaved[base + 4] = 0f
+                interleaved[base + 5] = 1f
+            }
+            offset += 18
+        }
+        return StlMesh(
+            displayName = "pyramid.stl",
+            interleavedVertices = interleaved,
+            triangleCount = triangles.size,
+            bounds = MeshBounds(0f, 0f, 0f, 10f, 10f, 1.2f),
+        )
     }
 
     private fun writePreparedField(directory: File, settings: NonPlanarSettings) {

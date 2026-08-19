@@ -4,6 +4,37 @@ All notable changes to EnderSlicerCura are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Support painting now combines with both non-planar pipelines: painted
+  enforcer/blocker prisms are warped with the same transform as the model
+  (relief-field flatten for CurviSlicer, cone warp around the model centre for
+  conical slicing) so CuraEngine generates supports against the warped solid
+  and the G-code transform restores both together.
+
+### Fixed
+
+- Conical slicing with supports (automatic or painted) lifted the entire model
+  off the build plate: support tower bottoms back-transformed below the bed
+  and dragged the whole file upward. Support moves are now anchored to the
+  plate and below-plate support layers are skipped.
+- Conical preparation was effectively uncancellable: the cooperative
+  cancellation checks never fired (interval mismatch) and the refine/warp
+  loops lacked per-triangle checks; interrupted STL reads now surface as a
+  clean cancellation instead of a ClosedByInterruptException.
+- Importing a new model could persist the previous model's painted supports,
+  which came back as phantom enforcers/blockers on the new model after a
+  restart.
+- Paint changes were only persisted alongside unrelated saves; recent paint
+  could be lost silently on process death. Paint is now persisted with a short
+  debounce.
+- Strokes painted while a slice was running silently diverged from the
+  exported G-code; painting is now ignored while the app is busy.
+- Conical slices now auto-select the nozzle Path preview like CurviSlicer
+  slices do.
+
 ## [1.0.0] - 2026-08-17
 
 First stable release.

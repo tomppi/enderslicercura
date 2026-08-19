@@ -125,7 +125,7 @@ fun EnderSlicerApp(
                 it.supportSegmentCount > 0 || it.supportInterfaceSegmentCount > 0
             }
             selectedLayerIndex = if (firstSupport >= 0) firstSupport else 0
-            viewerMode = if (nonPlanarSettings.enabled && gcodeAvailable) {
+            viewerMode = if ((nonPlanarSettings.enabled || conicalSettings.enabled) && gcodeAvailable) {
                 ViewerMode.NOZZLE_PATH
             } else {
                 ViewerMode.LAYERS

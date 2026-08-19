@@ -54,6 +54,7 @@ internal object ConicalGcodeTransformer {
         var zLayer = 0.0
         var zMax = 0.0
         var sawExtrusion = false
+        var inSupportSection = false
         var planarE = 0.0
         var curvedE = 0.0
         var idealCurvedE = 0.0
@@ -102,6 +103,10 @@ internal object ConicalGcodeTransformer {
             }
             if (trimmed.startsWith(";LAYER:")) {
                 inPrintableLayers = true
+            }
+            if (trimmed.startsWith(";TYPE:")) {
+                val pathType = trimmed.substringAfter(':').trim()
+                inSupportSection = pathType.startsWith("SUPPORT")
             }
             if (trimmed.startsWith(";End of Gcode", ignoreCase = true) || trimmed.startsWith(";END_OF_PRINT")) {
                 inPrintableLayers = false
@@ -224,6 +229,32 @@ internal object ConicalGcodeTransformer {
                             if (maxZ > travelLimit) {
                                 for (i in zVals.indices) zVals[i] = min(zVals[i], travelLimit + TRAVEL_CLEARANCE_MM)
                             }
+                        }
+                    }
+
+                    // CuraEngine builds support towers in WARPED space from the
+                    // plate up to the warped model surface. The back-transform
+                    // maps the tower bottoms to z - r * tan(theta) < 0: a
+                    // support layer emitted at the warped plate would print
+                    // below the bed and drag the global translate() lift up with
+                    // it, floating the whole model. Anchor support moves to the
+                    // plate instead: clamp the emitted Z at 0 and skip support
+                    // extrusion layers that fall entirely below the plate so
+                    // the skipped filament is not re-attributed to a later move.
+                    if (inSupportSection) {
+                        var allBelowPlate = true
+                        for (i in zVals.indices) {
+                            if (zVals[i] >= 0.0) {
+                                allBelowPlate = false
+                            } else {
+                                zVals[i] = 0.0
+                            }
+                        }
+                        if (hasE && allBelowPlate) {
+                            planarE = nextPlanarE
+                            xOld = xNew
+                            yOld = yNew
+                            return
                         }
                     }
 

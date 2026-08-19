@@ -263,6 +263,127 @@ class ConicalGcodeTransformerTest {
         assertEquals(0.2, zAtC, 0.01)
     }
 
+    @Test
+    fun supportTowerBottomsStayOnThePlateAndTheModelIsNotLifted() {
+        val directory = createTempDirectory("conical-support-test-").toFile()
+        val gcode = File(directory, "output.gcode")
+        val settings = ConicalSettings(
+            enabled = true,
+            coneAngleDegrees = 16.0,
+            coneType = ConeType.OUTWARD,
+            firstLayerHeightMm = 0.2,
+        )
+        // Warped "sliced" output around centre (0, 0). The model bottom at the
+        // cone apex is the only model move; a support tower under an overhang
+        // at original radius 50 sits at the warped radius 52.015 (r / cos) and
+        // rises from the warped plate (z = 0.2) to the warped surface
+        // (z = 15.0 and 16.0, both above r * tan = 14.916). Back-transformed
+        // tower bottoms sit below the bed; they must be anchored to the plate
+        // instead of lifting the whole file.
+        gcode.writeText(
+            """
+            ;FLAVOR:Marlin
+            ;Generated with Cura
+            G90
+            M82
+            G92 E0
+            ;LAYER:0
+            G1 X0 Y0 Z0 E0 F1200
+            ;TYPE:SUPPORT
+            G0 X52.015 Y0 Z0.2 F6000
+            G1 X52.015 Y0 Z0.2 E0.2 F1200
+            G0 X52.015 Y0 Z15.0 F6000
+            G1 X52.015 Y0 Z15.0 E0.4 F1200
+            G1 X52.015 Y0 Z16.0 E0.6 F1200
+            ;TYPE:WALL-OUTER
+            ;End of Gcode
+            """.trimIndent(),
+        )
+        writePrepared(directory, settings)
+
+        val result = ConicalStorage.backtransformStagedGcode(gcode, printerEnvelope())
+
+        assertNotNull(result)
+        assertTrue(requireNotNull(result).minimumZmm >= 0.0)
+
+        val lines = gcode.readLines()
+        val supportStart = lines.indexOf(";TYPE:SUPPORT")
+        val supportEnd = lines.indexOf(";TYPE:WALL-OUTER")
+        assertTrue(supportStart >= 0 && supportEnd > supportStart)
+
+        // The model bottom must sit exactly on the first-layer height: the
+        // support tower must never drag the global translate() lift upward.
+        val modelMoves = lines.subList(0, supportStart)
+            .mapNotNull(GcodeCommand::parse)
+            .filter { it.opcode == "G1" && it.has('E') && it.has('Z') }
+        for (move in modelMoves) {
+            assertEquals("Model move must print on the bed", 0.2, move.value('Z')!!, 0.001)
+        }
+
+        // Support extrusion layers that land entirely below the plate are
+        // skipped; surviving support moves are clamped to the plate.
+        val supportMoves = lines.subList(supportStart, supportEnd)
+            .mapNotNull(GcodeCommand::parse)
+            .filter { it.opcode == "G1" && it.has('E') }
+        assertEquals("Only support layers above the plate survive", 2, supportMoves.size)
+        val supportZs = lines.subList(supportStart, supportEnd)
+            .mapNotNull(GcodeCommand::parse)
+            .filter { it.opcode == "G0" || it.opcode == "G1" }
+            .mapNotNull { it.value('Z') }
+        for (z in supportZs) {
+            assertTrue("Support moves must stay on or above the plate, got " + z, z >= 0.2 - 0.001)
+        }
+    }
+
+    @Test
+    fun supportLayersPartiallyBelowThePlateAreClampedToTheBed() {
+        val directory = createTempDirectory("conical-support-clamp-test-").toFile()
+        val gcode = File(directory, "output.gcode")
+        val settings = ConicalSettings(
+            enabled = true,
+            coneAngleDegrees = 16.0,
+            coneType = ConeType.OUTWARD,
+            firstLayerHeightMm = 0.2,
+        )
+        // One long support layer spanning radii 45..55 at warped Z = 14.6:
+        // the inner end back-transforms above the plate, the outer end below
+        // it. The layer must survive with its below-plate segments clamped.
+        gcode.writeText(
+            """
+            ;FLAVOR:Marlin
+            ;Generated with Cura
+            G90
+            M82
+            G92 E0
+            ;LAYER:0
+            G1 X0 Y0 Z0 E0 F1200
+            ;TYPE:SUPPORT
+            G0 X46.813 Y0 Z14.6 F6000
+            G1 X57.216 Y0 Z14.6 E0.5 F1200
+            ;End of Gcode
+            """.trimIndent(),
+        )
+        writePrepared(directory, settings)
+
+        val result = ConicalStorage.backtransformStagedGcode(gcode, printerEnvelope())
+
+        assertNotNull(result)
+        val lines = gcode.readLines()
+        val supportStart = lines.indexOf(";TYPE:SUPPORT")
+        val supportZs = lines.subList(supportStart, lines.size)
+            .mapNotNull(GcodeCommand::parse)
+            .filter { (it.opcode == "G0" || it.opcode == "G1") && it.has('E') }
+            .mapNotNull { it.value('Z') }
+        assertTrue("The partial support layer must survive", supportZs.isNotEmpty())
+        for (z in supportZs) {
+            assertTrue("Support segments must stay on or above the plate, got " + z, z >= 0.2 - 0.001)
+        }
+        assertTrue(
+            "Below-plate segments must be clamped onto the bed",
+            supportZs.minOrNull()!! < 0.21,
+        )
+    }
+
     private fun writePrepared(
         directory: File,
         settings: ConicalSettings,

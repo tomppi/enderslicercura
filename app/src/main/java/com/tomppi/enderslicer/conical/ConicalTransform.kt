@@ -66,7 +66,8 @@ internal object ConicalTransform {
         var inOffset = 0
         var outOffset = 0
         val bounds = BoundsAccumulator()
-        repeat(mesh.triangleCount) {
+        repeat(mesh.triangleCount) { triangleIndex ->
+            checkConicalCancellation(triangleIndex)
             val x0 = input[inOffset].toDouble()
             val y0 = input[inOffset + 1].toDouble()
             val z0 = input[inOffset + 2].toDouble()
@@ -114,7 +115,8 @@ internal object ConicalTransform {
         val output = FloatArray(input.size)
         val bounds = BoundsAccumulator()
         var offset = 0
-        repeat(mesh.triangleCount) {
+        repeat(mesh.triangleCount) { triangleIndex ->
+            checkConicalCancellation(triangleIndex)
             val x0 = input[offset].toDouble()
             val y0 = input[offset + 1].toDouble()
             val z0 = input[offset + 2].toDouble()

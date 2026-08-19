@@ -104,7 +104,9 @@ object CuraEngineCommand {
         analyzedSource.takeIf(File::isFile)?.let(printerEnvelope::requireBinaryStlFits)
         effectiveSmartInfillModifiers.forEach { modifier -> printerEnvelope.requireBinaryStlFits(modifier.file) }
         adaptiveWallModifiers.forEach { modifier -> printerEnvelope.requireBinaryStlFits(modifier.file) }
-        supportPaintModifiers.forEach { modifier -> printerEnvelope.requireBinaryStlFits(modifier.file) }
+        supportPaintModifiers.forEach { modifier ->
+                printerEnvelope.requireBinaryStlFits(modifier.file, label = "Support-paint modifier " + modifier.file.name)
+            }
 
         val curviPrepared = CurviSlicerRuntime.snapshot()?.let { snapshot ->
             require(adaptiveWallModifiers.isEmpty()) {
@@ -128,7 +130,9 @@ object CuraEngineCommand {
             supportPaintModifiers.forEach { modifier -> curviPrepared.warpModifier(modifier.file) }
             printerEnvelope.requireBinaryStlFits(analyzedSource)
             effectiveSmartInfillModifiers.forEach { modifier -> printerEnvelope.requireBinaryStlFits(modifier.file) }
-            supportPaintModifiers.forEach { modifier -> printerEnvelope.requireBinaryStlFits(modifier.file) }
+            supportPaintModifiers.forEach { modifier ->
+                printerEnvelope.requireBinaryStlFits(modifier.file, label = "Support-paint modifier " + modifier.file.name)
+            }
             CurviSlicerFieldStorage.write(workspace, curviPrepared)
         }
 
@@ -145,7 +149,9 @@ object CuraEngineCommand {
         if (conicalPrepared != null) {
             supportPaintModifiers.forEach { modifier -> conicalPrepared.warpModifier(modifier.file) }
             printerEnvelope.requireBinaryStlFits(analyzedSource)
-            supportPaintModifiers.forEach { modifier -> printerEnvelope.requireBinaryStlFits(modifier.file) }
+            supportPaintModifiers.forEach { modifier ->
+                printerEnvelope.requireBinaryStlFits(modifier.file, label = "Support-paint modifier " + modifier.file.name)
+            }
             ConicalStorage.write(workspace, conicalPrepared)
         }
 

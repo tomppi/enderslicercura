@@ -8,6 +8,7 @@ import com.tomppi.enderslicer.viewer.StlMeshWriter
 import com.tomppi.enderslicer.viewer.StlParser
 import java.io.File
 import kotlin.io.path.createTempDirectory
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -42,6 +43,28 @@ class ConicalPipelineTest {
             printerEnvelope(),
         )
         assertNotNull("Sidecar must round-trip through the workspace", sidecar)
+    }
+
+    @Test
+    fun interruptedThreadAbortsPreparationAndLeavesTheSourceIntact() {
+        val directory = createTempDirectory("conical-cancel-").toFile()
+        val modelFile = File(directory, "model.stl")
+        StlMeshWriter.writeBinary(squareMesh(), modelFile)
+        val original = modelFile.readBytes()
+
+        Thread.currentThread().interrupt()
+        try {
+            val failure = runCatching {
+                ConicalPipeline.prepareAndWarp(
+                    modelFile,
+                    ConicalSettings(enabled = true, refinementIterations = 2),
+                )
+            }.exceptionOrNull()
+            assertTrue("Expected InterruptedException but got: " + failure, failure is InterruptedException)
+        } finally {
+            Thread.interrupted()
+        }
+        assertArrayEquals(original, modelFile.readBytes())
     }
 
     @Test
