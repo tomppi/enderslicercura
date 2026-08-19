@@ -32,6 +32,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- The arc/wave overhang generators never triggered on-device: the pinned
+  Cura definitions default bridge detection off, and the app never enabled
+  it. The standalone transport now sets bridge_settings_enabled when an
+  overhang feature is on, and the resolved transport sets it at model-mesh
+  scope, so unsupported bottom skins are classified as bridges and the
+  overhang fills can replace them.
 - Support painting could make slicing take tens of minutes or time out:
   painted triangles become eight-triangle prisms, and the per-layer support
   computation grows superlinearly with the painted region. Painted regions are

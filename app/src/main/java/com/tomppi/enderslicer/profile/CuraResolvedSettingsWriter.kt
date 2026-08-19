@@ -136,6 +136,13 @@ internal object CuraResolvedSettingsWriter {
 
         val modelValues = JSONObject(resolved.modelValues)
         modelValues.put("extruder_nr", 0)
+        val overhangFillEnabled = resolved.extruderValues["enderslicer_arc_overhang_enabled"] == "true" ||
+            resolved.extruderValues["enderslicer_wave_overhang_enabled"] == "true"
+        if (overhangFillEnabled) {
+            // The pinned definitions default bridge detection off, and the
+            // arc/wave overhang generators only replace detected bridges.
+            modelValues.put("bridge_settings_enabled", true)
+        }
         applyTransform(
             values = modelValues,
             linear = linear,

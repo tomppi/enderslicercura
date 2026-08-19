@@ -241,6 +241,17 @@ class AdvancedFeatureSettingsLeakTest {
             buildStandaloneCommand(SlicerSettings().copy(waveOverhangEnabled = true))
                 .contains("enderslicer_wave_overhang_enabled=true"),
         )
+
+        // Bridge detection must be enabled only when an overhang feature is on:
+        // the pinned definitions default it off, and without it the arc/wave
+        // generators never see a bridge to replace. (The resolved transport
+        // sets it at model-mesh scope in CuraResolvedSettingsWriter so the
+        // resolved extruder/global maps stay value-neutral.)
+        assertFalse(buildStandaloneCommand(SlicerSettings()).contains("bridge_settings_enabled=true"))
+        assertTrue(
+            buildStandaloneCommand(SlicerSettings().copy(waveOverhangEnabled = true))
+                .contains("bridge_settings_enabled=true"),
+        )
     }
 
     @Test

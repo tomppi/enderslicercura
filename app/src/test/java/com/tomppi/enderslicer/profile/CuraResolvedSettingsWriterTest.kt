@@ -175,7 +175,42 @@ class CuraResolvedSettingsWriterTest {
         }
     }
 
-    private fun resolvedSettings(centerIsZero: Boolean): CuraSliceSettingsResolver.Result = CuraSliceSettingsResolver.Result(
+    @Test
+    fun overhangFillEnablesBridgeDetectionOnTheModelSectionOnlyWhenEnabled() {
+        val directory = Files.createTempDirectory("enderslicer-resolved-bridge").toFile()
+        try {
+            val modelFile = File(directory, "current.stl")
+            writeTriangle(modelFile, 100f, 100f, 1f)
+            val destination = File(directory, "resolved-settings.json")
+
+            CuraResolvedSettingsWriter.write(
+                destination = destination,
+                modelFileName = modelFile.name,
+                resolved = resolvedSettings(centerIsZero = false, waveEnabled = false),
+            )
+            assertFalse(
+                "Bridge detection must stay at the definition default while overhang fill is off",
+                JSONObject(destination.readText()).getJSONObject(modelFile.name).has("bridge_settings_enabled"),
+            )
+
+            CuraResolvedSettingsWriter.write(
+                destination = destination,
+                modelFileName = modelFile.name,
+                resolved = resolvedSettings(centerIsZero = false, waveEnabled = true),
+            )
+            assertTrue(
+                "Overhang fill requires bridge detection on the model section",
+                JSONObject(destination.readText()).getJSONObject(modelFile.name).getBoolean("bridge_settings_enabled"),
+            )
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    private fun resolvedSettings(
+        centerIsZero: Boolean,
+        waveEnabled: Boolean = false,
+    ): CuraSliceSettingsResolver.Result = CuraSliceSettingsResolver.Result(
         globalValues = mapOf(
             "machine_width" to "230",
             "machine_depth" to "230",
@@ -187,6 +222,8 @@ class CuraResolvedSettingsWriterTest {
             "material_print_temperature" to "210",
             "support_infill_rate" to "0",
             "support_interface_density" to "33.333",
+            "enderslicer_wave_overhang_enabled" to waveEnabled.toString(),
+            "enderslicer_arc_overhang_enabled" to "false",
         ),
         modelValues = mapOf(
             "support_enable" to "true",
