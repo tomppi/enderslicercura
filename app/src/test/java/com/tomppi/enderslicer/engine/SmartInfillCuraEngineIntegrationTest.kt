@@ -382,9 +382,7 @@ class SmartInfillCuraEngineIntegrationTest {
         const val END_GCODE = "M104 S0\nM140 S0\nM84"
 
         val printer = PrinterDefinition(
-            id = "smart_infill_fixture",
             name = "Smart Infill Fixture",
-            manufacturer = "EnderSlicerCura",
             widthMm = 230.0,
             depthMm = 230.0,
             heightMm = 250.0,
@@ -401,11 +399,6 @@ class SmartInfillCuraEngineIntegrationTest {
             printheadXMaxMm = 32.0,
             printheadYMaxMm = 34.0,
             gantryHeightMm = 25.0,
-            directDrive = true,
-            dualZ = true,
-            zProbe = true,
-            bedLeveling = "UBL",
-            ublMeshSlot = 0,
         )
     }
 }

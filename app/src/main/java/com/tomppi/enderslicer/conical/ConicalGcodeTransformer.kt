@@ -3,9 +3,12 @@ package com.tomppi.enderslicer.conical
 import com.tomppi.enderslicer.engine.GcodeCommand
 import com.tomppi.enderslicer.engine.GcodeCommandPolicy
 import com.tomppi.enderslicer.engine.GcodeModalState
+import com.tomppi.enderslicer.engine.MAX_EMITTED_MOVES
 import com.tomppi.enderslicer.engine.PrinterEnvelope
+import com.tomppi.enderslicer.engine.formatGcode
+import com.tomppi.enderslicer.engine.publishAtomic
+import com.tomppi.enderslicer.engine.quantizeGcode
 import java.io.File
-import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.hypot
@@ -28,7 +31,6 @@ import kotlin.math.tan
 internal object ConicalGcodeTransformer {
     private const val EPSILON = 1e-8
     private const val MAX_SEGMENT_LENGTH_MM = 0.5
-    private const val MAX_EMITTED_MOVES = 15_000_000
     private const val TRAVEL_CLEARANCE_MM = 1.0
 
     fun transform(
@@ -46,7 +48,6 @@ internal object ConicalGcodeTransformer {
         val cosine = cos(safe.coneAngleRadians)
         val tangent = tan(safe.coneAngleRadians)
         val sign = safe.coneType.sign
-        val inward = safe.coneType == ConeType.INWARD
 
         val modal = GcodeModalState()
         var xOld = 0.0
@@ -205,30 +206,21 @@ internal object ConicalGcodeTransformer {
                         yOldBt + (yNewBt - yOldBt) * t
                     }
 
+                    // ConicalSettings.validated() coerces the cone type to
+                    // OUTWARD, so only the outward back-transform is reachable.
                     val zVals = DoubleArray(segmentCount + 1)
-                    if (inward && !hasE && (hasX || hasY)) {
-                        val rOld = hypot(xOldBt - centerX, yOldBt - centerY)
-                        val rNew = hypot(xNewBt - centerX, yNewBt - centerY)
-                        val zStart = zLayer + rOld * tangent
-                        val zEnd = zLayer + rNew * tangent
-                        for (i in 0..segmentCount) {
-                            val t = i.toDouble() / segmentCount
-                            zVals[i] = zStart + (zEnd - zStart) * t
-                        }
+                    for (i in 0..segmentCount) {
+                        val radius = hypot(xVals[i] - centerX, yVals[i] - centerY)
+                        zVals[i] = zLayer - sign * radius * tangent
+                    }
+                    val maxZ = zVals.maxOrNull() ?: zLayer
+                    if (hasE) {
+                        if (!sawExtrusion || maxZ > zMax) zMax = maxZ
+                        sawExtrusion = true
                     } else {
-                        for (i in 0..segmentCount) {
-                            val radius = hypot(xVals[i] - centerX, yVals[i] - centerY)
-                            zVals[i] = zLayer - sign * radius * tangent
-                        }
-                        val maxZ = zVals.maxOrNull() ?: zLayer
-                        if (hasE) {
-                            if (!sawExtrusion || maxZ > zMax) zMax = maxZ
-                            sawExtrusion = true
-                        } else {
-                            val travelLimit = if (sawExtrusion) zMax else 0.0
-                            if (maxZ > travelLimit) {
-                                for (i in zVals.indices) zVals[i] = min(zVals[i], travelLimit + TRAVEL_CLEARANCE_MM)
-                            }
+                        val travelLimit = if (sawExtrusion) zMax else 0.0
+                        if (maxZ > travelLimit) {
+                            for (i in zVals.indices) zVals[i] = min(zVals[i], travelLimit + TRAVEL_CLEARANCE_MM)
                         }
                     }
 
@@ -328,17 +320,7 @@ internal object ConicalGcodeTransformer {
             temporary.bufferedWriter().use { output ->
                 translated.forEach { output.appendLine(it) }
             }
-            try {
-                java.nio.file.Files.move(
-                    temporary.toPath(),
-                    file.toPath(),
-                    java.nio.file.StandardCopyOption.REPLACE_EXISTING,
-                )
-            } catch (_: java.io.IOException) {
-                check(temporary.renameTo(file) || temporary.copyTo(file, overwrite = true).let { temporary.delete(); true }) {
-                    "Unable to publish conical G-code"
-                }
-            }
+            publishAtomic(temporary, file, "conical G-code")
         } finally {
             temporary.delete()
         }
@@ -486,10 +468,7 @@ internal object ConicalGcodeTransformer {
         )
     }
 
-    private fun quantize(value: Double): Double = format(value).toDouble()
+    private fun quantize(value: Double): Double = quantizeGcode(value)
 
-    private fun format(value: Double): String = String.format(Locale.US, "%.6f", value)
-        .trimEnd('0')
-        .trimEnd('.')
-        .let { if (it == "-0") "0" else it }
+    private fun format(value: Double): String = formatGcode(value)
 }

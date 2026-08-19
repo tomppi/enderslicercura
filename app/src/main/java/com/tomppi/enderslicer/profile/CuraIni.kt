@@ -32,7 +32,7 @@ object CuraIniParser {
             }
 
             if (line.firstOrNull()?.isWhitespace() == true && currentKey != null) {
-                val key = currentKey!!
+                val key = requireNotNull(currentKey)
                 val existing = sections.getValue(currentSection)[key].orEmpty()
                 sections.getValue(currentSection)[key] =
                     if (existing.isEmpty()) line.trimStart() else "$existing\n${line.trimStart()}"

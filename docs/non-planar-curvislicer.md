@@ -1,6 +1,6 @@
 # Non-planar CurviSlicer
 
-EnderSlicerCura includes an Android-native non-planar pipeline inspired by the CurviSlicer research method. It is available under **Menu → Non Planar → CurviSlicer options** and is disabled by default.
+EnderSlicerCura includes an Android-native non-planar pipeline inspired by the CurviSlicer research method. It is available under **Menu → Advanced → Experimental tools → CurviSlicer options** and is disabled by default.
 
 ## Pipeline
 

@@ -31,11 +31,13 @@ internal object CuraEnginePostProcessor {
         layerEvents: List<LayerEvent>,
         printerEnvelope: PrinterEnvelope,
     ): Result {
-        val effectiveEnvelope = resolvedEnvelope(outputFile.parentFile) ?: printerEnvelope
+        val workspace = outputFile.parentFile
+            ?: error("CuraEngine output path has no parent workspace")
+        val effectiveEnvelope = resolvedEnvelope(workspace) ?: printerEnvelope
         val firmware = CalibrationFirmwareEncoder.fromFlavor(effectiveEnvelope.gcodeFlavor)
         require(
-            !(CurviSlicerFieldStorage.isPrepared(outputFile.parentFile) &&
-                ConicalStorage.isPrepared(outputFile.parentFile)),
+            !(CurviSlicerFieldStorage.isPrepared(workspace) &&
+                ConicalStorage.isPrepared(workspace)),
         ) {
             "CurviSlicer and conical slicing cannot both be prepared for a single slice"
         }

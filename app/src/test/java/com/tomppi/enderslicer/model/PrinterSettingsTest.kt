@@ -7,9 +7,7 @@ import org.junit.Test
 
 class PrinterSettingsTest {
     private val basePrinter = PrinterDefinition(
-        id = "base",
         name = "Base printer",
-        manufacturer = "Test",
         widthMm = 100.0,
         depthMm = 100.0,
         heightMm = 100.0,
@@ -26,11 +24,6 @@ class PrinterSettingsTest {
         printheadXMaxMm = 10.0,
         printheadYMaxMm = 10.0,
         gantryHeightMm = 20.0,
-        directDrive = false,
-        dualZ = false,
-        zProbe = false,
-        bedLeveling = "none",
-        ublMeshSlot = 0,
     )
 
     @Test
@@ -70,9 +63,7 @@ class PrinterSettingsTest {
         assertEquals(-40.0, effective.printheadXMinMm, 0.0)
         assertEquals(50.0, effective.printheadYMaxMm, 0.0)
         assertEquals(60.0, effective.gantryHeightMm, 0.0)
-        assertEquals(basePrinter.id, effective.id)
         assertEquals(basePrinter.extruders, effective.extruders)
-        assertFalse(effective.directDrive)
     }
 
     @Test

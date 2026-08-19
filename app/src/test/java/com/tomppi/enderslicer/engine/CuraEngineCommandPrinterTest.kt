@@ -118,9 +118,7 @@ class CuraEngineCommandPrinterTest {
     )
 
     private fun printer(width: Double, depth: Double, originAtCenter: Boolean) = PrinterDefinition(
-        id = "base",
         name = "Base",
-        manufacturer = "Test",
         widthMm = width,
         depthMm = depth,
         heightMm = 100.0,
@@ -137,11 +135,6 @@ class CuraEngineCommandPrinterTest {
         printheadXMaxMm = 10.0,
         printheadYMaxMm = 10.0,
         gantryHeightMm = 20.0,
-        directDrive = false,
-        dualZ = false,
-        zProbe = false,
-        bedLeveling = "none",
-        ublMeshSlot = 0,
     )
 
     private fun commandSettings(command: List<String>): Map<String, String> {

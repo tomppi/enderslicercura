@@ -2,6 +2,7 @@
 __pycache__/
 .gradle/
 .idea/
+.kotlin/
 local.properties
 .DS_Store
 build/
@@ -9,7 +10,6 @@ build/
 .externalNativeBuild/
 .cxx/
 .build/
-third_party/CuraEngine/
 app/src/main/jniLibs/
 app/src/main/assets/cura/definitions/
 app/src/main/assets/bumpmesh/

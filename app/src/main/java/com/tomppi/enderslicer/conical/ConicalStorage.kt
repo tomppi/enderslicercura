@@ -1,6 +1,7 @@
 package com.tomppi.enderslicer.conical
 
 import com.tomppi.enderslicer.engine.PrinterEnvelope
+import com.tomppi.enderslicer.engine.publishAtomic
 import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.io.File
@@ -38,18 +39,7 @@ internal object ConicalStorage {
                 }
             }
             check(temporary.isFile && temporary.length() > 64L) { "Unable to persist the conical transform" }
-            try {
-                java.nio.file.Files.move(
-                    temporary.toPath(),
-                    destination.toPath(),
-                    java.nio.file.StandardCopyOption.REPLACE_EXISTING,
-                )
-            } catch (_: java.io.IOException) {
-                check(
-                    temporary.renameTo(destination) ||
-                        temporary.copyTo(destination, overwrite = true).let { temporary.delete(); true },
-                ) { "Unable to publish the conical transform" }
-            }
+            publishAtomic(temporary, destination, "the conical transform")
         } finally {
             temporary.delete()
         }

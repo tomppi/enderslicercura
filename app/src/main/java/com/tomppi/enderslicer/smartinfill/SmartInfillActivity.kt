@@ -119,7 +119,6 @@ class SmartInfillActivity : ComponentActivity() {
             settings.domStorageEnabled = true
             settings.allowFileAccess = false
             settings.allowContentAccess = false
-            settings.databaseEnabled = false
             settings.setSupportMultipleWindows(false)
             settings.mediaPlaybackRequiresUserGesture = true
             addJavascriptInterface(exportBridge, JS_BRIDGE_NAME)

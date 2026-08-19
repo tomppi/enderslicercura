@@ -11,9 +11,7 @@ import kotlin.math.tan
 
 class SceneCameraFitTest {
     private val printer = PrinterDefinition(
-        id = "test",
         name = "Test printer",
-        manufacturer = "Test",
         widthMm = 230.0,
         depthMm = 230.0,
         heightMm = 250.0,
@@ -30,11 +28,6 @@ class SceneCameraFitTest {
         printheadXMaxMm = 0.0,
         printheadYMaxMm = 0.0,
         gantryHeightMm = 25.0,
-        directDrive = true,
-        dualZ = true,
-        zProbe = true,
-        bedLeveling = "UBL",
-        ublMeshSlot = 0,
     )
 
     @Test

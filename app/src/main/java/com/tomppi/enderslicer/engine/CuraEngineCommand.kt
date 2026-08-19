@@ -1,16 +1,10 @@
 package com.tomppi.enderslicer.engine
 
-import com.tomppi.enderslicer.conical.ConicalPipeline
-import com.tomppi.enderslicer.conical.ConicalRuntime
-import com.tomppi.enderslicer.conical.ConicalStorage
 import com.tomppi.enderslicer.model.PrinterDefinition
 import com.tomppi.enderslicer.model.SlicerSettings
 import com.tomppi.enderslicer.model.resolveEndGcode
 import com.tomppi.enderslicer.model.resolveStartGcode
 import com.tomppi.enderslicer.model.withSettings
-import com.tomppi.enderslicer.nonplanar.CurviSlicerFieldStorage
-import com.tomppi.enderslicer.nonplanar.CurviSlicerPipeline
-import com.tomppi.enderslicer.nonplanar.CurviSlicerRuntime
 import com.tomppi.enderslicer.profile.CuraEngineProfile
 import com.tomppi.enderslicer.profile.CuraSettingDelta
 import com.tomppi.enderslicer.smartinfill.SmartInfillCuraContract
@@ -108,58 +102,20 @@ object CuraEngineCommand {
                 printerEnvelope.requireBinaryStlFits(modifier.file, label = "Support-paint modifier " + modifier.file.name)
             }
 
-        val curviPrepared = CurviSlicerRuntime.snapshot()?.let { snapshot ->
-            require(adaptiveWallModifiers.isEmpty()) {
-                "Adaptive walls cannot be combined with CurviSlicer: " +
-                    "the modifier volumes are generated from the un-warped model and would misalign"
-            }
-            CurviSlicerPipeline.prepareAndWarp(
-                modelFile = analyzedSource,
-                settings = snapshot.settings,
-                layerHeightMm = effectiveSettings.layerHeightMm,
-                nozzleDiameterMm = effectivePrinter.nozzleSizeMm,
-            )
-        }
-        if (curviPrepared != null) {
-            if (effectiveSmartInfillModifiers.isNotEmpty()) {
-                require(curviPrepared.settings.warpSmartInfillModifiers) {
-                    "CurviSlicer must warp Smart Infill modifiers so density regions remain aligned"
-                }
-                effectiveSmartInfillModifiers.forEach { modifier -> curviPrepared.warpModifier(modifier.file) }
-            }
-            supportPaintModifiers.forEach { modifier -> curviPrepared.warpModifier(modifier.file) }
-            printerEnvelope.requireBinaryStlFits(analyzedSource)
-            effectiveSmartInfillModifiers.forEach { modifier -> printerEnvelope.requireBinaryStlFits(modifier.file) }
-            supportPaintModifiers.forEach { modifier ->
-                printerEnvelope.requireBinaryStlFits(modifier.file, label = "Support-paint modifier " + modifier.file.name)
-            }
-            CurviSlicerFieldStorage.write(workspace, curviPrepared)
-        }
-
-        val conicalPrepared = ConicalRuntime.snapshot()?.let { snapshot ->
-            require(effectiveSmartInfillModifiers.isEmpty()) {
-                "Conical slicing cannot be combined with Smart Infill modifier volumes"
-            }
-            require(adaptiveWallModifiers.isEmpty()) {
-                "Adaptive walls cannot be combined with conical slicing: " +
-                    "the modifier volumes are generated from the un-warped model and would misalign"
-            }
-            ConicalPipeline.prepareAndWarp(modelFile = analyzedSource, settings = snapshot.settings)
-        }
-        if (conicalPrepared != null) {
-            supportPaintModifiers.forEach { modifier -> conicalPrepared.warpModifier(modifier.file) }
-            printerEnvelope.requireBinaryStlFits(analyzedSource)
-            supportPaintModifiers.forEach { modifier ->
-                printerEnvelope.requireBinaryStlFits(modifier.file, label = "Support-paint modifier " + modifier.file.name)
-            }
-            ConicalStorage.write(workspace, conicalPrepared)
-        }
+        NonPlanarPreparation.prepare(
+            modelFile = analyzedSource,
+            workspace = workspace,
+            printerEnvelope = printerEnvelope,
+            layerHeightMm = effectiveSettings.layerHeightMm,
+            nozzleDiameterMm = effectivePrinter.nozzleSizeMm,
+            smartInfillModifiers = effectiveSmartInfillModifiers,
+            adaptiveWallModifiers = adaptiveWallModifiers,
+            supportPaintModifiers = supportPaintModifiers,
+        )
 
         val effectiveStartGcode = effectiveSettings.resolveStartGcode(startGcode)
-        val effectiveEndGcode = ConicalRuntime.markMachineEndGcode(
-            CurviSlicerRuntime.markMachineEndGcode(
-                effectiveSettings.resolveEndGcode(endGcode),
-            ),
+        val effectiveEndGcode = NonPlanarPreparation.markMachineEndGcode(
+            effectiveSettings.resolveEndGcode(endGcode),
         )
         val engineOffsetX = if (effectivePrinter.originAtCenter) 0.0 else -effectivePrinter.widthMm / 2.0
         val engineOffsetY = if (effectivePrinter.originAtCenter) 0.0 else -effectivePrinter.depthMm / 2.0
@@ -191,7 +147,7 @@ object CuraEngineCommand {
 
         fun applySmartInfillWidths() {
             val width = activeSmartInfill?.lineWidthMm ?: return
-            SMART_INFILL_WIDTH_KEYS.forEach { key -> setting(key, width) }
+            SmartInfillCuraContract.smartInfillWidthKeys.forEach { key -> setting(key, width) }
         }
 
         fun applyStandaloneSettings() {
@@ -249,25 +205,9 @@ object CuraEngineCommand {
             setting("mesh_position_z", 0)
         }
 
-        setting("machine_name", effectivePrinter.name)
-        setting("machine_width", effectivePrinter.widthMm)
-        setting("machine_depth", effectivePrinter.depthMm)
-        setting("machine_height", effectivePrinter.heightMm)
-        setting("machine_shape", effectivePrinter.buildPlateShape)
-        setting("machine_center_is_zero", effectivePrinter.originAtCenter)
-        setting("machine_heated_bed", effectivePrinter.heatedBed)
-        setting("machine_heated_build_volume", effectivePrinter.heatedBuildVolume)
-        setting("machine_extruder_count", effectivePrinter.extruders)
-        setting("machine_gcode_flavor", effectivePrinter.gcodeFlavor)
-        setting("machine_start_gcode", effectiveStartGcode)
-        setting("machine_end_gcode", effectiveEndGcode)
-        setting("gantry_height", effectivePrinter.gantryHeightMm)
-        setting("machine_nozzle_size", effectivePrinter.nozzleSizeMm)
-        setting("material_diameter", effectivePrinter.filamentDiameterMm)
-        setting(
-            "machine_head_with_fans_polygon",
-            "[[${effectivePrinter.printheadXMinMm},${effectivePrinter.printheadYMaxMm}],[${effectivePrinter.printheadXMinMm},${effectivePrinter.printheadYMinMm}],[${effectivePrinter.printheadXMaxMm},${effectivePrinter.printheadYMinMm}],[${effectivePrinter.printheadXMaxMm},${effectivePrinter.printheadYMaxMm}]]",
-        )
+        MachineCuraKeys.values(effectivePrinter, effectiveStartGcode, effectiveEndGcode).forEach { (key, value) ->
+            setting(key, value)
+        }
         applyStandaloneSettings()
 
         command += listOf(
@@ -377,13 +317,4 @@ object CuraEngineCommand {
     private fun requireSafeArgument(value: String) {
         require('\u0000' !in value) { "CuraEngine argument contains a NUL character" }
     }
-
-    private val SMART_INFILL_WIDTH_KEYS = listOf(
-        "line_width",
-        "wall_line_width",
-        "wall_line_width_0",
-        "wall_line_width_x",
-        "skin_line_width",
-        "infill_line_width",
-    )
 }

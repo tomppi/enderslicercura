@@ -137,4 +137,17 @@ class GcodeLayerEventProcessorTest {
             ),
         )
     }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun blocksTabSeparatedUnsafeCustomCommand() {
+        GcodeLayerEventProcessor.commands(
+            LayerEvent(
+                id = "unsafe-tab",
+                layerNumber = 0,
+                zMm = 0.2f,
+                type = LayerEventType.CUSTOM_GCODE,
+                text = "g28	x0",
+            ),
+        )
+    }
 }

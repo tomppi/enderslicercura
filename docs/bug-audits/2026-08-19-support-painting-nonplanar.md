@@ -134,8 +134,7 @@ geometry, so rejecting early with a clear message is correct.
 ## Remaining notes (not bugs)
 
 - The feed-rate fail-closed guard for printable moves without a positive F
-  exists only in the local backup patch
-  (documents/enderslicercura-uncommitted-backup-20260819); reapply it if a
+  exists only in a local backup patch outside the repository; reapply it if a
   stricter pre-slice validation pass is desired.
 
 ## Checked and fine

@@ -229,35 +229,6 @@ private fun Section(title: String, content: @Composable Column.() -> Unit) {
 }
 
 @Composable
-private fun NumberField(
-    label: String,
-    value: Double,
-    source: String,
-    onValue: (Double) -> Unit,
-) {
-    var isFocused by remember { mutableStateOf(false) }
-    var text by rememberSaveable { mutableStateOf(value.toString().trimEnd('0').trimEnd('.')) }
-    LaunchedEffect(value, isFocused) {
-        if (!isFocused) text = value.toString().trimEnd('0').trimEnd('.')
-    }
-    Column {
-        OutlinedTextField(
-            value = text,
-            onValueChange = { input ->
-                text = input
-                input.replace(',', '.').toDoubleOrNull()?.let(onValue)
-            },
-            label = { Text(label) },
-            singleLine = true,
-            modifier = Modifier
-                .fillMaxWidth()
-                .onFocusChanged { isFocused = it.isFocused },
-        )
-        SettingSource(source)
-    }
-}
-
-@Composable
 private fun StringField(
     label: String,
     value: String,
@@ -287,64 +258,4 @@ private fun GcodeField(label: String, value: String, onValue: (String) -> Unit) 
     )
 }
 
-@Composable
-private fun OptionField(
-    label: String,
-    value: String,
-    options: List<Pair<String, String>>,
-    source: String,
-    onValue: (String) -> Unit,
-) {
-    var expanded by remember { mutableStateOf(false) }
-    val display = options.firstOrNull { it.first == value }?.second ?: value
-    Column {
-        Box(modifier = Modifier.fillMaxWidth()) {
-            OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) {
-                Text("$label: $display")
-            }
-            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                options.forEach { (optionValue, optionLabel) ->
-                    DropdownMenuItem(
-                        text = { Text(optionLabel) },
-                        onClick = {
-                            expanded = false
-                            onValue(optionValue)
-                        },
-                    )
-                }
-            }
-        }
-        SettingSource(source)
-    }
-}
 
-@Composable
-private fun SwitchRow(
-    label: String,
-    checked: Boolean,
-    source: String,
-    onChecked: (Boolean) -> Unit,
-) {
-    Column {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            Text(label, modifier = Modifier.weight(1f))
-            Switch(checked = checked, onCheckedChange = onChecked)
-        }
-        SettingSource(source)
-    }
-}
-
-@Composable
-private fun SettingSource(source: String) {
-    Text(source, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-}
-
-private fun source(state: MainUiState, key: String): String = when {
-    state.settings.isOverridden(key) -> "App override"
-    state.engineProfile != null -> "Imported Cura value"
-    else -> "Built-in default"
-}

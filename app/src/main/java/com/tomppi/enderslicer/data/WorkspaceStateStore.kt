@@ -205,7 +205,7 @@ class WorkspaceStateStore(private val filesDirectory: File) {
                 digest.update((normalized?.toString() ?: "<null>").toByteArray(Charsets.UTF_8))
                 digest.update(0.toByte())
             }
-            return digest.digest().joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
+            return digest.hexDigest()
         }
 
         private const val VERSION = 1

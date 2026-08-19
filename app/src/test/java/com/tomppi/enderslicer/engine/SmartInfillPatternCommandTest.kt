@@ -155,9 +155,7 @@ class SmartInfillPatternCommandTest {
     }
 
     private val printer = PrinterDefinition(
-        id = "modified_ender3_v2",
         name = "Modified Ender 3 V2",
-        manufacturer = "Creality",
         widthMm = 230.0,
         depthMm = 230.0,
         heightMm = 250.0,
@@ -174,10 +172,5 @@ class SmartInfillPatternCommandTest {
         printheadXMaxMm = 32.0,
         printheadYMaxMm = 34.0,
         gantryHeightMm = 25.0,
-        directDrive = true,
-        dualZ = true,
-        zProbe = true,
-        bedLeveling = "UBL",
-        ublMeshSlot = 0,
     )
 }

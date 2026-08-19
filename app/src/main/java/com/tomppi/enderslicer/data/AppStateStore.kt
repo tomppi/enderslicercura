@@ -178,7 +178,7 @@ class AppStateStore(context: Context) {
                     }
                     output.fd.sync()
                 }
-                require(digest.digest().joinToString("") { "%02x".format(it.toInt() and 0xff) } == expectedSha) {
+                require(digest.hexDigest() == expectedSha) {
                     "Saved Cura import payload fingerprint does not match"
                 }
                 materializedImport.delete()
@@ -198,7 +198,7 @@ class AppStateStore(context: Context) {
                 digest.update(buffer, 0, count)
             }
         }
-        return digest.digest().joinToString("") { "%02x".format(it.toInt() and 0xff) }
+        return digest.hexDigest()
     }
 
     fun clearSavedSettings() {

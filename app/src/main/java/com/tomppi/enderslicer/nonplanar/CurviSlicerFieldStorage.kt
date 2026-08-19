@@ -1,6 +1,7 @@
 package com.tomppi.enderslicer.nonplanar
 
 import com.tomppi.enderslicer.engine.PrinterEnvelope
+import com.tomppi.enderslicer.engine.publishAtomic
 import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.io.File
@@ -57,18 +58,7 @@ internal object CurviSlicerFieldStorage {
                 }
             }
             check(temporary.isFile && temporary.length() > 64L) { "Unable to persist the CurviSlicer field" }
-            try {
-                java.nio.file.Files.move(
-                    temporary.toPath(),
-                    destination.toPath(),
-                    java.nio.file.StandardCopyOption.REPLACE_EXISTING,
-                )
-            } catch (_: java.io.IOException) {
-                check(
-                    temporary.renameTo(destination) ||
-                        temporary.copyTo(destination, overwrite = true).let { temporary.delete(); true },
-                ) { "Unable to publish the CurviSlicer field" }
-            }
+            publishAtomic(temporary, destination, "the CurviSlicer field")
         } finally {
             temporary.delete()
         }

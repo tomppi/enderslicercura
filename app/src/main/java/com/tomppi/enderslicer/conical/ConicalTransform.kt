@@ -1,5 +1,6 @@
 package com.tomppi.enderslicer.conical
 
+import com.tomppi.enderslicer.engine.checkCancellation
 import com.tomppi.enderslicer.viewer.MeshBounds
 import com.tomppi.enderslicer.viewer.StlMesh
 import kotlin.math.hypot
@@ -67,7 +68,7 @@ internal object ConicalTransform {
         var outOffset = 0
         val bounds = BoundsAccumulator()
         repeat(mesh.triangleCount) { triangleIndex ->
-            checkConicalCancellation(triangleIndex)
+            checkCancellation(triangleIndex, "Conical slicing")
             val x0 = input[inOffset].toDouble()
             val y0 = input[inOffset + 1].toDouble()
             val z0 = input[inOffset + 2].toDouble()
@@ -116,7 +117,7 @@ internal object ConicalTransform {
         val bounds = BoundsAccumulator()
         var offset = 0
         repeat(mesh.triangleCount) { triangleIndex ->
-            checkConicalCancellation(triangleIndex)
+            checkCancellation(triangleIndex, "Conical slicing")
             val x0 = input[offset].toDouble()
             val y0 = input[offset + 1].toDouble()
             val z0 = input[offset + 2].toDouble()

@@ -6,6 +6,22 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Simplified
+
+- Single source of truth for the non-planar preparation shared by both engine
+  transports (NonPlanarPreparation), shared G-code formatting/quantization,
+  atomic publication, and cooperative cancellation (GcodeTransformSupport),
+  a shared machine-key emission table (MachineCuraKeys), shared Smart Infill
+  width keys on the contract object, a shared hex-digest helper, and one
+  shared settings-field scaffold for all settings sheets (SettingsFields).
+- Removed the abandoned NativeSlicer JNI bridge (Kotlin stub, C++ adapter,
+  CMake target) — the APK execs the packaged CuraEngine binary — the unused
+  printer metadata fields, the unreachable inward-cone branch in the conical
+  transformer, dead built-in G-code/printer assets, the superseded
+  fetch-curaengine script, and two low-value tests (a data-class no-op and a
+  near-duplicate layer-event test; the unique tab-separated safety case moved
+  to the processor suite).
+
 ### Added
 
 - Support painting now combines with both non-planar pipelines: painted

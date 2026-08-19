@@ -1,12 +1,9 @@
 package com.tomppi.enderslicer.profile
 
-import com.tomppi.enderslicer.conical.ConicalPipeline
 import com.tomppi.enderslicer.conical.ConicalRuntime
-import com.tomppi.enderslicer.conical.ConicalStorage
 import com.tomppi.enderslicer.engine.AdaptiveWallModifier
+import com.tomppi.enderslicer.engine.NonPlanarPreparation
 import com.tomppi.enderslicer.engine.PrinterEnvelope
-import com.tomppi.enderslicer.nonplanar.CurviSlicerFieldStorage
-import com.tomppi.enderslicer.nonplanar.CurviSlicerPipeline
 import com.tomppi.enderslicer.nonplanar.CurviSlicerRuntime
 import com.tomppi.enderslicer.smartinfill.SmartInfillCuraContract
 import com.tomppi.enderslicer.smartinfill.SmartInfillModifier
@@ -101,52 +98,16 @@ internal object CuraResolvedSettingsWriter {
             printerEnvelope.requireBinaryStlFits(modifier.file)
         }
 
-        val curviPrepared = curviSnapshot?.let { snapshot ->
-            require(adaptiveWallModifiers.isEmpty()) {
-                "Adaptive walls cannot be combined with CurviSlicer: " +
-                    "the modifier volumes are generated from the un-warped model and would misalign"
-            }
-            CurviSlicerPipeline.prepareAndWarp(
-                modelFile = modelFile,
-                settings = snapshot.settings,
-                layerHeightMm = requiredResolvedNumber(resolved, "layer_height"),
-                nozzleDiameterMm = requiredResolvedNumber(resolved, "machine_nozzle_size"),
-            )
-        }
-        if (curviPrepared != null) {
-            if (effectiveSmartInfillModifiers.isNotEmpty()) {
-                require(curviPrepared.settings.warpSmartInfillModifiers) {
-                    "CurviSlicer must warp Smart Infill modifiers so density regions remain aligned"
-                }
-                effectiveSmartInfillModifiers.forEach { modifier -> curviPrepared.warpModifier(modifier.file) }
-            }
-            supportPaintModifiers.forEach { modifier -> curviPrepared.warpModifier(modifier.file) }
-            printerEnvelope.requireBinaryStlFits(modelFile)
-            effectiveSmartInfillModifiers.forEach { modifier -> printerEnvelope.requireBinaryStlFits(modifier.file) }
-            supportPaintModifiers.forEach { modifier ->
-                printerEnvelope.requireBinaryStlFits(modifier.file, label = "Support-paint modifier " + modifier.file.name)
-            }
-            CurviSlicerFieldStorage.write(modelDirectory, curviPrepared)
-        }
-
-        val conicalPrepared = conicalSnapshot?.let { snapshot ->
-            require(effectiveSmartInfillModifiers.isEmpty()) {
-                "Conical slicing cannot be combined with Smart Infill modifier volumes"
-            }
-            require(adaptiveWallModifiers.isEmpty()) {
-                "Adaptive walls cannot be combined with conical slicing: " +
-                    "the modifier volumes are generated from the un-warped model and would misalign"
-            }
-            ConicalPipeline.prepareAndWarp(modelFile = modelFile, settings = snapshot.settings)
-        }
-        if (conicalPrepared != null) {
-            supportPaintModifiers.forEach { modifier -> conicalPrepared.warpModifier(modifier.file) }
-            printerEnvelope.requireBinaryStlFits(modelFile)
-            supportPaintModifiers.forEach { modifier ->
-                printerEnvelope.requireBinaryStlFits(modifier.file, label = "Support-paint modifier " + modifier.file.name)
-            }
-            ConicalStorage.write(modelDirectory, conicalPrepared)
-        }
+        NonPlanarPreparation.prepare(
+            modelFile = modelFile,
+            workspace = modelDirectory,
+            printerEnvelope = printerEnvelope,
+            layerHeightMm = curviSnapshot?.let { requiredResolvedNumber(resolved, "layer_height") } ?: 0.0,
+            nozzleDiameterMm = curviSnapshot?.let { requiredResolvedNumber(resolved, "machine_nozzle_size") } ?: 0.0,
+            smartInfillModifiers = effectiveSmartInfillModifiers,
+            adaptiveWallModifiers = adaptiveWallModifiers,
+            supportPaintModifiers = supportPaintModifiers,
+        )
         printerEnvelope.writeTo(File(modelDirectory, PrinterEnvelope.METADATA_FILE_NAME))
 
         val machineCenterX = if (centerIsZero) 0.0 else machineWidth / 2.0
@@ -188,10 +149,8 @@ internal object CuraResolvedSettingsWriter {
 
         val globalValues = LinkedHashMap(resolved.globalValues)
         if (curviSnapshot != null || conicalSnapshot != null) {
-            globalValues["machine_end_gcode"] = ConicalRuntime.markMachineEndGcode(
-                CurviSlicerRuntime.markMachineEndGcode(
-                    globalValues["machine_end_gcode"].orEmpty(),
-                ),
+            globalValues["machine_end_gcode"] = NonPlanarPreparation.markMachineEndGcode(
+                globalValues["machine_end_gcode"].orEmpty(),
             )
         }
         val root = JSONObject()

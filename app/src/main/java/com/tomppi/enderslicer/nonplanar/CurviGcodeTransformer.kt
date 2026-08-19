@@ -3,9 +3,13 @@ package com.tomppi.enderslicer.nonplanar
 import com.tomppi.enderslicer.engine.GcodeCommand
 import com.tomppi.enderslicer.engine.GcodeCommandPolicy
 import com.tomppi.enderslicer.engine.GcodeModalState
+import com.tomppi.enderslicer.engine.MAX_EMITTED_MOVES
 import com.tomppi.enderslicer.engine.PrinterEnvelope
+import com.tomppi.enderslicer.engine.checkCancellation
+import com.tomppi.enderslicer.engine.formatGcode
+import com.tomppi.enderslicer.engine.publishAtomic
+import com.tomppi.enderslicer.engine.quantizeGcode
 import java.io.File
-import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.hypot
@@ -15,7 +19,6 @@ import kotlin.math.sqrt
 
 internal object CurviGcodeTransformer {
     private const val EPSILON = 1e-8
-    private const val MAX_EMITTED_MOVES = 15_000_000
     private const val SLOPE_TOLERANCE_DEGREES = 0.05
 
     fun transform(
@@ -282,7 +285,7 @@ internal object CurviGcodeTransformer {
                                 var previousRelativeY = 0.0
                                 var previousRelativeZ = 0.0
                                 for (segment in 0 until segmentCount) {
-                                    checkCurviCancellation(segment)
+                                    checkCancellation(segment, "CurviSlicer processing")
                                     val from = points[segment]
                                     val to = points[segment + 1]
                                     cumulativeLength += lengths[segment]
@@ -437,7 +440,7 @@ internal object CurviGcodeTransformer {
                         val rawLine = lines[index]
                         index++
                         lineNumber++
-                        checkCurviCancellation(lineNumber)
+                        checkCancellation(lineNumber, "CurviSlicer processing")
                         val trimmed = rawLine.trimStart()
                         val startsOverhang = trimmed.startsWith(";TYPE:") &&
                             (trimmed.contains("WAVE-OVERHANG") || trimmed.contains("ARC-OVERHANG"))
@@ -480,17 +483,7 @@ internal object CurviGcodeTransformer {
                     "${format(settings.effectiveSlopeLimitDegrees)}° clearance limit" +
                     (maximumSlopeContext?.let { "; worst: $it" } ?: "")
             }
-            try {
-                java.nio.file.Files.move(
-                    temporary.toPath(),
-                    file.toPath(),
-                    java.nio.file.StandardCopyOption.REPLACE_EXISTING,
-                )
-            } catch (_: java.io.IOException) {
-                check(temporary.renameTo(file) || temporary.copyTo(file, overwrite = true).let { temporary.delete(); true }) {
-                    "Unable to publish CurviSlicer G-code"
-                }
-            }
+            publishAtomic(temporary, file, "CurviSlicer G-code")
             return CurviSlicerPipeline.GcodeDiagnostics(
                 sourceMoves = sourceMoves,
                 emittedMoves = emittedMoves,
@@ -507,12 +500,9 @@ internal object CurviGcodeTransformer {
         }
     }
 
-    private fun quantize(value: Double): Double = format(value).toDouble()
+    private fun quantize(value: Double): Double = quantizeGcode(value)
 
-    private fun format(value: Double): String = String.format(Locale.US, "%.6f", value)
-        .trimEnd('0')
-        .trimEnd('.')
-        .let { if (it == "-0") "0" else it }
+    private fun format(value: Double): String = formatGcode(value)
 
     private fun lerp(a: Double, b: Double, t: Double): Double = a + (b - a) * t
 

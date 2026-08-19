@@ -1,18 +1,22 @@
-# CuraEngine Android integration plan
+# CuraEngine Android integration
 
-The current APK deliberately contains only a JNI boundary. It does **not** generate fake G-code.
+The APK ships the CuraEngine 5.14 executable built for Android and runs it as a
+child process: CuraEngineRunner stages the request in an isolated workspace,
+CuraEngineCommand builds the CLI invocation, and OwnedProcessRunner executes
+the packaged binary with a bounded timeout. There is no JNI boundary.
 
 ## Pin
 
 - CuraEngine: `5.14.0-alpha.0`
-- Cura project compatibility target: Cura `5.14.0-alpha.0`, setting version `25`
+- Cura project compatibility target: Cura `5.14.0-alpha.0`, setting version `27`
 - Android ABI: `arm64-v8a`
 - NDK: `28.2.13676358`
 - C++ standard: C++20
 
-## Planned native configuration
+## Native configuration
 
-For the first Android build, disable components that are not required for local one-printer slicing:
+The Android cross-build disables components that are not required for local
+one-printer slicing:
 
 - `ENABLE_ARCUS=OFF`
 - `ENABLE_PLUGINS=OFF`
@@ -21,18 +25,10 @@ For the first Android build, disable components that are not required for local 
 - `ENABLE_TESTING=OFF`
 - `ENABLE_BENCHMARKS=OFF`
 
-CuraEngine still needs its geometry and utility dependencies. The next implementation step is an Android/Conan profile that builds those dependencies for `armv8` and then links the CuraEngine library into `enderslicer_native`.
-
-## Adapter contract
-
-The JNI adapter will accept:
-
-1. A locally materialized STL path.
-2. A locally materialized output G-code path.
-3. A fully resolved JSON settings snapshot.
-4. The built-in Ender 3 V2 start/end G-code.
-
-It will return structured progress and errors. Export remains through Android's Storage Access Framework, so the app never needs broad storage permissions.
+`scripts/build-curaengine-android.sh` clones and pins CuraEngine into
+`.build/CuraEngine` and produces the AArch64 executable staged in
+`arm64-v8a` jniLibs; `app`'s `verifyCuraEngineExecutable` task fails any
+assemble that lacks it.
 
 ## Packaged shared libraries
 

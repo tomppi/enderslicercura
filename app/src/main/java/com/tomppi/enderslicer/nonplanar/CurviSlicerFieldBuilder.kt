@@ -1,5 +1,6 @@
 package com.tomppi.enderslicer.nonplanar
 
+import com.tomppi.enderslicer.engine.checkCancellation
 import com.tomppi.enderslicer.viewer.MeshBounds
 import com.tomppi.enderslicer.viewer.StlMesh
 import java.util.ArrayDeque
@@ -42,7 +43,7 @@ internal object CurviSlicerFieldBuilder {
         val vertices = mesh.interleavedVertices
         var offset = 0
         repeat(mesh.triangleCount) { triangleIndex ->
-            checkCurviCancellation(triangleIndex)
+            checkCancellation(triangleIndex, "CurviSlicer processing")
             rasterizeTriangle(
                 grid = top,
                 columns = columns,
@@ -225,7 +226,7 @@ internal object CurviSlicerFieldBuilder {
         var processed = 0
         while (queue.isNotEmpty()) {
             processed++
-            checkCurviCancellation(processed)
+            checkCancellation(processed, "CurviSlicer processing")
             val current = queue.removeFirst()
             val cx = current % columns
             val cy = current / columns
@@ -257,7 +258,7 @@ internal object CurviSlicerFieldBuilder {
 
         val horizontal = FloatArray(source.size)
         for (y in 0 until rows) {
-            checkCurviCancellation(y, 1)
+            checkCancellation(y, "CurviSlicer processing", 1)
             for (x in 0 until columns) {
                 var sum = 0.0
                 for (offset in -radius..radius) {
@@ -269,7 +270,7 @@ internal object CurviSlicerFieldBuilder {
         }
         val output = FloatArray(source.size)
         for (y in 0 until rows) {
-            checkCurviCancellation(y, 1)
+            checkCancellation(y, "CurviSlicer processing", 1)
             for (x in 0 until columns) {
                 var sum = 0.0
                 for (offset in -radius..radius) {
@@ -291,7 +292,7 @@ internal object CurviSlicerFieldBuilder {
     ): Double {
         var maximum = 0.0
         for (y in 0 until rows - 1) {
-            checkCurviCancellation(y, 1)
+            checkCancellation(y, "CurviSlicer processing", 1)
             for (x in 0 until columns - 1) {
                 val a = field[y * columns + x].toDouble()
                 val b = field[y * columns + x + 1].toDouble()

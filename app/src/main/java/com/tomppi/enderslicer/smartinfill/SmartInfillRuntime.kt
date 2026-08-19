@@ -10,7 +10,7 @@ import java.util.concurrent.atomic.AtomicReference
  * resolve settings from one generation even if the UI later activates or
  * removes another package.
  */
-data class SmartInfillSliceSnapshot internal constructor(
+internal data class SmartInfillSliceSnapshot internal constructor(
     val generation: Long,
     val packageValue: SmartInfillPackage,
 ) {
@@ -31,7 +31,7 @@ data class SmartInfillSliceSnapshot internal constructor(
  * generation throughout the synchronous Cura request instead of racing UI
  * activation/removal.
  */
-object SmartInfillRuntime {
+internal object SmartInfillRuntime {
     private data class State(
         val generation: Long,
         val packageValue: SmartInfillPackage?,

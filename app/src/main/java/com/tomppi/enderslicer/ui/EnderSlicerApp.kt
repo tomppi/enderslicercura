@@ -23,7 +23,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
@@ -218,7 +218,7 @@ fun EnderSlicerApp(
                             DropdownMenuItem(
                                 text = { Text("Position & rotation") },
                                 leadingIcon = { Icon(Icons.Filled.Edit, contentDescription = null) },
-                                trailingIcon = { Icon(Icons.Filled.KeyboardArrowRight, contentDescription = null) },
+                                trailingIcon = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null) },
                                 onClick = {
                                     menuExpanded = false
                                     modelToolsOpen = true
@@ -228,7 +228,7 @@ fun EnderSlicerApp(
                             DropdownMenuItem(
                                 text = { Text("Mesh triangle limit") },
                                 leadingIcon = { Icon(Icons.Filled.Info, contentDescription = null) },
-                                trailingIcon = { Icon(Icons.Filled.KeyboardArrowRight, contentDescription = null) },
+                                trailingIcon = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null) },
                                 onClick = {
                                     menuExpanded = false
                                     meshLimitOpen = true
@@ -241,7 +241,7 @@ fun EnderSlicerApp(
                             DropdownMenuItem(
                                 text = { Text("Profiles & filament") },
                                 leadingIcon = { Icon(Icons.Filled.Star, contentDescription = null) },
-                                trailingIcon = { Icon(Icons.Filled.KeyboardArrowRight, contentDescription = null) },
+                                trailingIcon = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null) },
                                 onClick = {
                                     menuExpanded = false
                                     profilesOpen = true
@@ -251,7 +251,7 @@ fun EnderSlicerApp(
                             DropdownMenuItem(
                                 text = { Text("Print settings") },
                                 leadingIcon = { Icon(Icons.Filled.Settings, contentDescription = null) },
-                                trailingIcon = { Icon(Icons.Filled.KeyboardArrowRight, contentDescription = null) },
+                                trailingIcon = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null) },
                                 onClick = {
                                     menuExpanded = false
                                     settingsOpen = true
@@ -261,7 +261,7 @@ fun EnderSlicerApp(
                             DropdownMenuItem(
                                 text = { Text("Printer & G-code") },
                                 leadingIcon = { Icon(Icons.Filled.Build, contentDescription = null) },
-                                trailingIcon = { Icon(Icons.Filled.KeyboardArrowRight, contentDescription = null) },
+                                trailingIcon = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null) },
                                 onClick = {
                                     menuExpanded = false
                                     machineSettingsOpen = true
@@ -293,7 +293,7 @@ fun EnderSlicerApp(
                                 DropdownMenuItem(
                                     text = { Text("Experimental tools") },
                                     leadingIcon = { Icon(Icons.Filled.PlayArrow, contentDescription = null) },
-                                    trailingIcon = { Icon(Icons.Filled.KeyboardArrowRight, contentDescription = null) },
+                                    trailingIcon = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null) },
                                     onClick = { advancedSubmenuExpanded = true },
                                 )
                                 DropdownMenu(
@@ -349,7 +349,7 @@ fun EnderSlicerApp(
                                             )
                                         },
                                         leadingIcon = { Icon(Icons.Filled.PlayArrow, contentDescription = null) },
-                                        trailingIcon = { Icon(Icons.Filled.KeyboardArrowRight, contentDescription = null) },
+                                        trailingIcon = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null) },
                                         onClick = {
                                             advancedSubmenuExpanded = false
                                             menuExpanded = false
@@ -368,7 +368,7 @@ fun EnderSlicerApp(
                                             )
                                         },
                                         leadingIcon = { Icon(Icons.Filled.PlayArrow, contentDescription = null) },
-                                        trailingIcon = { Icon(Icons.Filled.KeyboardArrowRight, contentDescription = null) },
+                                        trailingIcon = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null) },
                                         onClick = {
                                             advancedSubmenuExpanded = false
                                             menuExpanded = false

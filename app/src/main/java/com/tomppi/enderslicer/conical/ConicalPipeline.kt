@@ -1,18 +1,11 @@
 package com.tomppi.enderslicer.conical
 
 import com.tomppi.enderslicer.engine.PrinterEnvelope
+import com.tomppi.enderslicer.engine.checkCancellation
 import com.tomppi.enderslicer.viewer.StlMesh
 import com.tomppi.enderslicer.viewer.StlMeshWriter
 import com.tomppi.enderslicer.viewer.StlParser
 import java.io.File
-
-internal const val CONICAL_CANCELLATION_INTERVAL = 1024
-
-internal fun checkConicalCancellation(workItems: Int, interval: Int = CONICAL_CANCELLATION_INTERVAL) {
-    if (workItems % interval == 0 && Thread.currentThread().isInterrupted) {
-        throw InterruptedException("Conical slicing was cancelled")
-    }
-}
 
 /**
  * Android-native EasyConical (conical slicing) implementation.
@@ -45,7 +38,7 @@ internal object ConicalPipeline {
          */
         fun warpModifier(file: File) {
             val mesh = parseCancellable(file)
-            checkConicalCancellation(1, 1)
+            checkCancellation(1, "Conical slicing", 1)
             val refined = ConicalTransform.refine(mesh, settings.refinementIterations)
             val warped = ConicalTransform.warpAround(refined, centerX, centerY, settings)
             writeWarped(file, warped)
@@ -75,7 +68,7 @@ internal object ConicalPipeline {
         require(safe.enabled) { "Conical slicing is not enabled" }
 
         val mesh = parseCancellable(modelFile)
-        checkConicalCancellation(1, 1)
+        checkCancellation(1, "Conical slicing", 1)
         val refined = ConicalTransform.refine(mesh, safe.refinementIterations)
         val warped = ConicalTransform.warp(refined, safe)
         writeWarped(modelFile, warped)

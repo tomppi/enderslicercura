@@ -99,7 +99,6 @@ class BumpMeshActivity : ComponentActivity() {
             settings.domStorageEnabled = true
             settings.allowFileAccess = false
             settings.allowContentAccess = false
-            settings.databaseEnabled = false
             settings.setSupportMultipleWindows(false)
             addJavascriptInterface(exportBridge, JS_BRIDGE_NAME)
             webViewClient = object : WebViewClient() {

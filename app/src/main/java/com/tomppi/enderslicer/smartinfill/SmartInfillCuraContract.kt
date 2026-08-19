@@ -2,6 +2,16 @@ package com.tomppi.enderslicer.smartinfill
 
 /** Cura-side interpretation of the pinned filaSim print contract. */
 internal object SmartInfillCuraContract {
+    /** Line-width keys overridden with the Smart Infill line width in both transports. */
+    val smartInfillWidthKeys: List<String> = listOf(
+        "line_width",
+        "wall_line_width",
+        "wall_line_width_0",
+        "wall_line_width_x",
+        "skin_line_width",
+        "infill_line_width",
+    )
+
     /**
      * Shell settings belong to the printable mesh. A Smart Infill modifier only
      * partitions that mesh's sparse-infill volume and selects regional infill.

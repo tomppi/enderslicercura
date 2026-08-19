@@ -1,9 +1,7 @@
 package com.tomppi.enderslicer.model
 
 data class PrinterDefinition(
-    val id: String,
     val name: String,
-    val manufacturer: String,
     val widthMm: Double,
     val depthMm: Double,
     val heightMm: Double,
@@ -20,9 +18,4 @@ data class PrinterDefinition(
     val printheadXMaxMm: Double,
     val printheadYMaxMm: Double,
     val gantryHeightMm: Double,
-    val directDrive: Boolean,
-    val dualZ: Boolean,
-    val zProbe: Boolean,
-    val bedLeveling: String,
-    val ublMeshSlot: Int,
 )

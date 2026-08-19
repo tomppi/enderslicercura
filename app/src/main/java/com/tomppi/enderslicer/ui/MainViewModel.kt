@@ -877,7 +877,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     PrinterEnvelope.from(printer.withSettings(stateSnapshot.settings)).requireModelFits(transformed)
                     changed to transformed
                 }
-                val durableModel = requireNotNull(modelPath)?.let(::File)
+                val durableModel = requireNotNull(modelPath).let(::File)
                     ?: error("The active model path is unavailable")
                 withContext(Dispatchers.IO) {
                     workspaceStore.save(

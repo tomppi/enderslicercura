@@ -1,6 +1,7 @@
 package com.tomppi.enderslicer.profile
 
 import com.tomppi.enderslicer.engine.ArcOverhangEngineSettings
+import com.tomppi.enderslicer.engine.MachineCuraKeys
 import com.tomppi.enderslicer.engine.WaveOverhangEngineSettings
 import com.tomppi.enderslicer.model.PrinterDefinition
 import com.tomppi.enderslicer.model.SlicerSettings
@@ -42,25 +43,9 @@ internal object CuraSliceSettingsResolver {
 
         val globalOverrides = linkedMapOf<String, String>().apply {
             putAll(canonical.global)
-            put("machine_name", effectivePrinter.name)
-            put("machine_width", effectivePrinter.widthMm.toString())
-            put("machine_depth", effectivePrinter.depthMm.toString())
-            put("machine_height", effectivePrinter.heightMm.toString())
-            put("machine_shape", effectivePrinter.buildPlateShape)
-            put("machine_center_is_zero", effectivePrinter.originAtCenter.toString())
-            put("machine_heated_bed", effectivePrinter.heatedBed.toString())
-            put("machine_heated_build_volume", effectivePrinter.heatedBuildVolume.toString())
-            put("machine_extruder_count", effectivePrinter.extruders.toString())
-            put("machine_gcode_flavor", effectivePrinter.gcodeFlavor)
-            put("machine_start_gcode", effectiveStartGcode)
-            put("machine_end_gcode", effectiveEndGcode)
-            put("gantry_height", effectivePrinter.gantryHeightMm.toString())
-            put("machine_nozzle_size", effectivePrinter.nozzleSizeMm.toString())
-            put("material_diameter", effectivePrinter.filamentDiameterMm.toString())
-            put(
-                "machine_head_with_fans_polygon",
-                "[[${effectivePrinter.printheadXMinMm},${effectivePrinter.printheadYMaxMm}],[${effectivePrinter.printheadXMinMm},${effectivePrinter.printheadYMinMm}],[${effectivePrinter.printheadXMaxMm},${effectivePrinter.printheadYMinMm}],[${effectivePrinter.printheadXMaxMm},${effectivePrinter.printheadYMaxMm}]]",
-            )
+            MachineCuraKeys.values(effectivePrinter, effectiveStartGcode, effectiveEndGcode).forEach { (key, value) ->
+                put(key, value)
+            }
         }
 
         val extruderOverrides = linkedMapOf<String, String>().apply {
@@ -69,7 +54,7 @@ internal object CuraSliceSettingsResolver {
             put("machine_nozzle_size", effectivePrinter.nozzleSizeMm.toString())
             put("material_diameter", effectivePrinter.filamentDiameterMm.toString())
             if (smartInfillPackage != null) {
-                SMART_INFILL_WIDTH_KEYS.forEach { key ->
+                SmartInfillCuraContract.smartInfillWidthKeys.forEach { key ->
                     put(key, smartInfillPackage.lineWidthMm.toString())
                 }
             }
@@ -104,7 +89,7 @@ internal object CuraSliceSettingsResolver {
         )
 
         if (smartInfillPackage != null) {
-            SMART_INFILL_WIDTH_KEYS.forEach { key ->
+            SmartInfillCuraContract.smartInfillWidthKeys.forEach { key ->
                 val resolvedWidth = parityExtruder[key]
                     ?: rawResolved.globalValues[key]
                     ?: error("Resolved Cura setting is missing: $key")
@@ -315,15 +300,6 @@ internal object CuraSliceSettingsResolver {
         range(extruder, "raft_margin", 0.0, 100.0)
         range(extruder, "ironing_flow", 0.0, 100.0)
     }
-
-    private val SMART_INFILL_WIDTH_KEYS = listOf(
-        "line_width",
-        "wall_line_width",
-        "wall_line_width_0",
-        "wall_line_width_x",
-        "skin_line_width",
-        "infill_line_width",
-    )
 
     private val ENGINE_DRIFT_DEFAULTS = linkedMapOf(
         "wall_x_inset" to "0",
