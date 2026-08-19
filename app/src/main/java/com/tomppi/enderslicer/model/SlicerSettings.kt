@@ -127,6 +127,12 @@ data class SlicerSettings(
     val waveOverhangMinimumWidthMm: Double = 0.70,
     val waveOverhangMaxIterations: Int = 400,
     val waveOverhangReverseOddLayers: Boolean = true,
+    val brickWallEnabled: Boolean = false,
+    val brickWallSpeedMmPerSecond: Double = 25.0,
+    val brickWallFlowPercent: Double = 105.0,
+    val brickWallFanSpeedPercent: Double = 100.0,
+    val brickWallMaxIterations: Int = 60,
+    val brickWallBrickLengthMm: Double = 1.6,
     val smartOverhangStrategy: Boolean = false,
     val ironingEnabled: Boolean = false,
     val ironingOnlyHighestLayer: Boolean = false,
@@ -322,6 +328,12 @@ data class SlicerSettings(
         const val WAVE_OVERHANG_MINIMUM_WIDTH = "waveOverhangMinimumWidthMm"
         const val WAVE_OVERHANG_MAX_ITERATIONS = "waveOverhangMaxIterations"
         const val WAVE_OVERHANG_REVERSE_ODD_LAYERS = "waveOverhangReverseOddLayers"
+        const val BRICK_WALL_ENABLED = "brickWallEnabled"
+        const val BRICK_WALL_SPEED = "brickWallSpeedMmPerSecond"
+        const val BRICK_WALL_FLOW = "brickWallFlowPercent"
+        const val BRICK_WALL_FAN_SPEED = "brickWallFanSpeedPercent"
+        const val BRICK_WALL_MAX_ITERATIONS = "brickWallMaxIterations"
+        const val BRICK_WALL_BRICK_LENGTH = "brickWallBrickLengthMm"
         const val SMART_OVERHANG_STRATEGY = "smartOverhangStrategy"
         const val IRONING_ENABLED = "ironingEnabled"
         const val IRONING_ONLY_HIGHEST_LAYER = "ironingOnlyHighestLayer"

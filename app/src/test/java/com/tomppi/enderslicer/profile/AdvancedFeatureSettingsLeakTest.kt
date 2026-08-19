@@ -255,6 +255,33 @@ class AdvancedFeatureSettingsLeakTest {
     }
 
     @Test
+    fun brickWallKeysReachEngineOnlyWhenEnabled() {
+        val offResolved = resolve(SlicerSettings())
+        val onResolved = resolve(SlicerSettings().copy(brickWallEnabled = true))
+        assertEquals("false", offResolved.extruderValues["enderslicer_brick_wall_enabled"])
+        assertEquals("true", onResolved.extruderValues["enderslicer_brick_wall_enabled"])
+        assertEquals(
+            offResolved.extruderValues.withoutAppKeys(),
+            onResolved.extruderValues.withoutAppKeys(),
+        )
+
+        assertTrue(buildStandaloneCommand(SlicerSettings()).contains("enderslicer_brick_wall_enabled=false"))
+        assertTrue(
+            buildStandaloneCommand(SlicerSettings().copy(brickWallEnabled = true))
+                .contains("enderslicer_brick_wall_enabled=true"),
+        )
+
+        // Bridge detection must be enabled only when an overhang feature is on:
+        // the brick-wall generator anchors its staircase on the supported
+        // region that bridgeAngle computes from the layer below.
+        assertFalse(buildStandaloneCommand(SlicerSettings()).contains("bridge_settings_enabled=true"))
+        assertTrue(
+            buildStandaloneCommand(SlicerSettings().copy(brickWallEnabled = true))
+                .contains("bridge_settings_enabled=true"),
+        )
+    }
+
+    @Test
     fun paintedSupportsWithNonPlanarOnNeverLeakPaintMeshesWhenUnpainted() {
         // Paint OFF + CurviSlicer ON: the slice must load exactly one mesh (the
         // model) and carry no support_mesh/anti_overhang_mesh roles.

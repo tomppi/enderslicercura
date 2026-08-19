@@ -50,6 +50,7 @@ internal object SmartOverhangStrategy {
         val effective = settings.copy(
             arcOverhangEnabled = arcOn,
             waveOverhangEnabled = if (arcOn) false else settings.waveOverhangEnabled,
+            brickWallEnabled = if (arcOn) false else settings.brickWallEnabled,
         )
         return Resolution(effective, message(plan, curviActive, roofsCurvedByCurvi, arcOn))
     }

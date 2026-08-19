@@ -132,6 +132,12 @@ object SlicerSettingsJson {
         SlicerSettings.Keys.WAVE_OVERHANG_MINIMUM_WIDTH,
         SlicerSettings.Keys.WAVE_OVERHANG_MAX_ITERATIONS,
         SlicerSettings.Keys.WAVE_OVERHANG_REVERSE_ODD_LAYERS,
+        SlicerSettings.Keys.BRICK_WALL_ENABLED,
+        SlicerSettings.Keys.BRICK_WALL_SPEED,
+        SlicerSettings.Keys.BRICK_WALL_FLOW,
+        SlicerSettings.Keys.BRICK_WALL_FAN_SPEED,
+        SlicerSettings.Keys.BRICK_WALL_MAX_ITERATIONS,
+        SlicerSettings.Keys.BRICK_WALL_BRICK_LENGTH,
         SlicerSettings.Keys.SMART_OVERHANG_STRATEGY,
         SlicerSettings.Keys.IRONING_ENABLED,
         SlicerSettings.Keys.IRONING_ONLY_HIGHEST_LAYER,
@@ -278,6 +284,12 @@ object SlicerSettingsJson {
         .put(SlicerSettings.Keys.WAVE_OVERHANG_MINIMUM_WIDTH, settings.waveOverhangMinimumWidthMm)
         .put(SlicerSettings.Keys.WAVE_OVERHANG_MAX_ITERATIONS, settings.waveOverhangMaxIterations)
         .put(SlicerSettings.Keys.WAVE_OVERHANG_REVERSE_ODD_LAYERS, settings.waveOverhangReverseOddLayers)
+        .put(SlicerSettings.Keys.BRICK_WALL_ENABLED, settings.brickWallEnabled)
+        .put(SlicerSettings.Keys.BRICK_WALL_SPEED, settings.brickWallSpeedMmPerSecond)
+        .put(SlicerSettings.Keys.BRICK_WALL_FLOW, settings.brickWallFlowPercent)
+        .put(SlicerSettings.Keys.BRICK_WALL_FAN_SPEED, settings.brickWallFanSpeedPercent)
+        .put(SlicerSettings.Keys.BRICK_WALL_MAX_ITERATIONS, settings.brickWallMaxIterations)
+        .put(SlicerSettings.Keys.BRICK_WALL_BRICK_LENGTH, settings.brickWallBrickLengthMm)
         .put(SlicerSettings.Keys.SMART_OVERHANG_STRATEGY, settings.smartOverhangStrategy)
         .put(SlicerSettings.Keys.IRONING_ENABLED, settings.ironingEnabled)
         .put(SlicerSettings.Keys.IRONING_ONLY_HIGHEST_LAYER, settings.ironingOnlyHighestLayer)
@@ -444,6 +456,12 @@ object SlicerSettingsJson {
                 SlicerSettings.Keys.WAVE_OVERHANG_MINIMUM_WIDTH -> restored.copy(waveOverhangMinimumWidthMm = values.optDouble(key, restored.waveOverhangMinimumWidthMm))
                 SlicerSettings.Keys.WAVE_OVERHANG_MAX_ITERATIONS -> restored.copy(waveOverhangMaxIterations = values.optInt(key, restored.waveOverhangMaxIterations))
                 SlicerSettings.Keys.WAVE_OVERHANG_REVERSE_ODD_LAYERS -> restored.copy(waveOverhangReverseOddLayers = values.optBoolean(key, restored.waveOverhangReverseOddLayers))
+                SlicerSettings.Keys.BRICK_WALL_ENABLED -> restored.copy(brickWallEnabled = values.optBoolean(key, restored.brickWallEnabled))
+                SlicerSettings.Keys.BRICK_WALL_SPEED -> restored.copy(brickWallSpeedMmPerSecond = values.optDouble(key, restored.brickWallSpeedMmPerSecond))
+                SlicerSettings.Keys.BRICK_WALL_FLOW -> restored.copy(brickWallFlowPercent = values.optDouble(key, restored.brickWallFlowPercent))
+                SlicerSettings.Keys.BRICK_WALL_FAN_SPEED -> restored.copy(brickWallFanSpeedPercent = values.optDouble(key, restored.brickWallFanSpeedPercent))
+                SlicerSettings.Keys.BRICK_WALL_MAX_ITERATIONS -> restored.copy(brickWallMaxIterations = values.optInt(key, restored.brickWallMaxIterations))
+                SlicerSettings.Keys.BRICK_WALL_BRICK_LENGTH -> restored.copy(brickWallBrickLengthMm = values.optDouble(key, restored.brickWallBrickLengthMm))
                 SlicerSettings.Keys.SMART_OVERHANG_STRATEGY -> restored.copy(smartOverhangStrategy = values.optBoolean(key, restored.smartOverhangStrategy))
                 SlicerSettings.Keys.IRONING_ENABLED -> restored.copy(ironingEnabled = values.optBoolean(key, restored.ironingEnabled))
                 SlicerSettings.Keys.IRONING_ONLY_HIGHEST_LAYER -> restored.copy(ironingOnlyHighestLayer = values.optBoolean(key, restored.ironingOnlyHighestLayer))

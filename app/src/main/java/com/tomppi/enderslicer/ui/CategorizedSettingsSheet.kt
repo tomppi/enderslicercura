@@ -644,6 +644,7 @@ internal fun CategorizedSettingsSheet(
                     current.copy(
                         waveOverhangEnabled = it,
                         arcOverhangEnabled = if (it) false else current.arcOverhangEnabled,
+                        brickWallEnabled = if (it) false else current.brickWallEnabled,
                     )
                 }
             }
@@ -692,12 +693,52 @@ internal fun CategorizedSettingsSheet(
             }
 
             SwitchRow(
+                "Brick walls (experimental)",
+                settings.brickWallEnabled,
+                source(state, SlicerSettings.Keys.BRICK_WALL_ENABLED),
+            ) {
+                onSettings(SlicerSettings.Keys.BRICK_WALL_ENABLED) { current ->
+                    current.copy(
+                        brickWallEnabled = it,
+                        arcOverhangEnabled = if (it) false else current.arcOverhangEnabled,
+                        waveOverhangEnabled = if (it) false else current.waveOverhangEnabled,
+                    )
+                }
+            }
+            if (settings.brickWallEnabled) {
+                Text(
+                    "Staggered, interlocking wall courses are laid down under step-out walls before the walls print. Steep overhang regions get extra courses based on the local angle, and regions that cannot be covered safely keep normal walls. Verify the layer preview and start with a printed overhang test before trusting it.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                NumberField("Brick course speed (mm/s)", settings.brickWallSpeedMmPerSecond, source(state, SlicerSettings.Keys.BRICK_WALL_SPEED)) {
+                    onSettings(SlicerSettings.Keys.BRICK_WALL_SPEED) { current -> current.copy(brickWallSpeedMmPerSecond = it.coerceIn(0.5, 100.0)) }
+                }
+                NumberField("Brick course flow (%)", settings.brickWallFlowPercent, source(state, SlicerSettings.Keys.BRICK_WALL_FLOW), decimals = 0) {
+                    onSettings(SlicerSettings.Keys.BRICK_WALL_FLOW) { current -> current.copy(brickWallFlowPercent = it.coerceIn(50.0, 200.0)) }
+                }
+                NumberField("Brick course fan (%)", settings.brickWallFanSpeedPercent, source(state, SlicerSettings.Keys.BRICK_WALL_FAN_SPEED), decimals = 0) {
+                    onSettings(SlicerSettings.Keys.BRICK_WALL_FAN_SPEED) { current -> current.copy(brickWallFanSpeedPercent = it.coerceIn(0.0, 100.0)) }
+                }
+                NumberField("Maximum courses", settings.brickWallMaxIterations.toDouble(), source(state, SlicerSettings.Keys.BRICK_WALL_MAX_ITERATIONS), decimals = 0) {
+                    onSettings(SlicerSettings.Keys.BRICK_WALL_MAX_ITERATIONS) { current -> current.copy(brickWallMaxIterations = it.toInt().coerceIn(2, 200)) }
+                }
+                NumberField("Brick length (mm)", settings.brickWallBrickLengthMm, source(state, SlicerSettings.Keys.BRICK_WALL_BRICK_LENGTH), decimals = 1) {
+                    onSettings(SlicerSettings.Keys.BRICK_WALL_BRICK_LENGTH) { current -> current.copy(brickWallBrickLengthMm = it.coerceIn(0.5, 10.0)) }
+                }
+            }
+
+            SwitchRow(
                 "Arc overhangs (Multiplex, experimental)",
                 settings.arcOverhangEnabled,
                 source(state, SlicerSettings.Keys.ARC_OVERHANG_ENABLED),
             ) {
                 onSettings(SlicerSettings.Keys.ARC_OVERHANG_ENABLED) { current ->
-                    current.copy(arcOverhangEnabled = it, waveOverhangEnabled = if (it) false else current.waveOverhangEnabled)
+                    current.copy(
+                        arcOverhangEnabled = it,
+                        waveOverhangEnabled = if (it) false else current.waveOverhangEnabled,
+                        brickWallEnabled = if (it) false else current.brickWallEnabled,
+                    )
                 }
             }
             if (settings.arcOverhangEnabled) {

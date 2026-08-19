@@ -154,11 +154,13 @@ object CuraEngineCommand {
             CuraSettingDelta.standaloneValues(effectiveSettings).forEach { (key, value) -> setting(key, value) }
             ArcOverhangEngineSettings.values(effectiveSettings).forEach { (key, value) -> setting(key, value) }
             WaveOverhangEngineSettings.values(effectiveSettings).forEach { (key, value) -> setting(key, value) }
-            if (effectiveSettings.arcOverhangEnabled || effectiveSettings.waveOverhangEnabled) {
-                // Bridge detection classifies unsupported bottom skins, which is
-                // exactly what the arc/wave overhang generators replace. The
-                // pinned definitions default this to false, and without it the
-                // overhang features never trigger.
+            BrickWallEngineSettings.values(effectiveSettings).forEach { (key, value) -> setting(key, value) }
+            if (effectiveSettings.arcOverhangEnabled || effectiveSettings.waveOverhangEnabled || effectiveSettings.brickWallEnabled) {
+                // Bridge detection classifies unsupported bottom skins and the
+                // layer below, which is exactly what the arc/wave/brick-wall
+                // overhang generators build on. The pinned definitions default
+                // this to false, and without it the overhang features never
+                // trigger.
                 setting("bridge_settings_enabled", true)
             }
             applySmartInfillWidths()

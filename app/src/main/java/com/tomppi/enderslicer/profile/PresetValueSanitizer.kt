@@ -34,6 +34,9 @@ internal object PresetValueSanitizer {
                 require(!(settings.arcOverhangEnabled && settings.waveOverhangEnabled)) {
                     "Arc and Wave overhangs cannot both be enabled"
                 }
+                require(!(settings.brickWallEnabled && (settings.arcOverhangEnabled || settings.waveOverhangEnabled))) {
+                    "Brick walls cannot be combined with Arc or Wave overhangs"
+                }
             }
 
             PresetKind.FILAMENT -> {
@@ -137,6 +140,7 @@ internal object PresetValueSanitizer {
         SlicerSettings.Keys.ARC_OVERHANG_ENABLED,
         SlicerSettings.Keys.WAVE_OVERHANG_ENABLED,
         SlicerSettings.Keys.WAVE_OVERHANG_REVERSE_ODD_LAYERS,
+        SlicerSettings.Keys.BRICK_WALL_ENABLED,
         SlicerSettings.Keys.SMART_OVERHANG_STRATEGY,
         SlicerSettings.Keys.IRONING_ENABLED,
         SlicerSettings.Keys.IRONING_ONLY_HIGHEST_LAYER,
@@ -159,6 +163,7 @@ internal object PresetValueSanitizer {
         SlicerSettings.Keys.MATERIAL_SURFACE_ENERGY,
         SlicerSettings.Keys.FAN_FULL_AT_LAYER,
         SlicerSettings.Keys.WAVE_OVERHANG_MAX_ITERATIONS,
+        SlicerSettings.Keys.BRICK_WALL_MAX_ITERATIONS,
     )
 
     private val stringKeys = setOf(
@@ -240,6 +245,11 @@ internal object PresetValueSanitizer {
         SlicerSettings.Keys.WAVE_OVERHANG_PERIMETER_OVERLAP to 0.0..2.0,
         SlicerSettings.Keys.WAVE_OVERHANG_MINIMUM_WIDTH to 0.0..10.0,
         SlicerSettings.Keys.WAVE_OVERHANG_MAX_ITERATIONS to 1.0..2000.0,
+        SlicerSettings.Keys.BRICK_WALL_SPEED to 0.5..100.0,
+        SlicerSettings.Keys.BRICK_WALL_FLOW to 50.0..200.0,
+        SlicerSettings.Keys.BRICK_WALL_FAN_SPEED to 0.0..100.0,
+        SlicerSettings.Keys.BRICK_WALL_MAX_ITERATIONS to 2.0..200.0,
+        SlicerSettings.Keys.BRICK_WALL_BRICK_LENGTH to 0.5..10.0,
         SlicerSettings.Keys.IRONING_FLOW to 0.0..100.0,
         SlicerSettings.Keys.IRONING_SPEED to 0.1..1000.0,
         SlicerSettings.Keys.FILAMENT_DIAMETER to 0.5..5.0,

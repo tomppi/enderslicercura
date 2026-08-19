@@ -430,3 +430,137 @@ void FffGcodeWriter::addMeshPartToGCode(
 
     added_something |= endProcessInsets(insets_preprocess_result, storage, gcode_layer, mesh, extruder_nr, mesh_config, part, infill_added);''',
 )
+
+# Install the native brick-wall overhang source and register it with CuraEngine.
+(root / "include" / "BrickWalls.h").write_text((arc_patch_root / "include" / "BrickWalls.h").read_text())
+(root / "src" / "BrickWalls.cpp").write_text((arc_patch_root / "src" / "BrickWalls.cpp").read_text())
+
+replace(
+    cmake,
+    "        src/Application.cpp\n        src/ArcOverhang.cpp\n        src/WaveOverhang.cpp\n",
+    "        src/Application.cpp\n        src/ArcOverhang.cpp\n        src/WaveOverhang.cpp\n        src/BrickWalls.cpp\n",
+)
+
+# Brick-wall paths carry their own preview marker so EnderSlicer's layer
+# preview can classify the staircase courses exactly.
+replace(
+    gcode_path_config_h,
+    '''    bool is_bridge_path{ false }; //!< whether current config is used when bridging
+    bool is_arc_overhang{ false }; //!< EnderSlicer native Multiplex path
+    bool is_wave_overhang{ false }; //!< EnderSlicer native wavefront path''',
+    '''    bool is_bridge_path{ false }; //!< whether current config is used when bridging
+    bool is_arc_overhang{ false }; //!< EnderSlicer native Multiplex path
+    bool is_wave_overhang{ false }; //!< EnderSlicer native wavefront path
+    bool is_brick_wall{ false }; //!< EnderSlicer brick-wall staircase path''',
+)
+
+replace(
+    layer_plan_cpp,
+    '''            const bool feature_changed = ! last_extrusion_config.has_value()
+                                         || last_extrusion_config.value().type != path.config.type
+                                         || last_extrusion_config.value().is_arc_overhang != path.config.is_arc_overhang
+                                         || last_extrusion_config.value().is_wave_overhang != path.config.is_wave_overhang;''',
+    '''            const bool feature_changed = ! last_extrusion_config.has_value()
+                                         || last_extrusion_config.value().type != path.config.type
+                                         || last_extrusion_config.value().is_arc_overhang != path.config.is_arc_overhang
+                                         || last_extrusion_config.value().is_wave_overhang != path.config.is_wave_overhang
+                                         || last_extrusion_config.value().is_brick_wall != path.config.is_brick_wall;''',
+)
+replace(
+    layer_plan_cpp,
+    '''                if (path.config.is_wave_overhang)
+                {
+                    gcode.writeComment("TYPE:WAVE-OVERHANG");
+                }
+                else if (path.config.is_arc_overhang)''',
+    '''                if (path.config.is_wave_overhang)
+                {
+                    gcode.writeComment("TYPE:WAVE-OVERHANG");
+                }
+                else if (path.config.is_brick_wall)
+                {
+                    // App-owned semantic marker for the brick-wall staircase
+                    // courses, classified exactly in EnderSlicer's layer preview.
+                    gcode.writeComment("TYPE:BRICK-WALL");
+                }
+                else if (path.config.is_arc_overhang)''',
+)
+
+replace(
+    fff_gcode_writer_cpp,
+    '#include "Application.h"\n#include "ArcOverhang.h"\n#include "WaveOverhang.h"\n',
+    '#include "Application.h"\n#include "ArcOverhang.h"\n#include "BrickWalls.h"\n#include "WaveOverhang.h"\n',
+)
+
+# Brick-wall staircase courses print before the walls so a wall that would
+# otherwise print into the void rests on freshly laid courses. Only regions
+# the generator can actually cover get courses; everything else keeps the
+# normal wall path.
+replace(
+    fff_gcode_writer_cpp,
+    '''            if (emitOverhangFillForSkinPart(storage, gcode_layer, mesh, layer_nr, mesh_config, skin_part, mesh_config.skin_config))
+            {
+                skin_part.skin_fill = Shape();
+                added_something = true;
+            }
+        }
+    }
+
+    if (infill_before_walls)''',
+    '''            if (emitOverhangFillForSkinPart(storage, gcode_layer, mesh, layer_nr, mesh_config, skin_part, mesh_config.skin_config))
+            {
+                skin_part.skin_fill = Shape();
+                added_something = true;
+            }
+        }
+    }
+
+    const bool brick_walls_enabled = mesh.settings.get<bool>("enderslicer_brick_wall_enabled");
+    if (layer_nr > 0 && brick_walls_enabled)
+    {
+        Shape supported;
+        bridgeAngle(mesh, part.outline, storage, layer_nr, 1, nullptr, supported);
+        if (! supported.empty())
+        {
+            BrickWallsParameters brick_parameters;
+            brick_parameters.brick_width = mesh_config.inset0_config.getLineWidth();
+            brick_parameters.max_iterations = mesh.settings.get<size_t>("enderslicer_brick_wall_max_iterations");
+            brick_parameters.layer_height = mesh.settings.get<coord_t>("layer_height");
+            brick_parameters.stagger_odd_layers = (layer_nr % 2) == 1;
+            brick_parameters.brick_length = mesh.settings.get<coord_t>("enderslicer_brick_wall_brick_length");
+
+            OpenLinesSet brick_courses;
+            if (BrickWallsGenerator::generate(part.outline, supported, brick_parameters, brick_courses))
+            {
+                GCodePathConfig brick_config = mesh_config.inset0_config;
+                brick_config.is_brick_wall = true;
+                brick_config.speed_derivatives.speed = mesh.settings.get<Velocity>("enderslicer_brick_wall_speed");
+                brick_config.fan_speed = mesh.settings.get<double>("enderslicer_brick_wall_fan_speed");
+                const double brick_flow = mesh.settings.get<double>("enderslicer_brick_wall_flow") / 100.0;
+
+                gcode_layer.setIsInside(true);
+                for (OpenPolyline& course : brick_courses.getLines())
+                {
+                    if (! course.isValid())
+                    {
+                        continue;
+                    }
+                    OpenLinesSet ordered_course;
+                    ordered_course.push_back(std::move(course), CheckNonEmptyParam::OnlyIfValid);
+                    gcode_layer.addLinesByOptimizer(
+                        ordered_course,
+                        brick_config,
+                        SpaceFillType::PolyLines,
+                        false,
+                        0,
+                        brick_flow,
+                        std::nullopt,
+                        brick_config.fan_speed);
+                }
+                added_something = true;
+            }
+        }
+    }
+
+    if (infill_before_walls)''',
+)

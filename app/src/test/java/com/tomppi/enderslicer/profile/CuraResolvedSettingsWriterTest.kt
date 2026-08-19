@@ -202,6 +202,16 @@ class CuraResolvedSettingsWriterTest {
                 "Overhang fill requires bridge detection on the model section",
                 JSONObject(destination.readText()).getJSONObject(modelFile.name).getBoolean("bridge_settings_enabled"),
             )
+
+            CuraResolvedSettingsWriter.write(
+                destination = destination,
+                modelFileName = modelFile.name,
+                resolved = resolvedSettings(centerIsZero = false, waveEnabled = false, brickEnabled = true),
+            )
+            assertTrue(
+                "Brick walls require bridge detection on the model section",
+                JSONObject(destination.readText()).getJSONObject(modelFile.name).getBoolean("bridge_settings_enabled"),
+            )
         } finally {
             directory.deleteRecursively()
         }
@@ -210,6 +220,7 @@ class CuraResolvedSettingsWriterTest {
     private fun resolvedSettings(
         centerIsZero: Boolean,
         waveEnabled: Boolean = false,
+        brickEnabled: Boolean = false,
     ): CuraSliceSettingsResolver.Result = CuraSliceSettingsResolver.Result(
         globalValues = mapOf(
             "machine_width" to "230",
@@ -224,6 +235,7 @@ class CuraResolvedSettingsWriterTest {
             "support_interface_density" to "33.333",
             "enderslicer_wave_overhang_enabled" to waveEnabled.toString(),
             "enderslicer_arc_overhang_enabled" to "false",
+            "enderslicer_brick_wall_enabled" to brickEnabled.toString(),
         ),
         modelValues = mapOf(
             "support_enable" to "true",

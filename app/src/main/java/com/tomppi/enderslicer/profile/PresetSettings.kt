@@ -77,6 +77,12 @@ object PresetSettings {
         SlicerSettings.Keys.WAVE_OVERHANG_MINIMUM_WIDTH,
         SlicerSettings.Keys.WAVE_OVERHANG_MAX_ITERATIONS,
         SlicerSettings.Keys.WAVE_OVERHANG_REVERSE_ODD_LAYERS,
+        SlicerSettings.Keys.BRICK_WALL_ENABLED,
+        SlicerSettings.Keys.BRICK_WALL_SPEED,
+        SlicerSettings.Keys.BRICK_WALL_FLOW,
+        SlicerSettings.Keys.BRICK_WALL_FAN_SPEED,
+        SlicerSettings.Keys.BRICK_WALL_MAX_ITERATIONS,
+        SlicerSettings.Keys.BRICK_WALL_BRICK_LENGTH,
         SlicerSettings.Keys.SMART_OVERHANG_STRATEGY,
         SlicerSettings.Keys.IRONING_ENABLED,
         SlicerSettings.Keys.IRONING_ONLY_HIGHEST_LAYER,
@@ -211,6 +217,12 @@ object PresetSettings {
                 SlicerSettings.Keys.WAVE_OVERHANG_MINIMUM_WIDTH -> changed.copy(waveOverhangMinimumWidthMm = values.optDouble(key, changed.waveOverhangMinimumWidthMm))
                 SlicerSettings.Keys.WAVE_OVERHANG_MAX_ITERATIONS -> changed.copy(waveOverhangMaxIterations = values.optInt(key, changed.waveOverhangMaxIterations))
                 SlicerSettings.Keys.WAVE_OVERHANG_REVERSE_ODD_LAYERS -> changed.copy(waveOverhangReverseOddLayers = values.optBoolean(key, changed.waveOverhangReverseOddLayers))
+                SlicerSettings.Keys.BRICK_WALL_ENABLED -> changed.copy(brickWallEnabled = values.optBoolean(key, changed.brickWallEnabled))
+                SlicerSettings.Keys.BRICK_WALL_SPEED -> changed.copy(brickWallSpeedMmPerSecond = values.optDouble(key, changed.brickWallSpeedMmPerSecond))
+                SlicerSettings.Keys.BRICK_WALL_FLOW -> changed.copy(brickWallFlowPercent = values.optDouble(key, changed.brickWallFlowPercent))
+                SlicerSettings.Keys.BRICK_WALL_FAN_SPEED -> changed.copy(brickWallFanSpeedPercent = values.optDouble(key, changed.brickWallFanSpeedPercent))
+                SlicerSettings.Keys.BRICK_WALL_MAX_ITERATIONS -> changed.copy(brickWallMaxIterations = values.optInt(key, changed.brickWallMaxIterations))
+                SlicerSettings.Keys.BRICK_WALL_BRICK_LENGTH -> changed.copy(brickWallBrickLengthMm = values.optDouble(key, changed.brickWallBrickLengthMm))
                 SlicerSettings.Keys.SMART_OVERHANG_STRATEGY -> changed.copy(smartOverhangStrategy = values.optBoolean(key, changed.smartOverhangStrategy))
                 SlicerSettings.Keys.IRONING_ENABLED -> changed.copy(ironingEnabled = values.optBoolean(key, changed.ironingEnabled))
                 SlicerSettings.Keys.IRONING_ONLY_HIGHEST_LAYER -> changed.copy(ironingOnlyHighestLayer = values.optBoolean(key, changed.ironingOnlyHighestLayer))
@@ -247,6 +259,9 @@ object PresetSettings {
         require(appliedKeys.isNotEmpty()) { "The preset has no usable ${kind.label.lowercase()} values" }
         require(!(changed.arcOverhangEnabled && changed.waveOverhangEnabled)) {
             "Arc and Wave overhangs cannot both be enabled"
+        }
+        require(!(changed.brickWallEnabled && (changed.arcOverhangEnabled || changed.waveOverhangEnabled))) {
+            "Brick walls cannot be combined with Arc or Wave overhangs"
         }
         return changed.copy(overriddenSettingKeys = changed.overriddenSettingKeys + appliedKeys)
     }
