@@ -1,10 +1,16 @@
 package com.tomppi.enderslicer.engine
 
+import com.tomppi.enderslicer.conical.ConicalRuntime
+import com.tomppi.enderslicer.conical.ConicalSettings
 import com.tomppi.enderslicer.model.PrinterDefinition
 import com.tomppi.enderslicer.model.SlicerSettings
+import com.tomppi.enderslicer.nonplanar.CurviSlicerRuntime
+import com.tomppi.enderslicer.nonplanar.NonPlanarSettings
 import com.tomppi.enderslicer.profile.CuraEngineProfile
 import com.tomppi.enderslicer.smartinfill.SmartInfillCuraContract
 import com.tomppi.enderslicer.smartinfill.SmartInfillModifier
+import com.tomppi.enderslicer.supportpaint.SupportPaintModifier
+import com.tomppi.enderslicer.viewer.StlParser
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -169,6 +175,152 @@ class CuraEngineCommandTest {
         }
     }
 
+    @Test
+    fun curviSlicerWarpsPaintedSupportModifiersInsteadOfRejectingThem() {
+        val directory = Files.createTempDirectory("curvi-paint-command").toFile()
+        try {
+            CurviSlicerRuntime.activate(NonPlanarSettings(enabled = true))
+            val model = File(directory, "model.stl")
+            val enforcer = File(directory, "support-enforcer.stl")
+            writePyramid(model)
+            writeFloatingPatch(enforcer, 4f, 4f, 0.8f)
+            val sourceMaxZ = StlParser.parse(enforcer, enforcer.name).bounds.maxZ
+
+            val command = CuraEngineCommand.build(
+                executablePath = "/native/libcuraengine_exec.so",
+                definitionsDirectory = "/files/definitions",
+                machineDefinitionPath = "/files/definitions/creality_ender3.def.json",
+                extruderDefinitionPath = "/files/definitions/creality_base_extruder_0.def.json",
+                modelPath = model.absolutePath,
+                outputPath = File(directory, "current.gcode").absolutePath,
+                printer = printer,
+                settings = SlicerSettings(),
+                startGcode = "G28",
+                endGcode = "M104 S0",
+                supportPaintModifiers = listOf(SupportPaintModifier(isBlocker = false, file = enforcer)),
+                threadCount = 4,
+            )
+
+            val enforcerIndex = command.indexOf(enforcer.absolutePath)
+            assertTrue(enforcerIndex > 0)
+            val enforcerSettings = command.subList(enforcerIndex + 1, command.indexOf("-o"))
+            assertTrue(enforcerSettings.contains("support_mesh=true"))
+            assertTrue(enforcerSettings.contains("anti_overhang_mesh=false"))
+
+            val warped = StlParser.parse(enforcer, enforcer.name)
+            assertTrue(
+                "CurviSlicer must flatten the painted prism with the relief field",
+                warped.bounds.maxZ < sourceMaxZ,
+            )
+        } finally {
+            CurviSlicerRuntime.activate(NonPlanarSettings())
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun conicalSlicingWarpsPaintedSupportModifiersInsteadOfRejectingThem() {
+        val directory = Files.createTempDirectory("conical-paint-command").toFile()
+        try {
+            ConicalRuntime.activate(ConicalSettings(enabled = true))
+            val model = File(directory, "model.stl")
+            val enforcer = File(directory, "support-enforcer.stl")
+            writeTriangle(model, 100f, 100f, 0.2f)
+            writeFloatingPatch(enforcer, 100f, 100f, 1.0f)
+            val source = StlParser.parse(enforcer, enforcer.name)
+
+            val command = CuraEngineCommand.build(
+                executablePath = "/native/libcuraengine_exec.so",
+                definitionsDirectory = "/files/definitions",
+                machineDefinitionPath = "/files/definitions/creality_ender3.def.json",
+                extruderDefinitionPath = "/files/definitions/creality_base_extruder_0.def.json",
+                modelPath = model.absolutePath,
+                outputPath = File(directory, "current.gcode").absolutePath,
+                printer = printer,
+                settings = SlicerSettings(),
+                startGcode = "G28",
+                endGcode = "M104 S0",
+                supportPaintModifiers = listOf(SupportPaintModifier(isBlocker = false, file = enforcer)),
+                threadCount = 4,
+            )
+
+            val enforcerIndex = command.indexOf(enforcer.absolutePath)
+            assertTrue(enforcerIndex > 0)
+            val enforcerSettings = command.subList(enforcerIndex + 1, command.indexOf("-o"))
+            assertTrue(enforcerSettings.contains("support_mesh=true"))
+
+            val warped = StlParser.parse(enforcer, enforcer.name)
+            assertTrue(
+                "Conical slicing must lift the painted prism with the cone warp",
+                warped.bounds.maxZ > source.bounds.maxZ,
+            )
+            assertTrue(
+                "The outward cone warp must stretch the painted prism away from the model centre",
+                warped.bounds.width > source.bounds.width,
+            )
+        } finally {
+            ConicalRuntime.activate(ConicalSettings())
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun adaptiveWallModifiersRemainRejectedWithNonPlanarSlicing() {
+        val directory = Files.createTempDirectory("adaptive-wall-rejected").toFile()
+        try {
+            val model = File(directory, "model.stl")
+            writeTriangle(model, 100f, 100f, 0.2f)
+            val wallModifier = File(directory, "adaptive-wall.stl")
+            writeTriangle(wallModifier, 101f, 101f, 0.4f)
+            val adaptive = AdaptiveWallModifier(wallLineCount = 4, wallFlowPercent = 100.0, file = wallModifier)
+
+            CurviSlicerRuntime.activate(NonPlanarSettings(enabled = true))
+            val curviError = runCatching {
+                CuraEngineCommand.build(
+                    executablePath = "/native/libcuraengine_exec.so",
+                    definitionsDirectory = "/files/definitions",
+                    machineDefinitionPath = "/files/definitions/creality_ender3.def.json",
+                    extruderDefinitionPath = "/files/definitions/creality_base_extruder_0.def.json",
+                    modelPath = model.absolutePath,
+                    outputPath = File(directory, "current.gcode").absolutePath,
+                    printer = printer,
+                    settings = SlicerSettings(),
+                    startGcode = "G28",
+                    endGcode = "M104 S0",
+                    adaptiveWallModifiers = listOf(adaptive),
+                    threadCount = 4,
+                )
+            }.exceptionOrNull()
+            assertTrue(curviError is IllegalArgumentException)
+            assertTrue(curviError?.message.orEmpty().contains("Adaptive walls"))
+
+            CurviSlicerRuntime.activate(NonPlanarSettings())
+            ConicalRuntime.activate(ConicalSettings(enabled = true))
+            val conicalError = runCatching {
+                CuraEngineCommand.build(
+                    executablePath = "/native/libcuraengine_exec.so",
+                    definitionsDirectory = "/files/definitions",
+                    machineDefinitionPath = "/files/definitions/creality_ender3.def.json",
+                    extruderDefinitionPath = "/files/definitions/creality_base_extruder_0.def.json",
+                    modelPath = model.absolutePath,
+                    outputPath = File(directory, "current.gcode").absolutePath,
+                    printer = printer,
+                    settings = SlicerSettings(),
+                    startGcode = "G28",
+                    endGcode = "M104 S0",
+                    adaptiveWallModifiers = listOf(adaptive),
+                    threadCount = 4,
+                )
+            }.exceptionOrNull()
+            assertTrue(conicalError is IllegalArgumentException)
+            assertTrue(conicalError?.message.orEmpty().contains("Adaptive walls"))
+        } finally {
+            CurviSlicerRuntime.activate(NonPlanarSettings())
+            ConicalRuntime.activate(ConicalSettings())
+            directory.deleteRecursively()
+        }
+    }
+
     private fun assertModifierShellNeutral(settings: List<String>) {
         SmartInfillCuraContract.modifierShellNeutralValues.forEach { (key, value) ->
             assertTrue("Missing modifier shell override $key=$value", settings.contains("$key=$value"))
@@ -192,6 +344,61 @@ class CuraEngineCommandTest {
         bytes.putFloat(y + 1f)
         bytes.putFloat(z)
         bytes.putShort(0)
+        file.writeBytes(bytes.array())
+    }
+
+    /**
+     * A 10 x 10 mm square pyramid whose apex sits at z = 1.2 over the centre:
+     * tall enough for CurviSlicer's flat-base requirement and gentle enough
+     * (about 13 degrees) to stay inside the default slope limit.
+     */
+    private fun writePyramid(file: File) {
+        val apexX = 5f
+        val apexY = 5f
+        val apexZ = 1.2f
+        val triangles = listOf(
+            // Base, facing up.
+            floatArrayOf(0f, 0f, 0f, 10f, 0f, 0f, 10f, 10f, 0f),
+            floatArrayOf(0f, 0f, 0f, 10f, 10f, 0f, 0f, 10f, 0f),
+            // Sides, winding chosen so each normal has a positive Z component.
+            floatArrayOf(0f, 0f, 0f, 10f, 0f, 0f, apexX, apexY, apexZ),
+            floatArrayOf(10f, 0f, 0f, 10f, 10f, 0f, apexX, apexY, apexZ),
+            floatArrayOf(10f, 10f, 0f, 0f, 10f, 0f, apexX, apexY, apexZ),
+            floatArrayOf(0f, 10f, 0f, 0f, 0f, 0f, apexX, apexY, apexZ),
+        )
+        val bytes = ByteBuffer.allocate(84 + triangles.size * 50).order(ByteOrder.LITTLE_ENDIAN)
+        bytes.position(80)
+        bytes.putInt(triangles.size)
+        for (triangle in triangles) {
+            bytes.putFloat(0f).putFloat(0f).putFloat(1f)
+            repeat(3) { vertex ->
+                bytes.putFloat(triangle[vertex * 3])
+                bytes.putFloat(triangle[vertex * 3 + 1])
+                bytes.putFloat(triangle[vertex * 3 + 2])
+            }
+            bytes.putShort(0)
+        }
+        file.writeBytes(bytes.array())
+    }
+
+    /** Two triangles forming a small square patch at z within (x..x+2, y..y+2). */
+    private fun writeFloatingPatch(file: File, x: Float, y: Float, z: Float) {
+        val triangles = listOf(
+            floatArrayOf(x, y, z, x + 2f, y, z, x, y + 2f, z),
+            floatArrayOf(x + 2f, y, z, x + 2f, y + 2f, z, x, y + 2f, z),
+        )
+        val bytes = ByteBuffer.allocate(84 + triangles.size * 50).order(ByteOrder.LITTLE_ENDIAN)
+        bytes.position(80)
+        bytes.putInt(triangles.size)
+        for (triangle in triangles) {
+            bytes.putFloat(0f).putFloat(0f).putFloat(1f)
+            repeat(3) { vertex ->
+                bytes.putFloat(triangle[vertex * 3])
+                bytes.putFloat(triangle[vertex * 3 + 1])
+                bytes.putFloat(triangle[vertex * 3 + 2])
+            }
+            bytes.putShort(0)
+        }
         file.writeBytes(bytes.array())
     }
 }

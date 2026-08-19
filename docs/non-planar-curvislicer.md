@@ -8,7 +8,7 @@ EnderSlicerCura includes an Android-native non-planar pipeline inspired by the C
 2. It creates a smoothed height field and derives a bounded relief field.
 3. Requested curvature strength is reduced automatically using a conservative inverse-field derivative bound. The final emitted path slope is checked again and rejected if it exceeds the effective nozzle-clearance slope.
 4. The displayed STL is flattened in an isolated request workspace. Imported Cura affine transforms are resolved before this step, and the persisted/displayed source is never modified.
-5. Smart Infill modifier volumes are flattened with the same field so their density regions remain aligned.
+5. Smart Infill modifier volumes and painted support enforcer/blocker prisms are flattened with the same field, so their density regions and painted support regions remain aligned with the flattened solid.
 6. CuraEngine slices the flattened solid using the active Cura profile.
 7. Every printable linear `G0`/`G1` path is subdivided and mapped through the inverse field, creating continuously varying Z coordinates.
 8. Positive extrusion is compensated for the actual three-dimensional path length. Relative XYZ/E output carries quantization residuals so each source move closes on its intended endpoint.
@@ -82,6 +82,7 @@ The slice fails without replacing or publishing G-code when:
 - the move budget would be exceeded;
 - any arc, spline, unmodeled motion, coordinate-system change, or unsupported command is present while CurviSlicer is active;
 - a coordinate reset would make printable-path transformation ambiguous;
+- adaptive-wall modifier volumes are active, because they are generated from bend detection on the un-warped model and would misalign;
 - a Smart Infill package is active while modifier warping is disabled;
 - CuraEngine or the normal EnderSlicerCura validation rejects the output.
 

@@ -92,8 +92,8 @@ internal object CuraResolvedSettingsWriter {
         }
 
         val curviPrepared = curviSnapshot?.let { snapshot ->
-            require(supportPaintModifiers.isEmpty() && adaptiveWallModifiers.isEmpty()) {
-                "Support painting and adaptive walls cannot be combined with CurviSlicer: " +
+            require(adaptiveWallModifiers.isEmpty()) {
+                "Adaptive walls cannot be combined with CurviSlicer: " +
                     "the modifier volumes are generated from the un-warped model and would misalign"
             }
             CurviSlicerPipeline.prepareAndWarp(
@@ -110,8 +110,10 @@ internal object CuraResolvedSettingsWriter {
                 }
                 effectiveSmartInfillModifiers.forEach { modifier -> curviPrepared.warpModifier(modifier.file) }
             }
+            supportPaintModifiers.forEach { modifier -> curviPrepared.warpModifier(modifier.file) }
             printerEnvelope.requireBinaryStlFits(modelFile)
             effectiveSmartInfillModifiers.forEach { modifier -> printerEnvelope.requireBinaryStlFits(modifier.file) }
+            supportPaintModifiers.forEach { modifier -> printerEnvelope.requireBinaryStlFits(modifier.file) }
             CurviSlicerFieldStorage.write(modelDirectory, curviPrepared)
         }
 
@@ -119,14 +121,16 @@ internal object CuraResolvedSettingsWriter {
             require(effectiveSmartInfillModifiers.isEmpty()) {
                 "Conical slicing cannot be combined with Smart Infill modifier volumes"
             }
-            require(supportPaintModifiers.isEmpty() && adaptiveWallModifiers.isEmpty()) {
-                "Support painting and adaptive walls cannot be combined with conical slicing: " +
+            require(adaptiveWallModifiers.isEmpty()) {
+                "Adaptive walls cannot be combined with conical slicing: " +
                     "the modifier volumes are generated from the un-warped model and would misalign"
             }
             ConicalPipeline.prepareAndWarp(modelFile = modelFile, settings = snapshot.settings)
         }
         if (conicalPrepared != null) {
+            supportPaintModifiers.forEach { modifier -> conicalPrepared.warpModifier(modifier.file) }
             printerEnvelope.requireBinaryStlFits(modelFile)
+            supportPaintModifiers.forEach { modifier -> printerEnvelope.requireBinaryStlFits(modifier.file) }
             ConicalStorage.write(modelDirectory, conicalPrepared)
         }
         printerEnvelope.writeTo(File(modelDirectory, PrinterEnvelope.METADATA_FILE_NAME))

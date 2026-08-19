@@ -45,6 +45,74 @@ class ConicalPipelineTest {
     }
 
     @Test
+    fun warpModifierWarpsPaintedPrismsAroundTheModelCentre() {
+        val directory = createTempDirectory("conical-modifier-").toFile()
+        val modelFile = File(directory, "model.stl")
+        StlMeshWriter.writeBinary(squareMesh(), modelFile)
+        val prismFile = File(directory, "support-enforcer.stl")
+        val prism = paintedPrismMesh()
+        StlMeshWriter.writeBinary(prism, prismFile)
+
+        val settings = ConicalSettings(
+            enabled = true,
+            coneAngleDegrees = 16.0,
+            refinementIterations = 1,
+            coneType = ConeType.OUTWARD,
+        )
+        val prepared = ConicalPipeline.prepareAndWarp(modelFile, settings)
+
+        prepared.warpModifier(prismFile)
+
+        val warped = StlParser.parse(prismFile, prismFile.name)
+        assertTrue("The painted prism must share the model refinement", warped.triangleCount > prism.triangleCount)
+        assertTrue("The outward cone warp must lift the painted prism", warped.bounds.maxZ > prism.bounds.maxZ)
+
+        // Every original prism vertex must map through the cone forward
+        // transform around the MODEL centre, not the prism's own centre.
+        val expected = ArrayList<DoubleArray>()
+        var sourceOffset = 0
+        repeat(prism.triangleCount) {
+            repeat(3) { vertex ->
+                val base = sourceOffset + vertex * 6
+                expected += ConicalTransform.forward(
+                    prism.interleavedVertices[base].toDouble(),
+                    prism.interleavedVertices[base + 1].toDouble(),
+                    prism.interleavedVertices[base + 2].toDouble(),
+                    prepared.centerX,
+                    prepared.centerY,
+                    settings,
+                )
+            }
+            sourceOffset += 18
+        }
+        val warpedVertices = ArrayList<DoubleArray>()
+        var warpedOffset = 0
+        repeat(warped.triangleCount) {
+            repeat(3) { vertex ->
+                val base = warpedOffset + vertex * 6
+                warpedVertices += doubleArrayOf(
+                    warped.interleavedVertices[base].toDouble(),
+                    warped.interleavedVertices[base + 1].toDouble(),
+                    warped.interleavedVertices[base + 2].toDouble(),
+                )
+            }
+            warpedOffset += 18
+        }
+        for (point in expected) {
+            val matched = warpedVertices.any { vertex ->
+                kotlin.math.abs(vertex[0] - point[0]) < 0.005 &&
+                    kotlin.math.abs(vertex[1] - point[1]) < 0.005 &&
+                    kotlin.math.abs(vertex[2] - point[2]) < 0.005
+            }
+            assertTrue(
+                "Warped prism must contain forward(" + point[0] + ", " + point[1] + ", " + point[2] +
+                    ") around the model centre",
+                matched,
+            )
+        }
+    }
+
+    @Test
     fun fullPipelineRoundTripThroughRealFiles() {
         val directory = createTempDirectory("conical-roundtrip-").toFile()
         val modelFile = File(directory, "model.stl")
@@ -117,6 +185,34 @@ class ConicalPipelineTest {
         for (y in originalY) {
             assertTrue("Restored Y $y must appear in the back-transformed G-code", restoredY.any { kotlin.math.abs(it - y) < 0.002 })
         }
+    }
+
+    private fun paintedPrismMesh(): StlMesh {
+        // A small painted patch floating at z = 1 above the model centre (110, 110).
+        val triangles = listOf(
+            floatArrayOf(109f, 109f, 1f, 111f, 109f, 1f, 109f, 111f, 1f),
+            floatArrayOf(111f, 109f, 1f, 111f, 111f, 1f, 109f, 111f, 1f),
+        )
+        val interleaved = FloatArray(triangles.size * 18)
+        var offset = 0
+        for (triangle in triangles) {
+            repeat(3) { vertex ->
+                val base = offset + vertex * 6
+                interleaved[base] = triangle[vertex * 3]
+                interleaved[base + 1] = triangle[vertex * 3 + 1]
+                interleaved[base + 2] = triangle[vertex * 3 + 2]
+                interleaved[base + 3] = 0f
+                interleaved[base + 4] = 0f
+                interleaved[base + 5] = 1f
+            }
+            offset += 18
+        }
+        return StlMesh(
+            displayName = "support-enforcer.stl",
+            interleavedVertices = interleaved,
+            triangleCount = triangles.size,
+            bounds = MeshBounds(109f, 109f, 1f, 111f, 111f, 1f),
+        )
     }
 
     private fun squareMesh(): StlMesh {

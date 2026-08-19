@@ -34,6 +34,22 @@ internal object ConicalPipeline {
     ) {
         fun backtransformGcode(file: File, printerEnvelope: PrinterEnvelope): GcodeDiagnostics =
             ConicalGcodeTransformer.transform(file, centerX, centerY, settings, printerEnvelope)
+
+        /**
+         * Warps one CuraEngine modifier volume (for example a painted support
+         * enforcer/blocker prism) with the exact refinement and cone warp used
+         * for the model, pivoting on the model's XY bounds centre so the
+         * modifier stays aligned with the warped solid. CuraEngine then
+         * generates supports against the warped geometry and the G-code
+         * back-transform restores both together.
+         */
+        fun warpModifier(file: File) {
+            val mesh = StlParser.parse(file, file.name)
+            checkConicalCancellation(1)
+            val refined = ConicalTransform.refine(mesh, settings.refinementIterations)
+            val warped = ConicalTransform.warpAround(refined, centerX, centerY, settings)
+            writeWarped(file, warped)
+        }
     }
 
     data class Diagnostics(
