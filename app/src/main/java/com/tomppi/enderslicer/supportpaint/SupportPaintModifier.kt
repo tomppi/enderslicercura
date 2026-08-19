@@ -29,8 +29,13 @@ data class SupportPaintModifier(
  * written back into final build-plate coordinates.
  */
 object SupportPaintModifiers {
-    /** Upper bound on painted triangles per slice; each becomes an 8-triangle prism. */
-    const val MAX_PAINTED_TRIANGLES = 20_000
+    /**
+     * Upper bound on painted triangles per slice; each becomes an 8-triangle
+     * prism. 5,000 painted triangles (~40k prism triangles) slices in a few
+     * seconds on the host engine, while larger regions dominate the per-layer
+     * support-area computation and blow the slice budget.
+     */
+    const val MAX_PAINTED_TRIANGLES = 5_000
 
     fun generate(
         mesh: StlMesh,

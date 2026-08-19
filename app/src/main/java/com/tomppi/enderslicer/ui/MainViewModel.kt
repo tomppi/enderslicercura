@@ -601,28 +601,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             layerHeightMm = snapshot.settings.layerHeightMm,
                             nozzleDiameterMm = snapshot.printer.withSettings(snapshot.settings).nozzleSizeMm,
                         )
-                        // CuraEngine only generates supports while support_enable
-                        // is on; painted enforcers/blockers act inside that pass,
-                        // so silently slicing with supports off would produce
-                        // nothing. Enable them for this slice and say so.
-                        val paintAdjusted = if (
-                            !snapshot.supportPaint.isEmpty && !smartResolution.settings.supportsEnabled
-                        ) {
-                            smartResolution.copy(
-                                settings = smartResolution.settings.copy(supportsEnabled = true),
-                                message = listOfNotNull(
-                                    smartResolution.message,
-                                    "Painted supports enabled Generate supports for this slice",
-                                ).joinToString("; ").ifBlank { null },
-                            )
-                        } else {
-                            smartResolution
-                        }
-                        strategyMessage = paintAdjusted.message
+                        strategyMessage = smartResolution.message
                         engine.slice(
                             modelFile = transformedFile,
                             printer = snapshot.printer,
-                            settings = paintAdjusted.settings,
+                            settings = smartResolution.settings,
                             startGcode = snapshot.startGcode,
                             endGcode = snapshot.endGcode,
                             profile = snapshot.engineProfile,
