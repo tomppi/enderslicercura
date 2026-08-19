@@ -34,4 +34,10 @@ class NonPlanarSettingsTest {
         assertTrue(settings.enabled)
         assertTrue(settings.pauseAfterProbe)
     }
+
+    @Test
+    fun maximumMoveLengthHasNoPracticalUpperLimit() {
+        val settings = NonPlanarSettings(maximumSegmentLengthMm = 500.0).validated()
+        assertEquals(500.0, settings.maximumSegmentLengthMm, 0.0)
+    }
 }

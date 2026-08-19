@@ -90,7 +90,10 @@ data class NonPlanarSettings(
         const val MIN_FIELD_RESOLUTION = 32
         const val MAX_FIELD_RESOLUTION = 192
         const val MIN_SEGMENT_LENGTH_MM = 0.2
-        const val MAX_SEGMENT_LENGTH_MM = 15.0
+        // Effectively unlimited: a huge value keeps the engine's native path
+        // segmentation instead of splitting moves. The transformer still
+        // slows the feed wherever the configured Z speed would be exceeded.
+        const val MAX_SEGMENT_LENGTH_MM = 1000.0
         const val MIN_Z_SPEED_MM_PER_SECOND = 0.5
         const val MAX_Z_SPEED_MM_PER_SECOND = 20.0
         private const val CLEARANCE_MARGIN_DEGREES = 5.0
