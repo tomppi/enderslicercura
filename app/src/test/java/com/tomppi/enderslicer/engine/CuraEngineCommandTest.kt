@@ -241,6 +241,10 @@ class CuraEngineCommandTest {
             assertTrue(enforcerIndex > 0)
             val enforcerSettings = command.subList(enforcerIndex + 1, command.indexOf("-o"))
             assertTrue(enforcerSettings.contains("support_mesh=true"))
+            assertTrue(
+                "Painted prisms must skip the expensive union-all mesh fix",
+                enforcerSettings.contains("meshfix_union_all=false"),
+            )
 
             val warped = StlParser.parse(enforcer, enforcer.name)
             assertTrue(

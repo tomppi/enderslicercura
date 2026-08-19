@@ -52,6 +52,11 @@ class CuraResolvedSettingsWriterSupportPaintTest {
             assertEquals(true, section.getBoolean("support_mesh"))
             assertEquals(false, section.getBoolean("anti_overhang_mesh"))
             assertEquals(false, section.getBoolean("infill_mesh"))
+            assertEquals(
+                "Painted prisms must skip the expensive union-all mesh fix",
+                false,
+                section.getBoolean("meshfix_union_all"),
+            )
 
             val warped = StlParser.parse(enforcer, enforcer.name)
             assertTrue(
@@ -93,6 +98,7 @@ class CuraResolvedSettingsWriterSupportPaintTest {
             val section = root.getJSONObject(blocker.name)
             assertEquals(false, section.getBoolean("support_mesh"))
             assertEquals(true, section.getBoolean("anti_overhang_mesh"))
+            assertEquals(false, section.getBoolean("meshfix_union_all"))
 
             val warped = StlParser.parse(blocker, blocker.name)
             assertTrue(

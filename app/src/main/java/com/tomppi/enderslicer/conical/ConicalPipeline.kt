@@ -39,7 +39,11 @@ internal object ConicalPipeline {
         fun warpModifier(file: File) {
             val mesh = parseCancellable(file)
             checkCancellation(1, "Conical slicing", 1)
-            val refined = ConicalTransform.refine(mesh, settings.refinementIterations)
+            // Prism vertices sit exactly on the warped surface and Cura clips
+            // the supports against the model layers, so modifier volumes do not
+            // need the model's full 4^iterations subdivision. One level keeps
+            // large painted prisms aligned without exploding the mesh.
+            val refined = ConicalTransform.refine(mesh, minOf(settings.refinementIterations, 1))
             val warped = ConicalTransform.warpAround(refined, centerX, centerY, settings)
             writeWarped(file, warped)
         }

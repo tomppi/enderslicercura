@@ -212,6 +212,7 @@ internal object CuraResolvedSettingsWriter {
         supportPaintModifiers.forEach { modifier ->
             val values = JSONObject(resolved.modelValues)
                 .put("extruder_nr", 0)
+                .put("meshfix_union_all", false)
                 .put("support_mesh", !modifier.isBlocker)
                 .put("anti_overhang_mesh", modifier.isBlocker)
                 .put("infill_mesh", false)

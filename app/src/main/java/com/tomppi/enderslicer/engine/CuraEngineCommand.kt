@@ -297,6 +297,11 @@ object CuraEngineCommand {
             command += listOf("-l", modifier.file.absolutePath)
             positionLoadedMesh()
             setting("extruder_nr", 0)
+            // The painted prisms overlap heavily by design; unioning them is the
+            // dominant slice cost and unnecessary: each prism is already a closed
+            // volume and the support generator projects all support meshes
+            // together regardless of union state.
+            setting("meshfix_union_all", false)
             setting("support_mesh", !modifier.isBlocker)
             setting("anti_overhang_mesh", modifier.isBlocker)
             setting("infill_mesh", false)

@@ -32,6 +32,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Support painting could make slicing take tens of minutes or time out: the
+  painted prisms were fed to CuraEngine's meshfix union-all pass, which welded
+  thousands of overlapping volumes. Painted modifier meshes now skip the
+  union fix (they are already closed volumes), painted regions are capped at
+  20,000 triangles with a clear error, and conical prism refinement is capped
+  at one level.
+- Slicing with painted supports while Generate supports was off silently
+  produced no supports (CuraEngine only generates supports when support_enable
+  is on). The app now enables supports for that slice and says so.
 - Conical slicing with supports (automatic or painted) lifted the entire model
   off the build plate: support tower bottoms back-transformed below the bed
   and dragged the whole file upward. Support moves are now anchored to the

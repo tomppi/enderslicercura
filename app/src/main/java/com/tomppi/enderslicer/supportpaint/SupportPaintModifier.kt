@@ -29,6 +29,9 @@ data class SupportPaintModifier(
  * written back into final build-plate coordinates.
  */
 object SupportPaintModifiers {
+    /** Upper bound on painted triangles per slice; each becomes an 8-triangle prism. */
+    const val MAX_PAINTED_TRIANGLES = 20_000
+
     fun generate(
         mesh: StlMesh,
         paint: SupportPaintState,
@@ -36,6 +39,11 @@ object SupportPaintModifiers {
         thicknessMm: Double,
         transform: StlSliceTransform? = null,
     ): List<SupportPaintModifier> {
+        val paintedTriangles = paint.enforcerTriangles.size + paint.blockerTriangles.size
+        require(paintedTriangles <= MAX_PAINTED_TRIANGLES) {
+            "Support painting covers " + paintedTriangles + " triangles; the limit is " +
+                MAX_PAINTED_TRIANGLES + ". Erase some paint or use a smaller brush before slicing."
+        }
         require(destination.mkdirs() || destination.isDirectory) {
             "Unable to create the support-painting staging directory"
         }
