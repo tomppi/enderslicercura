@@ -80,7 +80,7 @@ internal object CurviSlicerFieldBuilder {
             relief[index] = smoothed[index] - mean.toFloat()
         }
         val clearanceAmplitudeLimit = (
-            settings.nozzleClearanceHeightMm * tan(Math.toRadians(settings.effectiveSlopeLimitDegrees))
+            settings.holderHeightMm * tan(Math.toRadians(settings.effectiveSlopeLimitDegrees))
         ).toFloat()
         // The user-measured lift cap is the surface displacement budget in
         // millimetres. The smoothstep vertical mapping also enforces its own

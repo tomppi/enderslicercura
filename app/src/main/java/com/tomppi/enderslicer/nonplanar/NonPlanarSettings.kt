@@ -61,6 +61,10 @@ data class NonPlanarSettings(
         get() = minOf(maximumSlopeDegrees, nozzleClearanceAngleDegrees - CLEARANCE_MARGIN_DEGREES)
             .coerceAtLeast(MIN_SLOPE_DEGREES)
 
+    /** Tip to holding object: the nozzle cone plus the block cone height. */
+    val holderHeightMm: Double
+        get() = nozzleProtrusionMm + nozzleClearanceHeightMm
+
     companion object {
         const val MIN_STRENGTH_PERCENT = 0.0
         const val MAX_STRENGTH_PERCENT = 100.0

@@ -85,12 +85,12 @@ class NozzleCollisionScannerTest {
 
     @Test
     fun cutoffAboveHoldingObjectIsDetected() {
-        // A column whose top is 20 mm above the low tip: the whole-plate
-        // cutoff above the 15 mm holding-object height must warn.
+        // A column whose top is 25 mm above the low tip: the whole-plate
+        // cutoff above the holder (5 mm protrusion + 15 mm cone) must warn.
         val alert = scanGcode(
             ";LAYER:0\n" +
                 "G1 X10 Y10 Z0.2 E1\n" +
-                "G1 X50 Y50 Z20.2 E2\n" +
+                "G1 X50 Y50 Z25.2 E2\n" +
                 "G1 X20 Y10 E3\n" +
                 "G1 X10 Y20 E4\n" +
                 "G0 X20 Y20 Z0.2\n" +

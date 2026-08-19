@@ -4,12 +4,12 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -241,7 +241,7 @@ internal fun NonPlanarSettingsSheet(
             onText = { clearanceAngle = it },
         )
         DecimalSettingField(
-            "Nozzle clearance height (mm)",
+            "Block cone height (mm)",
             clearanceHeight,
             NonPlanarSettings.MIN_CLEARANCE_HEIGHT_MM,
             NonPlanarSettings.MAX_CLEARANCE_HEIGHT_MM,
@@ -304,35 +304,31 @@ internal fun NonPlanarSettingsSheet(
                     style = MaterialTheme.typography.bodySmall,
                 )
                 Text(
-                    "Nozzle taper: angle of the nozzle's own cone from vertical (V6 ≈ 30°). Protrusion: how far the tip sticks out below the block (≈ 4–6 mm). Block: the X × Y footprint of the heater block (E3D ≈ 20 × 16 mm) and the nozzle axis offset from the block centre in X and Y. Clearance height: tip to the lowest holding structure. Clearance angle: from vertical out to the nearest thing that could collide - the block's sides follow this same angle.",
+                    "Nozzle taper: angle of the nozzle's own cone from vertical (V6 ≈ 30°). Protrusion: how far the tip sticks out below the block (≈ 4–6 mm) - the first cone's height. Block cone height: from the top of the nozzle up to the lowest holding structure - the second cone's height. Block: the X × Y footprint of the heater block (E3D ≈ 20 × 16 mm) and the nozzle axis offset from the block centre in X and Y. Clearance angle: from vertical out to the nearest thing that could collide - the block's sides follow this same angle.",
                     style = MaterialTheme.typography.labelSmall,
                 )
             }
         }
-        HotendVolumePreview(
-            nozzleAngleDegrees = parsedNozzleAngle,
-            protrusionMm = parsedNozzleProtrusion,
-            blockWidthMm = parsedBlockWidth,
-            blockDepthMm = parsedBlockDepth,
-            offsetXmm = parsedBlockOffsetX,
-            offsetYmm = parsedBlockOffsetY,
-            clearanceAngleDegrees = parsedClearanceAngle,
-            holderHeightMm = parsedClearanceHeight,
-            onOffsetChange = { x, y ->
-                blockOffsetX = x.toString()
-                blockOffsetY = y.toString()
-            },
-            onNozzleAngleChange = { value ->
-                nozzleAngle = value.toString()
-            },
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(240.dp),
-        )
-        Text(
-            "Drag the white tip to set its position on the block; drag the black ring on the nozzle's base to match the smaller cone angle. Red plane = no-go cutoff, blue = block frustum, green = nozzle cone.",
-            style = MaterialTheme.typography.labelSmall,
-        )
+        var viewerOpen by rememberSaveable { mutableStateOf(false) }
+        OutlinedButton(
+            onClick = { viewerOpen = true },
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("View hot-end model (3D)")
+        }
+        if (viewerOpen) {
+            HotendVolumeDialog(
+                nozzleAngleDegrees = parsedNozzleAngle,
+                protrusionMm = parsedNozzleProtrusion,
+                blockWidthMm = parsedBlockWidth,
+                blockDepthMm = parsedBlockDepth,
+                offsetXmm = parsedBlockOffsetX,
+                offsetYmm = parsedBlockOffsetY,
+                clearanceAngleDegrees = parsedClearanceAngle,
+                holderHeightMm = parsedClearanceHeight?.plus(parsedNozzleProtrusion ?: 0.0),
+                onDismiss = { viewerOpen = false },
+            )
+        }
         IntegerSettingField(
             "Flat base layers",
             flatBaseLayers,
