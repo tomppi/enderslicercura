@@ -82,7 +82,12 @@ internal object CurviSlicerFieldBuilder {
         val clearanceAmplitudeLimit = (
             settings.nozzleClearanceHeightMm * tan(Math.toRadians(settings.effectiveSlopeLimitDegrees))
         ).toFloat()
-        val amplitudeLimit = min(bounds.height * 0.28f, clearanceAmplitudeLimit)
+        // The user-measured lift cap is the surface displacement budget in
+        // millimetres. The smoothstep vertical mapping also enforces its own
+        // invertibility bound through monotonicStrength below, so an oversized
+        // lift on a short model is safely strength-reduced instead of
+        // destabilizing the inverse.
+        val amplitudeLimit = min(settings.maximumLiftMm.toFloat(), clearanceAmplitudeLimit)
         var maximumRawRelief = 0.0
         for (index in relief.indices) {
             relief[index] = relief[index].coerceIn(-amplitudeLimit, amplitudeLimit)
@@ -92,7 +97,6 @@ internal object CurviSlicerFieldBuilder {
         val requestedStrength = settings.strengthPercent / 100.0
         val flatBaseHeight = settings.flatBaseLayers * layerHeightMm
         val usableHeight = max(bounds.height.toDouble() - flatBaseHeight, layerHeightMm)
-        val maximumGradient = maximumCellGradient(relief, columns, rows, cellX, cellY)
         val slopeLimit = tan(Math.toRadians(settings.effectiveSlopeLimitDegrees))
         val maximumSmoothDerivative = 1.5 / usableHeight
         val monotonicStrength = if (maximumRawRelief <= 1e-9) {
@@ -102,22 +106,67 @@ internal object CurviSlicerFieldBuilder {
             // convergence and to avoid severe slope amplification.
             (0.65 / (maximumRawRelief * maximumSmoothDerivative)).coerceAtMost(1.0)
         }
+        val appliedStrength = min(requestedStrength, monotonicStrength).coerceIn(0.0, 1.0)
 
-        fun inverseGradientBound(strength: Double): Double {
-            if (strength <= 0.0 || maximumGradient <= 1e-12) return 0.0
-            val minimumVerticalDerivative = 1.0 - maximumRawRelief * strength * maximumSmoothDerivative
-            if (minimumVerticalDerivative <= 0.0) return Double.POSITIVE_INFINITY
-            return maximumGradient * strength / minimumVerticalDerivative
+        // Enforce the slope limit locally instead of scaling the requested
+        // strength globally: a single steep feature used to weaken the curve
+        // everywhere, so a dome with steep flanks lost most of its gentle peak
+        // too. Projecting per-cell gradients flattens only what the nozzle
+        // clearance requires and keeps full strength on gentle regions.
+        if (appliedStrength > 0.0 && slopeLimit > 0.0) {
+            val minimumVerticalDerivative = 1.0 - maximumRawRelief * appliedStrength * maximumSmoothDerivative
+            if (minimumVerticalDerivative > 0.05) {
+                // The smoothstep vertical mapping amplifies XY gradients by up
+                // to 1 / minimumVerticalDerivative; the per-cell step budget
+                // accounts for that so the printed field never exceeds the
+                // configured slope limit.
+                val maxGradient = slopeLimit * minimumVerticalDerivative / appliedStrength
+                // Diagonal moves combine both axes, so each axis budget is
+                // divided by sqrt(2): a climb at the configured limit in X AND
+                // Y at once would otherwise exceed it by 41%.
+                val maxStepX = maxGradient * cellX / 1.4142135623730951
+                val maxStepY = maxGradient * cellY / 1.4142135623730951
+                val maxStepDiagonal = maxGradient * hypot(cellX, cellY) / 1.4142135623730951
+                // A slope constraint propagates one cell per pass, so the
+                // pass budget scales with the grid diameter instead of being a
+                // fixed 64 - a 192-column field would otherwise keep residual
+                // gradients above the configured limit.
+                val projectionPasses = (columns + rows).coerceIn(64, 512)
+                for (pass in 0 until projectionPasses) {
+                    checkCancellation(pass, "CurviSlicer processing")
+                    var changed = false
+                    for (gy in 0 until rows) {
+                        for (gx in 0 until columns) {
+                            val index = gy * columns + gx
+                            var value = relief[index].toDouble()
+                            fun clampNeighbor(neighborIndex: Int, maxStep: Double) {
+                                val limit = relief[neighborIndex].toDouble() + maxStep
+                                if (value > limit) {
+                                    value = limit
+                                }
+                            }
+                            if (gx > 0) clampNeighbor(index - 1, maxStepX)
+                            if (gx < columns - 1) clampNeighbor(index + 1, maxStepX)
+                            if (gy > 0) clampNeighbor(index - columns, maxStepY)
+                            if (gy < rows - 1) clampNeighbor(index + columns, maxStepY)
+                            if (gx > 0 && gy > 0) clampNeighbor(index - columns - 1, maxStepDiagonal)
+                            if (gx < columns - 1 && gy > 0) clampNeighbor(index - columns + 1, maxStepDiagonal)
+                            if (gx > 0 && gy < rows - 1) clampNeighbor(index + columns - 1, maxStepDiagonal)
+                            if (gx < columns - 1 && gy < rows - 1) clampNeighbor(index + columns + 1, maxStepDiagonal)
+                            if (value != relief[index].toDouble()) {
+                                relief[index] = value.toFloat()
+                                changed = true
+                            }
+                        }
+                    }
+                    if (!changed) break
+                }
+            }
         }
 
-        var low = 0.0
-        var high = min(requestedStrength, monotonicStrength).coerceIn(0.0, 1.0)
-        repeat(56) {
-            val middle = (low + high) * 0.5
-            if (inverseGradientBound(middle) <= slopeLimit) low = middle else high = middle
-        }
-        val appliedStrength = low.coerceIn(0.0, 1.0)
-        val appliedSlope = Math.toDegrees(kotlin.math.atan(inverseGradientBound(appliedStrength)))
+        val maximumGradient = maximumCellGradient(relief, columns, rows, cellX, cellY)
+        val verticalDerivative = (1.0 - maximumRawRelief * appliedStrength * maximumSmoothDerivative).coerceAtLeast(0.05)
+        val appliedSlope = Math.toDegrees(kotlin.math.atan(maximumGradient * appliedStrength / verticalDerivative))
 
         val field = CurviSlicerField(
             minX = bounds.minX.toDouble(),

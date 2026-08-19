@@ -86,12 +86,7 @@ class SmartOverhangStrategyTest {
             floatArrayOf(20f, 20f, 5f, 80f, 80f, 5f, 80f, 20f, 5f),
             floatArrayOf(20f, 20f, 5f, 20f, 80f, 5f, 80f, 80f, 5f),
         )
-        triangles += listOf(
-            floatArrayOf(50f, 50f, 12f, 20f, 20f, 5f, 80f, 20f, 5f),
-            floatArrayOf(50f, 50f, 12f, 80f, 20f, 5f, 80f, 80f, 5f),
-            floatArrayOf(50f, 50f, 12f, 80f, 80f, 5f, 20f, 80f, 5f),
-            floatArrayOf(50f, 50f, 12f, 20f, 80f, 5f, 20f, 20f, 5f),
-        )
+        triangles += domeTriangles(20f, 20f, 5f, 80f, 80f, 12f)
         val mesh = testMesh(*triangles.toTypedArray())
         val curvi = NonPlanarSettings(enabled = true, strengthPercent = 100.0)
 

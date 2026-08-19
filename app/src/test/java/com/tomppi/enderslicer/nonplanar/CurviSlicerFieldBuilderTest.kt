@@ -2,6 +2,7 @@ package com.tomppi.enderslicer.nonplanar
 
 import com.tomppi.enderslicer.viewer.MeshBounds
 import com.tomppi.enderslicer.viewer.StlMesh
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -28,7 +29,7 @@ class CurviSlicerFieldBuilderTest {
     }
 
     @Test
-    fun appliedStrengthUsesTheInverseSlopeBound() {
+    fun slopeLimitClampsGradientsLocallyWithoutWeakeningRequestedStrength() {
         val settings = NonPlanarSettings(
             enabled = true,
             strengthPercent = 100.0,
@@ -44,7 +45,12 @@ class CurviSlicerFieldBuilderTest {
             nozzleDiameterMm = 0.4,
         )
 
-        assertTrue(result.diagnostics.appliedStrength < 1.0)
+        assertEquals(
+            "A slope-limited plane must keep the requested strength and clip only the local gradient",
+            1.0,
+            result.diagnostics.appliedStrength,
+            1e-9,
+        )
         assertTrue(
             "The conservative inverse-field slope must stay within the effective limit",
             result.diagnostics.maximumFieldSlopeDegrees <= settings.effectiveSlopeLimitDegrees + 1e-6,
@@ -69,19 +75,19 @@ class CurviSlicerFieldBuilderTest {
         }
     }
 
-    private fun tiltedPlaneMesh(): StlMesh {
+    private fun tiltedPlaneMesh(height: Float = 30f): StlMesh {
         fun vertex(x: Float, y: Float, z: Float): FloatArray = floatArrayOf(x, y, z, 0f, 0f, 1f)
         val values = vertex(0f, 0f, 0f) +
-            vertex(100f, 0f, 10f) +
-            vertex(100f, 100f, 10f) +
+            vertex(100f, 0f, height) +
+            vertex(100f, 100f, height) +
             vertex(0f, 0f, 0f) +
-            vertex(100f, 100f, 10f) +
+            vertex(100f, 100f, height) +
             vertex(0f, 100f, 0f)
         return StlMesh(
             displayName = "tilted-plane.stl",
             interleavedVertices = values,
             triangleCount = 2,
-            bounds = MeshBounds(0f, 0f, 0f, 100f, 100f, 10f),
+            bounds = MeshBounds(0f, 0f, 0f, 100f, 100f, height),
         )
     }
 }

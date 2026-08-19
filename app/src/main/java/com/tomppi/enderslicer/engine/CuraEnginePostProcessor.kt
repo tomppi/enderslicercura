@@ -4,6 +4,8 @@ import com.tomppi.enderslicer.conical.ConicalRuntime
 import com.tomppi.enderslicer.conical.ConicalStorage
 import com.tomppi.enderslicer.nonplanar.CurviSlicerFieldStorage
 import com.tomppi.enderslicer.nonplanar.CurviSlicerRuntime
+import com.tomppi.enderslicer.nonplanar.NozzleCollisionAlert
+import com.tomppi.enderslicer.nonplanar.NozzleCollisionScanner
 import java.io.File
 
 /** Finalizes staged engine output before it is eligible for immutable publication. */
@@ -22,6 +24,7 @@ internal object CuraEnginePostProcessor {
         val previewFailure: Throwable?,
         val layerEvents: List<LayerEvent>,
         val usedZeroEventFastPath: Boolean,
+        val nozzleCollisionAlert: NozzleCollisionAlert? = null,
     )
 
     fun process(
@@ -68,6 +71,22 @@ internal object CuraEnginePostProcessor {
             conicalDiagnostics != null -> "$settingsTransport+conical-android-v1"
             else -> settingsTransport
         }.let { if (probePauseInjected) "$it+probe-pause" else it }
+        // Sweep the user-measured collision volume (nozzle cone + heating
+        // block cone + whole-plate cutoff) along the curved toolpath so the
+        // slice result can warn before a nozzle scrape happens on the printer.
+        val nozzleCollisionAlert = if (curviDiagnostics != null) {
+            runCatching {
+                NozzleCollisionScanner.scan(
+                    gcode = outputFile,
+                    settings = CurviSlicerRuntime.current(),
+                    buildPlateHalfWidthMm = effectiveEnvelope.widthMm / 2.0,
+                    buildPlateHalfDepthMm = effectiveEnvelope.depthMm / 2.0,
+                )
+            }.getOrNull()
+        } else {
+            null
+        }
+
         val baseSummary = GcodeSanitizer.validateAndRepair(
             file = outputFile,
             settingsTransport = effectiveTransport,
@@ -91,6 +110,7 @@ internal object CuraEnginePostProcessor {
                 previewFailure = null,
                 layerEvents = emptyList(),
                 usedZeroEventFastPath = true,
+                nozzleCollisionAlert = nozzleCollisionAlert,
             )
         }
 
@@ -107,6 +127,7 @@ internal object CuraEnginePostProcessor {
             previewFailure = previewResult.exceptionOrNull(),
             layerEvents = resolvedEvents,
             usedZeroEventFastPath = false,
+            nozzleCollisionAlert = nozzleCollisionAlert,
         )
     }
 

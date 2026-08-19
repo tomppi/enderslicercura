@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -44,6 +45,23 @@ internal fun NonPlanarSettingsSheet(
     var clearanceHeight by rememberSaveable(initial.nozzleClearanceHeightMm) {
         mutableStateOf(initial.nozzleClearanceHeightMm.toString())
     }
+    var maximumLift by rememberSaveable(initial.maximumLiftMm) { mutableStateOf(initial.maximumLiftMm.toString()) }
+    var nozzleAngle by rememberSaveable(initial.nozzleAngleDegrees) { mutableStateOf(initial.nozzleAngleDegrees.toString()) }
+    var nozzleProtrusion by rememberSaveable(initial.nozzleProtrusionMm) {
+        mutableStateOf(initial.nozzleProtrusionMm.toString())
+    }
+    var blockWidth by rememberSaveable(initial.heatingBlockWidthMm) {
+        mutableStateOf(initial.heatingBlockWidthMm.toString())
+    }
+    var blockDepth by rememberSaveable(initial.heatingBlockDepthMm) {
+        mutableStateOf(initial.heatingBlockDepthMm.toString())
+    }
+    var blockOffsetX by rememberSaveable(initial.heatingBlockOffsetXmm) {
+        mutableStateOf(initial.heatingBlockOffsetXmm.toString())
+    }
+    var blockOffsetY by rememberSaveable(initial.heatingBlockOffsetYmm) {
+        mutableStateOf(initial.heatingBlockOffsetYmm.toString())
+    }
     var flatBaseLayers by rememberSaveable(initial.flatBaseLayers) { mutableStateOf(initial.flatBaseLayers.toString()) }
     var fieldResolution by rememberSaveable(initial.fieldResolution) { mutableStateOf(initial.fieldResolution.toString()) }
     var segmentLength by rememberSaveable(initial.maximumSegmentLengthMm) {
@@ -77,6 +95,41 @@ internal fun NonPlanarSettingsSheet(
         NonPlanarSettings.MIN_CLEARANCE_HEIGHT_MM,
         NonPlanarSettings.MAX_CLEARANCE_HEIGHT_MM,
     )
+    val parsedMaximumLift = parseDecimal(
+        maximumLift,
+        NonPlanarSettings.MIN_MAXIMUM_LIFT_MM,
+        NonPlanarSettings.MAX_MAXIMUM_LIFT_MM,
+    )
+    val parsedNozzleAngle = parseDecimal(
+        nozzleAngle,
+        NonPlanarSettings.MIN_NOZZLE_ANGLE_DEGREES,
+        NonPlanarSettings.MAX_NOZZLE_ANGLE_DEGREES,
+    )
+    val parsedNozzleProtrusion = parseDecimal(
+        nozzleProtrusion,
+        NonPlanarSettings.MIN_NOZZLE_PROTRUSION_MM,
+        NonPlanarSettings.MAX_NOZZLE_PROTRUSION_MM,
+    )
+    val parsedBlockWidth = parseDecimal(
+        blockWidth,
+        NonPlanarSettings.MIN_BLOCK_SIZE_MM,
+        NonPlanarSettings.MAX_BLOCK_SIZE_MM,
+    )
+    val parsedBlockDepth = parseDecimal(
+        blockDepth,
+        NonPlanarSettings.MIN_BLOCK_SIZE_MM,
+        NonPlanarSettings.MAX_BLOCK_SIZE_MM,
+    )
+    val parsedBlockOffsetX = parseDecimal(
+        blockOffsetX,
+        -NonPlanarSettings.MAX_BLOCK_OFFSET_MM,
+        NonPlanarSettings.MAX_BLOCK_OFFSET_MM,
+    )
+    val parsedBlockOffsetY = parseDecimal(
+        blockOffsetY,
+        -NonPlanarSettings.MAX_BLOCK_OFFSET_MM,
+        NonPlanarSettings.MAX_BLOCK_OFFSET_MM,
+    )
     val parsedFlatBaseLayers = parseInteger(
         flatBaseLayers,
         NonPlanarSettings.MIN_FLAT_BASE_LAYERS,
@@ -99,8 +152,11 @@ internal fun NonPlanarSettingsSheet(
     )
     val draft = if (
         parsedStrength != null && parsedSmoothing != null && parsedSlope != null &&
-        parsedClearanceAngle != null && parsedClearanceHeight != null && parsedFlatBaseLayers != null &&
-        parsedFieldResolution != null && parsedSegmentLength != null && parsedMaximumZSpeed != null
+        parsedClearanceAngle != null && parsedClearanceHeight != null && parsedMaximumLift != null &&
+        parsedNozzleAngle != null && parsedNozzleProtrusion != null && parsedBlockWidth != null &&
+        parsedBlockDepth != null && parsedBlockOffsetX != null && parsedBlockOffsetY != null &&
+        parsedFlatBaseLayers != null && parsedFieldResolution != null && parsedSegmentLength != null &&
+        parsedMaximumZSpeed != null
     ) {
         NonPlanarSettings(
             enabled = enabled,
@@ -109,6 +165,13 @@ internal fun NonPlanarSettingsSheet(
             maximumSlopeDegrees = parsedSlope,
             nozzleClearanceAngleDegrees = parsedClearanceAngle,
             nozzleClearanceHeightMm = parsedClearanceHeight,
+            maximumLiftMm = parsedMaximumLift,
+            nozzleAngleDegrees = parsedNozzleAngle,
+            nozzleProtrusionMm = parsedNozzleProtrusion,
+            heatingBlockWidthMm = parsedBlockWidth,
+            heatingBlockDepthMm = parsedBlockDepth,
+            heatingBlockOffsetXmm = parsedBlockOffsetX,
+            heatingBlockOffsetYmm = parsedBlockOffsetY,
             flatBaseLayers = parsedFlatBaseLayers,
             fieldResolution = parsedFieldResolution,
             maximumSegmentLengthMm = parsedSegmentLength,
@@ -183,6 +246,92 @@ internal fun NonPlanarSettingsSheet(
             NonPlanarSettings.MIN_CLEARANCE_HEIGHT_MM,
             NonPlanarSettings.MAX_CLEARANCE_HEIGHT_MM,
             onText = { clearanceHeight = it },
+        )
+        DecimalSettingField(
+            "Maximum surface lift (mm)",
+            maximumLift,
+            NonPlanarSettings.MIN_MAXIMUM_LIFT_MM,
+            NonPlanarSettings.MAX_MAXIMUM_LIFT_MM,
+            onText = { maximumLift = it },
+        )
+        DecimalSettingField(
+            "Nozzle taper angle (degrees)",
+            nozzleAngle,
+            NonPlanarSettings.MIN_NOZZLE_ANGLE_DEGREES,
+            NonPlanarSettings.MAX_NOZZLE_ANGLE_DEGREES,
+            onText = { nozzleAngle = it },
+        )
+        DecimalSettingField(
+            "Nozzle protrusion (mm)",
+            nozzleProtrusion,
+            NonPlanarSettings.MIN_NOZZLE_PROTRUSION_MM,
+            NonPlanarSettings.MAX_NOZZLE_PROTRUSION_MM,
+            onText = { nozzleProtrusion = it },
+        )
+        DecimalSettingField(
+            "Heating block width (mm)",
+            blockWidth,
+            NonPlanarSettings.MIN_BLOCK_SIZE_MM,
+            NonPlanarSettings.MAX_BLOCK_SIZE_MM,
+            onText = { blockWidth = it },
+        )
+        DecimalSettingField(
+            "Heating block depth (mm)",
+            blockDepth,
+            NonPlanarSettings.MIN_BLOCK_SIZE_MM,
+            NonPlanarSettings.MAX_BLOCK_SIZE_MM,
+            onText = { blockDepth = it },
+        )
+        DecimalSettingField(
+            "Nozzle offset from block centre X (mm)",
+            blockOffsetX,
+            -NonPlanarSettings.MAX_BLOCK_OFFSET_MM,
+            NonPlanarSettings.MAX_BLOCK_OFFSET_MM,
+            onText = { blockOffsetX = it },
+        )
+        DecimalSettingField(
+            "Nozzle offset from block centre Y (mm)",
+            blockOffsetY,
+            -NonPlanarSettings.MAX_BLOCK_OFFSET_MM,
+            NonPlanarSettings.MAX_BLOCK_OFFSET_MM,
+            onText = { blockOffsetY = it },
+        )
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Text("Measure your hot end", style = MaterialTheme.typography.titleSmall)
+                Text(
+                    "All measurements are taken once, on the printer, with the tip just touching the bed. They build the collision volume: the nozzle cone (taper angle × protrusion below the block), the heating block frustum (the block's X × Y footprint widening at the same measured clearance angle up to the holding-object height), and a flat no-go cutoff above the holding object that spans the whole build plate plus 30%. After slicing, EnderSlicer sweeps that volume along every move and warns if the printed surface pokes into it.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Text(
+                    "Nozzle taper: angle of the nozzle's own cone from vertical (V6 ≈ 30°). Protrusion: how far the tip sticks out below the block (≈ 4–6 mm). Block: the X × Y footprint of the heater block (E3D ≈ 20 × 16 mm) and the nozzle axis offset from the block centre in X and Y. Clearance height: tip to the lowest holding structure. Clearance angle: from vertical out to the nearest thing that could collide - the block's sides follow this same angle.",
+                    style = MaterialTheme.typography.labelSmall,
+                )
+            }
+        }
+        HotendVolumePreview(
+            nozzleAngleDegrees = parsedNozzleAngle,
+            protrusionMm = parsedNozzleProtrusion,
+            blockWidthMm = parsedBlockWidth,
+            blockDepthMm = parsedBlockDepth,
+            offsetXmm = parsedBlockOffsetX,
+            offsetYmm = parsedBlockOffsetY,
+            clearanceAngleDegrees = parsedClearanceAngle,
+            holderHeightMm = parsedClearanceHeight,
+            onOffsetChange = { x, y ->
+                blockOffsetX = x.toString()
+                blockOffsetY = y.toString()
+            },
+            onNozzleAngleChange = { value ->
+                nozzleAngle = value.toString()
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(240.dp),
+        )
+        Text(
+            "Drag the white tip to set its position on the block; drag the black ring on the nozzle's base to match the smaller cone angle. Red plane = no-go cutoff, blue = block frustum, green = nozzle cone.",
+            style = MaterialTheme.typography.labelSmall,
         )
         IntegerSettingField(
             "Flat base layers",

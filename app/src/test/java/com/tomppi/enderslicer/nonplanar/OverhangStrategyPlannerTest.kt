@@ -77,13 +77,7 @@ class OverhangStrategyPlannerTest {
             floatArrayOf(20f, 20f, 5f, 80f, 80f, 5f, 80f, 20f, 5f),
             floatArrayOf(20f, 20f, 5f, 20f, 80f, 5f, 80f, 80f, 5f),
         )
-        val pyramid = listOf(
-            floatArrayOf(50f, 50f, 12f, 20f, 20f, 5f, 80f, 20f, 5f),
-            floatArrayOf(50f, 50f, 12f, 80f, 20f, 5f, 80f, 80f, 5f),
-            floatArrayOf(50f, 50f, 12f, 80f, 80f, 5f, 20f, 80f, 5f),
-            floatArrayOf(50f, 50f, 12f, 20f, 80f, 5f, 20f, 20f, 5f),
-        )
-        triangles += pyramid
+        triangles += domeTriangles(20f, 20f, 5f, 80f, 80f, 12f)
         val mesh = testMesh(*triangles.toTypedArray())
         val plan = OverhangStrategyPlanner.plan(
             mesh,

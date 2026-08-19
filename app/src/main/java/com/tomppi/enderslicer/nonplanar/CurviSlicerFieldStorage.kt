@@ -41,6 +41,13 @@ internal object CurviSlicerFieldStorage {
                     output.writeDouble(maximumSlopeDegrees)
                     output.writeDouble(nozzleClearanceAngleDegrees)
                     output.writeDouble(nozzleClearanceHeightMm)
+                    output.writeDouble(maximumLiftMm)
+                    output.writeDouble(nozzleAngleDegrees)
+                    output.writeDouble(nozzleProtrusionMm)
+                    output.writeDouble(heatingBlockWidthMm)
+                    output.writeDouble(heatingBlockDepthMm)
+                    output.writeDouble(heatingBlockOffsetXmm)
+                    output.writeDouble(heatingBlockOffsetYmm)
                     output.writeInt(flatBaseLayers)
                     output.writeInt(fieldResolution)
                     output.writeDouble(maximumSegmentLengthMm)
@@ -99,6 +106,13 @@ internal object CurviSlicerFieldStorage {
                 maximumSlopeDegrees = input.readDouble(),
                 nozzleClearanceAngleDegrees = input.readDouble(),
                 nozzleClearanceHeightMm = input.readDouble(),
+                maximumLiftMm = input.readDouble(),
+                nozzleAngleDegrees = input.readDouble(),
+                nozzleProtrusionMm = input.readDouble(),
+                heatingBlockWidthMm = input.readDouble(),
+                heatingBlockDepthMm = input.readDouble(),
+                heatingBlockOffsetXmm = input.readDouble(),
+                heatingBlockOffsetYmm = input.readDouble(),
                 flatBaseLayers = input.readInt(),
                 fieldResolution = input.readInt(),
                 maximumSegmentLengthMm = input.readDouble(),

@@ -48,6 +48,30 @@ internal fun testMesh(
     )
 }
 
+internal fun domeTriangles(
+    minX: Float,
+    minY: Float,
+    zBase: Float,
+    maxX: Float,
+    maxY: Float,
+    peakZ: Float,
+): List<FloatArray> {
+    val cx = (minX + maxX) / 2f
+    val cy = (minY + maxY) / 2f
+    val corners = listOf(
+        minX to minY, cx to minY, maxX to minY,
+        maxX to cy, maxX to maxY, cx to maxY,
+        minX to maxY, minX to cy,
+    )
+    val result = mutableListOf<FloatArray>()
+    for (i in corners.indices) {
+        val a = corners[i]
+        val b = corners[(i + 1) % corners.size]
+        result += floatArrayOf(cx, cy, peakZ, a.first, a.second, zBase, b.first, b.second, zBase)
+    }
+    return result
+}
+
 internal fun flatBoxTriangles(
     minX: Float,
     minY: Float,

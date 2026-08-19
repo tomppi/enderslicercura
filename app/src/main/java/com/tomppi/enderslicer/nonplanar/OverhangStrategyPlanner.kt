@@ -59,6 +59,7 @@ internal object OverhangStrategyPlanner {
         val centroidX = DoubleArray(triangleCount)
         val centroidY = DoubleArray(triangleCount)
         val projectedAreas = DoubleArray(triangleCount)
+        val roofTriangleIndices = ArrayList<Int>()
         var flatRoofCount = 0
         var triangleIndex = 0
         var base = 0
@@ -99,6 +100,7 @@ internal object OverhangStrategyPlanner {
                         val centroidZ = (az + bz + cz) / 3.0
                         if (centroidZ > bedContactMaxZ) {
                             flatRoofArea += projectedArea
+                            roofTriangleIndices += triangleIndex
                             flatRoofCount++
                         }
                     } else {
@@ -114,7 +116,10 @@ internal object OverhangStrategyPlanner {
             CurviSlicerFieldBuilder.build(mesh, curviSettings, layerHeightMm, nozzleDiameterMm).field
         }.getOrNull()
         if (field != null && flatRoofArea > 0.0) {
-            for (index in 0 until triangleCount) {
+            // Only the actual roof triangles may decide the low-relief
+            // fraction: mixing in the box faces used to drown the roofs in
+            // low-relief area and report every combination as safe.
+            for (index in roofTriangleIndices) {
                 val area = projectedAreas[index]
                 if (area <= 0.0) continue
                 val displacement = abs(field.sampleRelief(centroidX[index], centroidY[index]) * field.strength)

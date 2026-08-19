@@ -8,6 +8,7 @@ import com.tomppi.enderslicer.model.PrinterDefinition
 import com.tomppi.enderslicer.model.SlicerSettings
 import com.tomppi.enderslicer.model.withSettings
 import com.tomppi.enderslicer.nonplanar.CurviSlicerRuntime
+import com.tomppi.enderslicer.nonplanar.NozzleCollisionAlert
 import com.tomppi.enderslicer.profile.CuraEngineProfile
 import com.tomppi.enderslicer.profile.CuraResolvedSettingsWriter
 import com.tomppi.enderslicer.profile.CuraSliceSettingsResolver
@@ -33,6 +34,7 @@ class CuraEngineRunner(private val context: Context) {
         val estimatedPrintSeconds: Int?,
         val layerPreview: GcodeLayerPreview?,
         val layerEvents: List<LayerEvent>,
+        val nozzleCollisionAlert: NozzleCollisionAlert? = null,
     )
 
     data class LayerEventApplyResult(
@@ -314,6 +316,7 @@ class CuraEngineRunner(private val context: Context) {
                 estimatedPrintSeconds = processed.summary.estimatedSeconds,
                 layerPreview = processed.layerPreview,
                 layerEvents = processed.layerEvents,
+                nozzleCollisionAlert = processed.nozzleCollisionAlert,
             )
         } catch (error: InterruptedException) {
             appendLog(log, "\n--- EnderSlicer cancellation ---\nFinished: ${Instant.now()}\nThe CuraEngine request was cancelled and reaped.\n")

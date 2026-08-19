@@ -11,6 +11,13 @@ data class NonPlanarSettings(
     val maximumSlopeDegrees: Double = 30.0,
     val nozzleClearanceAngleDegrees: Double = 45.0,
     val nozzleClearanceHeightMm: Double = 50.0,
+    val nozzleAngleDegrees: Double = 30.0,
+    val nozzleProtrusionMm: Double = 5.0,
+    val heatingBlockWidthMm: Double = 20.0,
+    val heatingBlockDepthMm: Double = 16.0,
+    val heatingBlockOffsetXmm: Double = 0.0,
+    val heatingBlockOffsetYmm: Double = 0.0,
+    val maximumLiftMm: Double = 5.0,
     val flatBaseLayers: Int = 3,
     val fieldResolution: Int = 96,
     val maximumSegmentLengthMm: Double = 0.8,
@@ -31,6 +38,13 @@ data class NonPlanarSettings(
             MIN_CLEARANCE_HEIGHT_MM,
             MAX_CLEARANCE_HEIGHT_MM,
         ),
+        nozzleAngleDegrees = nozzleAngleDegrees.coerceIn(MIN_NOZZLE_ANGLE_DEGREES, MAX_NOZZLE_ANGLE_DEGREES),
+        nozzleProtrusionMm = nozzleProtrusionMm.coerceIn(MIN_NOZZLE_PROTRUSION_MM, MAX_NOZZLE_PROTRUSION_MM),
+        heatingBlockWidthMm = heatingBlockWidthMm.coerceIn(MIN_BLOCK_SIZE_MM, MAX_BLOCK_SIZE_MM),
+        heatingBlockDepthMm = heatingBlockDepthMm.coerceIn(MIN_BLOCK_SIZE_MM, MAX_BLOCK_SIZE_MM),
+        heatingBlockOffsetXmm = heatingBlockOffsetXmm.coerceIn(-MAX_BLOCK_OFFSET_MM, MAX_BLOCK_OFFSET_MM),
+        heatingBlockOffsetYmm = heatingBlockOffsetYmm.coerceIn(-MAX_BLOCK_OFFSET_MM, MAX_BLOCK_OFFSET_MM),
+        maximumLiftMm = maximumLiftMm.coerceIn(MIN_MAXIMUM_LIFT_MM, MAX_MAXIMUM_LIFT_MM),
         flatBaseLayers = flatBaseLayers.coerceIn(MIN_FLAT_BASE_LAYERS, MAX_FLAT_BASE_LAYERS),
         fieldResolution = fieldResolution.coerceIn(MIN_FIELD_RESOLUTION, MAX_FIELD_RESOLUTION),
         maximumSegmentLengthMm = maximumSegmentLengthMm.coerceIn(
@@ -58,6 +72,15 @@ data class NonPlanarSettings(
         const val MAX_CLEARANCE_ANGLE_DEGREES = 80.0
         const val MIN_CLEARANCE_HEIGHT_MM = 5.0
         const val MAX_CLEARANCE_HEIGHT_MM = 150.0
+        const val MIN_MAXIMUM_LIFT_MM = 0.2
+        const val MAX_MAXIMUM_LIFT_MM = 25.0
+        const val MIN_NOZZLE_ANGLE_DEGREES = 5.0
+        const val MAX_NOZZLE_ANGLE_DEGREES = 80.0
+        const val MIN_NOZZLE_PROTRUSION_MM = 0.5
+        const val MAX_NOZZLE_PROTRUSION_MM = 30.0
+        const val MIN_BLOCK_SIZE_MM = 2.0
+        const val MAX_BLOCK_SIZE_MM = 80.0
+        const val MAX_BLOCK_OFFSET_MM = 40.0
         const val MIN_FLAT_BASE_LAYERS = 1
         const val MAX_FLAT_BASE_LAYERS = 20
         const val MIN_FIELD_RESOLUTION = 32
@@ -114,6 +137,13 @@ class NonPlanarSettingsStore(context: Context) {
         maximumSlopeDegrees = number(KEY_MAX_SLOPE, 30.0),
         nozzleClearanceAngleDegrees = number(KEY_CLEARANCE_ANGLE, 45.0),
         nozzleClearanceHeightMm = number(KEY_CLEARANCE_HEIGHT, 50.0),
+        maximumLiftMm = number(KEY_MAXIMUM_LIFT, 5.0),
+        nozzleAngleDegrees = number(KEY_NOZZLE_ANGLE, 30.0),
+        nozzleProtrusionMm = number(KEY_NOZZLE_PROTRUSION, 5.0),
+        heatingBlockWidthMm = number(KEY_BLOCK_WIDTH, 20.0),
+        heatingBlockDepthMm = number(KEY_BLOCK_DEPTH, 16.0),
+        heatingBlockOffsetXmm = number(KEY_BLOCK_OFFSET_X, 0.0),
+        heatingBlockOffsetYmm = number(KEY_BLOCK_OFFSET_Y, 0.0),
         flatBaseLayers = preferences.getInt(KEY_FLAT_BASE_LAYERS, 3),
         fieldResolution = preferences.getInt(KEY_FIELD_RESOLUTION, 96),
         maximumSegmentLengthMm = number(KEY_SEGMENT_LENGTH, 0.8),
@@ -133,6 +163,13 @@ class NonPlanarSettingsStore(context: Context) {
             .putString(KEY_MAX_SLOPE, safe.maximumSlopeDegrees.toString())
             .putString(KEY_CLEARANCE_ANGLE, safe.nozzleClearanceAngleDegrees.toString())
             .putString(KEY_CLEARANCE_HEIGHT, safe.nozzleClearanceHeightMm.toString())
+            .putString(KEY_MAXIMUM_LIFT, safe.maximumLiftMm.toString())
+            .putString(KEY_NOZZLE_ANGLE, safe.nozzleAngleDegrees.toString())
+            .putString(KEY_NOZZLE_PROTRUSION, safe.nozzleProtrusionMm.toString())
+            .putString(KEY_BLOCK_WIDTH, safe.heatingBlockWidthMm.toString())
+            .putString(KEY_BLOCK_DEPTH, safe.heatingBlockDepthMm.toString())
+            .putString(KEY_BLOCK_OFFSET_X, safe.heatingBlockOffsetXmm.toString())
+            .putString(KEY_BLOCK_OFFSET_Y, safe.heatingBlockOffsetYmm.toString())
             .putInt(KEY_FLAT_BASE_LAYERS, safe.flatBaseLayers)
             .putInt(KEY_FIELD_RESOLUTION, safe.fieldResolution)
             .putString(KEY_SEGMENT_LENGTH, safe.maximumSegmentLengthMm.toString())
@@ -166,6 +203,13 @@ class NonPlanarSettingsStore(context: Context) {
         private const val KEY_MAX_SLOPE = "maximum-slope-degrees"
         private const val KEY_CLEARANCE_ANGLE = "clearance-angle-degrees"
         private const val KEY_CLEARANCE_HEIGHT = "clearance-height-mm"
+        private const val KEY_MAXIMUM_LIFT = "maximum-lift-mm"
+        private const val KEY_NOZZLE_ANGLE = "nozzle-angle-degrees"
+        private const val KEY_NOZZLE_PROTRUSION = "nozzle-protrusion-mm"
+        private const val KEY_BLOCK_WIDTH = "heating-block-width-mm"
+        private const val KEY_BLOCK_DEPTH = "heating-block-depth-mm"
+        private const val KEY_BLOCK_OFFSET_X = "heating-block-offset-x-mm"
+        private const val KEY_BLOCK_OFFSET_Y = "heating-block-offset-y-mm"
         private const val KEY_FLAT_BASE_LAYERS = "flat-base-layers"
         private const val KEY_FIELD_RESOLUTION = "field-resolution"
         private const val KEY_SEGMENT_LENGTH = "maximum-segment-length-mm"
