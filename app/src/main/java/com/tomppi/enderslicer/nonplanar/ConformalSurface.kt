@@ -368,6 +368,72 @@ internal object ConformalSurfaceBuilder {
                 }
             }
         }
+
+        // Boundary rim erosion: cells whose 8-neighbourhood reaches outside
+        // the region keep their stair steps planar, so a conformal shell can
+        // never ride up against a steep wall at the region edge - the thin
+        // nozzle cone would scrape the wall face above the path (the shell
+        // would be only a fraction of a millimetre from it). One grid cell of
+        // back-off clears walls up to a few layer heights tall.
+        var erodedOffsets = cellTriangleOffsets
+        var erodedTriangles = cellTriangles
+        val boundaryCells = BooleanArray(columns * rows)
+        var boundaryCellCount = 0
+        for (cell in 0 until columns * rows) {
+            if (cellTriangleOffsets[cell] == cellTriangleOffsets[cell + 1]) continue
+            val gx = cell % columns
+            val gy = cell / columns
+            var boundary = false
+            for (dy in -1..1) {
+                for (dx in -1..1) {
+                    if (dx == 0 && dy == 0) continue
+                    val nx = gx + dx
+                    val ny = gy + dy
+                    if (nx !in 0 until columns || ny !in 0 until rows) {
+                        boundary = true
+                        break
+                    }
+                    val neighbour = ny * columns + nx
+                    if (cellTriangleOffsets[neighbour] == cellTriangleOffsets[neighbour + 1]) {
+                        boundary = true
+                        break
+                    }
+                }
+                if (boundary) break
+            }
+            if (boundary) {
+                boundaryCells[cell] = true
+                boundaryCellCount++
+            }
+        }
+        if (boundaryCellCount > 0 && boundaryCellCount < columns * rows) {
+            // Rebuild the index without the eroded rim cells. Tiny regions
+            // whose rim would erase everything keep their full footprint.
+            val rebuiltOffsets = IntArray(columns * rows + 1)
+            for (cell in 0 until columns * rows) {
+                val count = if (boundaryCells[cell]) {
+                    0
+                } else {
+                    cellTriangleOffsets[cell + 1] - cellTriangleOffsets[cell]
+                }
+                rebuiltOffsets[cell + 1] = rebuiltOffsets[cell] + count
+            }
+            if (rebuiltOffsets[columns * rows] > 0) {
+                val rebuiltTriangles = IntArray(rebuiltOffsets[columns * rows])
+                for (cell in 0 until columns * rows) {
+                    if (boundaryCells[cell]) continue
+                    val start = cellTriangleOffsets[cell]
+                    val end = cellTriangleOffsets[cell + 1]
+                    val destination = rebuiltOffsets[cell]
+                    for (index in start until end) {
+                        rebuiltTriangles[destination + (index - start)] = cellTriangles[index]
+                    }
+                }
+                erodedOffsets = rebuiltOffsets
+                erodedTriangles = rebuiltTriangles
+            }
+        }
+
         return ConformalSurface.Region(
             triangles = triangleData,
             minX = minX, minY = minY, minZ = minZ, maxX = maxX, maxY = maxY, maxZ = maxZ,
@@ -375,8 +441,8 @@ internal object ConformalSurfaceBuilder {
             gridOriginX = minX, gridOriginY = minY,
             gridCellMm = GRID_CELL_MM,
             gridColumns = columns, gridRows = rows,
-            cellTriangleOffsets = cellTriangleOffsets,
-            cellTriangles = cellTriangles,
+            cellTriangleOffsets = erodedOffsets,
+            cellTriangles = erodedTriangles,
         )
     }
 

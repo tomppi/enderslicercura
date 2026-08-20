@@ -635,9 +635,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             if (printTime != null) append(" · estimated print $printTime")
                             if (strategyMessage != null) append(" · $strategyMessage")
                             result.nozzleCollisionAlert?.let { alert ->
+                                val zone = when (alert.worstViolationZone) {
+                                    2 -> "the heating block"
+                                    3 -> "the plate clearance"
+                                    else -> "the nozzle cone"
+                                }
                                 append(
                                     " · ⚠ nozzle collision risk: up to " +
-                                        "%.1f mm into the hotend volume on layers ".format(alert.maximumViolationMm) +
+                                        "%.1f mm into $zone on layers ".format(alert.maximumViolationMm) +
                                         alert.offendingLayers.sorted().joinToString(", ") +
                                         if (alert.cutoffViolatingMoves > 0) {
                                             " · material exceeds the holding-object clearance"

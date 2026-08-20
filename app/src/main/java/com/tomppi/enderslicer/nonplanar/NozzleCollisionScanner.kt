@@ -19,6 +19,16 @@ data class NozzleCollisionAlert(
     val violatingMoves: Int,
     val checkedMoves: Int,
     val cutoffViolatingMoves: Int,
+    /** Which zone produced the worst overlap: 1 = nozzle cone, 2 = heating block, 3 = whole-plate cutoff. */
+    val worstViolationZone: Int = 0,
+    /** Nozzle tip position (in the G-code's coordinate space) at the worst overlap. */
+    val worstViolationX: Double = 0.0,
+    val worstViolationY: Double = 0.0,
+    val worstViolationZ: Double = 0.0,
+    /** Height of the colliding material at the worst overlap. */
+    val worstSurfaceZ: Double = 0.0,
+    /** Layer of the move that collided at the worst overlap. */
+    val worstViolationLayer: Int? = null,
 )
 
 /**
@@ -242,6 +252,29 @@ internal object NozzleCollisionScanner {
                 (holderHeightMm - protrusionMm) * blockK) / COARSE_CELL_SIZE_MM,
         ) + 1).toInt().coerceAtLeast(1)
 
+        // Worst-site bookkeeping so the alert can name the exact move, zone
+        // and position of the deepest overlap instead of just its size.
+        var worstValue = 0.0
+        var worstZone = 0
+        var worstTipX = 0.0
+        var worstTipY = 0.0
+        var worstTipZ = 0.0
+        var worstSurfaceZ = 0.0
+        var worstLayer: Int? = null
+        var sweepLayer: Int? = null
+
+        fun recordSite(contribution: Double, zone: Int, tip: Point, surfaceZ: Double) {
+            if (contribution > worstValue) {
+                worstValue = contribution
+                worstZone = zone
+                worstTipX = tip.x
+                worstTipY = tip.y
+                worstTipZ = tip.z
+                worstSurfaceZ = surfaceZ
+                worstLayer = sweepLayer
+            }
+        }
+
         fun sweepRing(
             grid: SurfaceGrid,
             tip: Point,
@@ -260,7 +293,10 @@ internal object NozzleCollisionScanner {
                 if (zone == 1) {
                     val allowed = dz * nozzleK
                     val intrusion = allowed - hypot(dxMm, dyMm)
-                    if (intrusion > SURFACE_MARGIN_MM) worst = maxOf(worst, intrusion)
+                    if (intrusion > SURFACE_MARGIN_MM) {
+                        if (intrusion > worst) worst = intrusion
+                        recordSite(intrusion, zone, tip, sz)
+                    }
                 } else {
                     // The heating block only exists above the nozzle/block
                     // junction: surfaces at or below the protrusion height
@@ -272,7 +308,9 @@ internal object NozzleCollisionScanner {
                     val marginX = limitX - abs(dxMm - blockOffsetX)
                     val marginY = limitY - abs(dyMm - blockOffsetY)
                     if (marginX > SURFACE_MARGIN_MM && marginY > SURFACE_MARGIN_MM) {
-                        worst = maxOf(worst, minOf(marginX, marginY))
+                        val contribution = minOf(marginX, marginY)
+                        if (contribution > worst) worst = contribution
+                        recordSite(contribution, zone, tip, sz)
                     }
                 }
             }
@@ -335,6 +373,7 @@ internal object NozzleCollisionScanner {
                     val cutoffDepth = globalMaxZ - tip.z - holderHeightMm
                     if (cutoffDepth > SURFACE_MARGIN_MM) {
                         segmentCutoffViolation = maxOf(segmentCutoffViolation, cutoffDepth)
+                        recordSite(cutoffDepth, 3, tip, globalMaxZ)
                     }
 
                     // Zone 1: the nozzle cone, at fine resolution.
@@ -359,13 +398,32 @@ internal object NozzleCollisionScanner {
         // an empty grid.
         var lastChecked: Point? = null
         var previous = Point(0.0, 0.0, 0.0)
+        val pending = ArrayList<Point>()
         for (move in moves) {
             val point = Point(move.x, move.y, move.z)
             if (move.sampled) {
                 val from = lastChecked
                 if (from != null) {
+                    sweepLayer = move.layer
                     checkedMoves++
-                    val (segmentViolation, segmentCutoffViolation) = sweepSegment(from, point)
+                    var segmentViolation = 0.0
+                    var segmentCutoffViolation = 0.0
+                    // Follow the real toolpath vertex by vertex. A straight
+                    // chord between two samples would cut through the part
+                    // whenever an unsampled rise/travel/descend hop sits in
+                    // between (the nozzle really climbs to the travel height,
+                    // it never flies that low chord), producing phantom cone
+                    // collisions against material above the fake line.
+                    var cursor: Point = from
+                    for (vertex in pending) {
+                        val (v, c) = sweepSegment(cursor, vertex)
+                        segmentViolation = maxOf(segmentViolation, v)
+                        segmentCutoffViolation = maxOf(segmentCutoffViolation, c)
+                        cursor = vertex
+                    }
+                    val (v, c) = sweepSegment(cursor, point)
+                    segmentViolation = maxOf(segmentViolation, v)
+                    segmentCutoffViolation = maxOf(segmentCutoffViolation, c)
                     if (segmentCutoffViolation > SURFACE_MARGIN_MM) cutoffViolatingMoves++
                     if (segmentViolation > 0.0) {
                         violatingMoves++
@@ -376,6 +434,9 @@ internal object NozzleCollisionScanner {
                     }
                 }
                 lastChecked = point
+                pending.clear()
+            } else if (lastChecked != null) {
+                pending += point
             }
             if (move.extrudes) {
                 val distance = hypot(point.x - previous.x, point.y - previous.y) +
@@ -401,6 +462,12 @@ internal object NozzleCollisionScanner {
             violatingMoves = violatingMoves,
             checkedMoves = checkedMoves,
             cutoffViolatingMoves = cutoffViolatingMoves,
+            worstViolationZone = worstZone,
+            worstViolationX = worstTipX,
+            worstViolationY = worstTipY,
+            worstViolationZ = worstTipZ,
+            worstSurfaceZ = worstSurfaceZ,
+            worstViolationLayer = worstLayer,
         )
     }
 }

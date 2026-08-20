@@ -9,9 +9,11 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ConformalGcodeTransformerTest {
-    // Surface triangle (0,0,0.6)-(10,0,0.6)-(0,10,1.0): z = 0.6 + 0.04 * y.
+    // Surface triangle (0,0,0.6)-(20,0,0.6)-(0,10,1.0): z = 0.6 + 0.04 * y.
+    // Wide enough that the fixture toolpath at y = 2.5 stays clear of the
+    // eroded one-cell boundary rim.
     private fun surface(): ConformalSurface {
-        val mesh = testMesh(floatArrayOf(0f, 0f, 0.6f, 10f, 0f, 0.6f, 0f, 10f, 1.0f))
+        val mesh = testMesh(floatArrayOf(0f, 0f, 0.6f, 20f, 0f, 0.6f, 0f, 10f, 1.0f))
         return ConformalSurfaceBuilder.build(mesh, NonPlanarSettings(enabled = true))
     }
 
@@ -24,18 +26,18 @@ class ConformalGcodeTransformerTest {
         if (retract) "G11" else "",
         "G0 X0 Y0 Z0.2 F6000",
         ";LAYER:0",
-        "G1 X5 Y0 Z0.2 E1 F1200",
-        "G1 X10 Y0 E2",
+        "G1 X5 Y2.5 Z0.2 E1 F1200",
+        "G1 X10 Y2.5 E2",
         ";LAYER:1",
-        "G1 X10 Y0 Z0.4 E3",
-        "G1 X5 Y0 E4",
+        "G1 X10 Y2.5 Z0.4 E3",
+        "G1 X5 Y2.5 E4",
         ";LAYER:2",
-        "G1 X5 Y0 Z0.6 E5",
-        "G1 X10 Y0 E6",
+        "G1 X5 Y2.5 Z0.6 E5",
+        "G1 X10 Y2.5 E6",
         ";LAYER:3",
-        "G1 X10 Y0 Z0.8 E7",
-        "G1 X5 Y0 E8",
-        "G1 X20 Y0 E9",
+        "G1 X10 Y2.5 Z0.8 E7",
+        "G1 X5 Y2.5 E8",
+        "G1 X20 Y2.5 E9",
         NonPlanarRuntime.MACHINE_END_SENTINEL,
         ";End of Gcode",
     ).filter { it.isNotEmpty() }.joinToString("\n") + "\n"
@@ -68,9 +70,9 @@ class ConformalGcodeTransformerTest {
         val lines = output.lines()
         val extrusionMoves = lines.mapNotNull { GcodeCommand.parse(it) }
             .filter { it.opcode == "G1" && it.value('E') != null }
-        // Shell 1 rides surfaceZ - layerHeight = 0.4 (2 moves); shell 0 rides 0.6 (2 moves).
-        assertEquals(2, extrusionMoves.count { it.value('Z') == 0.4 })
-        assertEquals(2, extrusionMoves.count { it.value('Z') == 0.6 })
+        // Shell 1 rides surfaceZ - layerHeight = 0.5 (2 moves); shell 0 rides 0.7 (2 moves).
+        assertEquals(2, extrusionMoves.count { it.value('Z') == 0.5 })
+        assertEquals(2, extrusionMoves.count { it.value('Z') == 0.7 })
         // Absolute E stays continuous: 5 kept planar moves + 4 re-emitted
         // shells, and the total only advances on actually emitted extrusion.
         val eValues = extrusionMoves.mapNotNull { it.value('E') }
@@ -173,9 +175,9 @@ class ConformalGcodeTransformerTest {
             "M82",
             "G92 E0",
             ";LAYER:0",
-            "G1 X5 Y0 Z0.2 E1 F1200",
+            "G1 X5 Y2 Z0.2 E1 F1200",
             ";LAYER:1",
-            "G1 X5 Y0 Z0.4 E2",
+            "G1 X5 Y2 Z0.4 E2",
             ";LAYER:11",
             "G1 X5 Y20 Z2.2 E3",
             NonPlanarRuntime.MACHINE_END_SENTINEL,
@@ -193,17 +195,17 @@ class ConformalGcodeTransformerTest {
                 conformalShellLayers = 3,
                 printerEnvelope = printerEnvelope(),
             )
-            // The shell 0 path rides the surface from the tip (z = 0.4) to the
-            // root (z = 2.2): a single conformal pass that dives 1.8 mm below
+            // The shell 0 path rides the surface from near the tip (z = 0.58)
+            // to the root (z = 2.2): a single conformal pass that dives below
             // the home layer plane at the thin end of the blade.
             val zValues = file.readLines().mapNotNull { line ->
                 GcodeCommand.parse(line)
                     ?.takeIf { it.opcode == "G1" && it.value('E') != null }
                     ?.value('Z')
             }
-            assertTrue("expected a skin at the thin tip", zValues.contains(0.4))
+            assertTrue("expected a skin at the thin tip", zValues.contains(0.58))
             assertTrue("expected a skin at the thick root", zValues.contains(2.2))
-            assertEquals(1.8, diagnostics.maximumDiveMm, 1e-6)
+            assertEquals(1.62, diagnostics.maximumDiveMm, 1e-6)
         } finally {
             directory.deleteRecursively()
         }
