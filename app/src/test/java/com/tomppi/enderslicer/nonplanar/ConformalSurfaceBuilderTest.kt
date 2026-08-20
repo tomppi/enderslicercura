@@ -36,10 +36,9 @@ class ConformalSurfaceBuilderTest {
         assertEquals(0.0, region.minX, 1e-6)
         assertEquals(80.0, region.maxX, 1e-6)
         assertTrue(region.areaMm2 > 20.0)
-        // The apex ray-casts to the peak height; the one-cell boundary rim
-        // is eroded (kept planar) so shells never hug the steep dome skirt.
+        // The apex ray-casts to the peak height and a base corner to the base.
         assertEquals(12.0, region.surfaceZ(40.0, 40.0)!!, 1e-3)
-        assertNull(region.surfaceZ(0.0, 0.0))
+        assertEquals(0.0, region.surfaceZ(0.0, 0.0)!!, 1e-3)
         assertTrue(region.contains(40.0, 40.0))
         assertFalse(region.contains(120.0, 120.0))
         assertNull(region.surfaceZ(120.0, 120.0))
@@ -79,8 +78,7 @@ class ConformalSurfaceBuilderTest {
         assertEquals(1, surface.regions.size)
         val region = surface.regions.single()
         assertEquals(1.4, region.surfaceZ(2.0, 2.0)!!, 1e-4)
-        // The corner sits in the eroded boundary rim, so it ray-casts empty.
-        assertNull(region.surfaceZ(0.0, 10.0))
+        assertEquals(3.0, region.surfaceZ(0.0, 10.0)!!, 1e-4)
         assertNull(region.surfaceZ(9.0, 9.0))
     }
 

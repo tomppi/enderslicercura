@@ -5,6 +5,7 @@ import com.tomppi.enderslicer.viewer.StlMesh
 import java.util.HashMap
 import kotlin.math.abs
 import kotlin.math.cos
+import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sqrt
@@ -55,6 +56,126 @@ internal class ConformalSurface(
 
         /** Exact test: does any triangle's XY projection contain (x,y)? */
         fun contains(x: Double, y: Double): Boolean = surfaceZ(x, y) != null
+
+        private class BoundaryIndex(
+            val edges: FloatArray,
+            val offsets: IntArray,
+            val cellEdges: IntArray,
+        )
+
+        // Boundary edges (used by exactly one triangle) plus a cell index, so
+        // the exact distance from a query point to the region boundary is
+        // cheap. Derived lazily from the triangles - not part of the sidecar
+        // format, rebuilt transparently after a read.
+        private val boundaryIndex: BoundaryIndex by lazy {
+            val counts = HashMap<Long, Int>(triangleCount * 3)
+            val edges = HashMap<Long, FloatArray>(triangleCount * 3)
+            for (t in 0 until triangleCount) {
+                val offset = t * 9
+                for (e in 0 until 3) {
+                    val i = offset + e * 3
+                    val j = offset + ((e + 1) % 3) * 3
+                    val ax = triangles[i].toDouble()
+                    val ay = triangles[i + 1].toDouble()
+                    val bx = triangles[j].toDouble()
+                    val by = triangles[j + 1].toDouble()
+                    var x1 = ax; var y1 = ay; var x2 = bx; var y2 = by
+                    if (x1 > x2 || (x1 == x2 && y1 > y2)) {
+                        val tx = x1; val ty = y1
+                        x1 = x2; y1 = y2; x2 = tx; y2 = ty
+                    }
+                    var key = x1.toRawBits().toLong()
+                    key = key * 31 + y1.toRawBits().toLong()
+                    key = key * 31 + x2.toRawBits().toLong()
+                    key = key * 31 + y2.toRawBits().toLong()
+                    counts[key] = (counts[key] ?: 0) + 1
+                    edges[key] = floatArrayOf(x1.toFloat(), y1.toFloat(), x2.toFloat(), y2.toFloat())
+                }
+            }
+            val boundaryEdges = ArrayList<FloatArray>(counts.size)
+            for ((key, count) in counts) {
+                if (count == 1) boundaryEdges += edges[key]!!
+            }
+            val edgeData = FloatArray(boundaryEdges.size * 4)
+            for (index in boundaryEdges.indices) {
+                val edge = boundaryEdges[index]
+                edgeData[index * 4] = edge[0]
+                edgeData[index * 4 + 1] = edge[1]
+                edgeData[index * 4 + 2] = edge[2]
+                edgeData[index * 4 + 3] = edge[3]
+            }
+            val cellCounts = IntArray(gridColumns * gridRows)
+            for (edge in boundaryEdges) {
+                val loX = max(min(edge[0], edge[2]), minX.toFloat())
+                val hiX = min(max(edge[0], edge[2]), maxX.toFloat())
+                val loY = max(min(edge[1], edge[3]), minY.toFloat())
+                val hiY = min(max(edge[1], edge[3]), maxY.toFloat())
+                val gx0 = ((loX - minX.toFloat()) / gridCellMm.toFloat()).toInt().coerceIn(0, gridColumns - 1)
+                val gx1 = ((hiX - minX.toFloat()) / gridCellMm.toFloat()).toInt().coerceIn(0, gridColumns - 1)
+                val gy0 = ((loY - minY.toFloat()) / gridCellMm.toFloat()).toInt().coerceIn(0, gridRows - 1)
+                val gy1 = ((hiY - minY.toFloat()) / gridCellMm.toFloat()).toInt().coerceIn(0, gridRows - 1)
+                for (gy in gy0..gy1) {
+                    for (gx in gx0..gx1) {
+                        cellCounts[gy * gridColumns + gx]++
+                    }
+                }
+            }
+            val offsets = IntArray(gridColumns * gridRows + 1)
+            for (cell in 0 until gridColumns * gridRows) {
+                offsets[cell + 1] = offsets[cell] + cellCounts[cell]
+            }
+            val cellEdges = IntArray(offsets[gridColumns * gridRows])
+            val cursor = offsets.copyOf()
+            for (index in boundaryEdges.indices) {
+                val edge = boundaryEdges[index]
+                val loX = max(min(edge[0], edge[2]), minX.toFloat())
+                val hiX = min(max(edge[0], edge[2]), maxX.toFloat())
+                val loY = max(min(edge[1], edge[3]), minY.toFloat())
+                val hiY = min(max(edge[1], edge[3]), maxY.toFloat())
+                val gx0 = ((loX - minX.toFloat()) / gridCellMm.toFloat()).toInt().coerceIn(0, gridColumns - 1)
+                val gx1 = ((hiX - minX.toFloat()) / gridCellMm.toFloat()).toInt().coerceIn(0, gridColumns - 1)
+                val gy0 = ((loY - minY.toFloat()) / gridCellMm.toFloat()).toInt().coerceIn(0, gridRows - 1)
+                val gy1 = ((hiY - minY.toFloat()) / gridCellMm.toFloat()).toInt().coerceIn(0, gridRows - 1)
+                for (gy in gy0..gy1) {
+                    for (gx in gx0..gx1) {
+                        val cell = gy * gridColumns + gx
+                        cellEdges[cursor[cell]++] = index
+                    }
+                }
+            }
+            BoundaryIndex(edgeData, offsets, cellEdges)
+        }
+
+        /**
+         * Exact distance from (x,y) to the nearest region boundary edge, or
+         * +Infinity when no boundary edge is indexed nearby. Used to keep the
+         * conformal shells a fixed back-off away from steep walls at the
+         * region edge.
+         */
+        fun distanceToBoundary(x: Double, y: Double): Double {
+            val index = boundaryIndex
+            val gx = ((x - gridOriginX) / gridCellMm).toInt().coerceIn(0, gridColumns - 1)
+            val gy = ((y - gridOriginY) / gridCellMm).toInt().coerceIn(0, gridRows - 1)
+            var best = Double.POSITIVE_INFINITY
+            for (dy in -1..1) {
+                for (dx in -1..1) {
+                    val nx = gx + dx
+                    val ny = gy + dy
+                    if (nx !in 0 until gridColumns || ny !in 0 until gridRows) continue
+                    val cell = ny * gridColumns + nx
+                    for (entry in index.offsets[cell] until index.offsets[cell + 1]) {
+                        val offset = index.cellEdges[entry] * 4
+                        val distance = pointSegmentDistance(
+                            x, y,
+                            index.edges[offset].toDouble(), index.edges[offset + 1].toDouble(),
+                            index.edges[offset + 2].toDouble(), index.edges[offset + 3].toDouble(),
+                        )
+                        if (distance < best) best = distance
+                    }
+                }
+            }
+            return best
+        }
 
         /** The z of the topmost triangle whose XY projection covers (x,y), or null. */
         fun surfaceZ(x: Double, y: Double): Double? {
@@ -120,6 +241,20 @@ internal class ConformalSurface(
             val u = ((y2 - y0) * (px - x0) - (x2 - x0) * (py - y0)) / denominator
             val v = ((x1 - x0) * (py - y0) - (y1 - y0) * (px - x0)) / denominator
             return z0 + u * (z1 - z0) + v * (z2 - z0)
+        }
+
+        private fun pointSegmentDistance(
+            px: Double, py: Double,
+            ax: Double, ay: Double,
+            bx: Double, by: Double,
+        ): Double {
+            val dx = bx - ax
+            val dy = by - ay
+            val lengthSquared = dx * dx + dy * dy
+            if (lengthSquared <= 0.0) return hypot(px - ax, py - ay)
+            val t = ((px - ax) * dx + (py - ay) * dy) / lengthSquared
+            val clamped = t.coerceIn(0.0, 1.0)
+            return hypot(px - (ax + dx * clamped), py - (ay + dy * clamped))
         }
 
         private fun absSmall(value: Double): Boolean = value > -1e-12 && value < 1e-12
@@ -369,71 +504,6 @@ internal object ConformalSurfaceBuilder {
             }
         }
 
-        // Boundary rim erosion: cells whose 8-neighbourhood reaches outside
-        // the region keep their stair steps planar, so a conformal shell can
-        // never ride up against a steep wall at the region edge - the thin
-        // nozzle cone would scrape the wall face above the path (the shell
-        // would be only a fraction of a millimetre from it). One grid cell of
-        // back-off clears walls up to a few layer heights tall.
-        var erodedOffsets = cellTriangleOffsets
-        var erodedTriangles = cellTriangles
-        val boundaryCells = BooleanArray(columns * rows)
-        var boundaryCellCount = 0
-        for (cell in 0 until columns * rows) {
-            if (cellTriangleOffsets[cell] == cellTriangleOffsets[cell + 1]) continue
-            val gx = cell % columns
-            val gy = cell / columns
-            var boundary = false
-            for (dy in -1..1) {
-                for (dx in -1..1) {
-                    if (dx == 0 && dy == 0) continue
-                    val nx = gx + dx
-                    val ny = gy + dy
-                    if (nx !in 0 until columns || ny !in 0 until rows) {
-                        boundary = true
-                        break
-                    }
-                    val neighbour = ny * columns + nx
-                    if (cellTriangleOffsets[neighbour] == cellTriangleOffsets[neighbour + 1]) {
-                        boundary = true
-                        break
-                    }
-                }
-                if (boundary) break
-            }
-            if (boundary) {
-                boundaryCells[cell] = true
-                boundaryCellCount++
-            }
-        }
-        if (boundaryCellCount > 0 && boundaryCellCount < columns * rows) {
-            // Rebuild the index without the eroded rim cells. Tiny regions
-            // whose rim would erase everything keep their full footprint.
-            val rebuiltOffsets = IntArray(columns * rows + 1)
-            for (cell in 0 until columns * rows) {
-                val count = if (boundaryCells[cell]) {
-                    0
-                } else {
-                    cellTriangleOffsets[cell + 1] - cellTriangleOffsets[cell]
-                }
-                rebuiltOffsets[cell + 1] = rebuiltOffsets[cell] + count
-            }
-            if (rebuiltOffsets[columns * rows] > 0) {
-                val rebuiltTriangles = IntArray(rebuiltOffsets[columns * rows])
-                for (cell in 0 until columns * rows) {
-                    if (boundaryCells[cell]) continue
-                    val start = cellTriangleOffsets[cell]
-                    val end = cellTriangleOffsets[cell + 1]
-                    val destination = rebuiltOffsets[cell]
-                    for (index in start until end) {
-                        rebuiltTriangles[destination + (index - start)] = cellTriangles[index]
-                    }
-                }
-                erodedOffsets = rebuiltOffsets
-                erodedTriangles = rebuiltTriangles
-            }
-        }
-
         return ConformalSurface.Region(
             triangles = triangleData,
             minX = minX, minY = minY, minZ = minZ, maxX = maxX, maxY = maxY, maxZ = maxZ,
@@ -441,8 +511,8 @@ internal object ConformalSurfaceBuilder {
             gridOriginX = minX, gridOriginY = minY,
             gridCellMm = GRID_CELL_MM,
             gridColumns = columns, gridRows = rows,
-            cellTriangleOffsets = erodedOffsets,
-            cellTriangles = erodedTriangles,
+            cellTriangleOffsets = cellTriangleOffsets,
+            cellTriangles = cellTriangles,
         )
     }
 

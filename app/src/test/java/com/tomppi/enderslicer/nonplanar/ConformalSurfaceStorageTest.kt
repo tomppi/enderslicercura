@@ -3,7 +3,6 @@ package com.tomppi.enderslicer.nonplanar
 import java.io.File
 import java.nio.file.Files
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -30,7 +29,7 @@ class ConformalSurfaceStorageTest {
             val region = readBack.surface.regions.single()
             assertEquals(12.0, region.maxZ, 1e-6)
             assertEquals(12.0, region.surfaceZ(40.0, 40.0)!!, 1e-3)
-            assertNull(region.surfaceZ(0.0, 0.0))
+            assertEquals(0.0, region.surfaceZ(0.0, 0.0)!!, 1e-3)
         } finally {
             directory.deleteRecursively()
         }

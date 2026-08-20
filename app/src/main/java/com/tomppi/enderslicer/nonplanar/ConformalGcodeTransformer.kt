@@ -58,6 +58,10 @@ internal object ConformalGcodeTransformer {
     private const val CONFORMAL_BAND_SAMPLES = 8
     private const val CHORD_TOLERANCE_MM = 0.1
     private const val SLIVER_MAX_RISE_MM = 0.3
+    // Shells stay this far from the exact region boundary so the nozzle cone
+    // cannot scrape a steep wall rising at the region edge. 0.75 mm clears
+    // walls up to ~2.8 mm above the shell path (0.75 / tan(15 degrees)).
+    private const val BOUNDARY_BACKOFF_MM = 0.75
 
     data class Diagnostics(
         val regionCount: Int,
@@ -171,6 +175,18 @@ internal object ConformalGcodeTransformer {
             val hit = surfaceAt(x, y) ?: return null
             val layer = currentLayer ?: return null
             if (firstLayerNumber != null && layer == firstLayerNumber) return null
+            // Back off from every region's exact boundary, not just the
+            // matched one: adjacent regions face each other across narrow
+            // steep strips, and a shell on one side can hug the other side's
+            // cliff face. The rim stays planar in those strips.
+            for (region in surface.regions) {
+                if (x < region.minX - BOUNDARY_BACKOFF_MM || x > region.maxX + BOUNDARY_BACKOFF_MM ||
+                    y < region.minY - BOUNDARY_BACKOFF_MM || y > region.maxY + BOUNDARY_BACKOFF_MM
+                ) {
+                    continue
+                }
+                if (region.distanceToBoundary(x, y) < BOUNDARY_BACKOFF_MM) return null
+            }
             val band = floor((hit.second - planarHeight) / layerHeightMm + 1e-9).toInt()
             if (band < 0 || band >= shellLayers) return null
             return Classification(hit.first, band, hit.second)
@@ -892,6 +908,16 @@ internal object ConformalGcodeTransformer {
     ): Boolean {
         for (region in surface.regions) {
             val surfaceZ = region.surfaceZ(x, y) ?: continue
+            // Same all-region boundary back-off as walk 1 so the two passes
+            // always agree on which moves belong to the conformal shells.
+            for (other in surface.regions) {
+                if (x < other.minX - BOUNDARY_BACKOFF_MM || x > other.maxX + BOUNDARY_BACKOFF_MM ||
+                    y < other.minY - BOUNDARY_BACKOFF_MM || y > other.maxY + BOUNDARY_BACKOFF_MM
+                ) {
+                    continue
+                }
+                if (other.distanceToBoundary(x, y) < BOUNDARY_BACKOFF_MM) return false
+            }
             val band = floor((surfaceZ - z) / layerHeightMm + 1e-9).toInt()
             if (band in 0 until shellLayers) return true
         }
