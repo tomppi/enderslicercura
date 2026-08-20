@@ -120,7 +120,11 @@ internal object CurviSlicerFieldBuilder {
                 // to 1 / minimumVerticalDerivative; the per-cell step budget
                 // accounts for that so the printed field never exceeds the
                 // configured slope limit.
-                val maxGradient = slopeLimit * minimumVerticalDerivative / appliedStrength
+                // The emitted path slope can exceed the analytical bound by a
+                // few percent (grid interpolation and the local smoothstep
+                // derivative), so the gradient budget keeps an 8% safety
+                // margin instead of landing exactly on the configured limit.
+                val maxGradient = slopeLimit * minimumVerticalDerivative / appliedStrength * 0.92
                 // Diagonal moves combine both axes, so each axis budget is
                 // divided by sqrt(2): a climb at the configured limit in X AND
                 // Y at once would otherwise exceed it by 41%.
