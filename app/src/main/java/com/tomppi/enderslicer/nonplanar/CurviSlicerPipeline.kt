@@ -46,6 +46,25 @@ internal object CurviSlicerPipeline {
             CurviGcodeTransformer.transform(file, field, settings, printerEnvelope)
     }
 
+    /** True non-planar slicing: the model is NOT warped; its toolpath is. */
+    data class ConformalPrepared(
+        val surface: ConformalSurface,
+        val settings: NonPlanarSettings,
+        val layerHeightMm: Double,
+    ) {
+        fun transformGcode(
+            file: File,
+            printerEnvelope: PrinterEnvelope,
+        ): ConformalGcodeTransformer.Diagnostics = ConformalGcodeTransformer.transform(
+            file = file,
+            surface = surface,
+            layerHeightMm = layerHeightMm,
+            maximumZSpeedMmPerSecond = settings.maximumZSpeedMmPerSecond,
+            conformalShellLayers = settings.conformalShellLayers,
+            printerEnvelope = printerEnvelope,
+        )
+    }
+
     data class Diagnostics(
         val gridColumns: Int,
         val gridRows: Int,
@@ -88,6 +107,30 @@ internal object CurviSlicerPipeline {
         val built = CurviSlicerFieldBuilder.build(mesh, safe, layerHeightMm, nozzleDiameterMm)
         warpMesh(modelFile, mesh, built.field)
         return Prepared(built.field, built.diagnostics, safe)
+    }
+
+    /**
+     * Conformal surface mode: the STL stays as displayed; only the sliced
+     * toolpath is projected onto the surface regions after CuraEngine runs.
+     */
+    fun prepareConformal(
+        modelFile: File,
+        settings: NonPlanarSettings,
+        layerHeightMm: Double,
+        nozzleDiameterMm: Double,
+    ): ConformalPrepared {
+        require(modelFile.isFile && modelFile.length() > 0L) { "Conformal input STL is missing" }
+        val safe = settings.validated()
+        require(safe.enabled && safe.conformalMode) { "Conformal surface mode is not enabled" }
+        require(layerHeightMm.isFinite() && layerHeightMm in 0.04..1.2) { "Invalid conformal layer height" }
+        require(nozzleDiameterMm.isFinite() && nozzleDiameterMm in 0.1..2.0) { "Invalid conformal nozzle diameter" }
+        val mesh = parseCancellable(modelFile)
+        val surface = ConformalSurfaceBuilder.build(mesh, safe)
+        require(surface.regions.isNotEmpty()) {
+            "Conformal surface mode found no printable surface region: " +
+                "lower the maximum path slope or raise the maximum lift so the model's top surface qualifies"
+        }
+        return ConformalPrepared(surface, safe, layerHeightMm)
     }
 
     private fun parseCancellable(file: File): StlMesh = try {

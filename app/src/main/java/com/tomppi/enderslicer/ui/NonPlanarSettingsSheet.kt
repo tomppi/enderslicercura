@@ -79,6 +79,10 @@ internal fun NonPlanarSettingsSheet(
     var pauseAfterProbe by rememberSaveable(initial.pauseAfterProbe) { mutableStateOf(initial.pauseAfterProbe) }
     var drapeMode by rememberSaveable(initial.drapeMode) { mutableStateOf(initial.drapeMode) }
     var fadeStart by rememberSaveable(initial.fadeStartPercent) { mutableStateOf(initial.fadeStartPercent.toString()) }
+    var conformalMode by rememberSaveable(initial.conformalMode) { mutableStateOf(initial.conformalMode) }
+    var conformalShells by rememberSaveable(initial.conformalShellLayers) {
+        mutableStateOf(initial.conformalShellLayers.toString())
+    }
 
     val parsedStrength = parseDecimal(strength, NonPlanarSettings.MIN_STRENGTH_PERCENT, NonPlanarSettings.MAX_STRENGTH_PERCENT)
     val parsedSmoothing = parseDecimal(
@@ -157,13 +161,18 @@ internal fun NonPlanarSettingsSheet(
         NonPlanarSettings.MIN_FADE_START_PERCENT,
         NonPlanarSettings.MAX_FADE_START_PERCENT,
     )
+    val parsedConformalShells = parseInteger(
+        conformalShells,
+        NonPlanarSettings.MIN_CONFORMAL_SHELL_LAYERS,
+        NonPlanarSettings.MAX_CONFORMAL_SHELL_LAYERS,
+    )
     val draft = if (
         parsedStrength != null && parsedSmoothing != null && parsedSlope != null &&
         parsedClearanceAngle != null && parsedClearanceHeight != null && parsedMaximumLift != null &&
         parsedNozzleAngle != null && parsedNozzleProtrusion != null && parsedBlockWidth != null &&
         parsedBlockDepth != null && parsedBlockOffsetX != null && parsedBlockOffsetY != null &&
         parsedFlatBaseLayers != null && parsedFieldResolution != null && parsedSegmentLength != null &&
-        parsedMaximumZSpeed != null && parsedFadeStart != null
+        parsedMaximumZSpeed != null && parsedFadeStart != null && parsedConformalShells != null
     ) {
         NonPlanarSettings(
             enabled = enabled,
@@ -188,6 +197,8 @@ internal fun NonPlanarSettingsSheet(
             pauseAfterProbe = pauseAfterProbe,
             drapeMode = drapeMode,
             fadeStartPercent = parsedFadeStart,
+            conformalMode = conformalMode,
+            conformalShellLayers = parsedConformalShells,
         )
     } else {
         null
@@ -205,7 +216,7 @@ internal fun NonPlanarSettingsSheet(
                 Text(NonPlanarSettingsStore.BACKEND_NAME, style = MaterialTheme.typography.titleMedium)
                 Text("Ready · fully offline · Android ARM64", style = MaterialTheme.typography.bodyMedium)
                 Text(
-                    "EnderSlicer flattens the displayed STL with a monotone, slope-limited CurviSlicer field, slices the flattened solid with CuraEngine, then restores continuously varying Z paths. Extrusion and Z speed are compensated before validation.",
+                    "Warp mode flattens the displayed STL with a monotone, slope-limited field, slices the flattened solid with CuraEngine, then restores continuously varying Z paths. Conformal surface mode keeps the STL as displayed and projects the top toolpath straight down onto the real 3D surface - true non-planar printing where the nozzle dives below the layer plane to the thinnest part and climbs to the thickest.",
                     style = MaterialTheme.typography.bodySmall,
                 )
                 Text(
@@ -220,6 +231,19 @@ internal fun NonPlanarSettingsSheet(
             description = "Generate curved layers for the next slice",
             checked = enabled,
             onChecked = { enabled = it },
+        )
+        SettingSwitch(
+            title = "Conformal surface mode (true non-planar)",
+            description = "Project the top layers onto the real surface: the nozzle follows it from the thinnest part to the thickest, diving below the layer plane. Replaces the warp pipeline; strength/smoothing/fade/drape settings are ignored.",
+            checked = conformalMode,
+            onChecked = { conformalMode = it },
+        )
+        IntegerSettingField(
+            "Conformal shells (top layers replaced)",
+            conformalShells,
+            NonPlanarSettings.MIN_CONFORMAL_SHELL_LAYERS,
+            NonPlanarSettings.MAX_CONFORMAL_SHELL_LAYERS,
+            onText = { conformalShells = it },
         )
         DecimalSettingField(
             "Curvature strength (%)",

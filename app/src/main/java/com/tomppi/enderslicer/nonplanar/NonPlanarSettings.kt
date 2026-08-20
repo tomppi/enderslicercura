@@ -32,6 +32,14 @@ data class NonPlanarSettings(
     val pauseAfterProbe: Boolean = false,
     val drapeMode: Boolean = false,
     val fadeStartPercent: Double = 0.0,
+    // True non-planar printing (Ahlers' method): the top layers of the sliced
+    // model are projected onto the original 3D surface instead of warping the
+    // whole mesh. The nozzle then follows the surface continuously, diving
+    // below the layer plane down to the thinnest part of the model.
+    val conformalMode: Boolean = false,
+    // How many top planar layers are replaced by conformal shells riding
+    // conformalShellLayers * layerHeight below the surface.
+    val conformalShellLayers: Int = 3,
 ) {
     fun validated(): NonPlanarSettings = copy(
         strengthPercent = strengthPercent.coerceIn(MIN_STRENGTH_PERCENT, MAX_STRENGTH_PERCENT),
@@ -63,6 +71,7 @@ data class NonPlanarSettings(
             MAX_Z_SPEED_MM_PER_SECOND,
         ),
         fadeStartPercent = fadeStartPercent.coerceIn(MIN_FADE_START_PERCENT, MAX_FADE_START_PERCENT),
+        conformalShellLayers = conformalShellLayers.coerceIn(MIN_CONFORMAL_SHELL_LAYERS, MAX_CONFORMAL_SHELL_LAYERS),
     )
 
     // Both the surface slope and the clearance angle are measured from
@@ -108,6 +117,8 @@ data class NonPlanarSettings(
         const val MAX_Z_SPEED_MM_PER_SECOND = 20.0
         const val MIN_FADE_START_PERCENT = 0.0
         const val MAX_FADE_START_PERCENT = 95.0
+        const val MIN_CONFORMAL_SHELL_LAYERS = 1
+        const val MAX_CONFORMAL_SHELL_LAYERS = 8
         private const val CLEARANCE_MARGIN_DEGREES = 5.0
     }
 }
@@ -172,6 +183,8 @@ class NonPlanarSettingsStore(context: Context) {
         pauseAfterProbe = preferences.getBoolean(KEY_PAUSE_AFTER_PROBE, false),
         drapeMode = preferences.getBoolean(KEY_DRAPE_MODE, false),
         fadeStartPercent = number(KEY_FADE_START, 0.0),
+        conformalMode = preferences.getBoolean(KEY_CONFORMAL_MODE, false),
+        conformalShellLayers = preferences.getInt(KEY_CONFORMAL_SHELLS, 3),
     ).validated().also(CurviSlicerRuntime::activate)
 
     fun save(settings: NonPlanarSettings) {
@@ -200,6 +213,8 @@ class NonPlanarSettingsStore(context: Context) {
             .putBoolean(KEY_PAUSE_AFTER_PROBE, safe.pauseAfterProbe)
             .putBoolean(KEY_DRAPE_MODE, safe.drapeMode)
             .putString(KEY_FADE_START, safe.fadeStartPercent.toString())
+            .putBoolean(KEY_CONFORMAL_MODE, safe.conformalMode)
+            .putInt(KEY_CONFORMAL_SHELLS, safe.conformalShellLayers)
             .commit()
         CurviSlicerRuntime.activate(safe)
         if (changed) invalidatePublishedSlices()
@@ -242,5 +257,7 @@ class NonPlanarSettingsStore(context: Context) {
         private const val KEY_PAUSE_AFTER_PROBE = "pause-after-probe"
         private const val KEY_DRAPE_MODE = "drape-mode"
         private const val KEY_FADE_START = "fade-start-percent"
+        private const val KEY_CONFORMAL_MODE = "conformal-mode"
+        private const val KEY_CONFORMAL_SHELLS = "conformal-shell-layers"
     }
 }
