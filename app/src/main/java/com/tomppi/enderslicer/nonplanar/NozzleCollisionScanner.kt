@@ -24,18 +24,26 @@ data class NozzleCollisionAlert(
 /**
  * Post-slice nozzle collision sweep for non-planar output.
  *
- * The collision volume is built from hot-end measurements taken once on the
- * printer (all tip-relative, Z up):
- * 1. Nozzle cone: apex at the tip, widening at the nozzle taper angle
- *    measured from horizontal (75 degrees = thin cone) up to the protrusion
- *    height.
- * 2. Heating block frustum: from the nozzle/block junction the free space
- *    widens at the SAME measured clearance angle (from horizontal, 90 = up)
- *    from the block footprint (centered on the measured nozzle-axis offset)
- *    up to the holder height.
- * 3. Cutoff level: above the holding-object height the whole build plate
- *    is a no-go zone - anything protruding above it warns, regardless of
- *    horizontal distance.
+ * The thesis models a single nozzle cone; this is an explicit three-zone
+ * extension built from hot-end measurements taken once on the printer (all
+ * tip-relative, Z up):
+ * 1. Nozzle cone (the thesis cone): apex at the tip, widening at the nozzle
+ *    taper angle measured from horizontal (75 degrees = thin cone) up to the
+ *    protrusion height.
+ * 2. Heating block frustum (extension): from the nozzle/block junction the
+ *    free space widens at the SAME measured clearance angle (from horizontal,
+ *    90 = up) from the block footprint (centered on the measured nozzle-axis
+ *    offset) up to the holder height.
+ * 3. Cutoff level (extension): above the holding-object height the whole
+ *    build plate is a no-go zone - anything protruding above it warns,
+ *    regardless of horizontal distance.
+ *
+ * Anything else mounted around the block (fan duct, bed probe - the thesis
+ * names them the most likely colliders) is not modelled separately: inflate
+ * the block dimensions so they cover those parts. The surface-span filter
+ * (maximumLiftMm) and the zone-3 cutoff (holderHeightMm) are intentionally
+ * decoupled: the first bounds how far a printable region may rise above its
+ * own base, the second bounds the absolute height of the printed part.
  */
 internal object NozzleCollisionScanner {
     private const val FINE_CELL_SIZE_MM = 0.25
@@ -45,6 +53,7 @@ internal object NozzleCollisionScanner {
     private const val SURFACE_MARGIN_MM = 0.05
     private const val SWEEP_STEP_MM = 1.0
     private const val MAX_SWEEP_STEPS = 400
+    private const val DEPOSIT_STEP_MM = 0.5
     private const val MAX_GRID_CELLS = 2_000_000.0
 
     private class SurfaceGrid(
@@ -207,6 +216,11 @@ internal object NozzleCollisionScanner {
             }
         }
         if (moves.none { it.extrudes }) return null
+        // The final move must always be sampled so the last few moves before
+        // it can never hide a collision in an unswept tail.
+        if (!moves.last().sampled) {
+            moves[moves.size - 1] = moves.last().copy(sampled = true)
+        }
 
         // A fine grid resolves the sub-millimetre nozzle cone, a coarse one
         // bounds the heating-block frustum sweep. Each cell remembers the
@@ -237,40 +251,54 @@ internal object NozzleCollisionScanner {
             var worst = 0.0
             val gx = floor((tip.x - minX) / grid.cellSizeMm).toInt().coerceIn(0, grid.columns - 1)
             val gy = floor((tip.y - minY) / grid.cellSizeMm).toInt().coerceIn(0, grid.rows - 1)
-            for (dy in -radius..radius) {
+
+            fun checkPoint(sx: Double, sy: Double, sz: Double) {
+                val dz = sz - tip.z
+                if (dz <= SURFACE_MARGIN_MM) return
+                val dxMm = sx - tip.x
+                val dyMm = sy - tip.y
+                if (zone == 1) {
+                    val allowed = dz * nozzleK
+                    val intrusion = allowed - hypot(dxMm, dyMm)
+                    if (intrusion > SURFACE_MARGIN_MM) worst = maxOf(worst, intrusion)
+                } else {
+                    // The heating block only exists above the nozzle/block
+                    // junction: surfaces at or below the protrusion height
+                    // can only collide with the nozzle cone itself.
+                    if (dz <= protrusionMm) return
+                    val rise = dz - protrusionMm
+                    val limitX = blockHalfWidth + rise * blockK
+                    val limitY = blockHalfDepth + rise * blockK
+                    val marginX = limitX - abs(dxMm - blockOffsetX)
+                    val marginY = limitY - abs(dyMm - blockOffsetY)
+                    if (marginX > SURFACE_MARGIN_MM && marginY > SURFACE_MARGIN_MM) {
+                        worst = maxOf(worst, minOf(marginX, marginY))
+                    }
+                }
+            }
+
+            // Both per-cell representatives are checked: the topmost point
+            // plus the one nearest the cell centre, so a wall that leans away
+            // from the nozzle cannot hide below its own crest.
+            fun checkCell(nx: Int, ny: Int) {
+                if (nx !in 0 until grid.columns || ny !in 0 until grid.rows) return
+                for (point in grid.surfacePointsAt(nx, ny)) {
+                    checkPoint(point.first, point.second, point.third)
+                }
+            }
+
+            // Walk the ring perimeter directly instead of scanning the full
+            // (2r+1)^2 square: 8r cells per ring instead of O(r^2).
+            if (radius == 0) {
+                checkCell(gx, gy)
+            } else {
                 for (dx in -radius..radius) {
-                    if (maxOf(abs(dx), abs(dy)) != radius) continue
-                    val nx = gx + dx
-                    val ny = gy + dy
-                    // Both per-cell representatives are checked: the topmost
-                    // point plus the one nearest the cell centre, so a wall
-                    // that leans away from the nozzle cannot hide below its
-                    // own crest.
-                    for (point in grid.surfacePointsAt(nx, ny)) {
-                    val (sx, sy, sz) = point
-                    val dz = sz - tip.z
-                    if (dz <= SURFACE_MARGIN_MM) continue
-                    val dxMm = sx - tip.x
-                    val dyMm = sy - tip.y
-                    if (zone == 1) {
-                        val allowed = dz * nozzleK
-                        val intrusion = allowed - hypot(dxMm, dyMm)
-                        if (intrusion > SURFACE_MARGIN_MM) worst = maxOf(worst, intrusion)
-                    } else {
-                        // The heating block only exists above the nozzle/block
-                        // junction: surfaces at or below the protrusion height
-                        // can only collide with the nozzle cone itself.
-                        if (dz <= protrusionMm) continue
-                        val rise = dz - protrusionMm
-                        val limitX = blockHalfWidth + rise * blockK
-                        val limitY = blockHalfDepth + rise * blockK
-                        val marginX = limitX - abs(dxMm - blockOffsetX)
-                        val marginY = limitY - abs(dyMm - blockOffsetY)
-                        if (marginX > SURFACE_MARGIN_MM && marginY > SURFACE_MARGIN_MM) {
-                            worst = maxOf(worst, minOf(marginX, marginY))
-                        }
-                    }
-                    }
+                    checkCell(gx + dx, gy - radius)
+                    checkCell(gx + dx, gy + radius)
+                }
+                for (dy in (1 - radius)..(radius - 1)) {
+                    checkCell(gx - radius, gy + dy)
+                    checkCell(gx + radius, gy + dy)
                 }
             }
             return worst
@@ -278,39 +306,35 @@ internal object NozzleCollisionScanner {
 
         // Second pass in print order: sweep each sampled move against the
         // surface deposited so far, then deposit its own extrusion so a move
-        // can never collide with material printed after it. The path from the
-        // previously sampled position to this move's tip is checked in steps
-        // of at most one millimetre so a long move can never hide a collision
-        // in its middle (a straight travel or chord across a dome crest would
-        // otherwise pass the endpoint-only check).
-        var lastCheckedX = 0.0
-        var lastCheckedY = 0.0
-        var lastCheckedZ = 0.0
-        for (move in moves) {
-            if (move.sampled) {
-                checkedMoves++
-                val distance = hypot(move.x - lastCheckedX, move.y - lastCheckedY) +
-                    abs(move.z - lastCheckedZ)
-                // Chunk the path so the step cap never silently coarsens the
-                // sampling on long moves.
-                val steps = max(1, ceil(distance / SWEEP_STEP_MM).toInt())
-                var moveViolation = 0.0
-                var moveCutoffViolation = 0.0
-                var stepBase = 0
-                while (stepBase < steps) {
-                    val stepEnd = minOf(stepBase + MAX_SWEEP_STEPS, steps)
-                    for (step in (stepBase + 1)..stepEnd) {
+        // can never collide with material printed after it. The path between
+        // two sampled positions is checked in steps of at most one millimetre
+        // so a long move can never hide a collision in its middle (a straight
+        // travel or chord across a dome crest would otherwise pass the
+        // endpoint-only check), and the deposits are interpolated at the same
+        // granularity so long straight extrusions cannot leave the surface
+        // empty mid-line.
+        fun sweepSegment(from: Point, to: Point): Pair<Double, Double> {
+            val distance = hypot(to.x - from.x, to.y - from.y) + abs(to.z - from.z)
+            // Chunk the path so the step cap never silently coarsens the
+            // sampling on long moves.
+            val steps = max(1, ceil(distance / SWEEP_STEP_MM).toInt())
+            var segmentViolation = 0.0
+            var segmentCutoffViolation = 0.0
+            var stepBase = 0
+            while (stepBase < steps) {
+                val stepEnd = minOf(stepBase + MAX_SWEEP_STEPS, steps)
+                for (step in (stepBase + 1)..stepEnd) {
                     val t = step.toDouble() / steps
                     val tip = Point(
-                        lastCheckedX + (move.x - lastCheckedX) * t,
-                        lastCheckedY + (move.y - lastCheckedY) * t,
-                        lastCheckedZ + (move.z - lastCheckedZ) * t,
+                        from.x + (to.x - from.x) * t,
+                        from.y + (to.y - from.y) * t,
+                        from.z + (to.z - from.z) * t,
                     )
 
                     // Zone 3: the whole-plate cutoff above the holding object.
                     val cutoffDepth = globalMaxZ - tip.z - holderHeightMm
                     if (cutoffDepth > SURFACE_MARGIN_MM) {
-                        moveCutoffViolation = maxOf(moveCutoffViolation, cutoffDepth)
+                        segmentCutoffViolation = maxOf(segmentCutoffViolation, cutoffDepth)
                     }
 
                     // Zone 1: the nozzle cone, at fine resolution.
@@ -323,27 +347,51 @@ internal object NozzleCollisionScanner {
                     for (radius in 1..coarseRadiusCells) {
                         violation = maxOf(violation, sweepRing(coarse, tip, radius, 2))
                     }
-                    moveViolation = maxOf(moveViolation, violation, moveCutoffViolation)
-                    }
-                    stepBase = stepEnd
+                    segmentViolation = maxOf(segmentViolation, violation)
                 }
-                lastCheckedX = move.x
-                lastCheckedY = move.y
-                lastCheckedZ = move.z
-                if (moveCutoffViolation > SURFACE_MARGIN_MM) cutoffViolatingMoves++
-                if (moveViolation > 0.0) {
-                    violatingMoves++
-                    maximumViolation = maxOf(maximumViolation, moveViolation)
-                    if (move.layer != null && move.layer >= 0 && offendingLayers.size < REPORTED_LAYERS_CAP) {
-                        offendingLayers += move.layer
+                stepBase = stepEnd
+            }
+            return segmentViolation to segmentCutoffViolation
+        }
+
+        // The first sampled move has no predecessor path: starting the sweep
+        // from the (0,0,0) home origin would walk a spurious diagonal against
+        // an empty grid.
+        var lastChecked: Point? = null
+        var previous = Point(0.0, 0.0, 0.0)
+        for (move in moves) {
+            val point = Point(move.x, move.y, move.z)
+            if (move.sampled) {
+                val from = lastChecked
+                if (from != null) {
+                    checkedMoves++
+                    val (segmentViolation, segmentCutoffViolation) = sweepSegment(from, point)
+                    if (segmentCutoffViolation > SURFACE_MARGIN_MM) cutoffViolatingMoves++
+                    if (segmentViolation > 0.0) {
+                        violatingMoves++
+                        maximumViolation = maxOf(maximumViolation, segmentViolation)
+                        if (move.layer != null && move.layer >= 0 && offendingLayers.size < REPORTED_LAYERS_CAP) {
+                            offendingLayers += move.layer
+                        }
                     }
                 }
+                lastChecked = point
             }
             if (move.extrudes) {
-                fine.deposit(move.x, move.y, move.z)
-                coarse.deposit(move.x, move.y, move.z)
-                globalMaxZ = maxOf(globalMaxZ, move.z)
+                val distance = hypot(point.x - previous.x, point.y - previous.y) +
+                    abs(point.z - previous.z)
+                val depositSteps = max(1, ceil(distance / DEPOSIT_STEP_MM).toInt())
+                for (step in 1..depositSteps) {
+                    val t = step.toDouble() / depositSteps
+                    val px = previous.x + (point.x - previous.x) * t
+                    val py = previous.y + (point.y - previous.y) * t
+                    val pz = previous.z + (point.z - previous.z) * t
+                    fine.deposit(px, py, pz)
+                    coarse.deposit(px, py, pz)
+                    globalMaxZ = maxOf(globalMaxZ, pz)
+                }
             }
+            previous = point
         }
 
         if (violatingMoves == 0) return null

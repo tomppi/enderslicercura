@@ -315,6 +315,15 @@ internal fun NonPlanarSettingsSheet(
                     "Surfaces steeper than the maximum slope or taller than the maximum span are excluded from the curved regions and stay planar. Final G-code is rejected if any move leaves the configured machine envelope, and the measured hot-end volume is swept along every move with a warning on collision.",
                     style = MaterialTheme.typography.bodySmall,
                 )
+                val junctionLimit = draft?.blockJunctionSlopeLimitDegrees
+                if (junctionLimit != null) {
+                    Text(
+                        "The measured block geometry clears surface climbs up to about " +
+                            String.format(java.util.Locale.US, "%.1f", junctionLimit) +
+                            "° toward the block's offset side; steeper climbs can trigger collision warnings.",
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                }
                 Text(
                     "Preview the complete Path view before printing. Physical fan ducts, probes and heater blocks can require a higher clearance angle (steeper from the bed) than the bare nozzle.",
                     style = MaterialTheme.typography.labelSmall,

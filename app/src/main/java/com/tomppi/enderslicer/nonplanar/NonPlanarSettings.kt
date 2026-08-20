@@ -2,6 +2,8 @@ package com.tomppi.enderslicer.nonplanar
 
 import android.content.Context
 import java.io.File
+import kotlin.math.abs
+import kotlin.math.atan
 
 /**
  * User-facing controls for the conformal non-planar pipeline (Ahlers'
@@ -64,9 +66,34 @@ data class NonPlanarSettings(
 
     // Both the surface slope and the clearance angle are measured from
     // horizontal, so the path may never climb steeper than the obstacle cone.
+    // The nozzle cone itself constrains the climb as well: a surface rising
+    // faster than the cone wall (nozzleAngleDegrees from horizontal) would
+    // always be inside the cone's widening shadow.
     val effectiveSlopeLimitDegrees: Double
-        get() = minOf(maximumSlopeDegrees, nozzleClearanceAngleDegrees - CLEARANCE_MARGIN_DEGREES)
-            .coerceAtLeast(MIN_SLOPE_DEGREES)
+        get() = minOf(
+            maximumSlopeDegrees,
+            nozzleClearanceAngleDegrees - CLEARANCE_MARGIN_DEGREES,
+            nozzleAngleDegrees - CLEARANCE_MARGIN_DEGREES,
+        ).coerceAtLeast(MIN_SLOPE_DEGREES)
+
+    /**
+     * The steepest slope that can clear the heating-block bottom edge when
+     * the nozzle climbs straight toward the block's offset side: a surface
+     * rising at this angle reaches the protrusion height exactly where the
+     * block half-width (plus the nozzle-axis offset) ends. Slopes above this
+     * still print, but the collision sweep will likely flag them. Null when
+     * the geometry cannot define a bound.
+     */
+    val blockJunctionSlopeLimitDegrees: Double?
+        get() {
+            if (nozzleProtrusionMm <= 0.0) return null
+            val span = minOf(
+                heatingBlockWidthMm / 2.0 + abs(heatingBlockOffsetXmm),
+                heatingBlockDepthMm / 2.0 + abs(heatingBlockOffsetYmm),
+            )
+            if (span <= 0.0) return null
+            return Math.toDegrees(atan(nozzleProtrusionMm / span))
+        }
 
     /** Tip to holding object: the nozzle cone plus the block cone height. */
     val holderHeightMm: Double
