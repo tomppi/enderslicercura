@@ -68,6 +68,8 @@ internal object CuraSettingDelta {
         putValue(SlicerSettings.Keys.TOP_LAYERS, "top_layers", settings.topLayers)
         putValue(SlicerSettings.Keys.BOTTOM_LAYERS, "bottom_layers", settings.bottomLayers)
         putValue(SlicerSettings.Keys.TOP_BOTTOM_THICKNESS, "top_bottom_thickness", settings.topBottomThicknessMm)
+        putValue(SlicerSettings.Keys.TOP_SKIN_ANGLES, "skin_angles", normalizeSkinAngles(settings.topSkinAngles))
+        putValue(SlicerSettings.Keys.TOP_BOTTOM_PATTERN, "top_bottom_pattern", settings.topBottomPattern)
         putValue(SlicerSettings.Keys.ROOFING_EXPANSION, "roofing_expansion", settings.roofingExpansionMm)
         putValue(SlicerSettings.Keys.TOP_BOTTOM_SKIN_MERGE_DISTANCE, "top_bottom_skin_merge_distance", settings.topBottomSkinMergeDistanceMm)
         putValue(SlicerSettings.Keys.SKIN_SUPPORT_ENABLED, "skin_support", settings.skinSupportEnabled)
@@ -242,6 +244,12 @@ internal object CuraSettingDelta {
         require(mismatches.isEmpty()) {
             "Explicit Cura edits diverged from the resolved slice snapshot: ${mismatches.take(12).joinToString()}"
         }
+    }
+
+    private fun normalizeSkinAngles(value: String): String {
+        val angles = value.split(",").mapNotNull { token -> token.trim().toDoubleOrNull()?.takeIf { d -> d.isFinite() } }
+        if (angles.isEmpty()) return "[45,135]"
+        return "[" + angles.joinToString(",") + "]"
     }
 
     private fun equivalent(expected: String, actual: String): Boolean {

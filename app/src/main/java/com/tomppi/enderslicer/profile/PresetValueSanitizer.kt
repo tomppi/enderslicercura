@@ -177,6 +177,8 @@ internal object PresetValueSanitizer {
         SlicerSettings.Keys.COMBING_MODE,
         SlicerSettings.Keys.ADHESION_TYPE,
         SlicerSettings.Keys.WAVE_OVERHANG_PATTERN,
+        SlicerSettings.Keys.TOP_SKIN_ANGLES,
+        SlicerSettings.Keys.TOP_BOTTOM_PATTERN,
     )
 
     private val strictOptions = mapOf(
@@ -190,6 +192,7 @@ internal object PresetValueSanitizer {
             "z_seam_corner_weighted",
         ),
         SlicerSettings.Keys.WAVE_OVERHANG_PATTERN to setOf("smart", "monotonic", "zigzag"),
+        SlicerSettings.Keys.TOP_BOTTOM_PATTERN to setOf("lines", "concentric", "zigzag"),
     )
 
     private val numericRanges: Map<String, ClosedFloatingPointRange<Double>> = mapOf(

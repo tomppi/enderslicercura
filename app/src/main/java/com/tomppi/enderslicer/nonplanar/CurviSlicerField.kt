@@ -16,6 +16,7 @@ internal data class CurviSlicerField(
     val relief: FloatArray,
     val strength: Double,
     val flatBaseHeightMm: Double,
+    val uniformShift: Boolean = false,
 ) {
     init {
         require(columns >= 2 && rows >= 2 && relief.size == columns * rows)
@@ -28,6 +29,14 @@ internal data class CurviSlicerField(
         get() = relief.maxOf { abs(it.toDouble() * strength) }
 
     fun displacement(x: Double, y: Double, originalZ: Double): Double {
+        if (uniformShift) {
+            // Drape mode: every layer above the flat base is a scaled copy of
+            // the surface shape (the original CurviSlicer curved solid). The
+            // displacement grows linearly with height above the base.
+            val usableHeight = modelHeightMm - flatBaseHeightMm
+            if (usableHeight <= 1e-9 || originalZ <= minZ + flatBaseHeightMm) return 0.0
+            return (originalZ - minZ - flatBaseHeightMm) * sampleRelief(x, y) * strength / usableHeight
+        }
         val usableHeight = modelHeightMm - flatBaseHeightMm
         if (usableHeight <= 1e-9) return 0.0
         val u = ((originalZ - minZ - flatBaseHeightMm) / usableHeight).coerceIn(0.0, 1.0)
@@ -35,11 +44,31 @@ internal data class CurviSlicerField(
         return sampleRelief(x, y) * strength * weight
     }
 
-    fun flattenZ(x: Double, y: Double, originalZ: Double): Double =
-        originalZ - displacement(x, y, originalZ)
+    fun flattenZ(x: Double, y: Double, originalZ: Double): Double {
+        if (uniformShift) {
+            val usableHeight = modelHeightMm - flatBaseHeightMm
+            val baseZ = minZ + flatBaseHeightMm
+            if (usableHeight <= 1e-9 || originalZ <= baseZ) return originalZ
+            val scale = (usableHeight - sampleRelief(x, y) * strength) / usableHeight
+            return baseZ + (originalZ - baseZ) * scale.coerceAtLeast(0.05)
+        }
+        return originalZ - displacement(x, y, originalZ)
+    }
 
     fun unflattenZ(x: Double, y: Double, flatZ: Double): Double {
         val amplitude = sampleRelief(x, y) * strength
+        if (uniformShift) {
+            // Drape mode: invert the per-XY height scaling. Above the deformed
+            // top continue linearly so Z-hops keep their clearance.
+            val usableHeight = modelHeightMm - flatBaseHeightMm
+            val baseZ = minZ + flatBaseHeightMm
+            if (usableHeight <= 1e-9 || flatZ <= baseZ) return flatZ
+            val scale = (usableHeight - amplitude) / usableHeight
+            if (scale <= 0.05) return flatZ
+            val mappedTopZ = maxZ - amplitude
+            if (flatZ >= mappedTopZ) return flatZ + amplitude
+            return baseZ + (flatZ - baseZ) / scale
+        }
         val usableHeight = modelHeightMm - flatBaseHeightMm
         val baseZ = minZ + flatBaseHeightMm
         if (usableHeight <= 1e-9 || abs(amplitude) <= 1e-12 || flatZ <= baseZ) return flatZ

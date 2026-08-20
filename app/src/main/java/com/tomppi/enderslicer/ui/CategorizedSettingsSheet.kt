@@ -180,6 +180,35 @@ internal fun CategorizedSettingsSheet(
             NumberField("Top/bottom thickness (mm)", settings.topBottomThicknessMm, source(state, SlicerSettings.Keys.TOP_BOTTOM_THICKNESS)) {
                 onSettings(SlicerSettings.Keys.TOP_BOTTOM_THICKNESS) { current -> current.copy(topBottomThicknessMm = it.coerceIn(0.0, current.machineHeightMm)) }
             }
+            Column {
+                OutlinedTextField(
+                    value = settings.topSkinAngles,
+                    onValueChange = { raw ->
+                        val cleaned = raw.filter { it.isDigit() || it == ',' || it == '.' || it == '-' }
+                        onSettings(SlicerSettings.Keys.TOP_SKIN_ANGLES) { current -> current.copy(topSkinAngles = cleaned) }
+                    },
+                    label = { Text("Top skin line angles (degrees)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text(
+                    "Comma-separated; every layer cycles through the list. 90 sweeps straight across a bump, 0 runs along it - with CurviSlicer this changes how the curved Z motion shows.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            OptionField(
+                label = "Top skin pattern",
+                value = settings.topBottomPattern,
+                options = listOf(
+                    "lines" to "Lines · straight sweeps",
+                    "concentric" to "Concentric · follows the outline",
+                    "zigzag" to "Zigzag · connected sweeps",
+                ),
+                source = source(state, SlicerSettings.Keys.TOP_BOTTOM_PATTERN),
+            ) {
+                onSettings(SlicerSettings.Keys.TOP_BOTTOM_PATTERN) { current -> current.copy(topBottomPattern = it) }
+            }
             CalculatedField("Top layers", settings.topLayers.toDouble(), "Top/bottom thickness ÷ layer height")
             CalculatedField("Bottom layers", settings.bottomLayers.toDouble(), "Top/bottom thickness ÷ layer height")
             CalculatedField("Initial bottom layers", settings.initialBottomLayers.toDouble(), "Bottom layers")

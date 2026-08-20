@@ -43,6 +43,8 @@ object SlicerSettingsJson {
         SlicerSettings.Keys.TOP_LAYERS,
         SlicerSettings.Keys.BOTTOM_LAYERS,
         SlicerSettings.Keys.TOP_BOTTOM_THICKNESS,
+        SlicerSettings.Keys.TOP_SKIN_ANGLES,
+        SlicerSettings.Keys.TOP_BOTTOM_PATTERN,
         SlicerSettings.Keys.INITIAL_BOTTOM_LAYERS,
         SlicerSettings.Keys.HOLE_HORIZONTAL_EXPANSION,
         SlicerSettings.Keys.INITIAL_LAYER_HORIZONTAL_EXPANSION,
@@ -195,6 +197,8 @@ object SlicerSettingsJson {
         .put(SlicerSettings.Keys.TOP_LAYERS, settings.topLayers)
         .put(SlicerSettings.Keys.BOTTOM_LAYERS, settings.bottomLayers)
         .put(SlicerSettings.Keys.TOP_BOTTOM_THICKNESS, settings.topBottomThicknessMm)
+        .put(SlicerSettings.Keys.TOP_SKIN_ANGLES, settings.topSkinAngles)
+        .put(SlicerSettings.Keys.TOP_BOTTOM_PATTERN, settings.topBottomPattern)
         .put(SlicerSettings.Keys.INITIAL_BOTTOM_LAYERS, settings.initialBottomLayers)
         .put(SlicerSettings.Keys.HOLE_HORIZONTAL_EXPANSION, settings.holeHorizontalExpansionMm)
         .put(SlicerSettings.Keys.INITIAL_LAYER_HORIZONTAL_EXPANSION, settings.initialLayerHorizontalExpansionMm)
@@ -357,6 +361,8 @@ object SlicerSettingsJson {
                 SlicerSettings.Keys.TOP_LAYERS -> restored.copy(topLayers = values.optInt(key, restored.topLayers))
                 SlicerSettings.Keys.BOTTOM_LAYERS -> restored.copy(bottomLayers = values.optInt(key, restored.bottomLayers))
                 SlicerSettings.Keys.TOP_BOTTOM_THICKNESS -> restored.copy(topBottomThicknessMm = values.optDouble(key, restored.topBottomThicknessMm))
+                SlicerSettings.Keys.TOP_SKIN_ANGLES -> restored.copy(topSkinAngles = values.optString(key, restored.topSkinAngles))
+                SlicerSettings.Keys.TOP_BOTTOM_PATTERN -> restored.copy(topBottomPattern = values.optString(key, restored.topBottomPattern))
                 SlicerSettings.Keys.INITIAL_BOTTOM_LAYERS -> restored.copy(initialBottomLayers = values.optInt(key, restored.initialBottomLayers))
                 SlicerSettings.Keys.HOLE_HORIZONTAL_EXPANSION -> restored.copy(holeHorizontalExpansionMm = values.optDouble(key, restored.holeHorizontalExpansionMm))
                 SlicerSettings.Keys.INITIAL_LAYER_HORIZONTAL_EXPANSION -> restored.copy(

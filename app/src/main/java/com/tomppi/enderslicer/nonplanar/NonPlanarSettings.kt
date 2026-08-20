@@ -25,6 +25,7 @@ data class NonPlanarSettings(
     val compensateExtrusion: Boolean = true,
     val warpSmartInfillModifiers: Boolean = true,
     val pauseAfterProbe: Boolean = false,
+    val drapeMode: Boolean = false,
 ) {
     fun validated(): NonPlanarSettings = copy(
         strengthPercent = strengthPercent.coerceIn(MIN_STRENGTH_PERCENT, MAX_STRENGTH_PERCENT),
@@ -158,6 +159,7 @@ class NonPlanarSettingsStore(context: Context) {
         compensateExtrusion = preferences.getBoolean(KEY_EXTRUSION_COMPENSATION, true),
         warpSmartInfillModifiers = preferences.getBoolean(KEY_WARP_SMART_INFILL, true),
         pauseAfterProbe = preferences.getBoolean(KEY_PAUSE_AFTER_PROBE, false),
+        drapeMode = preferences.getBoolean(KEY_DRAPE_MODE, false),
     ).validated().also(CurviSlicerRuntime::activate)
 
     fun save(settings: NonPlanarSettings) {
@@ -184,6 +186,7 @@ class NonPlanarSettingsStore(context: Context) {
             .putBoolean(KEY_EXTRUSION_COMPENSATION, safe.compensateExtrusion)
             .putBoolean(KEY_WARP_SMART_INFILL, safe.warpSmartInfillModifiers)
             .putBoolean(KEY_PAUSE_AFTER_PROBE, safe.pauseAfterProbe)
+            .putBoolean(KEY_DRAPE_MODE, safe.drapeMode)
             .commit()
         CurviSlicerRuntime.activate(safe)
         if (changed) invalidatePublishedSlices()
@@ -224,5 +227,6 @@ class NonPlanarSettingsStore(context: Context) {
         private const val KEY_EXTRUSION_COMPENSATION = "compensate-extrusion"
         private const val KEY_WARP_SMART_INFILL = "warp-smart-infill"
         private const val KEY_PAUSE_AFTER_PROBE = "pause-after-probe"
+        private const val KEY_DRAPE_MODE = "drape-mode"
     }
 }

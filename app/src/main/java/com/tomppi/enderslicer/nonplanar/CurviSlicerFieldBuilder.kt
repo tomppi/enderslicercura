@@ -99,14 +99,20 @@ internal object CurviSlicerFieldBuilder {
         val usableHeight = max(bounds.height.toDouble() - flatBaseHeight, layerHeightMm)
         val slopeLimit = tan(Math.toRadians(settings.effectiveSlopeLimitDegrees))
         val maximumSmoothDerivative = 1.5 / usableHeight
-        val monotonicStrength = if (maximumRawRelief <= 1e-9) {
-            1.0
+        val appliedStrength = if (settings.drapeMode) {
+            // Drape mode has a trivially invertible mapping, so the full
+            // requested strength is kept - no monotonic bound needed.
+            requestedStrength.coerceIn(0.0, 1.0)
         } else {
-            // Keep the inverse denominator comfortably positive for Newton
-            // convergence and to avoid severe slope amplification.
-            (0.65 / (maximumRawRelief * maximumSmoothDerivative)).coerceAtMost(1.0)
+            val monotonicStrength = if (maximumRawRelief <= 1e-9) {
+                1.0
+            } else {
+                // Keep the inverse denominator comfortably positive for Newton
+                // convergence and to avoid severe slope amplification.
+                (0.65 / (maximumRawRelief * maximumSmoothDerivative)).coerceAtMost(1.0)
+            }
+            min(requestedStrength, monotonicStrength).coerceIn(0.0, 1.0)
         }
-        val appliedStrength = min(requestedStrength, monotonicStrength).coerceIn(0.0, 1.0)
 
         // Enforce the slope limit locally instead of scaling the requested
         // strength globally: a single steep feature used to weaken the curve
@@ -114,7 +120,11 @@ internal object CurviSlicerFieldBuilder {
         // too. Projecting per-cell gradients flattens only what the nozzle
         // clearance requires and keeps full strength on gentle regions.
         if (appliedStrength > 0.0 && slopeLimit > 0.0) {
-            val minimumVerticalDerivative = 1.0 - maximumRawRelief * appliedStrength * maximumSmoothDerivative
+            val minimumVerticalDerivative = if (settings.drapeMode) {
+                1.0 // no smoothstep amplification in drape mode
+            } else {
+                1.0 - maximumRawRelief * appliedStrength * maximumSmoothDerivative
+            }
             if (minimumVerticalDerivative > 0.05) {
                 // The smoothstep vertical mapping amplifies XY gradients by up
                 // to 1 / minimumVerticalDerivative; the per-cell step budget
@@ -169,7 +179,11 @@ internal object CurviSlicerFieldBuilder {
         }
 
         val maximumGradient = maximumCellGradient(relief, columns, rows, cellX, cellY)
-        val verticalDerivative = (1.0 - maximumRawRelief * appliedStrength * maximumSmoothDerivative).coerceAtLeast(0.05)
+        val verticalDerivative = if (settings.drapeMode) {
+            1.0
+        } else {
+            (1.0 - maximumRawRelief * appliedStrength * maximumSmoothDerivative).coerceAtLeast(0.05)
+        }
         val appliedSlope = Math.toDegrees(kotlin.math.atan(maximumGradient * appliedStrength / verticalDerivative))
 
         val field = CurviSlicerField(
@@ -184,6 +198,7 @@ internal object CurviSlicerFieldBuilder {
             relief = relief,
             strength = appliedStrength,
             flatBaseHeightMm = flatBaseHeight,
+            uniformShift = settings.drapeMode,
         )
         return Result(
             field,

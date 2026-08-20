@@ -32,6 +32,7 @@ internal object CurviSlicerFieldStorage {
                     output.writeInt(rows)
                     output.writeDouble(strength)
                     output.writeDouble(flatBaseHeightMm)
+                    output.writeBoolean(uniformShift)
                     output.writeInt(relief.size)
                     relief.forEach(output::writeFloat)
                 }
@@ -54,6 +55,7 @@ internal object CurviSlicerFieldStorage {
                     output.writeDouble(maximumZSpeedMmPerSecond)
                     output.writeBoolean(compensateExtrusion)
                     output.writeBoolean(warpSmartInfillModifiers)
+                    output.writeBoolean(drapeMode)
                 }
                 with(prepared.diagnostics) {
                     output.writeDouble(requestedStrength)
@@ -93,6 +95,7 @@ internal object CurviSlicerFieldStorage {
             val rows = input.readInt()
             val strength = input.readDouble()
             val flatBaseHeightMm = input.readDouble()
+            val uniformShift = input.readBoolean()
             val reliefSize = input.readInt()
             require(columns in 2..192 && rows in 2..192 && reliefSize == columns * rows) {
                 "Invalid CurviSlicer field dimensions"
@@ -119,6 +122,7 @@ internal object CurviSlicerFieldStorage {
                 maximumZSpeedMmPerSecond = input.readDouble(),
                 compensateExtrusion = input.readBoolean(),
                 warpSmartInfillModifiers = input.readBoolean(),
+                drapeMode = input.readBoolean(),
             ).validated()
             val diagnostics = CurviSlicerPipeline.Diagnostics(
                 gridColumns = columns,
@@ -142,6 +146,7 @@ internal object CurviSlicerFieldStorage {
                 relief = relief,
                 strength = strength,
                 flatBaseHeightMm = flatBaseHeightMm,
+                uniformShift = uniformShift,
             )
             CurviSlicerPipeline.Prepared(field, diagnostics, settings)
         }

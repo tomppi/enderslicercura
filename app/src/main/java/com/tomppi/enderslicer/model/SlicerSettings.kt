@@ -38,6 +38,8 @@ data class SlicerSettings(
     val topLayers: Int = 4,
     val bottomLayers: Int = 4,
     val topBottomThicknessMm: Double = 0.8,
+    val topSkinAngles: String = "45,135",
+    val topBottomPattern: String = "lines",
     val initialBottomLayers: Int = 4,
     val holeHorizontalExpansionMm: Double = 0.0,
     val initialLayerHorizontalExpansionMm: Double = 0.0,
@@ -243,6 +245,8 @@ data class SlicerSettings(
         const val TOP_LAYERS = "topLayers"
         const val BOTTOM_LAYERS = "bottomLayers"
         const val TOP_BOTTOM_THICKNESS = "topBottomThicknessMm"
+        const val TOP_SKIN_ANGLES = "topSkinAngles"
+        const val TOP_BOTTOM_PATTERN = "topBottomPattern"
         const val INITIAL_BOTTOM_LAYERS = "initialBottomLayers"
         const val HOLE_HORIZONTAL_EXPANSION = "holeHorizontalExpansionMm"
         const val INITIAL_LAYER_HORIZONTAL_EXPANSION = "initialLayerHorizontalExpansionMm"

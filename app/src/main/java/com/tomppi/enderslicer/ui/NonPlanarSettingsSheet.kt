@@ -77,6 +77,7 @@ internal fun NonPlanarSettingsSheet(
         mutableStateOf(initial.warpSmartInfillModifiers)
     }
     var pauseAfterProbe by rememberSaveable(initial.pauseAfterProbe) { mutableStateOf(initial.pauseAfterProbe) }
+    var drapeMode by rememberSaveable(initial.drapeMode) { mutableStateOf(initial.drapeMode) }
 
     val parsedStrength = parseDecimal(strength, NonPlanarSettings.MIN_STRENGTH_PERCENT, NonPlanarSettings.MAX_STRENGTH_PERCENT)
     val parsedSmoothing = parseDecimal(
@@ -179,6 +180,7 @@ internal fun NonPlanarSettingsSheet(
             compensateExtrusion = compensateExtrusion,
             warpSmartInfillModifiers = warpSmartInfill,
             pauseAfterProbe = pauseAfterProbe,
+            drapeMode = drapeMode,
         )
     } else {
         null
@@ -368,6 +370,12 @@ internal fun NonPlanarSettingsSheet(
             description = "Keep filaSim density regions aligned with the flattened model",
             checked = warpSmartInfill,
             onChecked = { warpSmartInfill = it },
+        )
+        SettingSwitch(
+            title = "Drape layers (curve every layer)",
+            description = "Like the original CurviSlicer: every layer above the flat base follows the surface shape, so the whole print becomes stacked curved sheets. Full strength, big Z sweeps.",
+            checked = drapeMode,
+            onChecked = { drapeMode = it },
         )
         SettingSwitch(
             title = "Pause after bed probing",

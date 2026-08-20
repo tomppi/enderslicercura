@@ -19,6 +19,8 @@ object PresetSettings {
         SlicerSettings.Keys.TOP_LAYERS,
         SlicerSettings.Keys.BOTTOM_LAYERS,
         SlicerSettings.Keys.TOP_BOTTOM_THICKNESS,
+        SlicerSettings.Keys.TOP_SKIN_ANGLES,
+        SlicerSettings.Keys.TOP_BOTTOM_PATTERN,
         SlicerSettings.Keys.INITIAL_BOTTOM_LAYERS,
         SlicerSettings.Keys.HOLE_HORIZONTAL_EXPANSION,
         SlicerSettings.Keys.INITIAL_LAYER_HORIZONTAL_EXPANSION,
@@ -157,6 +159,8 @@ object PresetSettings {
                 SlicerSettings.Keys.TOP_LAYERS -> changed.copy(topLayers = values.optInt(key, changed.topLayers))
                 SlicerSettings.Keys.BOTTOM_LAYERS -> changed.copy(bottomLayers = values.optInt(key, changed.bottomLayers))
                 SlicerSettings.Keys.TOP_BOTTOM_THICKNESS -> changed.copy(topBottomThicknessMm = values.optDouble(key, changed.topBottomThicknessMm))
+                SlicerSettings.Keys.TOP_SKIN_ANGLES -> changed.copy(topSkinAngles = values.optString(key, changed.topSkinAngles))
+                SlicerSettings.Keys.TOP_BOTTOM_PATTERN -> changed.copy(topBottomPattern = values.optString(key, changed.topBottomPattern))
                 SlicerSettings.Keys.INITIAL_BOTTOM_LAYERS -> changed.copy(initialBottomLayers = values.optInt(key, changed.initialBottomLayers))
                 SlicerSettings.Keys.HOLE_HORIZONTAL_EXPANSION -> changed.copy(holeHorizontalExpansionMm = values.optDouble(key, changed.holeHorizontalExpansionMm))
                 SlicerSettings.Keys.INITIAL_LAYER_HORIZONTAL_EXPANSION -> changed.copy(
