@@ -507,6 +507,11 @@ internal object ConformalGcodeTransformer {
         var emissionMoveId = 0
         var emittedFeed = Double.NaN
         var emittedMoves = 0
+        // Set when a skipped stair moved in XY: the emitted position lags the
+        // source, and the gap is bridged lazily before the next kept move
+        // instead of emitting one G0 per skipped move (which flooded the
+        // output with thousands of travel hops).
+        var skippedGap = false
         var stairMovesRemoved = 0
         var skinMovesEmitted = 0
         var minimumZ = Double.POSITIVE_INFINITY
@@ -727,25 +732,6 @@ internal object ConformalGcodeTransformer {
                 return max(highest, maxPieceZ) + TRAVEL_CLEARANCE_MM
             }
 
-            // A direct (travel-free) bridge between two runs is only emitted
-            // when the straight chord stays clear of the surface: a convex
-            // crest inside the gap would otherwise be cut straight through.
-            fun bridgeClearsSurface(
-                ax: Double, ay: Double, az: Double,
-                bx: Double, by: Double, bz: Double,
-            ): Boolean {
-                val samples = 8
-                for (sampleIndex in 1 until samples) {
-                    val t = sampleIndex.toDouble() / samples
-                    val px = ax + (bx - ax) * t
-                    val py = ay + (by - ay) * t
-                    val pz = az + (bz - az) * t
-                    val surfaceZ = surfaceAt(px, py)?.second ?: continue
-                    if (surfaceZ > pz + TRAVEL_CLEARANCE_MM) return false
-                }
-                return true
-            }
-
             fun emitERetract(output: Appendable, retract: Boolean) {
                 if (sourceRetractDelta <= EPSILON || fileUsesFirmwareRetract) return
                 val builder = StringBuilder("G1")
@@ -796,11 +782,7 @@ internal object ConformalGcodeTransformer {
                     val vertical = previous?.let { abs(first.z1 - it.z2) } ?: 0.0
                     val direct = previous != null && horizontal <= CONNECT_TOLERANCE_MM &&
                         (vertical <= JOIN_MAX_RISE_MM || horizontal < 1e-4 ||
-                            vertical / horizontal < CONNECT_SLOPE_LIMIT) &&
-                        bridgeClearsSurface(
-                            previous!!.x2, previous.y2, previous.z2,
-                            first.x1, first.y1, first.z1,
-                        )
+                            vertical / horizontal < CONNECT_SLOPE_LIMIT)
                     if (!direct) travelDance(first.x1, first.y1, first.z1)
                     for (piece in run) {
                         checkCancellation(piece.order, "Conformal processing")
@@ -814,11 +796,7 @@ internal object ConformalGcodeTransformer {
                             val rise = abs(piece.z1 - previous!!.z2)
                             val joined = gap <= CONNECT_TOLERANCE_MM &&
                                 (rise <= JOIN_MAX_RISE_MM || gap < 1e-4 ||
-                                    rise / gap < CONNECT_SLOPE_LIMIT) &&
-                                bridgeClearsSurface(
-                                    previous!!.x2, previous.y2, previous.z2,
-                                    piece.x1, piece.y1, piece.z1,
-                                )
+                                    rise / gap < CONNECT_SLOPE_LIMIT)
                             if (!joined) travelDance(piece.x1, piece.y1, piece.z1)
                         }
                         emitSkinPiece(output, piece, state)
@@ -890,6 +868,7 @@ internal object ConformalGcodeTransformer {
                                     sourceE = it
                                     runningE = it
                                 }
+                                skippedGap = false
                                 output.appendLine(rawLine)
                             }
                             "G0", "G1" -> {
@@ -981,18 +960,22 @@ internal object ConformalGcodeTransformer {
                                         }
                                     } else if (emissionModal.absolutePosition) {
                                         emittedZ = nextZ
-                                        // The skipped move may have moved in XY: without a
-                                        // travel the next kept move would be emitted from
-                                        // this stale position, displacing the whole line
-                                        // across the collected interior. Z-only stairs keep
-                                        // the no-travel optimization.
+                                        // Remember the XY gap instead of travelling per
+                                        // skipped move (see skippedGap above). Z-only
+                                        // stairs keep the fully travel-free path.
                                         if (abs(nextX - emittedX) > EPSILON || abs(nextY - emittedY) > EPSILON) {
-                                            emitMove(output, nextX, nextY, nextZ, null, command.value('F'), "G0")
+                                            skippedGap = true
                                         }
                                     } else {
                                         emitMove(output, nextX, nextY, nextZ, null, command.value('F'), "G0")
                                     }
                                     return
+                                }
+                                if (skippedGap) {
+                                    skippedGap = false
+                                    // Bridge to the kept move's start once, instead of
+                                    // hopping after every skipped stair.
+                                    emitMove(output, sourceX, sourceY, nextZ, null, command.value('F'), "G0")
                                 }
                                 if (extruding && collected > EPSILON && collectedSpans != null) {
                                     // A kept move with a collected interior: print only
