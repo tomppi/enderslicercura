@@ -593,7 +593,13 @@ internal object ConformalGcodeTransformer {
             // with the top-skin role; with Cura's default flows both roles
             // share the same E/mm, so reusing the source values only means
             // inner shells run at (slower, safer) top-skin speed.
-            val byShell = state.skins.groupBy { it.shell }.toSortedMap()
+            // Deepest shell first (k = N-1 down to 0): the topmost shell rides
+            // the surface, and a later pass would have to dive underneath the
+            // freshly printed top shell - the nozzle cone then grazes those
+            // lines (the exact 0.1-0.3 mm wall/crossing contacts the sweep
+            // reports). Laying the deepest pass first also puts every shell
+            // on top of the remaining band-deep stair instead of over a void.
+            val byShell = state.skins.groupBy { it.shell }.toSortedMap(reverseOrder())
             var maxPieceZ = state.baseZ
 
             // The travel height must clear the model's own surface along the
