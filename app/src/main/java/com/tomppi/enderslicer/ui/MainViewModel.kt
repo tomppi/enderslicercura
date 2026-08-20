@@ -646,6 +646,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                         },
                                 )
                             }
+                            result.collisionSweepFailure?.let { failure ->
+                                append(" · ⚠ nozzle collision sweep failed: $failure")
+                            }
                             if (result.layerPreview == null) append(" · layer preview unavailable; see diagnostic log")
                             if (result.layerEvents.isNotEmpty()) append(" · ${result.layerEvents.size} layer events")
                         },

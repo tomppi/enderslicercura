@@ -25,6 +25,7 @@ internal object CuraEnginePostProcessor {
         val layerEvents: List<LayerEvent>,
         val usedZeroEventFastPath: Boolean,
         val nozzleCollisionAlert: NozzleCollisionAlert? = null,
+        val collisionSweepFailure: String? = null,
     )
 
     fun process(
@@ -74,6 +75,7 @@ internal object CuraEnginePostProcessor {
         // Sweep the user-measured collision volume (nozzle cone + heating
         // block cone + whole-plate cutoff) along the curved toolpath so the
         // slice result can warn before a nozzle scrape happens on the printer.
+        var collisionSweepFailure: String? = null
         val nozzleCollisionAlert = if (conformalDiagnostics != null) {
             runCatching {
                 NozzleCollisionScanner.scan(
@@ -82,7 +84,8 @@ internal object CuraEnginePostProcessor {
                     buildPlateHalfWidthMm = effectiveEnvelope.widthMm / 2.0,
                     buildPlateHalfDepthMm = effectiveEnvelope.depthMm / 2.0,
                 )
-            }.getOrNull()
+            }.onFailure { collisionSweepFailure = it.message ?: "unknown sweep failure" }
+                .getOrNull()
         } else {
             null
         }
@@ -111,6 +114,7 @@ internal object CuraEnginePostProcessor {
                 layerEvents = emptyList(),
                 usedZeroEventFastPath = true,
                 nozzleCollisionAlert = nozzleCollisionAlert,
+                collisionSweepFailure = collisionSweepFailure,
             )
         }
 
@@ -128,6 +132,7 @@ internal object CuraEnginePostProcessor {
             layerEvents = resolvedEvents,
             usedZeroEventFastPath = false,
             nozzleCollisionAlert = nozzleCollisionAlert,
+            collisionSweepFailure = collisionSweepFailure,
         )
     }
 

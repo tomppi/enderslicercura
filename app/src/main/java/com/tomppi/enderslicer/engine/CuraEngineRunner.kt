@@ -35,6 +35,7 @@ class CuraEngineRunner(private val context: Context) {
         val layerPreview: GcodeLayerPreview?,
         val layerEvents: List<LayerEvent>,
         val nozzleCollisionAlert: NozzleCollisionAlert? = null,
+        val collisionSweepFailure: String? = null,
     )
 
     data class LayerEventApplyResult(
@@ -122,6 +123,12 @@ class CuraEngineRunner(private val context: Context) {
     ): SliceResult {
         val nonPlanarRequestSnapshot = NonPlanarRuntime.snapshot()
         val conicalRequestSnapshot = ConicalRuntime.snapshot()
+        if (nonPlanarRequestSnapshot != null) {
+            require(printer.extruders <= 1) {
+                "Non-planar printing requires a single-nozzle machine: the collision model " +
+                    "only tracks the measured hot end, and a second nozzle would always collide"
+            }
+        }
         val sliceSettings = when {
             nonPlanarRequestSnapshot != null -> NonPlanarPreparation.adjustSettings(settings)
             conicalRequestSnapshot != null -> ConicalPreparations.adjustSettings(settings)
@@ -317,6 +324,7 @@ class CuraEngineRunner(private val context: Context) {
                 layerPreview = processed.layerPreview,
                 layerEvents = processed.layerEvents,
                 nozzleCollisionAlert = processed.nozzleCollisionAlert,
+            collisionSweepFailure = processed.collisionSweepFailure,
             )
         } catch (error: InterruptedException) {
             appendLog(log, "\n--- EnderSlicer cancellation ---\nFinished: ${Instant.now()}\nThe CuraEngine request was cancelled and reaped.\n")

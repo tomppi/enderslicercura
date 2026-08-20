@@ -33,6 +33,11 @@ import kotlin.math.sqrt
  *    retraction, rise, travel and descent around each disconnected piece.
  * 3. Deeper planar material (k >= shellLayers) stays planar as interior
  *    support, and the first layer is always kept planar for bed adhesion.
+ *
+ * Extrusion: the reference computes flow * length3D * m with
+ * m = cos(arctan(dz / length3D)) (thesis eq. 4.13); the product simplifies to
+ * flow * horizontalLength, which is exactly what keeping the planar source
+ * move's E value provides - no further compensation is needed.
  */
 internal object ConformalGcodeTransformer {
     private const val EPSILON = 1e-8
@@ -720,9 +725,20 @@ internal object ConformalGcodeTransformer {
                                     emittedZ = nextZ
                                     return
                                 }
+                                // Classify the move by its midpoint so a move straddling
+                                // the region boundary is removed only when most of its path
+                                // is skin material - endpoint-only checks used to lose or
+                                // double-print the outside half of straddling moves.
                                 val isStair = extruding && emissionInPrintable && emissionLayer != null &&
                                     firstLayerNumber != null && emissionLayer != firstLayerNumber &&
-                                    isSkinSource(nextX, nextY, nextZ, surface, layerHeightMm, shellLayers)
+                                    isSkinSource(
+                                        (sourceX + nextX) * 0.5,
+                                        (sourceY + nextY) * 0.5,
+                                        nextZ,
+                                        surface,
+                                        layerHeightMm,
+                                        shellLayers,
+                                    )
                                 if (isStair) {
                                     // The stair step is skipped entirely: its plastic is
                                     // printed on the conformal shell instead, and because
