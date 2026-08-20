@@ -45,9 +45,14 @@ internal object ConformalGcodeTransformer {
     // A direct (travel-free) connection between shell runs is only emitted
     // when the jump stays shallow enough to be a plausible surface move.
     private const val CONNECT_SLOPE_LIMIT = 0.5
+    // Tiny joins (overlapping-facet flips in the mesh) may carry a small z
+    // step: join them anyway instead of inserting an in-place rise/drop dance.
+    private const val JOIN_MAX_RISE_MM = 0.3
     private const val TRAVEL_CLEARANCE_MM = 0.3
-    private const val SHORT_HOP_MM = 10.0
     private const val NEIGHBOR_CELL_MM = 3.0
+    private const val CONFORMAL_BAND_SAMPLES = 8
+    private const val CHORD_TOLERANCE_MM = 0.1
+    private const val SLIVER_MAX_RISE_MM = 0.3
 
     data class Diagnostics(
         val regionCount: Int,
@@ -169,8 +174,12 @@ internal object ConformalGcodeTransformer {
             state: LayerState,
             moveId: Int,
         ) {
+            // Depth-first (LIFO) processing keeps the emitted pieces in
+            // spatial order: every split re-queues its two children at the
+            // head so the left half - and all its own sub-splits - finishes
+            // before the right half starts.
             val queue = ArrayDeque<Segment>()
-            queue.addLast(Segment(startX, startY, endX, endY, deltaE, 0))
+            queue.addFirst(Segment(startX, startY, endX, endY, deltaE, 0))
             while (queue.isNotEmpty()) {
                 val segment = queue.removeFirst()
                 val c1 = classify(segment.x1, segment.y1, planarHeight)
@@ -183,6 +192,61 @@ internal object ConformalGcodeTransformer {
                             classification.shell * layerHeightMm
                         val z2 = (surfaceAt(segment.x2, segment.y2)?.second ?: classification.surfaceZ) -
                             classification.shell * layerHeightMm
+                        // The reference implementation splits every extrusion
+                        // line at every facet edge so the path follows the
+                        // surface geometry exactly. Numerically that means the
+                        // straight chord must stay on the surface: sample it
+                        // and split wherever the band changes or the surface
+                        // deviates from the chord - otherwise a convex bump
+                        // (like a dome) would be cut straight through.
+                        var splitFraction = -1.0
+                        var worstDeviation = 0.0
+                        var worstDeviationFraction = -1.0
+                        val degenerate = hypot(segment.x2 - segment.x1, segment.y2 - segment.y1) < 1e-6
+                        if (!degenerate) {
+                            for (sampleIndex in 1 until CONFORMAL_BAND_SAMPLES) {
+                                val t = sampleIndex.toDouble() / CONFORMAL_BAND_SAMPLES
+                                val px = segment.x1 + (segment.x2 - segment.x1) * t
+                                val py = segment.y1 + (segment.y2 - segment.y1) * t
+                                val sample = classify(px, py, planarHeight)
+                                if (sample?.regionIndex != classification.regionIndex ||
+                                    sample?.shell != classification.shell
+                                ) {
+                                    splitFraction = t
+                                    break
+                                }
+                                val surfaceZ = surfaceAt(px, py)?.second ?: continue
+                                // The chord rides surface - shell*layerHeight;
+                                // deviation is how far the actual surface depth
+                                // leaves that chord.
+                                val chordZ = z1 + (z2 - z1) * t
+                                val deviation = abs((surfaceZ - classification.shell * layerHeightMm) - chordZ)
+                                if (deviation > worstDeviation) {
+                                    worstDeviation = deviation
+                                    worstDeviationFraction = t
+                                }
+                            }
+                        }
+                        if (splitFraction < 0.0 && worstDeviation > CHORD_TOLERANCE_MM) {
+                            splitFraction = worstDeviationFraction
+                        }
+                        if (splitFraction > 0.0) {
+                            val midX = segment.x1 + (segment.x2 - segment.x1) * splitFraction
+                            val midY = segment.y1 + (segment.y2 - segment.y1) * splitFraction
+                            queue.addFirst(
+                                Segment(
+                                    midX, midY, segment.x2, segment.y2,
+                                    segment.deltaE * (1.0 - splitFraction), segment.depth,
+                                ),
+                            )
+                            queue.addFirst(
+                                Segment(
+                                    segment.x1, segment.y1, midX, midY,
+                                    segment.deltaE * splitFraction, segment.depth,
+                                ),
+                            )
+                            continue
+                        }
                         state.skins += Piece(
                             regionIndex = classification.regionIndex,
                             shell = classification.shell,
@@ -204,16 +268,31 @@ internal object ConformalGcodeTransformer {
                     val midX = (segment.x1 + segment.x2) * 0.5
                     val midY = (segment.y1 + segment.y2) * 0.5
                     val classification = classify(midX, midY, planarHeight) ?: continue
-                    // Keep the boundary sliver flat at the surface height:
-                    // the segment is shorter than the machine's resolution,
-                    // and one endpoint may already sit outside the region.
-                    val z = classification.surfaceZ - classification.shell * layerHeightMm
+                    // The sliver is shorter than the machine's resolution:
+                    // ride the surface at both endpoints (falling back to the
+                    // midpoint height only where an endpoint lies outside the
+                    // region) so the neighbouring pieces join smoothly. Where
+                    // the two endpoints land on different shells or surfaces
+                    // (an overlapping-facet flip), drop the sliver - a near
+                    // vertical jump would be worse than its lost 0.05 mm.
+                    val endpointA = classify(segment.x1, segment.y1, planarHeight)
+                    val endpointB = classify(segment.x2, segment.y2, planarHeight)
+                    if (endpointA?.shell != endpointB?.shell ||
+                        endpointA?.regionIndex != endpointB?.regionIndex
+                    ) {
+                        continue
+                    }
+                    val z1 = (surfaceAt(segment.x1, segment.y1)?.second ?: classification.surfaceZ) -
+                        classification.shell * layerHeightMm
+                    val z2 = (surfaceAt(segment.x2, segment.y2)?.second ?: classification.surfaceZ) -
+                        classification.shell * layerHeightMm
+                    if (abs(z2 - z1) > SLIVER_MAX_RISE_MM) continue
                     state.skins += Piece(
                         regionIndex = classification.regionIndex,
                         shell = classification.shell,
                         moveId = moveId,
-                        x1 = segment.x1, y1 = segment.y1, z1 = z,
-                        x2 = segment.x2, y2 = segment.y2, z2 = z,
+                        x1 = segment.x1, y1 = segment.y1, z1 = z1,
+                        x2 = segment.x2, y2 = segment.y2, z2 = z2,
                         deltaE = segment.deltaE,
                         feed = feed,
                         order = pieceOrder++,
@@ -222,8 +301,8 @@ internal object ConformalGcodeTransformer {
                 }
                 val midX = (segment.x1 + segment.x2) * 0.5
                 val midY = (segment.y1 + segment.y2) * 0.5
-                queue.addLast(Segment(segment.x1, segment.y1, midX, midY, segment.deltaE * 0.5, segment.depth + 1))
-                queue.addLast(Segment(midX, midY, segment.x2, segment.y2, segment.deltaE * 0.5, segment.depth + 1))
+                queue.addFirst(Segment(midX, midY, segment.x2, segment.y2, segment.deltaE * 0.5, segment.depth + 1))
+                queue.addFirst(Segment(segment.x1, segment.y1, midX, midY, segment.deltaE * 0.5, segment.depth + 1))
             }
         }
 
@@ -469,6 +548,33 @@ internal object ConformalGcodeTransformer {
             // the local surface, long hops clear the whole flush.
             val byShell = state.skins.groupBy { it.shell }.toSortedMap()
             var maxPieceZ = state.baseZ
+
+            // The travel height must clear the model's own surface along the
+            // straight hop, not just the piece endpoints: a hop across a dome
+            // crest would otherwise clip it. Sample the surface and take the
+            // highest point plus clearance.
+            fun hopTravelZ(fromX: Double, fromY: Double, fromZ: Double, toZ: Double): Double {
+                var highest = maxOf(state.baseZ, fromZ, toZ)
+                val samples = 8
+                for (sampleIndex in 1 until samples) {
+                    val t = sampleIndex.toDouble() / samples
+                    val px = emittedX + (fromX - emittedX) * t
+                    val py = emittedY + (fromY - emittedY) * t
+                    val surfaceZ = surfaceAt(px, py)?.second ?: continue
+                    if (surfaceZ > highest) highest = surfaceZ
+                }
+                return max(highest, maxPieceZ) + TRAVEL_CLEARANCE_MM
+            }
+
+            fun travelDance(fromX: Double, fromY: Double, fromZ: Double) {
+                val travelZ = hopTravelZ(fromX, fromY, fromZ, fromZ)
+                if (fileUsesFirmwareRetract) emitCommand(output, "G10")
+                emitMove(output, emittedX, emittedY, travelZ, null, null, "G0")
+                emitMove(output, fromX, fromY, travelZ, null, null, "G0")
+                emitMove(output, fromX, fromY, fromZ, null, null, "G0")
+                if (fileUsesFirmwareRetract) emitCommand(output, "G11")
+            }
+
             for ((shell, pieces) in byShell) {
                 checkCancellation(shell, "Conformal processing")
                 val runs = ArrayList<ArrayList<Piece>>()
@@ -488,24 +594,24 @@ internal object ConformalGcodeTransformer {
                         ?: Double.POSITIVE_INFINITY
                     val vertical = previous?.let { abs(first.z1 - it.z2) } ?: 0.0
                     val direct = previous != null && horizontal <= CONNECT_TOLERANCE_MM &&
-                        (horizontal < 1e-4 || vertical / horizontal < CONNECT_SLOPE_LIMIT)
-                    if (!direct) {
-                        val travelZ = if (previous == null || horizontal > SHORT_HOP_MM) {
-                            // Long hop or the flush start: clear everything printed here.
-                            max(state.baseZ, maxPieceZ) + TRAVEL_CLEARANCE_MM
-                        } else {
-                            // Short hop: clear just the local surface around it.
-                            maxOf(state.baseZ, first.z1, previous!!.z2) + TRAVEL_CLEARANCE_MM
-                        }
-                        if (fileUsesFirmwareRetract) emitCommand(output, "G10")
-                        emitMove(output, emittedX, emittedY, travelZ, null, null, "G0")
-                        emitMove(output, first.x1, first.y1, travelZ, null, null, "G0")
-                        emitMove(output, first.x1, first.y1, first.z1, null, null, "G0")
-                        if (fileUsesFirmwareRetract) emitCommand(output, "G11")
-                    }
+                        (vertical <= JOIN_MAX_RISE_MM || horizontal < 1e-4 ||
+                            vertical / horizontal < CONNECT_SLOPE_LIMIT)
+                    if (!direct) travelDance(first.x1, first.y1, first.z1)
                     for (piece in run) {
                         checkCancellation(piece.order, "Conformal processing")
                         maxPieceZ = max(maxPieceZ, max(piece.z1, piece.z2))
+                        // Pieces of one source move usually connect, but the
+                        // segments that went to other shells leave gaps: bridge
+                        // only close, shallow joins - otherwise hop over the
+                        // surface instead of cutting through it.
+                        if (previous != null) {
+                            val gap = hypot(piece.x1 - previous!!.x2, piece.y1 - previous!!.y2)
+                            val rise = abs(piece.z1 - previous!!.z2)
+                            val joined = gap <= CONNECT_TOLERANCE_MM &&
+                                (rise <= JOIN_MAX_RISE_MM || gap < 1e-4 ||
+                                    rise / gap < CONNECT_SLOPE_LIMIT)
+                            if (!joined) travelDance(piece.x1, piece.y1, piece.z1)
+                        }
                         emitSkinPiece(output, piece, state)
                         previous = piece
                     }

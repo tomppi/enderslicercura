@@ -126,6 +126,27 @@ class NozzleCollisionScannerTest {
     }
 
     @Test
+    fun midMoveCrossingOfATallColumnIsDetected() {
+        // A straight travel from (10,20) to (30,20) at z=0.2 passes directly
+        // under a 2.6 mm tall column top at (20,20.3): both endpoints are far
+        // outside the thin cone, so only the mid-move sweep can catch it. The
+        // travel is the 5th move so the sampling stride checks it.
+        val alert = scanGcode(
+            ";LAYER:0\n" +
+                "G1 X10 Y20 Z0.2 E1\n" +
+                "G1 X20 Y20.3 Z2.6 E2\n" +
+                "G1 X10 Y10 Z0.2 E3\n" +
+                "G1 X10 Y20 E4\n" +
+                "G0 X30 Y20 Z0.2\n" +
+                "G1 X10 Y10 E5\n",
+            nozzleAngleDegrees = 75.0,
+        )
+        assertNotNull(alert)
+        assertTrue(alert!!.violatingMoves > 0)
+        assertTrue(alert.maximumViolationMm > 0.3)
+    }
+
+    @Test
     fun offsetBlockFrustumRespectsTheMeasuredNozzlePosition() {
         // Block centre at (+8, 0): a surface 8 mm to the right of the tip
         // just above the 5 mm junction is inside the block footprint.

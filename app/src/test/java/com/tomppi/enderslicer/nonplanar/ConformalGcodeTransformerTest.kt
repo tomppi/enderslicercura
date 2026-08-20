@@ -98,6 +98,73 @@ class ConformalGcodeTransformerTest {
     }
 
     @Test
+    fun skinPiecesSplitAtInteriorBandCrossingsInsteadOfCuttingThroughBumps() {
+        // A tall tent ridge peaking at x=5, z=3.0 over a base at z=0.6: a move
+        // from (1,5) to (9,5) at z0=0.6 has both endpoints in shell 0, but its
+        // middle crosses the crest. One unsplit piece would cut straight
+        // through the printed interior; the band sampling must split it, and
+        // the hop travels must clear the crest.
+        val ridge = testMesh(
+            floatArrayOf(0f, 0f, 0.6f, 5f, 0f, 3.0f, 0f, 10f, 0.6f),
+            floatArrayOf(5f, 0f, 3.0f, 5f, 10f, 3.0f, 0f, 10f, 0.6f),
+            floatArrayOf(5f, 0f, 3.0f, 10f, 0f, 0.6f, 10f, 10f, 0.6f),
+            floatArrayOf(5f, 0f, 3.0f, 10f, 10f, 0.6f, 5f, 10f, 3.0f),
+        )
+        val ridgeSurface = ConformalSurfaceBuilder.build(
+            ridge,
+            NonPlanarSettings(enabled = true, maximumLiftMm = 5.0),
+        )
+        val gcode = listOf(
+            ";FLAVOR:Marlin",
+            "G90",
+            "M82",
+            "G92 E0",
+            ";LAYER:0",
+            "G1 X1 Y5 Z0.2 E1 F1200",
+            ";LAYER:1",
+            "G1 X1 Y5 Z0.4 E2",
+            ";LAYER:2",
+            "G1 X9 Y5 Z0.6 E3",
+            NonPlanarRuntime.MACHINE_END_SENTINEL,
+            ";End of Gcode",
+        ).joinToString("\n") + "\n"
+        val directory = Files.createTempDirectory("conformal-ridge").toFile()
+        try {
+            val file = File(directory, "output.gcode")
+            file.writeText(gcode)
+            val diagnostics = ConformalGcodeTransformer.transform(
+                file = file,
+                surface = ridgeSurface,
+                layerHeightMm = 0.2,
+                maximumZSpeedMmPerSecond = 5.0,
+                conformalShellLayers = 3,
+                printerEnvelope = printerEnvelope(),
+            )
+            assertTrue("the crossing move must split into several pieces", diagnostics.skinMovesEmitted >= 3)
+            // The nozzle must never cut through the printed ridge: sweep the
+            // result with the measured hot-end volume.
+            val alert = NozzleCollisionScanner.scan(
+                gcode = file,
+                settings = NonPlanarSettings(
+                    enabled = true,
+                    nozzleAngleDegrees = 75.0,
+                    nozzleProtrusionMm = 5.0,
+                    nozzleClearanceAngleDegrees = 45.0,
+                    nozzleClearanceHeightMm = 15.0,
+                ),
+                buildPlateHalfWidthMm = 110.0,
+                buildPlateHalfDepthMm = 110.0,
+            )
+            assertTrue(
+                "transformed ridge must not collide: " + (alert?.toString() ?: ""),
+                alert == null || alert.maximumViolationMm < 0.3,
+            )
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
     fun nozzleDivesFarBelowTheHomeLayerPlane() {
         // Blade surface z = 0.4 + 0.09 * y: thin tip at y=0, thick root at y=20.
         val blade = testMesh(floatArrayOf(0f, 0f, 0.4f, 20f, 0f, 0.4f, 0f, 20f, 2.2f))

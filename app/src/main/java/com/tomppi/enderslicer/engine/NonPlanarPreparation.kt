@@ -3,6 +3,7 @@ package com.tomppi.enderslicer.engine
 import com.tomppi.enderslicer.conical.ConicalPipeline
 import com.tomppi.enderslicer.conical.ConicalRuntime
 import com.tomppi.enderslicer.conical.ConicalStorage
+import com.tomppi.enderslicer.model.SlicerSettings
 import com.tomppi.enderslicer.nonplanar.ConformalSurfaceStorage
 import com.tomppi.enderslicer.nonplanar.NonPlanarPipeline
 import com.tomppi.enderslicer.nonplanar.NonPlanarRuntime
@@ -18,6 +19,16 @@ import java.io.File
  * sidecars the G-code transformers read back.
  */
 internal object NonPlanarPreparation {
+    /**
+     * The conformal shell banding assumes a constant layer height (the
+     * reference implementation requires the same), so adaptive layer height
+     * is forced off for non-planar slices on a slice-local copy.
+     */
+    fun adjustSettings(settings: SlicerSettings): SlicerSettings = settings.copy(
+        adaptiveLayerHeightEnabled = false,
+        overriddenSettingKeys = settings.overriddenSettingKeys + SlicerSettings.Keys.ADAPTIVE_LAYER_HEIGHT_ENABLED,
+    )
+
     data class Outcome(
         val nonPlanarPrepared: NonPlanarPipeline.ConformalPrepared?,
         val conicalPrepared: ConicalPipeline.Prepared?,

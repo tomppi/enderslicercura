@@ -7,6 +7,7 @@ import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.hypot
+import kotlin.math.max
 import kotlin.math.tan
 
 /**
@@ -42,6 +43,8 @@ internal object NozzleCollisionScanner {
     private const val QUERY_STRIDE = 4
     private const val REPORTED_LAYERS_CAP = 6
     private const val SURFACE_MARGIN_MM = 0.05
+    private const val SWEEP_STEP_MM = 1.0
+    private const val MAX_SWEEP_STEPS = 400
 
     private class SurfaceGrid(
         val cellSizeMm: Double,
@@ -224,33 +227,55 @@ internal object NozzleCollisionScanner {
 
         // Second pass in print order: sweep each sampled move against the
         // surface deposited so far, then deposit its own extrusion so a move
-        // can never collide with material printed after it.
+        // can never collide with material printed after it. The path from the
+        // previously sampled position to this move's tip is checked in steps
+        // of at most one millimetre so a long move can never hide a collision
+        // in its middle (a straight travel or chord across a dome crest would
+        // otherwise pass the endpoint-only check).
+        var lastCheckedX = 0.0
+        var lastCheckedY = 0.0
+        var lastCheckedZ = 0.0
         for (move in moves) {
             if (move.sampled) {
                 checkedMoves++
-                val tip = Point(move.x, move.y, move.z)
-                var violation = 0.0
+                val distance = hypot(move.x - lastCheckedX, move.y - lastCheckedY) +
+                    abs(move.z - lastCheckedZ)
+                val steps = max(1, ceil(distance / SWEEP_STEP_MM).toInt()).coerceAtMost(MAX_SWEEP_STEPS)
+                var moveViolation = 0.0
+                var moveCutoffViolation = 0.0
+                for (step in 1..steps) {
+                    val t = step.toDouble() / steps
+                    val tip = Point(
+                        lastCheckedX + (move.x - lastCheckedX) * t,
+                        lastCheckedY + (move.y - lastCheckedY) * t,
+                        lastCheckedZ + (move.z - lastCheckedZ) * t,
+                    )
 
-                // Zone 3: the whole-plate cutoff above the holding object.
-                val cutoffDepth = globalMaxZ - tip.z - holderHeightMm
-                if (cutoffDepth > SURFACE_MARGIN_MM) {
-                    cutoffViolatingMoves++
-                    violation = maxOf(violation, cutoffDepth)
+                    // Zone 3: the whole-plate cutoff above the holding object.
+                    val cutoffDepth = globalMaxZ - tip.z - holderHeightMm
+                    if (cutoffDepth > SURFACE_MARGIN_MM) {
+                        moveCutoffViolation = maxOf(moveCutoffViolation, cutoffDepth)
+                    }
+
+                    // Zone 1: the nozzle cone, at fine resolution.
+                    var violation = 0.0
+                    for (radius in 0..fineRadiusCells) {
+                        violation = maxOf(violation, sweepRing(fine, tip, radius, 1))
+                    }
+
+                    // Zone 2: the block frustum, at coarse resolution.
+                    for (radius in 1..coarseRadiusCells) {
+                        violation = maxOf(violation, sweepRing(coarse, tip, radius, 2))
+                    }
+                    moveViolation = maxOf(moveViolation, violation, moveCutoffViolation)
                 }
-
-                // Zone 1: the nozzle cone, at fine resolution.
-                for (radius in 0..fineRadiusCells) {
-                    violation = maxOf(violation, sweepRing(fine, tip, radius, 1))
-                }
-
-                // Zone 2: the block frustum, at coarse resolution.
-                for (radius in 1..coarseRadiusCells) {
-                    violation = maxOf(violation, sweepRing(coarse, tip, radius, 2))
-                }
-
-                if (violation > 0.0) {
+                lastCheckedX = move.x
+                lastCheckedY = move.y
+                lastCheckedZ = move.z
+                if (moveCutoffViolation > SURFACE_MARGIN_MM) cutoffViolatingMoves++
+                if (moveViolation > 0.0) {
                     violatingMoves++
-                    maximumViolation = maxOf(maximumViolation, violation)
+                    maximumViolation = maxOf(maximumViolation, moveViolation)
                     if (move.layer != null && move.layer >= 0 && offendingLayers.size < REPORTED_LAYERS_CAP) {
                         offendingLayers += move.layer
                     }

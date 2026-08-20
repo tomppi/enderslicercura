@@ -122,10 +122,10 @@ class CuraEngineRunner(private val context: Context) {
     ): SliceResult {
         val nonPlanarRequestSnapshot = NonPlanarRuntime.snapshot()
         val conicalRequestSnapshot = ConicalRuntime.snapshot()
-        val sliceSettings = if (conicalRequestSnapshot != null) {
-            ConicalPreparations.adjustSettings(settings)
-        } else {
-            settings
+        val sliceSettings = when {
+            nonPlanarRequestSnapshot != null -> NonPlanarPreparation.adjustSettings(settings)
+            conicalRequestSnapshot != null -> ConicalPreparations.adjustSettings(settings)
+            else -> settings
         }
         val sliceStartGcode = if (conicalRequestSnapshot != null) {
             ConicalPreparations.stripPrimeLines(startGcode)
