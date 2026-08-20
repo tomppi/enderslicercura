@@ -34,8 +34,8 @@ data class NozzleCollisionAlert(
  *    from the block footprint (centered on the measured nozzle-axis offset)
  *    up to the holder height.
  * 3. Cutoff level: above the holding-object height the whole build plate
- *    (plus a 30% margin) is a no-go zone - anything protruding above it
- *    warns, regardless of horizontal distance.
+ *    is a no-go zone - anything protruding above it warns, regardless of
+ *    horizontal distance.
  */
 internal object NozzleCollisionScanner {
     private const val FINE_CELL_SIZE_MM = 0.25
@@ -45,6 +45,7 @@ internal object NozzleCollisionScanner {
     private const val SURFACE_MARGIN_MM = 0.05
     private const val SWEEP_STEP_MM = 1.0
     private const val MAX_SWEEP_STEPS = 400
+    private const val MAX_GRID_CELLS = 2_000_000.0
 
     private class SurfaceGrid(
         val cellSizeMm: Double,
@@ -53,11 +54,32 @@ internal object NozzleCollisionScanner {
         val maxX: Double,
         val maxY: Double,
     ) {
-        val columns = (ceil((maxX - minX) / cellSizeMm) + 1).toInt().coerceAtLeast(1)
-        val rows = (ceil((maxY - minY) / cellSizeMm) + 1).toInt().coerceAtLeast(1)
+        val columns: Int
+        val rows: Int
+
+        init {
+            // Guard against corrupt coordinates: a stray point far outside the
+            // build plate must fail loudly instead of allocating a runaway grid.
+            val widthCells = ceil((maxX - minX) / cellSizeMm)
+            val heightCells = ceil((maxY - minY) / cellSizeMm)
+            require(
+                widthCells.isFinite() && heightCells.isFinite() &&
+                    widthCells >= 0.0 && heightCells >= 0.0 &&
+                    widthCells * heightCells <= MAX_GRID_CELLS,
+            ) { "Collision-sweep grid out of range: G-code coordinates span too large an area" }
+            columns = (widthCells + 1.0).toInt().coerceAtLeast(1)
+            rows = (heightCells + 1.0).toInt().coerceAtLeast(1)
+        }
         private val maxZ = FloatArray(columns * rows) { Float.NEGATIVE_INFINITY }
         private val pointX = FloatArray(columns * rows)
         private val pointY = FloatArray(columns * rows)
+        // A leaning-away wall keeps its low, near part closer to the nozzle
+        // than the stored top: keep a second representative (the point nearest
+        // to the cell centre) so those walls cannot hide below their top.
+        private val nearestDistance = FloatArray(columns * rows) { Float.POSITIVE_INFINITY }
+        private val nearestX = FloatArray(columns * rows)
+        private val nearestY = FloatArray(columns * rows)
+        private val nearestZ = FloatArray(columns * rows) { Float.NEGATIVE_INFINITY }
 
         fun deposit(x: Double, y: Double, z: Double) {
             val gx = floor((x - minX) / cellSizeMm).toInt().coerceIn(0, columns - 1)
@@ -67,6 +89,15 @@ internal object NozzleCollisionScanner {
                 maxZ[index] = z.toFloat()
                 pointX[index] = x.toFloat()
                 pointY[index] = y.toFloat()
+            }
+            val centreX = minX + (gx + 0.5) * cellSizeMm
+            val centreY = minY + (gy + 0.5) * cellSizeMm
+            val distance = hypot(x - centreX, y - centreY).toFloat()
+            if (distance < nearestDistance[index]) {
+                nearestDistance[index] = distance
+                nearestX[index] = x.toFloat()
+                nearestY[index] = y.toFloat()
+                nearestZ[index] = z.toFloat()
             }
         }
 
@@ -79,12 +110,21 @@ internal object NozzleCollisionScanner {
             return maxZ[gy * columns + gx].toDouble()
         }
 
-        fun highestPointAt(gx: Int, gy: Int): Triple<Double, Double, Double>? {
-            if (gx !in 0 until columns || gy !in 0 until rows) return null
+        /** Both surface representatives of the cell, highest first. */
+        fun surfacePointsAt(gx: Int, gy: Int): List<Triple<Double, Double, Double>> {
+            if (gx !in 0 until columns || gy !in 0 until rows) return emptyList()
             val index = gy * columns + gx
+            val result = ArrayList<Triple<Double, Double, Double>>(2)
             val z = maxZ[index].toDouble()
-            if (!z.isFinite() || z <= 0.0 && maxZ[index] == Float.NEGATIVE_INFINITY) return null
-            return Triple(pointX[index].toDouble(), pointY[index].toDouble(), z)
+            if (z.isFinite() && maxZ[index] != Float.NEGATIVE_INFINITY) {
+                result += Triple(pointX[index].toDouble(), pointY[index].toDouble(), z)
+            }
+            val nz = nearestZ[index].toDouble()
+            if (nz.isFinite() && nearestZ[index] != Float.NEGATIVE_INFINITY) {
+                val candidate = Triple(nearestX[index].toDouble(), nearestY[index].toDouble(), nz)
+                if (candidate !in result) result += candidate
+            }
+            return result
         }
 
         fun isFiniteHeight(gx: Int, gy: Int): Boolean {
@@ -96,8 +136,6 @@ internal object NozzleCollisionScanner {
     fun scan(
         gcode: File,
         settings: NonPlanarSettings,
-        buildPlateHalfWidthMm: Double,
-        buildPlateHalfDepthMm: Double,
     ): NozzleCollisionAlert? {
         require(gcode.isFile && gcode.length() > 0L) { "Curved G-code is missing for the collision sweep" }
         require(settings.enabled) { "Non-planar printing must be enabled for the collision sweep" }
@@ -142,17 +180,25 @@ internal object NozzleCollisionScanner {
                     continue
                 }
                 val command = GcodeCommand.parse(line) ?: continue
+                if (modal.apply(command)) continue
+                if (command.opcode == "G92") {
+                    command.value('X')?.let { currentX = it }
+                    command.value('Y')?.let { currentY = it }
+                    command.value('Z')?.let { currentZ = it }
+                    continue
+                }
                 if (command.opcode != "G0" && command.opcode != "G1") continue
-                if (!command.has('X') && !command.has('Y')) continue
-                val sampled = moveIndex % QUERY_STRIDE == 0
-                moveIndex++
+                // Z-only moves (layer hops) still move the nozzle: track them
+                // so the following layer is not swept at the previous height.
                 val x = modal.position(currentX, command.value('X'))
                 val y = modal.position(currentY, command.value('Y'))
                 val z = modal.position(currentZ, command.value('Z'))
                 currentX = x
                 currentY = y
                 currentZ = z
-                modal.apply(command)
+                if (!command.has('X') && !command.has('Y')) continue
+                val sampled = moveIndex % QUERY_STRIDE == 0
+                moveIndex++
                 minX = minOf(minX, x)
                 minY = minOf(minY, y)
                 maxX = maxOf(maxX, x)
@@ -196,8 +242,12 @@ internal object NozzleCollisionScanner {
                     if (maxOf(abs(dx), abs(dy)) != radius) continue
                     val nx = gx + dx
                     val ny = gy + dy
-                    val highest = grid.highestPointAt(nx, ny) ?: continue
-                    val (sx, sy, sz) = highest
+                    // Both per-cell representatives are checked: the topmost
+                    // point plus the one nearest the cell centre, so a wall
+                    // that leans away from the nozzle cannot hide below its
+                    // own crest.
+                    for (point in grid.surfacePointsAt(nx, ny)) {
+                    val (sx, sy, sz) = point
                     val dz = sz - tip.z
                     if (dz <= SURFACE_MARGIN_MM) continue
                     val dxMm = sx - tip.x
@@ -220,6 +270,7 @@ internal object NozzleCollisionScanner {
                             worst = maxOf(worst, minOf(marginX, marginY))
                         }
                     }
+                    }
                 }
             }
             return worst
@@ -240,10 +291,15 @@ internal object NozzleCollisionScanner {
                 checkedMoves++
                 val distance = hypot(move.x - lastCheckedX, move.y - lastCheckedY) +
                     abs(move.z - lastCheckedZ)
-                val steps = max(1, ceil(distance / SWEEP_STEP_MM).toInt()).coerceAtMost(MAX_SWEEP_STEPS)
+                // Chunk the path so the step cap never silently coarsens the
+                // sampling on long moves.
+                val steps = max(1, ceil(distance / SWEEP_STEP_MM).toInt())
                 var moveViolation = 0.0
                 var moveCutoffViolation = 0.0
-                for (step in 1..steps) {
+                var stepBase = 0
+                while (stepBase < steps) {
+                    val stepEnd = minOf(stepBase + MAX_SWEEP_STEPS, steps)
+                    for (step in (stepBase + 1)..stepEnd) {
                     val t = step.toDouble() / steps
                     val tip = Point(
                         lastCheckedX + (move.x - lastCheckedX) * t,
@@ -268,6 +324,8 @@ internal object NozzleCollisionScanner {
                         violation = maxOf(violation, sweepRing(coarse, tip, radius, 2))
                     }
                     moveViolation = maxOf(moveViolation, violation, moveCutoffViolation)
+                    }
+                    stepBase = stepEnd
                 }
                 lastCheckedX = move.x
                 lastCheckedY = move.y

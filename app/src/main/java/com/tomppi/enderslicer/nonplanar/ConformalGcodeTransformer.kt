@@ -74,7 +74,7 @@ internal object ConformalGcodeTransformer {
 
     private class LayerState(
         val number: Int,
-        val baseZ: Double,
+        var baseZ: Double,
         var lastX: Double,
         var lastY: Double,
         var lastZ: Double,
@@ -149,6 +149,9 @@ internal object ConformalGcodeTransformer {
         // firmware retraction - hopping unretracted causes oozing strings.
         var sourceRetractDelta = 0.0
         var sourceRetractFeed = 0.0
+        // How much of each source move's E moved to the shells; walk 2
+        // subtracts it so straddling moves never double-print.
+        val collectedDeltaEByMove = HashMap<Int, Double>()
         val layerStates = LinkedHashMap<Int, LayerState>()
 
         fun layerState(number: Int, z: Double): LayerState = layerStates.getOrPut(number) {
@@ -246,13 +249,13 @@ internal object ConformalGcodeTransformer {
                             queue.addFirst(
                                 Segment(
                                     midX, midY, segment.x2, segment.y2,
-                                    segment.deltaE * (1.0 - splitFraction), segment.depth,
+                                    segment.deltaE * (1.0 - splitFraction), segment.depth + 1,
                                 ),
                             )
                             queue.addFirst(
                                 Segment(
                                     segment.x1, segment.y1, midX, midY,
-                                    segment.deltaE * splitFraction, segment.depth,
+                                    segment.deltaE * splitFraction, segment.depth + 1,
                                 ),
                             )
                             continue
@@ -267,6 +270,19 @@ internal object ConformalGcodeTransformer {
                             feed = feed,
                             order = pieceOrder++,
                         )
+                        collectedDeltaEByMove.merge(moveId, segment.deltaE) { a, b -> a + b }
+                    } else {
+                        // Both endpoints outside the region: a long move may
+                        // still cross it in the middle (an infill line through
+                        // the dome footprint). Bisect so the inside segments
+                        // are collected instead of silently dropped.
+                        val length = hypot(segment.x2 - segment.x1, segment.y2 - segment.y1)
+                        if (length >= MIN_SEGMENT_MM && segment.depth < MAX_SPLIT_DEPTH) {
+                            val midX = (segment.x1 + segment.x2) * 0.5
+                            val midY = (segment.y1 + segment.y2) * 0.5
+                            queue.addFirst(Segment(midX, midY, segment.x2, segment.y2, segment.deltaE * 0.5, segment.depth + 1))
+                            queue.addFirst(Segment(segment.x1, segment.y1, midX, midY, segment.deltaE * 0.5, segment.depth + 1))
+                        }
                     }
                     continue
                 }
@@ -307,6 +323,7 @@ internal object ConformalGcodeTransformer {
                         feed = feed,
                         order = pieceOrder++,
                     )
+                    collectedDeltaEByMove.merge(moveId, segment.deltaE) { a, b -> a + b }
                     continue
                 }
                 val midX = (segment.x1 + segment.x2) * 0.5
@@ -369,6 +386,10 @@ internal object ConformalGcodeTransformer {
                                 abs(nextY - planarY) > EPSILON || abs(nextZ - planarZ) > EPSILON
                             if (spatial && inPrintableLayers && currentLayer != null) {
                                 val state = layerState(currentLayer!!, nextZ)
+                                // The layer plane is established by its Z-changing
+                                // move (the layer hop), not by the first spatial
+                                // move, which can be a same-plane XY travel.
+                                if (abs(nextZ - planarZ) > EPSILON) state.baseZ = nextZ
                                 state.lastX = nextX
                                 state.lastY = nextY
                                 state.lastZ = nextZ
@@ -417,12 +438,15 @@ internal object ConformalGcodeTransformer {
 
         // Assign each shell to its home layer: the topmost layer at or below
         // surfaceMax - shell * layerHeight, then move every piece there.
+        // -1 means "no valid home": a surface too shallow for this shell.
+        // Such pieces are dropped instead of flushing on the first layer,
+        // which would violate the planar-first-layer invariant.
         val homeByRegionAndShell = Array(surface.regions.size) { regionIndex ->
             val maxZ = surface.regions[regionIndex].maxZ
             IntArray(shellLayers) { shell ->
                 val target = maxZ - shell * layerHeightMm
                 val candidates = layerStates.values.filter { it.baseZ <= target + EPSILON }
-                candidates.maxByOrNull { it.baseZ }?.number ?: layerStates.values.minOf { it.number }
+                candidates.maxByOrNull { it.baseZ }?.number ?: -1
             }
         }
         for (state in layerStates.values) {
@@ -430,6 +454,7 @@ internal object ConformalGcodeTransformer {
             state.skins.clear()
             for (piece in pieces) {
                 val homeNumber = homeByRegionAndShell[piece.regionIndex][piece.shell]
+                if (homeNumber < 0) continue // no valid home layer: drop the piece
                 layerStates[homeNumber]?.skins?.add(piece) ?: state.skins.add(piece)
             }
         }
@@ -447,6 +472,9 @@ internal object ConformalGcodeTransformer {
         var sourceZ = 0.0
         var sourceE = 0.0
         var runningE = 0.0
+        // Mirrors walk 1's sourceMoveId so each emitted move can subtract the
+        // E that its collected shell pieces already carry.
+        var emissionMoveId = 0
         var emittedFeed = Double.NaN
         var emittedMoves = 0
         var stairMovesRemoved = 0
@@ -573,9 +601,9 @@ internal object ConformalGcodeTransformer {
             // crest would otherwise clip it. Sample the surface and take the
             // highest point plus clearance.
             fun hopTravelZ(fromX: Double, fromY: Double, fromZ: Double, toZ: Double): Double {
-                var highest = maxOf(state.baseZ, fromZ, toZ)
+                var highest = maxOf(state.baseZ, fromZ, toZ, emittedZ)
                 val samples = 8
-                for (sampleIndex in 1 until samples) {
+                for (sampleIndex in 0..samples) {
                     val t = sampleIndex.toDouble() / samples
                     val px = emittedX + (fromX - emittedX) * t
                     val py = emittedY + (fromY - emittedY) * t
@@ -644,7 +672,7 @@ internal object ConformalGcodeTransformer {
                         // segments that went to other shells leave gaps: bridge
                         // only close, shallow joins - otherwise hop over the
                         // surface instead of cutting through it.
-                        if (previous != null) {
+                        if (previous != null && piece !== run.first()) {
                             val gap = hypot(piece.x1 - previous!!.x2, piece.y1 - previous!!.y2)
                             val rise = abs(piece.z1 - previous!!.z2)
                             val joined = gap <= CONNECT_TOLERANCE_MM &&
@@ -774,6 +802,10 @@ internal object ConformalGcodeTransformer {
                                         layerHeightMm,
                                         shellLayers,
                                     )
+                                if (extruding && emissionInPrintable && abs(deltaE) > EPSILON) {
+                                    emissionMoveId++
+                                }
+                                val collected = collectedDeltaEByMove[emissionMoveId] ?: 0.0
                                 if (isStair) {
                                     // The stair step is skipped entirely: its plastic is
                                     // printed on the conformal shell instead, and because
@@ -781,14 +813,26 @@ internal object ConformalGcodeTransformer {
                                     // already starts exactly where the nozzle stands, so
                                     // no travel line is needed at all. The modal Z still
                                     // advances so later Z-less moves keep their original
-                                    // layer height.
+                                    // layer height. Relative-mode streams need the XY
+                                    // delta preserved, so emit a plain travel there.
                                     stairMovesRemoved++
-                                    emittedZ = nextZ
+                                    val remaining = deltaE - collected
+                                    if (remaining > EPSILON) {
+                                        // A straddling move: its outside half still prints.
+                                        emitMove(
+                                            output, nextX, nextY, nextZ, remaining,
+                                            command.value('F'), command.opcode,
+                                        )
+                                    } else if (emissionModal.absolutePosition) {
+                                        emittedZ = nextZ
+                                    } else {
+                                        emitMove(output, nextX, nextY, nextZ, null, command.value('F'), "G0")
+                                    }
                                     return
                                 }
                                 emitMove(
                                     output, nextX, nextY, nextZ,
-                                    if (extruding) deltaE else null,
+                                    if (extruding) deltaE - collected else null,
                                     command.value('F'),
                                     command.opcode,
                                 )
@@ -901,13 +945,21 @@ internal object ConformalGcodeTransformer {
         var remaining = runs.size - 1
         while (remaining > 0) {
             val end = current.last()
-            val cx = ((end.x2 - minX) / cell).toInt()
-            val cy = ((end.y2 - minY) / cell).toInt()
+            val cx = ((end.x2 - minX) / cell).toInt().coerceIn(0, columns - 1)
+            val cy = ((end.y2 - minY) / cell).toInt().coerceIn(0, rows - 1)
             var bestIndex = -1
             var bestDistance = Double.MAX_VALUE
             val maxRadius = max(columns, rows) + 1
             for (radius in 0..maxRadius) {
-                var candidateInRing = false
+                // Any point in ring r lies at least (r - 1) cells from the
+                // endpoint's own cell, so once the best candidate is closer
+                // than that bound no farther ring can beat it. The first
+                // non-empty ring alone is NOT enough: when the endpoint sits
+                // near a cell border a neighbouring ring can hold a nearer
+                // run than the current ring does.
+                if (bestDistance != Double.MAX_VALUE && radius >= 2 &&
+                    (radius - 1) * cell >= bestDistance
+                ) break
                 for (dy in -radius..radius) {
                     for (dx in -radius..radius) {
                         if (max(abs(dx), abs(dy)) != radius) continue
@@ -917,7 +969,6 @@ internal object ConformalGcodeTransformer {
                         val bucket = buckets[gy * columns + gx] ?: continue
                         for (index in bucket) {
                             if (used[index]) continue
-                            candidateInRing = true
                             val first = runs[index].first()
                             val distance = hypot(first.x1 - end.x2, first.y1 - end.y2)
                             if (distance < bestDistance) {
@@ -927,8 +978,6 @@ internal object ConformalGcodeTransformer {
                         }
                     }
                 }
-                // The first non-empty ring holds the nearest candidate.
-                if (candidateInRing) break
             }
             if (bestIndex < 0) bestIndex = used.indexOfFirst { !it }
             used[bestIndex] = true

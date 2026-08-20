@@ -11,9 +11,14 @@ internal object ConformalSurfaceStorage {
     private const val FILE_NAME = "conformal-surface.bin"
     private const val MAGIC = 0x434E4652
     private const val VERSION = 1
+    const val MAX_REGIONS = 256
 
     fun write(workspace: File, prepared: NonPlanarPipeline.ConformalPrepared) {
         require(workspace.isDirectory) { "Conformal surface workspace is unavailable" }
+        require(prepared.surface.regions.size <= MAX_REGIONS) {
+            "The model has " + prepared.surface.regions.size + " printable surface regions; " +
+                "the limit is " + MAX_REGIONS
+        }
         val destination = File(workspace, FILE_NAME)
         val temporary = File(workspace, "$FILE_NAME.tmp")
         temporary.delete()
@@ -67,7 +72,7 @@ internal object ConformalSurfaceStorage {
             require(layerHeightMm.isFinite() && layerHeightMm in 0.04..1.2) {
                 "Invalid conformal layer height"
             }
-            require(regionCount in 0..64) { "Invalid conformal region count" }
+            require(regionCount in 0..MAX_REGIONS) { "Invalid conformal region count" }
             val regions = ArrayList<ConformalSurface.Region>(regionCount)
             repeat(regionCount) {
                 val minX = input.readDouble()

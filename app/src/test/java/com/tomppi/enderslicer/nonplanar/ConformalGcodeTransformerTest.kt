@@ -152,8 +152,6 @@ class ConformalGcodeTransformerTest {
                     nozzleClearanceAngleDegrees = 45.0,
                     nozzleClearanceHeightMm = 15.0,
                 ),
-                buildPlateHalfWidthMm = 110.0,
-                buildPlateHalfDepthMm = 110.0,
             )
             assertTrue(
                 "transformed ridge must not collide: " + (alert?.toString() ?: ""),

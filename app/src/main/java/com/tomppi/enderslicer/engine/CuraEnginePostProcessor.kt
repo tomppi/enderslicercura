@@ -81,8 +81,6 @@ internal object CuraEnginePostProcessor {
                 NozzleCollisionScanner.scan(
                     gcode = outputFile,
                     settings = NonPlanarRuntime.current(),
-                    buildPlateHalfWidthMm = effectiveEnvelope.widthMm / 2.0,
-                    buildPlateHalfDepthMm = effectiveEnvelope.depthMm / 2.0,
                 )
             }.onFailure { collisionSweepFailure = it.message ?: "unknown sweep failure" }
                 .getOrNull()

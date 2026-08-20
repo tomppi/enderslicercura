@@ -3,6 +3,7 @@ package com.tomppi.enderslicer.nonplanar
 import com.tomppi.enderslicer.engine.checkCancellation
 import com.tomppi.enderslicer.viewer.StlMesh
 import java.util.HashMap
+import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.min
@@ -247,12 +248,10 @@ internal object ConformalSurfaceBuilder {
             bounds[3] = max(bounds[3], max(x0, max(x1, x2)))
             bounds[4] = max(bounds[4], max(y0, max(y1, y2)))
             bounds[5] = max(bounds[5], max(z0, max(z1, z2)))
-            val ux = x1 - x0; val uy = y1 - y0; val uz = z1 - z0
-            val vx = x2 - x0; val vy = y2 - y0; val vz = z2 - z0
-            val crossX = uy * vz - uz * vy
-            val crossY = uz * vx - ux * vz
-            val crossZ = ux * vy - uy * vx
-            componentArea.merge(root, 0.5 * sqrt(crossX * crossX + crossY * crossY + crossZ * crossZ)) { a, b -> a + b }
+            val ux = x1 - x0; val uy = y1 - y0
+            val vx = x2 - x0; val vy = y2 - y0
+            // The reference filters on the XY-projected triangle area.
+            componentArea.merge(root, 0.5 * abs(ux * vy - uy * vx)) { a, b -> a + b }
             componentTriangles.getOrPut(root) { ArrayList() }.add(triangle)
         }
 
@@ -382,9 +381,14 @@ internal object ConformalSurfaceBuilder {
     }
 
     private fun packVertex(x: Double, y: Double, z: Double): Long {
-        val qx = (x / VERTEX_QUANTUM_MM).toLong() and 0x1FFFFF
-        val qy = (y / VERTEX_QUANTUM_MM).toLong() and 0x1FFFFF
-        val qz = (z / VERTEX_QUANTUM_MM).toLong() and 0x1FFFFF
+        // Printer-scale coordinates: 21 bits per axis covers ±2097 mm at the
+        // 1e-3 weld quantum, far beyond any build plate.
+        val qx = (x / VERTEX_QUANTUM_MM).toLong()
+        val qy = (y / VERTEX_QUANTUM_MM).toLong()
+        val qz = (z / VERTEX_QUANTUM_MM).toLong()
+        require(qx in -0x100000..0xFFFFF && qy in -0x100000..0xFFFFF && qz in -0x100000..0xFFFFF) {
+            "Model coordinate out of range for the conformal surface search: (" + x + ", " + y + ", " + z + ")"
+        }
         return (qx shl 42) or (qy shl 21) or qz
     }
 

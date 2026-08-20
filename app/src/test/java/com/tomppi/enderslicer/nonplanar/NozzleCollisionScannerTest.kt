@@ -27,7 +27,7 @@ class NozzleCollisionScannerTest {
         val gcode = File(directory, "output.gcode")
         gcode.writeText(";FLAVOR:Marlin\nG90\nM82\n" + body)
         return try {
-            NozzleCollisionScanner.scan(gcode, settings(nozzleAngleDegrees), 115.0, 115.0)
+            NozzleCollisionScanner.scan(gcode, settings(nozzleAngleDegrees))
         } finally {
             directory.deleteRecursively()
         }
