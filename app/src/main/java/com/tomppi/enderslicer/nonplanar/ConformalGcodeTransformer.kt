@@ -34,10 +34,14 @@ import kotlin.math.sqrt
  * 3. Deeper planar material (k >= shellLayers) stays planar as interior
  *    support, and the first layer is always kept planar for bed adhesion.
  *
- * Extrusion: the reference computes flow * length3D * m with
- * m = cos(arctan(dz / length3D)) (thesis eq. 4.13); the product simplifies to
- * flow * horizontalLength, which is exactly what keeping the planar source
- * move's E value provides - no further compensation is needed.
+ * Extrusion: the reference scales the 3D path length by the cosine of the
+ * surface angle (thesis eq. 4.13's m), i.e. it extrudes for the HORIZONTAL
+ * length of each conformal move so the z-shifted shells keep the same
+ * E/mm as their planar source lines. Keeping the planar source move's E
+ * value provides exactly that horizontal-length extrusion, so no further
+ * compensation is needed. (The literal flow*L3D*cos(arctan(dz/L3D)) form
+ * would NOT simplify to the horizontal length unless the arctan's
+ * denominator is the horizontal length itself - the intended reading.)
  */
 internal object ConformalGcodeTransformer {
     private const val EPSILON = 1e-8
@@ -59,8 +63,10 @@ internal object ConformalGcodeTransformer {
     private const val CHORD_TOLERANCE_MM = 0.1
     private const val SLIVER_MAX_RISE_MM = 0.3
     // Shells stay this far from the exact region boundary so the nozzle cone
-    // cannot scrape a steep wall rising at the region edge. 0.75 mm clears
-    // walls up to ~2.8 mm above the shell path (0.75 / tan(15 degrees)).
+    // cannot scrape a steep wall rising at the region edge. For the measured
+    // 75-degree nozzle taper (15 degrees from vertical), 0.75 mm clears walls
+    // up to ~2.8 mm above the shell path (0.75 / tan(15 degrees)); with the
+    // default 60-degree taper it clears ~1.3 mm.
     private const val BOUNDARY_BACKOFF_MM = 0.75
 
     data class Diagnostics(
@@ -156,6 +162,10 @@ internal object ConformalGcodeTransformer {
         // How much of each source move's E moved to the shells; walk 2
         // subtracts it so straddling moves never double-print.
         val collectedDeltaEByMove = HashMap<Int, Double>()
+        // The collected sub-spans themselves (x1,y1,x2,y2 per piece): walk 2
+        // emits only the complement of a straddling move so the nozzle never
+        // re-traverses the collected interior at the planar layer.
+        val collectedSpansByMove = HashMap<Int, MutableList<DoubleArray>>()
         val layerStates = LinkedHashMap<Int, LayerState>()
 
         fun layerState(number: Int, z: Double): LayerState = layerStates.getOrPut(number) {
@@ -287,6 +297,8 @@ internal object ConformalGcodeTransformer {
                             order = pieceOrder++,
                         )
                         collectedDeltaEByMove.merge(moveId, segment.deltaE) { a, b -> a + b }
+                        collectedSpansByMove.getOrPut(moveId) { ArrayList(4) }
+                            .add(doubleArrayOf(segment.x1, segment.y1, segment.x2, segment.y2))
                     } else {
                         // Both endpoints outside the region: a long move may
                         // still cross it in the middle (an infill line through
@@ -340,6 +352,8 @@ internal object ConformalGcodeTransformer {
                         order = pieceOrder++,
                     )
                     collectedDeltaEByMove.merge(moveId, segment.deltaE) { a, b -> a + b }
+                    collectedSpansByMove.getOrPut(moveId) { ArrayList(4) }
+                        .add(doubleArrayOf(segment.x1, segment.y1, segment.x2, segment.y2))
                     continue
                 }
                 val midX = (segment.x1 + segment.x2) * 0.5
@@ -562,6 +576,84 @@ internal object ConformalGcodeTransformer {
             maximumZ = maxOf(maximumZ, targetZ)
         }
 
+        fun emitComplement(
+            output: Appendable,
+            ax: Double,
+            ay: Double,
+            bx: Double,
+            by: Double,
+            z: Double,
+            remainingE: Double,
+            spans: List<DoubleArray>,
+            feed: Double?,
+            opcode: String,
+        ) {
+            val dirX = bx - ax
+            val dirY = by - ay
+            val totalLength = hypot(dirX, dirY)
+            if (totalLength <= EPSILON) {
+                emitMove(output, bx, by, z, remainingE, feed, opcode)
+                return
+            }
+            val intervals = ArrayList<Pair<Double, Double>>(spans.size)
+            for (span in spans) {
+                var t1 = ((span[0] - ax) * dirX + (span[1] - ay) * dirY) / (totalLength * totalLength)
+                var t2 = ((span[2] - ax) * dirX + (span[3] - ay) * dirY) / (totalLength * totalLength)
+                if (t1 > t2) {
+                    val swap = t1
+                    t1 = t2
+                    t2 = swap
+                }
+                t1 = t1.coerceIn(0.0, 1.0)
+                t2 = t2.coerceIn(0.0, 1.0)
+                if (t2 - t1 > EPSILON) intervals += t1 to t2
+            }
+            intervals.sortBy { it.first }
+            val merged = ArrayList<Pair<Double, Double>>(intervals.size)
+            for (interval in intervals) {
+                if (merged.isEmpty() || interval.first > merged.last().second + EPSILON) {
+                    merged += interval
+                } else {
+                    val last = merged.removeAt(merged.size - 1)
+                    merged += last.first to maxOf(last.second, interval.second)
+                }
+            }
+            val complement = ArrayList<Pair<Double, Double>>(merged.size + 1)
+            var cursor = 0.0
+            for (interval in merged) {
+                if (interval.first - cursor > EPSILON) complement += cursor to interval.first
+                cursor = maxOf(cursor, interval.second)
+            }
+            if (1.0 - cursor > EPSILON) complement += cursor to 1.0
+            var remainingLength = 0.0
+            for (interval in complement) remainingLength += (interval.second - interval.first) * totalLength
+            for (interval in complement) {
+                // Travel to the interval start (a no-op when the nozzle is
+                // already there): the collected interior is crossed without
+                // extruding because its plastic rides the conformal shell.
+                emitMove(
+                    output,
+                    ax + dirX * interval.first,
+                    ay + dirY * interval.first,
+                    z,
+                    null,
+                    feed,
+                    "G0",
+                )
+                val length = (interval.second - interval.first) * totalLength
+                val eShare = if (remainingLength > EPSILON) remainingE * length / remainingLength else 0.0
+                emitMove(
+                    output,
+                    ax + dirX * interval.second,
+                    ay + dirY * interval.second,
+                    z,
+                    if (eShare > EPSILON) eShare else null,
+                    feed,
+                    opcode,
+                )
+            }
+        }
+
         fun emitSkinPiece(output: Appendable, piece: Piece, state: LayerState) {
             val horizontal = hypot(piece.x2 - piece.x1, piece.y2 - piece.y1)
             val dz = abs(piece.z2 - piece.z1)
@@ -635,6 +727,25 @@ internal object ConformalGcodeTransformer {
                 return max(highest, maxPieceZ) + TRAVEL_CLEARANCE_MM
             }
 
+            // A direct (travel-free) bridge between two runs is only emitted
+            // when the straight chord stays clear of the surface: a convex
+            // crest inside the gap would otherwise be cut straight through.
+            fun bridgeClearsSurface(
+                ax: Double, ay: Double, az: Double,
+                bx: Double, by: Double, bz: Double,
+            ): Boolean {
+                val samples = 8
+                for (sampleIndex in 1 until samples) {
+                    val t = sampleIndex.toDouble() / samples
+                    val px = ax + (bx - ax) * t
+                    val py = ay + (by - ay) * t
+                    val pz = az + (bz - az) * t
+                    val surfaceZ = surfaceAt(px, py)?.second ?: continue
+                    if (surfaceZ > pz + TRAVEL_CLEARANCE_MM) return false
+                }
+                return true
+            }
+
             fun emitERetract(output: Appendable, retract: Boolean) {
                 if (sourceRetractDelta <= EPSILON || fileUsesFirmwareRetract) return
                 val builder = StringBuilder("G1")
@@ -685,7 +796,11 @@ internal object ConformalGcodeTransformer {
                     val vertical = previous?.let { abs(first.z1 - it.z2) } ?: 0.0
                     val direct = previous != null && horizontal <= CONNECT_TOLERANCE_MM &&
                         (vertical <= JOIN_MAX_RISE_MM || horizontal < 1e-4 ||
-                            vertical / horizontal < CONNECT_SLOPE_LIMIT)
+                            vertical / horizontal < CONNECT_SLOPE_LIMIT) &&
+                        bridgeClearsSurface(
+                            previous!!.x2, previous.y2, previous.z2,
+                            first.x1, first.y1, first.z1,
+                        )
                     if (!direct) travelDance(first.x1, first.y1, first.z1)
                     for (piece in run) {
                         checkCancellation(piece.order, "Conformal processing")
@@ -699,7 +814,11 @@ internal object ConformalGcodeTransformer {
                             val rise = abs(piece.z1 - previous!!.z2)
                             val joined = gap <= CONNECT_TOLERANCE_MM &&
                                 (rise <= JOIN_MAX_RISE_MM || gap < 1e-4 ||
-                                    rise / gap < CONNECT_SLOPE_LIMIT)
+                                    rise / gap < CONNECT_SLOPE_LIMIT) &&
+                                bridgeClearsSurface(
+                                    previous!!.x2, previous.y2, previous.z2,
+                                    piece.x1, piece.y1, piece.z1,
+                                )
                             if (!joined) travelDance(piece.x1, piece.y1, piece.z1)
                         }
                         emitSkinPiece(output, piece, state)
@@ -712,10 +831,9 @@ internal object ConformalGcodeTransformer {
             // so no return hop is needed. Relative mode must land back on the
             // source position for the original deltas to stay valid.
             if (!emissionModal.absolutePosition) {
-                val travelZ = max(state.baseZ, maxPieceZ) + TRAVEL_CLEARANCE_MM
-                emitMove(output, emittedX, emittedY, travelZ, null, null, "G0")
-                emitMove(output, state.lastX, state.lastY, travelZ, null, null, "G0")
-                emitMove(output, state.lastX, state.lastY, state.baseZ, null, null, "G0")
+                // Surface-sampled, retracted return hop: a plain
+                // maxPieceZ+0.3 lift could clip a dome crest on the way back.
+                travelDance(state.lastX, state.lastY, state.baseZ)
             }
         }
 
@@ -828,6 +946,7 @@ internal object ConformalGcodeTransformer {
                                     emissionMoveId++
                                 }
                                 val collected = collectedDeltaEByMove[emissionMoveId] ?: 0.0
+                                val collectedSpans = collectedSpansByMove[emissionMoveId]
                                 if (isStair) {
                                     // The stair step is skipped entirely: its plastic is
                                     // printed on the conformal shell instead, and because
@@ -840,16 +959,53 @@ internal object ConformalGcodeTransformer {
                                     stairMovesRemoved++
                                     val remaining = deltaE - collected
                                     if (remaining > EPSILON) {
-                                        // A straddling move: its outside half still prints.
-                                        emitMove(
-                                            output, nextX, nextY, nextZ, remaining,
-                                            command.value('F'), command.opcode,
-                                        )
+                                        if (collectedSpans.isNullOrEmpty()) {
+                                            // Exterior remnant without recorded spans:
+                                            // emit the rest as one line.
+                                            emitMove(
+                                                output, nextX, nextY, nextZ, remaining,
+                                                command.value('F'), command.opcode,
+                                            )
+                                        } else {
+                                            // A straddling stair: emit only the exterior
+                                            // sub-segments and travel across the collected
+                                            // interior (already printed as conformal shells).
+                                            emitComplement(
+                                                output,
+                                                sourceX, sourceY, nextX, nextY, nextZ,
+                                                remaining,
+                                                collectedSpans,
+                                                command.value('F'),
+                                                command.opcode,
+                                            )
+                                        }
                                     } else if (emissionModal.absolutePosition) {
                                         emittedZ = nextZ
+                                        // The skipped move may have moved in XY: without a
+                                        // travel the next kept move would be emitted from
+                                        // this stale position, displacing the whole line
+                                        // across the collected interior. Z-only stairs keep
+                                        // the no-travel optimization.
+                                        if (abs(nextX - emittedX) > EPSILON || abs(nextY - emittedY) > EPSILON) {
+                                            emitMove(output, nextX, nextY, nextZ, null, command.value('F'), "G0")
+                                        }
                                     } else {
                                         emitMove(output, nextX, nextY, nextZ, null, command.value('F'), "G0")
                                     }
+                                    return
+                                }
+                                if (extruding && collected > EPSILON && collectedSpans != null) {
+                                    // A kept move with a collected interior: print only
+                                    // the exterior sub-segments so the interior is never
+                                    // re-traversed at the planar layer.
+                                    emitComplement(
+                                        output,
+                                        sourceX, sourceY, nextX, nextY, nextZ,
+                                        deltaE - collected,
+                                        collectedSpans,
+                                        command.value('F'),
+                                        command.opcode,
+                                    )
                                     return
                                 }
                                 emitMove(

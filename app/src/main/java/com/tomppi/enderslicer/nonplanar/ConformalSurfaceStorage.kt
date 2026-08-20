@@ -84,6 +84,10 @@ internal object ConformalSurfaceStorage {
                 val area = input.readDouble()
                 val triangleCount = input.readInt()
                 require(triangleCount in 1..2_000_000) { "Invalid conformal region triangle count" }
+                // Corrupt bounds must fail loudly here, before buildRegion's
+                // grid allocation overflows on a nonsense span.
+                require(minX <= maxX && maxX - minX <= 10_000.0) { "Invalid conformal region X bounds" }
+                require(minY <= maxY && maxY - minY <= 10_000.0) { "Invalid conformal region Y bounds" }
                 val triangles = FloatArray(triangleCount * 9) { input.readFloat() }
                 require(triangles.all(Float::isFinite)) { "Conformal surface contains a non-finite vertex" }
                 regions += ConformalSurfaceBuilder.rebuildRegion(

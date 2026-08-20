@@ -123,11 +123,11 @@ class CuraEngineRunner(private val context: Context) {
     ): SliceResult {
         val nonPlanarRequestSnapshot = NonPlanarRuntime.snapshot()
         val conicalRequestSnapshot = ConicalRuntime.snapshot()
-        if (nonPlanarRequestSnapshot != null) {
-            require(printer.extruders <= 1) {
-                "Non-planar printing requires a single-nozzle machine: the collision model " +
-                    "only tracks the measured hot end, and a second nozzle would always collide"
-            }
+        val dualNozzleFailure = if (nonPlanarRequestSnapshot != null && printer.extruders > 1) {
+            "Non-planar printing requires a single-nozzle machine: the collision model " +
+                "only tracks the measured hot end, and a second nozzle would always collide"
+        } else {
+            null
         }
         val sliceSettings = when {
             nonPlanarRequestSnapshot != null -> NonPlanarPreparation.adjustSettings(settings)
@@ -158,6 +158,7 @@ class CuraEngineRunner(private val context: Context) {
 
         try {
             require(isAvailable()) { status() }
+            dualNozzleFailure?.let { throw IllegalArgumentException(it) }
             require(modelFile.isFile && modelFile.length() > 0L) { "The imported STL is no longer available" }
             smartInfillSnapshot?.requireMatchesSource(modelFile)
 

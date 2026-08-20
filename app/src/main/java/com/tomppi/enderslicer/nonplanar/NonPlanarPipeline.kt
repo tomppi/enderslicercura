@@ -52,6 +52,11 @@ internal object NonPlanarPipeline {
             "Non-planar printing found no printable surface region: " +
                 "lower the maximum path slope or raise the maximum lift so the model's top surface qualifies"
         }
+        // Fail before the expensive slice instead of at sidecar write time.
+        require(surface.regions.size <= ConformalSurfaceStorage.MAX_REGIONS) {
+            "The model has " + surface.regions.size + " printable surface regions; " +
+                "the limit is " + ConformalSurfaceStorage.MAX_REGIONS
+        }
         return ConformalPrepared(surface, safe, layerHeightMm)
     }
 

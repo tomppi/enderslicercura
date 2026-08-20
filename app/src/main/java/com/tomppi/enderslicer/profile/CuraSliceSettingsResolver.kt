@@ -88,6 +88,7 @@ internal object CuraSliceSettingsResolver {
             settings = effectiveSettings,
             globalValues = rawResolved.globalValues,
             extruderValues = parityExtruder,
+            modelValues = rawResolved.modelValues,
         )
 
         if (smartInfillPackage != null) {

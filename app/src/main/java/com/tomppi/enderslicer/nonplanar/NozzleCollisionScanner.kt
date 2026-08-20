@@ -215,7 +215,11 @@ internal object NozzleCollisionScanner {
                 currentX = x
                 currentY = y
                 currentZ = z
-                if (!command.has('X') && !command.has('Y')) continue
+                // Z-only moves (layer hops) must enter the polyline too: the
+                // sweep walks the real toolpath vertex by vertex, and dropping
+                // the hop vertex would let the chord between two X/Y moves cut
+                // straight through the part (phantom chord).
+                if (!command.has('X') && !command.has('Y') && !command.has('Z')) continue
                 val sampled = moveIndex % QUERY_STRIDE == 0
                 moveIndex++
                 minX = minOf(minX, x)
@@ -291,6 +295,10 @@ internal object NozzleCollisionScanner {
                 val dxMm = sx - tip.x
                 val dyMm = sy - tip.y
                 if (zone == 1) {
+                    // The nozzle cone exists only between the tip and the
+                    // nozzle/block junction: material above the protrusion
+                    // height belongs to the heating-block frustum (zone 2).
+                    if (dz > protrusionMm) return
                     val allowed = dz * nozzleK
                     val intrusion = allowed - hypot(dxMm, dyMm)
                     if (intrusion > SURFACE_MARGIN_MM) {
@@ -383,7 +391,10 @@ internal object NozzleCollisionScanner {
                     }
 
                     // Zone 2: the block frustum, at coarse resolution.
-                    for (radius in 1..coarseRadiusCells) {
+                    // Radius 0 included: the cone (zone 1) stops at the
+                    // protrusion height, so the block check must cover the
+                    // tip's own cell for material above the junction.
+                    for (radius in 0..coarseRadiusCells) {
                         violation = maxOf(violation, sweepRing(coarse, tip, radius, 2))
                     }
                     segmentViolation = maxOf(segmentViolation, violation)
@@ -397,14 +408,31 @@ internal object NozzleCollisionScanner {
         // from the (0,0,0) home origin would walk a spurious diagonal against
         // an empty grid.
         var lastChecked: Point? = null
-        var previous = Point(0.0, 0.0, 0.0)
-        val pending = ArrayList<Point>()
+        // Nullable so the first extruding move deposits only its endpoint:
+        // starting from (0,0,0) would paint a phantom material line from the
+        // home origin through the part.
+        var previous: Point? = null
+        val pending = ArrayList<Move>()
+
+        fun depositAlong(from: Point, to: Point) {
+            val distance = hypot(to.x - from.x, to.y - from.y) + abs(to.z - from.z)
+            val depositSteps = max(1, ceil(distance / DEPOSIT_STEP_MM).toInt())
+            for (step in 1..depositSteps) {
+                val t = step.toDouble() / depositSteps
+                val px = from.x + (to.x - from.x) * t
+                val py = from.y + (to.y - from.y) * t
+                val pz = from.z + (to.z - from.z) * t
+                fine.deposit(px, py, pz)
+                coarse.deposit(px, py, pz)
+                globalMaxZ = maxOf(globalMaxZ, pz)
+            }
+        }
+
         for (move in moves) {
             val point = Point(move.x, move.y, move.z)
             if (move.sampled) {
                 val from = lastChecked
                 if (from != null) {
-                    sweepLayer = move.layer
                     checkedMoves++
                     var segmentViolation = 0.0
                     var segmentCutoffViolation = 0.0
@@ -416,41 +444,50 @@ internal object NozzleCollisionScanner {
                     // collisions against material above the fake line.
                     var cursor: Point = from
                     for (vertex in pending) {
-                        val (v, c) = sweepSegment(cursor, vertex)
+                        // Sweep each pending segment BEFORE depositing its own
+                        // extrusion: a rising extrusion must never collide
+                        // with the material of the very line being laid.
+                        sweepLayer = vertex.layer
+                        val vertexPoint = Point(vertex.x, vertex.y, vertex.z)
+                        val (v, c) = sweepSegment(cursor, vertexPoint)
                         segmentViolation = maxOf(segmentViolation, v)
                         segmentCutoffViolation = maxOf(segmentCutoffViolation, c)
-                        cursor = vertex
+                        if (v > 0.0 && vertex.layer != null && vertex.layer >= 0 &&
+                            offendingLayers.size < REPORTED_LAYERS_CAP
+                        ) {
+                            offendingLayers += vertex.layer
+                        }
+                        if (vertex.extrudes) {
+                            depositAlong(cursor, vertexPoint)
+                        }
+                        cursor = vertexPoint
                     }
+                    sweepLayer = move.layer
                     val (v, c) = sweepSegment(cursor, point)
                     segmentViolation = maxOf(segmentViolation, v)
                     segmentCutoffViolation = maxOf(segmentCutoffViolation, c)
+                    if (v > 0.0 && move.layer != null && move.layer >= 0 &&
+                        offendingLayers.size < REPORTED_LAYERS_CAP
+                    ) {
+                        offendingLayers += move.layer
+                    }
+                    if (move.extrudes) {
+                        depositAlong(cursor, point)
+                    }
                     if (segmentCutoffViolation > SURFACE_MARGIN_MM) cutoffViolatingMoves++
                     if (segmentViolation > 0.0) {
                         violatingMoves++
                         maximumViolation = maxOf(maximumViolation, segmentViolation)
-                        if (move.layer != null && move.layer >= 0 && offendingLayers.size < REPORTED_LAYERS_CAP) {
-                            offendingLayers += move.layer
-                        }
                     }
+                } else if (move.extrudes) {
+                    // First sampled move: nothing to sweep against yet, but
+                    // its own line must exist for every later sweep.
+                    depositAlong(previous ?: point, point)
                 }
                 lastChecked = point
                 pending.clear()
             } else if (lastChecked != null) {
-                pending += point
-            }
-            if (move.extrudes) {
-                val distance = hypot(point.x - previous.x, point.y - previous.y) +
-                    abs(point.z - previous.z)
-                val depositSteps = max(1, ceil(distance / DEPOSIT_STEP_MM).toInt())
-                for (step in 1..depositSteps) {
-                    val t = step.toDouble() / depositSteps
-                    val px = previous.x + (point.x - previous.x) * t
-                    val py = previous.y + (point.y - previous.y) * t
-                    val pz = previous.z + (point.z - previous.z) * t
-                    fine.deposit(px, py, pz)
-                    coarse.deposit(px, py, pz)
-                    globalMaxZ = maxOf(globalMaxZ, pz)
-                }
+                pending += move
             }
             previous = point
         }

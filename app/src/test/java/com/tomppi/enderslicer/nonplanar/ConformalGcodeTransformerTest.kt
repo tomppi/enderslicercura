@@ -11,7 +11,7 @@ import org.junit.Test
 class ConformalGcodeTransformerTest {
     // Surface triangle (0,0,0.6)-(20,0,0.6)-(0,10,1.0): z = 0.6 + 0.04 * y.
     // Wide enough that the fixture toolpath at y = 2.5 stays clear of the
-    // eroded one-cell boundary rim.
+    // 0.75 mm boundary back-off.
     private fun surface(): ConformalSurface {
         val mesh = testMesh(floatArrayOf(0f, 0f, 0.6f, 20f, 0f, 0.6f, 0f, 10f, 1.0f))
         return ConformalSurfaceBuilder.build(mesh, NonPlanarSettings(enabled = true))

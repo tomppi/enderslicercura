@@ -242,9 +242,13 @@ internal object CuraSettingDelta {
         settings: SlicerSettings,
         globalValues: Map<String, String>,
         extruderValues: Map<String, String>,
+        modelValues: Map<String, String> = emptyMap(),
     ) {
         val mismatches = explicitValues(settings).mapNotNull { (key, expected) ->
-            val actual = extruderValues[key] ?: globalValues[key]
+            // Per-mesh overrides from imported projects resolve into
+            // modelValues; without the fallback a forced key (e.g. the
+            // non-planar top_layers clamp) would report as missing.
+            val actual = extruderValues[key] ?: globalValues[key] ?: modelValues[key]
             when {
                 actual == null -> "$key is missing; edit=$expected"
                 equivalent(expected, actual) -> null

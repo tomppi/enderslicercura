@@ -640,10 +640,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                     3 -> "the plate clearance"
                                     else -> "the nozzle cone"
                                 }
+                                val layersSuffix = alert.offendingLayers
+                                    .takeIf { it.isNotEmpty() }
+                                    ?.let { " on layers " + it.sorted().joinToString(", ") }
+                                    ?: ""
                                 append(
                                     " · ⚠ nozzle collision risk: up to " +
-                                        "%.1f mm into $zone on layers ".format(alert.maximumViolationMm) +
-                                        alert.offendingLayers.sorted().joinToString(", ") +
+                                        "%.1f mm into $zone".format(alert.maximumViolationMm) +
+                                        layersSuffix +
                                         if (alert.cutoffViolatingMoves > 0) {
                                             " · material exceeds the holding-object clearance"
                                         } else {

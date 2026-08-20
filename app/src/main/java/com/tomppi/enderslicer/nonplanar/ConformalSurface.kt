@@ -84,10 +84,18 @@ internal class ConformalSurface(
                         val tx = x1; val ty = y1
                         x1 = x2; y1 = y2; x2 = tx; y2 = ty
                     }
-                    var key = x1.toRawBits().toLong()
-                    key = key * 31 + y1.toRawBits().toLong()
-                    key = key * 31 + x2.toRawBits().toLong()
-                    key = key * 31 + y2.toRawBits().toLong()
+                    // Normalize -0.0 to +0.0: raw bits differ but the
+                    // orientation swap above compares with ==, so a shared
+                    // edge stored once as -0.0 and once as +0.0 would
+                    // otherwise become two phantom boundary edges.
+                    val kx1 = if (x1 == 0.0) 0.0 else x1
+                    val ky1 = if (y1 == 0.0) 0.0 else y1
+                    val kx2 = if (x2 == 0.0) 0.0 else x2
+                    val ky2 = if (y2 == 0.0) 0.0 else y2
+                    var key = kx1.toRawBits().toLong()
+                    key = key * 31 + ky1.toRawBits().toLong()
+                    key = key * 31 + kx2.toRawBits().toLong()
+                    key = key * 31 + ky2.toRawBits().toLong()
                     counts[key] = (counts[key] ?: 0) + 1
                     edges[key] = floatArrayOf(x1.toFloat(), y1.toFloat(), x2.toFloat(), y2.toFloat())
                 }
@@ -517,8 +525,8 @@ internal object ConformalSurfaceBuilder {
     }
 
     private fun packVertex(x: Double, y: Double, z: Double): Long {
-        // Printer-scale coordinates: 21 bits per axis covers ±2097 mm at the
-        // 1e-3 weld quantum, far beyond any build plate.
+        // Printer-scale coordinates: 21 bits per axis covers ±1048.576 mm at
+        // the 1e-3 weld quantum, far beyond any build plate.
         val qx = (x / VERTEX_QUANTUM_MM).toLong()
         val qy = (y / VERTEX_QUANTUM_MM).toLong()
         val qz = (z / VERTEX_QUANTUM_MM).toLong()
@@ -528,5 +536,9 @@ internal object ConformalSurfaceBuilder {
         return (qx shl 42) or (qy shl 21) or qz
     }
 
-    private fun edgeKey(a: Int, b: Int): Long = minOf(a, b).toLong() * 1_000_003L + maxOf(a, b)
+    // Injective packing: two Int ids cannot collide regardless of their
+    // values (the old multiplicative hash merged unrelated edges at ~100k+
+    // facets, silently fusing disconnected regions).
+    private fun edgeKey(a: Int, b: Int): Long =
+        (minOf(a, b).toLong() shl 32) or (maxOf(a, b).toLong() and 0xFFFFFFFFL)
 }
