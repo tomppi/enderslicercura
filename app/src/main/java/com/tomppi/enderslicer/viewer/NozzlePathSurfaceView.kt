@@ -46,6 +46,15 @@ class NozzlePathSurfaceView(context: Context) : GLSurfaceView(context) {
         requestRender()
     }
 
+    /** When false, gray travel moves are not drawn. */
+    var showTravels: Boolean = true
+        set(value) {
+            if (field == value) return
+            field = value
+            queueEvent { pathRenderer.setShowTravels(value) }
+            requestRender()
+        }
+
     /** Invoked on the main thread whenever the turntable yaw/pitch changes. */
     var onOrientationChanged: ((ViewerOrientation) -> Unit)? = null
 
@@ -142,8 +151,14 @@ class NozzlePathSurfaceView(context: Context) : GLSurfaceView(context) {
 private class NozzlePathRenderer : GLSurfaceView.Renderer {
     private var path: GcodeNozzlePath? = null
     private var selectedMoveIndex = 0
-    private var pathPositions: FloatBuffer? = null
-    private var pathColors: FloatBuffer? = null
+    private var extrusionPositions: FloatBuffer? = null
+    private var extrusionColors: FloatBuffer? = null
+    private var travelPositions: FloatBuffer? = null
+    private var travelColors: FloatBuffer? = null
+    // extrusionPrefix[m] = extrusion moves stored with index < m (same for travel).
+    private var extrusionPrefix = IntArray(1)
+    private var travelPrefix = IntArray(1)
+    @Volatile private var showTravels = true
     private var gridPositions: FloatBuffer? = null
     private var gridVertexCount = 0
     private var markerPositions: FloatBuffer? = null
@@ -185,6 +200,10 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         if (safe == selectedMoveIndex) return
         selectedMoveIndex = safe
         buildMarker()
+    }
+
+    fun setShowTravels(value: Boolean) {
+        showTravels = value
     }
 
     val orientation: ViewerOrientation
@@ -271,36 +290,59 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         Matrix.multiplyMM(mvp, 0, projection, 0, modelView, 0)
 
         drawSolidLines(gridPositions, gridVertexCount, 1f, 0.24f, 0.30f, 0.40f, 0.48f)
-        drawColoredLines((selectedMoveIndex + 1) * 2)
+        val upTo = (selectedMoveIndex + 1).coerceAtMost(extrusionPrefix.size - 1)
+        drawColoredLines(extrusionPositions, extrusionColors, extrusionPrefix[upTo] * 2)
+        if (showTravels) {
+            drawColoredLines(travelPositions, travelColors, travelPrefix[upTo] * 2)
+        }
         drawSolidLines(markerGlowPositions, markerGlowVertexCount, 12f, 1f, 0.55f, 0.05f, 0.55f)
         drawSolidLines(markerPositions, markerVertexCount, 6f, 1f, 1f, 1f, 1f)
     }
 
     private fun buildPathBuffers(value: GcodeNozzlePath) {
-        val vertexCount = value.moveCount * 2
-        val positions = allocate(vertexCount * 3)
-        val colors = allocate(vertexCount * 4)
+        val extrusionVertex = ArrayList<Float>(value.moveCount * 6)
+        val extrusionColor = ArrayList<Float>(value.moveCount * 8)
+        val travelVertex = ArrayList<Float>()
+        val travelColor = ArrayList<Float>()
         val source = value.moves
         var offset = 0
-        repeat(value.moveCount) {
+        var extrusionMoves = 0
+        var travelMoves = 0
+        extrusionPrefix = IntArray(value.moveCount + 1)
+        travelPrefix = IntArray(value.moveCount + 1)
+        repeat(value.moveCount) { moveIndex ->
             val zRatio = if (value.maxZ > value.minZ) {
                 ((source[offset + GcodeNozzlePath.Z2] - value.minZ) / (value.maxZ - value.minZ)).coerceIn(0f, 1f)
             } else 0f
             val extrusion = source[offset + GcodeNozzlePath.KIND] == GcodeNozzlePath.Kind.EXTRUSION.code
+            val vertices = if (extrusion) extrusionVertex else travelVertex
+            val colors = if (extrusion) extrusionColor else travelColor
             val color = if (extrusion) hsv(240f - 240f * zRatio, 0.95f, 1f, 1f) else floatArrayOf(0.50f, 0.54f, 0.64f, 0.32f)
-            positions.put(source[offset + GcodeNozzlePath.X1])
-            positions.put(source[offset + GcodeNozzlePath.Y1])
-            positions.put(source[offset + GcodeNozzlePath.Z1])
-            positions.put(source[offset + GcodeNozzlePath.X2])
-            positions.put(source[offset + GcodeNozzlePath.Y2])
-            positions.put(source[offset + GcodeNozzlePath.Z2])
-            repeat(2) { colors.put(color) }
+            vertices += source[offset + GcodeNozzlePath.X1]
+            vertices += source[offset + GcodeNozzlePath.Y1]
+            vertices += source[offset + GcodeNozzlePath.Z1]
+            vertices += source[offset + GcodeNozzlePath.X2]
+            vertices += source[offset + GcodeNozzlePath.Y2]
+            vertices += source[offset + GcodeNozzlePath.Z2]
+            repeat(2) { color.forEach(colors::add) }
+            if (extrusion) extrusionMoves++ else travelMoves++
+            extrusionPrefix[moveIndex + 1] = extrusionMoves
+            travelPrefix[moveIndex + 1] = travelMoves
             offset += GcodeNozzlePath.VALUES_PER_MOVE
         }
-        positions.position(0)
-        colors.position(0)
-        pathPositions = positions
-        pathColors = colors
+        extrusionPositions = bufferOf(extrusionVertex)
+        extrusionColors = bufferOf(extrusionColor)
+        travelPositions = bufferOf(travelVertex)
+        travelColors = bufferOf(travelColor)
+    }
+
+    private fun bufferOf(values: List<Float>): FloatBuffer? {
+        if (values.isEmpty()) return null
+        val array = FloatArray(values.size) { values[it] }
+        val buffer = allocate(array.size)
+        buffer.put(array)
+        buffer.position(0)
+        return buffer
     }
 
     private fun buildGrid(value: GcodeNozzlePath) {
@@ -363,10 +405,8 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         markerGlowVertexCount = 6
     }
 
-    private fun drawColoredLines(vertexCount: Int) {
-        val positions = pathPositions ?: return
-        val colors = pathColors ?: return
-        if (vertexCount <= 0) return
+    private fun drawColoredLines(positions: FloatBuffer?, colors: FloatBuffer?, vertexCount: Int) {
+        if (positions == null || colors == null || vertexCount <= 0) return
         GLES20.glUseProgram(colorProgram)
         val position = GLES20.glGetAttribLocation(colorProgram, "aPosition")
         val color = GLES20.glGetAttribLocation(colorProgram, "aColor")

@@ -8,11 +8,15 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -20,6 +24,8 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -33,6 +39,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -137,6 +144,7 @@ private fun NozzlePathPlayer(path: GcodeNozzlePath, artifactKey: String, modifie
     val lifecycleOwner = LocalLifecycleOwner.current
     var surfaceView by remember(artifactKey) { mutableStateOf<NozzlePathSurfaceView?>(null) }
     var orientation by remember(artifactKey) { mutableStateOf<ViewerOrientation?>(null) }
+    var showTravels by rememberSaveable(artifactKey) { mutableStateOf(true) }
 
     LaunchedEffect(surfaceView) {
         surfaceView?.let { orientation = it.currentOrientation() }
@@ -198,21 +206,44 @@ private fun NozzlePathPlayer(path: GcodeNozzlePath, artifactKey: String, modifie
                     update = { view ->
                         view.setPath(path, safeIndex)
                         view.onOrientationChanged = { orientation = it }
+                        view.showTravels = showTravels
                     },
                     onRelease = { view ->
                         view.onPause()
                         if (surfaceView === view) surfaceView = null
                     },
                 )
-                orientation?.let { value ->
-                    OrientationGizmo(
-                        yawDegrees = value.yawDegrees,
-                        pitchDegrees = value.pitchDegrees,
-                        cameraElevation = ViewerOrientationMath.PATH_VIEW_ELEVATION,
-                        modifier = Modifier
-                            .align(Alignment.TopStart)
-                            .padding(12.dp),
-                    )
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(12.dp),
+                ) {
+                    orientation?.let { value ->
+                        OrientationGizmo(
+                            yawDegrees = value.yawDegrees,
+                            pitchDegrees = value.pitchDegrees,
+                            cameraElevation = ViewerOrientationMath.PATH_VIEW_ELEVATION,
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+                        shadowElevation = 3.dp,
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text("Hide travel moves", style = MaterialTheme.typography.labelMedium)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Switch(
+                                checked = showTravels,
+                                onCheckedChange = { showTravels = it },
+                                modifier = Modifier.scale(0.75f),
+                            )
+                        }
+                    }
                 }
             }
 
@@ -300,7 +331,7 @@ private fun NozzlePathPlayer(path: GcodeNozzlePath, artifactKey: String, modifie
                         modifier = Modifier.fillMaxWidth(),
                     ) { Text("Restart") }
                     Text(
-                        "Gray is travel. Extrusion changes from blue at low Z to red at high Z. The amber crosshair marks the nozzle tip. Drag to orbit, pinch to zoom, use two fingers to pan, and double-tap to reset.",
+                        "Gray is travel. Extrusion changes from blue at low Z to red at high Z. The amber crosshair marks the nozzle tip. Drag to orbit, pinch to zoom, use two fingers to pan, and double-tap to reset. Use the corner toggle to hide travel moves.",
                         style = MaterialTheme.typography.labelSmall,
                     )
                 }
