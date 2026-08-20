@@ -38,11 +38,15 @@ internal object ConformalGcodeTransformer {
     private const val EPSILON = 1e-8
     private const val MAX_SPLIT_DEPTH = 24
     private const val MIN_SEGMENT_MM = 0.05
-    private const val CONNECT_TOLERANCE_MM = 0.7
-    // A direct (travel-free) connection between shell pieces is only emitted
+    // Adjacent skin lines sit up to a couple of millimetres apart: bridging
+    // them directly (like ordinary zigzag top-skin infill) keeps the shell a
+    // continuous pass and avoids a retract/rise/travel/descend per line.
+    private const val CONNECT_TOLERANCE_MM = 2.5
+    // A direct (travel-free) connection between shell runs is only emitted
     // when the jump stays shallow enough to be a plausible surface move.
-    private const val CONNECT_SLOPE_LIMIT = 0.6
+    private const val CONNECT_SLOPE_LIMIT = 0.5
     private const val TRAVEL_CLEARANCE_MM = 0.3
+    private const val SHORT_HOP_MM = 10.0
     private const val NEIGHBOR_CELL_MM = 3.0
 
     data class Diagnostics(
@@ -70,6 +74,9 @@ internal object ConformalGcodeTransformer {
     private class Piece(
         val regionIndex: Int,
         val shell: Int,
+        // The planar source move this piece was split from; pieces of one move
+        // form a contiguous run along the original toolpath.
+        val moveId: Int,
         val x1: Double,
         val y1: Double,
         val z1: Double,
@@ -124,6 +131,7 @@ internal object ConformalGcodeTransformer {
         var firstLayerNumber: Int? = null
         var lineNumber = 0
         var sourceMoves = 0
+        var sourceMoveId = 0
         var pieceOrder = 0
         var fileUsesFirmwareRetract = false
         val layerStates = LinkedHashMap<Int, LayerState>()
@@ -159,6 +167,7 @@ internal object ConformalGcodeTransformer {
             deltaE: Double,
             feed: Double,
             state: LayerState,
+            moveId: Int,
         ) {
             val queue = ArrayDeque<Segment>()
             queue.addLast(Segment(startX, startY, endX, endY, deltaE, 0))
@@ -177,6 +186,7 @@ internal object ConformalGcodeTransformer {
                         state.skins += Piece(
                             regionIndex = classification.regionIndex,
                             shell = classification.shell,
+                            moveId = moveId,
                             x1 = segment.x1, y1 = segment.y1, z1 = z1,
                             x2 = segment.x2, y2 = segment.y2, z2 = z2,
                             deltaE = segment.deltaE,
@@ -201,6 +211,7 @@ internal object ConformalGcodeTransformer {
                     state.skins += Piece(
                         regionIndex = classification.regionIndex,
                         shell = classification.shell,
+                        moveId = moveId,
                         x1 = segment.x1, y1 = segment.y1, z1 = z,
                         x2 = segment.x2, y2 = segment.y2, z2 = z,
                         deltaE = segment.deltaE,
@@ -277,6 +288,7 @@ internal object ConformalGcodeTransformer {
                                 continue
                             }
                             sourceMoves++
+                            sourceMoveId++
                             val state = layerStates[currentLayer] ?: layerState(currentLayer!!, nextZ)
                             collectPieces(
                                 startX = planarX,
@@ -289,6 +301,7 @@ internal object ConformalGcodeTransformer {
                                 deltaE = deltaE,
                                 feed = logicalFeed,
                                 state = state,
+                                moveId = sourceMoveId,
                             )
                             planarX = nextX
                             planarY = nextY
@@ -332,9 +345,13 @@ internal object ConformalGcodeTransformer {
         var emittedX = 0.0
         var emittedY = 0.0
         var emittedZ = 0.0
-        // The source stream's own E coordinate (advances on every original E
-        // move, removed or not) drives per-move deltas; runningE is what the
-        // emitted stream actually extruded.
+        // The source stream's own coordinates (advancing on every original
+        // spatial/E move, removed or not) drive per-move classification and
+        // deltas; the emitted position may lag behind when stair moves are
+        // skipped without a travel line.
+        var sourceX = 0.0
+        var sourceY = 0.0
+        var sourceZ = 0.0
         var sourceE = 0.0
         var runningE = 0.0
         var emittedFeed = Double.NaN
@@ -445,47 +462,65 @@ internal object ConformalGcodeTransformer {
         fun flushSkins(output: Appendable, layerNumber: Int) {
             val state = layerStates[layerNumber] ?: return
             if (state.skins.isEmpty()) return
-            // The pieces of one shell were collected layer by layer, so their
-            // source order fragments the surface into thousands of unrelated
-            // slivers. Chain them nearest-neighbor (grid accelerated) so each
-            // shell becomes a continuous surface pass with only the occasional
-            // retract/rise/travel/descend between runs.
+            // Pieces split from one planar move form a contiguous run along the
+            // original toolpath. Keep those runs intact (their vertices carry
+            // the surface shape), chain the RUNS nearest-neighbor, and only
+            // retract/rise/travel/descend between runs - short hops clear just
+            // the local surface, long hops clear the whole flush.
             val byShell = state.skins.groupBy { it.shell }.toSortedMap()
             var maxPieceZ = state.baseZ
             for ((shell, pieces) in byShell) {
                 checkCancellation(shell, "Conformal processing")
+                val runs = ArrayList<ArrayList<Piece>>()
+                var current = ArrayList<Piece>()
+                for (piece in pieces.sortedBy { it.order }) {
+                    if (current.isNotEmpty() && piece.moveId != current.last().moveId) {
+                        runs += current
+                        current = ArrayList()
+                    }
+                    current += piece
+                }
+                if (current.isNotEmpty()) runs += current
                 var previous: Piece? = null
-                for (piece in chainNearestNeighbor(pieces, state.lastX, state.lastY)) {
-                    checkCancellation(piece.order, "Conformal processing")
-                    maxPieceZ = max(maxPieceZ, max(piece.z1, piece.z2))
-                    val horizontal = previous?.let { hypot(piece.x1 - it.x2, piece.y1 - it.y2) }
+                for (run in chainRuns(runs, state.lastX, state.lastY)) {
+                    val first = run.first()
+                    val horizontal = previous?.let { hypot(first.x1 - it.x2, first.y1 - it.y2) }
                         ?: Double.POSITIVE_INFINITY
-                    val vertical = previous?.let { abs(piece.z1 - it.z2) } ?: 0.0
+                    val vertical = previous?.let { abs(first.z1 - it.z2) } ?: 0.0
                     val direct = previous != null && horizontal <= CONNECT_TOLERANCE_MM &&
                         (horizontal < 1e-4 || vertical / horizontal < CONNECT_SLOPE_LIMIT)
                     if (!direct) {
-                        // Rise ABOVE everything printed by this flush, travel
-                        // at that safe height, then descend vertically onto
-                        // the surface at the next piece's start.
-                        val travelZ = max(state.baseZ, maxPieceZ) + TRAVEL_CLEARANCE_MM
+                        val travelZ = if (previous == null || horizontal > SHORT_HOP_MM) {
+                            // Long hop or the flush start: clear everything printed here.
+                            max(state.baseZ, maxPieceZ) + TRAVEL_CLEARANCE_MM
+                        } else {
+                            // Short hop: clear just the local surface around it.
+                            maxOf(state.baseZ, first.z1, previous!!.z2) + TRAVEL_CLEARANCE_MM
+                        }
                         if (fileUsesFirmwareRetract) emitCommand(output, "G10")
                         emitMove(output, emittedX, emittedY, travelZ, null, null, "G0")
-                        emitMove(output, piece.x1, piece.y1, travelZ, null, null, "G0")
-                        emitMove(output, piece.x1, piece.y1, piece.z1, null, null, "G0")
+                        emitMove(output, first.x1, first.y1, travelZ, null, null, "G0")
+                        emitMove(output, first.x1, first.y1, first.z1, null, null, "G0")
                         if (fileUsesFirmwareRetract) emitCommand(output, "G11")
                     }
-                    emitSkinPiece(output, piece, state)
-                    previous = piece
+                    for (piece in run) {
+                        checkCancellation(piece.order, "Conformal processing")
+                        maxPieceZ = max(maxPieceZ, max(piece.z1, piece.z2))
+                        emitSkinPiece(output, piece, state)
+                        previous = piece
+                    }
                 }
             }
             state.skins.clear()
-            // Rise above the flush, return to the layer's last planar
-            // position, then drop back to the layer plane so the original
-            // layer-change sequence continues from a known state.
-            val travelZ = max(state.baseZ, maxPieceZ) + TRAVEL_CLEARANCE_MM
-            emitMove(output, emittedX, emittedY, travelZ, null, null, "G0")
-            emitMove(output, state.lastX, state.lastY, travelZ, null, null, "G0")
-            emitMove(output, state.lastX, state.lastY, state.baseZ, null, null, "G0")
+            // In absolute mode the next original move carries its own X/Y/Z,
+            // so no return hop is needed. Relative mode must land back on the
+            // source position for the original deltas to stay valid.
+            if (!emissionModal.absolutePosition) {
+                val travelZ = max(state.baseZ, maxPieceZ) + TRAVEL_CLEARANCE_MM
+                emitMove(output, emittedX, emittedY, travelZ, null, null, "G0")
+                emitMove(output, state.lastX, state.lastY, travelZ, null, null, "G0")
+                emitMove(output, state.lastX, state.lastY, state.baseZ, null, null, "G0")
+            }
         }
 
         try {
@@ -534,9 +569,9 @@ internal object ConformalGcodeTransformer {
                         }
                         when (command.opcode) {
                             "G92" -> {
-                                command.value('X')?.let { emittedX = it }
-                                command.value('Y')?.let { emittedY = it }
-                                command.value('Z')?.let { emittedZ = it }
+                                command.value('X')?.let { emittedX = it; sourceX = it }
+                                command.value('Y')?.let { emittedY = it; sourceY = it }
+                                command.value('Z')?.let { emittedZ = it; sourceZ = it }
                                 command.value('E')?.let {
                                     sourceE = it
                                     runningE = it
@@ -544,15 +579,20 @@ internal object ConformalGcodeTransformer {
                                 output.appendLine(rawLine)
                             }
                             "G0", "G1" -> {
-                                val nextX = emissionModal.position(emittedX, command.value('X'))
-                                val nextY = emissionModal.position(emittedY, command.value('Y'))
-                                val nextZ = emissionModal.position(emittedZ, command.value('Z'))
+                                val nextX = emissionModal.position(sourceX, command.value('X'))
+                                val nextY = emissionModal.position(sourceY, command.value('Y'))
+                                val nextZ = emissionModal.position(sourceZ, command.value('Z'))
                                 val nextSourceE = emissionModal.extrusion(sourceE, command.value('E'))
                                 val deltaE = nextSourceE - sourceE
-                                val spatial = abs(nextX - emittedX) > EPSILON ||
-                                    abs(nextY - emittedY) > EPSILON || abs(nextZ - emittedZ) > EPSILON
+                                val spatial = abs(nextX - sourceX) > EPSILON ||
+                                    abs(nextY - sourceY) > EPSILON || abs(nextZ - sourceZ) > EPSILON
                                 val extruding = command.has('E')
                                 if (extruding) sourceE = nextSourceE
+                                if (spatial) {
+                                    sourceX = nextX
+                                    sourceY = nextY
+                                    sourceZ = nextZ
+                                }
                                 if (!spatial) {
                                     if (extruding) {
                                         runningE += deltaE
@@ -578,11 +618,15 @@ internal object ConformalGcodeTransformer {
                                     firstLayerNumber != null && emissionLayer != firstLayerNumber &&
                                     isSkinSource(nextX, nextY, nextZ, surface, layerHeightMm, shellLayers)
                                 if (isStair) {
-                                    // The stair step becomes a travel; its plastic is
-                                    // printed on the conformal shell instead, so the E
-                                    // coordinate only advances when that shell extrudes.
+                                    // The stair step is skipped entirely: its plastic is
+                                    // printed on the conformal shell instead, and because
+                                    // the source polyline is continuous the next kept move
+                                    // already starts exactly where the nozzle stands, so
+                                    // no travel line is needed at all. The modal Z still
+                                    // advances so later Z-less moves keep their original
+                                    // layer height.
                                     stairMovesRemoved++
-                                    emitMove(output, nextX, nextY, nextZ, null, command.value('F'), "G0")
+                                    emittedZ = nextZ
                                     return
                                 }
                                 emitMove(
@@ -648,52 +692,60 @@ internal object ConformalGcodeTransformer {
     }
 
     /**
-     * Orders shell pieces into a space-filling chain: starting from the piece
-     * nearest to (startX, startY), repeatedly continue with the unused piece
-     * whose start point lies closest to the current end point. A coarse grid
-     * keeps each step cheap; the result turns fragmented slivers into long
-     * continuous surface passes.
+     * Orders the shell's runs into a space-filling chain: starting from the
+     * run nearest to (startX, startY), repeatedly continue with the unused run
+     * whose start point lies closest to the current run's end point. A coarse
+     * grid keeps each step cheap; runs stay intact so the original toolpath
+     * structure (and its surface-following vertices) is preserved.
      */
-    private fun chainNearestNeighbor(pieces: List<Piece>, startX: Double, startY: Double): List<Piece> {
-        if (pieces.size <= 1) return pieces
+    private fun chainRuns(
+        runs: List<List<Piece>>,
+        startX: Double,
+        startY: Double,
+    ): List<List<Piece>> {
+        if (runs.size <= 1) return runs
         val cell = NEIGHBOR_CELL_MM
         var minX = Double.POSITIVE_INFINITY
         var minY = Double.POSITIVE_INFINITY
         var maxX = Double.NEGATIVE_INFINITY
         var maxY = Double.NEGATIVE_INFINITY
-        for (piece in pieces) {
-            minX = min(minX, piece.x1); maxX = max(maxX, piece.x1)
-            minY = min(minY, piece.y1); maxY = max(maxY, piece.y1)
+        for (run in runs) {
+            val first = run.first()
+            minX = min(minX, first.x1); maxX = max(maxX, first.x1)
+            minY = min(minY, first.y1); maxY = max(maxY, first.y1)
         }
         val columns = max(1, ((maxX - minX) / cell + 1).toInt())
         val rows = max(1, ((maxY - minY) / cell + 1).toInt())
-        val buckets = HashMap<Int, ArrayList<Int>>(pieces.size)
+        val buckets = HashMap<Int, ArrayList<Int>>(runs.size)
         fun cellOf(x: Double, y: Double): Int {
             val gx = ((x - minX) / cell).toInt().coerceIn(0, columns - 1)
             val gy = ((y - minY) / cell).toInt().coerceIn(0, rows - 1)
             return gy * columns + gx
         }
-        for (index in pieces.indices) {
-            buckets.getOrPut(cellOf(pieces[index].x1, pieces[index].y1)) { ArrayList(4) }.add(index)
+        for (index in runs.indices) {
+            val first = runs[index].first()
+            buckets.getOrPut(cellOf(first.x1, first.y1)) { ArrayList(4) }.add(index)
         }
-        val used = BooleanArray(pieces.size)
-        val result = ArrayList<Piece>(pieces.size)
+        val used = BooleanArray(runs.size)
+        val result = ArrayList<List<Piece>>(runs.size)
         var currentIndex = 0
-        var currentDistance = hypot(pieces[0].x1 - startX, pieces[0].y1 - startY)
-        for (index in 1 until pieces.size) {
-            val distance = hypot(pieces[index].x1 - startX, pieces[index].y1 - startY)
+        var currentDistance = hypot(runs[0].first().x1 - startX, runs[0].first().y1 - startY)
+        for (index in 1 until runs.size) {
+            val first = runs[index].first()
+            val distance = hypot(first.x1 - startX, first.y1 - startY)
             if (distance < currentDistance) {
                 currentDistance = distance
                 currentIndex = index
             }
         }
         used[currentIndex] = true
-        var current = pieces[currentIndex]
+        var current = runs[currentIndex]
         result += current
-        var remaining = pieces.size - 1
+        var remaining = runs.size - 1
         while (remaining > 0) {
-            val cx = ((current.x2 - minX) / cell).toInt()
-            val cy = ((current.y2 - minY) / cell).toInt()
+            val end = current.last()
+            val cx = ((end.x2 - minX) / cell).toInt()
+            val cy = ((end.y2 - minY) / cell).toInt()
             var bestIndex = -1
             var bestDistance = Double.MAX_VALUE
             val maxRadius = max(columns, rows) + 1
@@ -709,8 +761,8 @@ internal object ConformalGcodeTransformer {
                         for (index in bucket) {
                             if (used[index]) continue
                             candidateInRing = true
-                            val piece = pieces[index]
-                            val distance = hypot(piece.x1 - current.x2, piece.y1 - current.y2)
+                            val first = runs[index].first()
+                            val distance = hypot(first.x1 - end.x2, first.y1 - end.y2)
                             if (distance < bestDistance) {
                                 bestDistance = distance
                                 bestIndex = index
@@ -723,7 +775,7 @@ internal object ConformalGcodeTransformer {
             }
             if (bestIndex < 0) bestIndex = used.indexOfFirst { !it }
             used[bestIndex] = true
-            current = pieces[bestIndex]
+            current = runs[bestIndex]
             result += current
             remaining--
         }
