@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -74,6 +75,8 @@ import com.tomppi.enderslicer.supportpaint.SupportPaintMode
 import com.tomppi.enderslicer.texturizer.BumpMeshActivity
 import com.tomppi.enderslicer.viewer.MeshPicker
 import com.tomppi.enderslicer.viewer.ModelSurfaceView
+import com.tomppi.enderslicer.viewer.ViewerOrientation
+import com.tomppi.enderslicer.viewer.ViewerOrientationMath
 import com.tomppi.enderslicer.viewer.StlMeshWriter
 import java.io.File
 import kotlinx.coroutines.Dispatchers
@@ -687,6 +690,7 @@ private fun ViewerPanel(
 ) {
     val effectivePrinter = state.printer.withSettings(state.settings)
     val gcodeAvailable = state.hasCurrentGcode()
+    var modelOrientation by remember(effectivePrinter) { mutableStateOf<ViewerOrientation?>(null) }
     Box(modifier = modifier) {
         val preview = state.layerPreview.takeIf { gcodeAvailable }
         when {
@@ -704,6 +708,9 @@ private fun ViewerPanel(
             )
             else -> key(effectivePrinter) {
                 var modelView by remember(effectivePrinter) { mutableStateOf<ModelSurfaceView?>(null) }
+                LaunchedEffect(modelView) {
+                    modelView?.let { modelOrientation = it.currentOrientation() }
+                }
                 val lifecycleOwner = LocalLifecycleOwner.current
                 DisposableEffect(lifecycleOwner, modelView) {
                     val view = modelView
@@ -740,6 +747,7 @@ private fun ViewerPanel(
                         view.paintMode = state.paintMode
                         view.setPaintState(state.supportPaint)
                         view.onPaintHit = onPaintHit
+                        view.onOrientationChanged = { modelOrientation = it }
                     },
                 )
             }
@@ -756,12 +764,14 @@ private fun ViewerPanel(
             )
         }
 
-        Card(
+        Column(
             modifier = Modifier
                 .align(Alignment.TopStart)
-                .padding(12.dp)
-                .widthIn(max = 390.dp),
+                .padding(12.dp),
         ) {
+            Card(
+                modifier = Modifier.widthIn(max = 390.dp),
+            ) {
             Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp)) {
                 Text(effectivePrinter.name, style = MaterialTheme.typography.titleSmall)
                 Text(
@@ -817,6 +827,18 @@ private fun ViewerPanel(
                 }
                 if (state.warnings.isNotEmpty()) {
                     Text("Cura compatibility warnings: ${state.warnings.size}", style = MaterialTheme.typography.labelSmall)
+                }
+            }
+            }
+            if (viewerMode == ViewerMode.MODEL) {
+                modelOrientation?.let { orientation ->
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OrientationGizmo(
+                        yawDegrees = orientation.yawDegrees,
+                        pitchDegrees = orientation.pitchDegrees,
+                        cameraElevation = ViewerOrientationMath.MODEL_VIEW_ELEVATION,
+                        modifier = Modifier.align(Alignment.Start),
+                    )
                 }
             }
         }

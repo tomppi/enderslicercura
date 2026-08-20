@@ -41,7 +41,19 @@ class NozzlePathSurfaceView(context: Context) : GLSurfaceView(context) {
             pathRenderer.setPath(path)
             pathRenderer.setSelectedMove(selectedMoveIndex)
         }
+        // setPath resets the camera on the GL thread.
+        queueEvent { notifyOrientation() }
         requestRender()
+    }
+
+    /** Invoked on the main thread whenever the turntable yaw/pitch changes. */
+    var onOrientationChanged: ((ViewerOrientation) -> Unit)? = null
+
+    fun currentOrientation(): ViewerOrientation = pathRenderer.orientation
+
+    private fun notifyOrientation() {
+        val listener = onOrientationChanged ?: return
+        post { listener(pathRenderer.orientation) }
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
@@ -75,6 +87,7 @@ class NozzlePathSurfaceView(context: Context) : GLSurfaceView(context) {
                     pathRenderer.rotate((event.x - previousX) * 0.35f, (event.y - previousY) * 0.35f)
                     previousX = event.x
                     previousY = event.y
+                    notifyOrientation()
                     requestRender()
                 }
             }
@@ -119,6 +132,7 @@ class NozzlePathSurfaceView(context: Context) : GLSurfaceView(context) {
 
         override fun onDoubleTap(event: MotionEvent): Boolean {
             pathRenderer.resetCamera()
+            notifyOrientation()
             requestRender()
             return true
         }
@@ -172,6 +186,9 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         selectedMoveIndex = safe
         buildMarker()
     }
+
+    val orientation: ViewerOrientation
+        get() = ViewerOrientation(yaw, pitch)
 
     fun rotate(deltaYaw: Float, deltaPitch: Float) {
         yaw = wrapDegrees(yaw + deltaYaw)

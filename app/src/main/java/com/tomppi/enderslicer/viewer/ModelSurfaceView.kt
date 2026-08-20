@@ -48,6 +48,9 @@ class ModelSurfaceView(
     /** Invoked on the UI thread with the model triangle hit by a paint stroke. */
     var onPaintHit: ((MeshPicker.Hit) -> Unit)? = null
 
+    /** Invoked on the main thread whenever the turntable yaw/pitch changes. */
+    var onOrientationChanged: ((ViewerOrientation) -> Unit)? = null
+
     init {
         setEGLContextClientVersion(2)
         setEGLConfigChooser(8, 8, 8, 8, 24, 0)
@@ -59,8 +62,12 @@ class ModelSurfaceView(
 
     fun setMesh(mesh: StlMesh?) {
         queueEvent { modelRenderer.setMesh(mesh) }
+        // setMesh resets the camera on the GL thread for a new model.
+        queueEvent { notifyOrientation() }
         requestRender()
     }
+
+    fun currentOrientation(): ViewerOrientation = modelRenderer.orientation
 
     fun setPaintState(paint: SupportPaintState) {
         queueEvent { modelRenderer.setPaintState(paint) }
@@ -116,6 +123,7 @@ class ModelSurfaceView(
                         modelRenderer.rotate(dx * 0.35f, dy * 0.35f)
                         previousX = event.x
                         previousY = event.y
+                        notifyOrientation()
                         requestRender()
                     }
                 }
@@ -138,6 +146,11 @@ class ModelSurfaceView(
             MotionEvent.ACTION_CANCEL -> panning = false
         }
         return true
+    }
+
+    private fun notifyOrientation() {
+        val listener = onOrientationChanged ?: return
+        post { listener(modelRenderer.orientation) }
     }
 
     private fun schedulePaintPick() {
@@ -194,6 +207,7 @@ class ModelSurfaceView(
 
         override fun onDoubleTap(event: MotionEvent): Boolean {
             modelRenderer.resetCamera()
+            notifyOrientation()
             requestRender()
             return true
         }
@@ -268,6 +282,9 @@ private class ModelRenderer(
             screenY = screenY,
         )
     }
+
+    val orientation: ViewerOrientation
+        get() = ViewerOrientation(yaw, pitch)
 
     fun rotate(deltaYaw: Float, deltaPitch: Float) {
         yaw = wrapDegrees(yaw + deltaYaw)

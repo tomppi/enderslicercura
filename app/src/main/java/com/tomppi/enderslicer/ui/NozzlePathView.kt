@@ -42,6 +42,8 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.tomppi.enderslicer.engine.GcodeNozzlePath
 import com.tomppi.enderslicer.engine.GcodeNozzlePathParser
 import com.tomppi.enderslicer.viewer.NozzlePathSurfaceView
+import com.tomppi.enderslicer.viewer.ViewerOrientation
+import com.tomppi.enderslicer.viewer.ViewerOrientationMath
 import java.io.File
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -134,6 +136,11 @@ private fun NozzlePathPlayer(path: GcodeNozzlePath, artifactKey: String, modifie
     val safeIndex = moveIndex.coerceIn(0, max(path.moveCount - 1, 0))
     val lifecycleOwner = LocalLifecycleOwner.current
     var surfaceView by remember(artifactKey) { mutableStateOf<NozzlePathSurfaceView?>(null) }
+    var orientation by remember(artifactKey) { mutableStateOf<ViewerOrientation?>(null) }
+
+    LaunchedEffect(surfaceView) {
+        surfaceView?.let { orientation = it.currentOrientation() }
+    }
 
     DisposableEffect(lifecycleOwner, surfaceView) {
         val view = surfaceView
@@ -178,19 +185,36 @@ private fun NozzlePathPlayer(path: GcodeNozzlePath, artifactKey: String, modifie
     BoxWithConstraints(modifier = modifier) {
         val controlsMaxHeight = maxHeight * 0.58f
         Column(modifier = Modifier.fillMaxSize()) {
-            AndroidView(
+            Box(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth(),
-                factory = { context ->
-                    NozzlePathSurfaceView(context).also { surfaceView = it }
-                },
-                update = { view -> view.setPath(path, safeIndex) },
-                onRelease = { view ->
-                    view.onPause()
-                    if (surfaceView === view) surfaceView = null
-                },
-            )
+            ) {
+                AndroidView(
+                    modifier = Modifier.fillMaxSize(),
+                    factory = { context ->
+                        NozzlePathSurfaceView(context).also { surfaceView = it }
+                    },
+                    update = { view ->
+                        view.setPath(path, safeIndex)
+                        view.onOrientationChanged = { orientation = it }
+                    },
+                    onRelease = { view ->
+                        view.onPause()
+                        if (surfaceView === view) surfaceView = null
+                    },
+                )
+                orientation?.let { value ->
+                    OrientationGizmo(
+                        yawDegrees = value.yawDegrees,
+                        pitchDegrees = value.pitchDegrees,
+                        cameraElevation = ViewerOrientationMath.PATH_VIEW_ELEVATION,
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(12.dp),
+                    )
+                }
+            }
 
             Card(
                 modifier = Modifier

@@ -160,8 +160,10 @@ internal fun HotendVolumeViewer(
         modifier = modifier.pointerInput(angle, holder, protrusion, nozzleAngle, width, depth, offsetX, offsetY) {
             detectDragGestures { change, drag ->
                 change.consume()
+                // Same feel as the GL model/path viewers: dragging up tips the
+                // top toward you (pitch decreases), dragging down tips it away.
                 yaw = (yaw + drag.x * 0.45).coerceIn(-180.0, 180.0)
-                pitch = (pitch - drag.y * 0.45).coerceIn(5.0, 88.0)
+                pitch = (pitch + drag.y * 0.45).coerceIn(5.0, 88.0)
             }
         },
     ) {
