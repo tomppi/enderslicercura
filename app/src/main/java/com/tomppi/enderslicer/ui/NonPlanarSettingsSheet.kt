@@ -265,7 +265,7 @@ internal fun NonPlanarSettingsSheet(
             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                 Text("Measure your hot end", style = MaterialTheme.typography.titleSmall)
                 Text(
-                    "All measurements are taken once, on the printer, with the tip just touching the bed. They build the collision volume: the nozzle cone (taper angle × protrusion below the block), the heating block frustum (the block's X × Y footprint widening at the same measured clearance angle up to the holding-object height), and a flat no-go cutoff above the holding object that spans the whole build plate plus 30%. After slicing, EnderSlicer sweeps that volume along every move and warns if the printed surface pokes into it.",
+                    "All measurements are taken once, on the printer, with the tip just touching the bed. They build the collision volume: the nozzle cone (taper angle × protrusion below the block), the heating block frustum (the block's X × Y footprint widening at the same measured clearance angle up to the holding-object height), and a flat no-go cutoff above the holding object that spans the whole build plate plus 30%. After slicing, EnderSlicer sweeps that volume along every move and warns if the printed surface pokes into it. Fan ducts and bed sensors are not modelled - keep them clear of the measured frustum.",
                     style = MaterialTheme.typography.bodySmall,
                 )
                 Text(

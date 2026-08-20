@@ -144,6 +144,11 @@ internal object ConformalGcodeTransformer {
         var sourceMoveId = 0
         var pieceOrder = 0
         var fileUsesFirmwareRetract = false
+        // The source stream's own E-retraction pattern (negative E deltas),
+        // mirrored around our travel hops when the dialect does not use
+        // firmware retraction - hopping unretracted causes oozing strings.
+        var sourceRetractDelta = 0.0
+        var sourceRetractFeed = 0.0
         val layerStates = LinkedHashMap<Int, LayerState>()
 
         fun layerState(number: Int, z: Double): LayerState = layerStates.getOrPut(number) {
@@ -356,6 +361,10 @@ internal object ConformalGcodeTransformer {
                             val nextE = modal.extrusion(planarE, command.value('E'))
                             command.value('F')?.let { logicalFeed = it }
                             val deltaE = nextE - planarE
+                            if (command.has('E') && deltaE < -EPSILON) {
+                                sourceRetractDelta = max(sourceRetractDelta, abs(deltaE))
+                                if (command.has('F')) sourceRetractFeed = logicalFeed
+                            }
                             val spatial = abs(nextX - planarX) > EPSILON ||
                                 abs(nextY - planarY) > EPSILON || abs(nextZ - planarZ) > EPSILON
                             if (spatial && inPrintableLayers && currentLayer != null) {
@@ -551,6 +560,11 @@ internal object ConformalGcodeTransformer {
             // the surface shape), chain the RUNS nearest-neighbor, and only
             // retract/rise/travel/descend between runs - short hops clear just
             // the local surface, long hops clear the whole flush.
+            // Shells inherit each source move's own feed and E. The reference
+            // prints inner shells with the solid-infill role and the top shell
+            // with the top-skin role; with Cura's default flows both roles
+            // share the same E/mm, so reusing the source values only means
+            // inner shells run at (slower, safer) top-skin speed.
             val byShell = state.skins.groupBy { it.shell }.toSortedMap()
             var maxPieceZ = state.baseZ
 
@@ -571,13 +585,34 @@ internal object ConformalGcodeTransformer {
                 return max(highest, maxPieceZ) + TRAVEL_CLEARANCE_MM
             }
 
+            fun emitERetract(output: Appendable, retract: Boolean) {
+                if (sourceRetractDelta <= EPSILON || fileUsesFirmwareRetract) return
+                val builder = StringBuilder("G1")
+                if (emissionModal.absoluteExtrusion) {
+                    runningE += if (retract) -sourceRetractDelta else sourceRetractDelta
+                    builder.append(" E").append(format(quantize(runningE)))
+                } else {
+                    builder.append(" E").append(format(quantize(if (retract) -sourceRetractDelta else sourceRetractDelta)))
+                }
+                if (sourceRetractFeed > 0.0) builder.append(" F").append(format(sourceRetractFeed))
+                emitCommand(output, builder.toString())
+            }
+
             fun travelDance(fromX: Double, fromY: Double, fromZ: Double) {
                 val travelZ = hopTravelZ(fromX, fromY, fromZ, fromZ)
-                if (fileUsesFirmwareRetract) emitCommand(output, "G10")
+                if (fileUsesFirmwareRetract) {
+                    emitCommand(output, "G10")
+                } else {
+                    emitERetract(output, retract = true)
+                }
                 emitMove(output, emittedX, emittedY, travelZ, null, null, "G0")
                 emitMove(output, fromX, fromY, travelZ, null, null, "G0")
                 emitMove(output, fromX, fromY, fromZ, null, null, "G0")
-                if (fileUsesFirmwareRetract) emitCommand(output, "G11")
+                if (fileUsesFirmwareRetract) {
+                    emitCommand(output, "G11")
+                } else {
+                    emitERetract(output, retract = false)
+                }
             }
 
             for ((shell, pieces) in byShell) {

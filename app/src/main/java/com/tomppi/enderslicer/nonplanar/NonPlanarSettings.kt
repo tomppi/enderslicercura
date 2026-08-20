@@ -13,8 +13,9 @@ import java.io.File
 data class NonPlanarSettings(
     val enabled: Boolean = false,
     // The surface itself may not climb steeper than this from horizontal;
-    // steeper facets are excluded from the conformal regions.
-    val maximumSlopeDegrees: Double = 30.0,
+    // steeper facets are excluded from the conformal regions. The thesis's
+    // 5-40 degree sweep found planar prints smoother above ~20 degrees.
+    val maximumSlopeDegrees: Double = 20.0,
     // Clearance to the nearest obstacle, measured from horizontal like every
     // other angle (90 = straight up). 45 degrees is identical in both frames.
     val nozzleClearanceAngleDegrees: Double = 45.0,
@@ -134,7 +135,7 @@ class NonPlanarSettingsStore(context: Context) {
 
     fun load(): NonPlanarSettings = NonPlanarSettings(
         enabled = preferences.getBoolean(KEY_ENABLED, false),
-        maximumSlopeDegrees = number(KEY_MAX_SLOPE, 30.0),
+        maximumSlopeDegrees = number(KEY_MAX_SLOPE, 20.0),
         nozzleClearanceAngleDegrees = number(KEY_CLEARANCE_ANGLE, 45.0),
         nozzleClearanceHeightMm = number(KEY_CLEARANCE_HEIGHT, 50.0),
         maximumLiftMm = number(KEY_MAXIMUM_LIFT, 5.0),

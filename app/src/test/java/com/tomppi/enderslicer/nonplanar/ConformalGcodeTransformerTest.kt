@@ -112,7 +112,7 @@ class ConformalGcodeTransformerTest {
         )
         val ridgeSurface = ConformalSurfaceBuilder.build(
             ridge,
-            NonPlanarSettings(enabled = true, maximumLiftMm = 5.0),
+            NonPlanarSettings(enabled = true, maximumLiftMm = 5.0, maximumSlopeDegrees = 30.0),
         )
         val gcode = listOf(
             ";FLAVOR:Marlin",
