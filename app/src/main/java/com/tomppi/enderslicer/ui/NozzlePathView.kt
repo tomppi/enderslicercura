@@ -258,6 +258,17 @@ private fun NozzlePathPlayer(path: GcodeNozzlePath, artifactKey: String, modifie
                         .padding(horizontal = 14.dp, vertical = 10.dp),
                     verticalArrangement = Arrangement.spacedBy(7.dp),
                 ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text("Hide travel moves", style = MaterialTheme.typography.titleSmall)
+                        Switch(
+                            checked = showTravels,
+                            onCheckedChange = { showTravels = it },
+                        )
+                    }
                     val offset = safeIndex * GcodeNozzlePath.VALUES_PER_MOVE
                     val sourceIndex = path.sourceMoveIndices[safeIndex]
                     val moveLabel = if (path.truncated) {

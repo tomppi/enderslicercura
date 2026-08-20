@@ -39,6 +39,11 @@ internal object ConformalGcodeTransformer {
     private const val MAX_SPLIT_DEPTH = 24
     private const val MIN_SEGMENT_MM = 0.05
     private const val CONNECT_TOLERANCE_MM = 0.7
+    // A direct (travel-free) connection between shell pieces is only emitted
+    // when the jump stays shallow enough to be a plausible surface move.
+    private const val CONNECT_SLOPE_LIMIT = 0.6
+    private const val TRAVEL_CLEARANCE_MM = 0.3
+    private const val NEIGHBOR_CELL_MM = 3.0
 
     data class Diagnostics(
         val regionCount: Int,
@@ -440,29 +445,46 @@ internal object ConformalGcodeTransformer {
         fun flushSkins(output: Appendable, layerNumber: Int) {
             val state = layerStates[layerNumber] ?: return
             if (state.skins.isEmpty()) return
-            val ordered = state.skins.sortedWith(
-                compareBy<Piece> { it.shell }.thenBy { it.order },
-            )
-            var previous: Piece? = null
-            for (piece in ordered) {
-                checkCancellation(piece.order, "Conformal processing")
-                val gap = previous == null || previous!!.shell != piece.shell ||
-                    hypot(piece.x1 - previous!!.x2, piece.y1 - previous!!.y2) > CONNECT_TOLERANCE_MM
-                if (gap) {
-                    // Retract, rise to the home plane, travel, descend onto the surface.
-                    if (fileUsesFirmwareRetract) emitCommand(output, "G10")
-                    emitMove(output, emittedX, emittedY, state.baseZ, null, null, "G0")
-                    emitMove(output, piece.x1, piece.y1, state.baseZ, null, null, "G0")
-                    emitMove(output, piece.x1, piece.y1, piece.z1, null, null, "G0")
-                    if (fileUsesFirmwareRetract) emitCommand(output, "G11")
+            // The pieces of one shell were collected layer by layer, so their
+            // source order fragments the surface into thousands of unrelated
+            // slivers. Chain them nearest-neighbor (grid accelerated) so each
+            // shell becomes a continuous surface pass with only the occasional
+            // retract/rise/travel/descend between runs.
+            val byShell = state.skins.groupBy { it.shell }.toSortedMap()
+            var maxPieceZ = state.baseZ
+            for ((shell, pieces) in byShell) {
+                checkCancellation(shell, "Conformal processing")
+                var previous: Piece? = null
+                for (piece in chainNearestNeighbor(pieces, state.lastX, state.lastY)) {
+                    checkCancellation(piece.order, "Conformal processing")
+                    maxPieceZ = max(maxPieceZ, max(piece.z1, piece.z2))
+                    val horizontal = previous?.let { hypot(piece.x1 - it.x2, piece.y1 - it.y2) }
+                        ?: Double.POSITIVE_INFINITY
+                    val vertical = previous?.let { abs(piece.z1 - it.z2) } ?: 0.0
+                    val direct = previous != null && horizontal <= CONNECT_TOLERANCE_MM &&
+                        (horizontal < 1e-4 || vertical / horizontal < CONNECT_SLOPE_LIMIT)
+                    if (!direct) {
+                        // Rise ABOVE everything printed by this flush, travel
+                        // at that safe height, then descend vertically onto
+                        // the surface at the next piece's start.
+                        val travelZ = max(state.baseZ, maxPieceZ) + TRAVEL_CLEARANCE_MM
+                        if (fileUsesFirmwareRetract) emitCommand(output, "G10")
+                        emitMove(output, emittedX, emittedY, travelZ, null, null, "G0")
+                        emitMove(output, piece.x1, piece.y1, travelZ, null, null, "G0")
+                        emitMove(output, piece.x1, piece.y1, piece.z1, null, null, "G0")
+                        if (fileUsesFirmwareRetract) emitCommand(output, "G11")
+                    }
+                    emitSkinPiece(output, piece, state)
+                    previous = piece
                 }
-                emitSkinPiece(output, piece, state)
-                previous = piece
             }
             state.skins.clear()
-            // Rise and return to the layer's last planar position so the
-            // original layer-change sequence continues from a known state.
-            emitMove(output, emittedX, emittedY, state.baseZ, null, null, "G0")
+            // Rise above the flush, return to the layer's last planar
+            // position, then drop back to the layer plane so the original
+            // layer-change sequence continues from a known state.
+            val travelZ = max(state.baseZ, maxPieceZ) + TRAVEL_CLEARANCE_MM
+            emitMove(output, emittedX, emittedY, travelZ, null, null, "G0")
+            emitMove(output, state.lastX, state.lastY, travelZ, null, null, "G0")
             emitMove(output, state.lastX, state.lastY, state.baseZ, null, null, "G0")
         }
 
@@ -623,6 +645,89 @@ internal object ConformalGcodeTransformer {
             if (band in 0 until shellLayers) return true
         }
         return false
+    }
+
+    /**
+     * Orders shell pieces into a space-filling chain: starting from the piece
+     * nearest to (startX, startY), repeatedly continue with the unused piece
+     * whose start point lies closest to the current end point. A coarse grid
+     * keeps each step cheap; the result turns fragmented slivers into long
+     * continuous surface passes.
+     */
+    private fun chainNearestNeighbor(pieces: List<Piece>, startX: Double, startY: Double): List<Piece> {
+        if (pieces.size <= 1) return pieces
+        val cell = NEIGHBOR_CELL_MM
+        var minX = Double.POSITIVE_INFINITY
+        var minY = Double.POSITIVE_INFINITY
+        var maxX = Double.NEGATIVE_INFINITY
+        var maxY = Double.NEGATIVE_INFINITY
+        for (piece in pieces) {
+            minX = min(minX, piece.x1); maxX = max(maxX, piece.x1)
+            minY = min(minY, piece.y1); maxY = max(maxY, piece.y1)
+        }
+        val columns = max(1, ((maxX - minX) / cell + 1).toInt())
+        val rows = max(1, ((maxY - minY) / cell + 1).toInt())
+        val buckets = HashMap<Int, ArrayList<Int>>(pieces.size)
+        fun cellOf(x: Double, y: Double): Int {
+            val gx = ((x - minX) / cell).toInt().coerceIn(0, columns - 1)
+            val gy = ((y - minY) / cell).toInt().coerceIn(0, rows - 1)
+            return gy * columns + gx
+        }
+        for (index in pieces.indices) {
+            buckets.getOrPut(cellOf(pieces[index].x1, pieces[index].y1)) { ArrayList(4) }.add(index)
+        }
+        val used = BooleanArray(pieces.size)
+        val result = ArrayList<Piece>(pieces.size)
+        var currentIndex = 0
+        var currentDistance = hypot(pieces[0].x1 - startX, pieces[0].y1 - startY)
+        for (index in 1 until pieces.size) {
+            val distance = hypot(pieces[index].x1 - startX, pieces[index].y1 - startY)
+            if (distance < currentDistance) {
+                currentDistance = distance
+                currentIndex = index
+            }
+        }
+        used[currentIndex] = true
+        var current = pieces[currentIndex]
+        result += current
+        var remaining = pieces.size - 1
+        while (remaining > 0) {
+            val cx = ((current.x2 - minX) / cell).toInt()
+            val cy = ((current.y2 - minY) / cell).toInt()
+            var bestIndex = -1
+            var bestDistance = Double.MAX_VALUE
+            val maxRadius = max(columns, rows) + 1
+            for (radius in 0..maxRadius) {
+                var candidateInRing = false
+                for (dy in -radius..radius) {
+                    for (dx in -radius..radius) {
+                        if (max(abs(dx), abs(dy)) != radius) continue
+                        val gx = cx + dx
+                        val gy = cy + dy
+                        if (gx !in 0 until columns || gy !in 0 until rows) continue
+                        val bucket = buckets[gy * columns + gx] ?: continue
+                        for (index in bucket) {
+                            if (used[index]) continue
+                            candidateInRing = true
+                            val piece = pieces[index]
+                            val distance = hypot(piece.x1 - current.x2, piece.y1 - current.y2)
+                            if (distance < bestDistance) {
+                                bestDistance = distance
+                                bestIndex = index
+                            }
+                        }
+                    }
+                }
+                // The first non-empty ring holds the nearest candidate.
+                if (candidateInRing) break
+            }
+            if (bestIndex < 0) bestIndex = used.indexOfFirst { !it }
+            used[bestIndex] = true
+            current = pieces[bestIndex]
+            result += current
+            remaining--
+        }
+        return result
     }
 
     private fun quantize(value: Double): Double = quantizeGcode(value)
