@@ -11,15 +11,17 @@ import com.tomppi.enderslicer.viewer.StlMesh
  * result drive arc fill instead of relying only on the manual toggle. The
  * resolver only forces changes when it has evidence:
  *
- * - A flat roof is present and (when CurviSlicer is active) stays flat through
- *   the flatten/un-flatten cycle, so arc fill is enabled and wave fill is
- *   disabled to preserve the arc/wave exclusivity.
- * - CurviSlicer is active but would curve the roofs, so arc fill is forced off
- *   even if the user toggled it on; running both would emit curved arc paths.
+ * - A flat roof is present, so arc fill is enabled and wave fill is disabled
+ *   to preserve the arc/wave exclusivity. Brick walls follow the same
+ *   exclusivity as wave fill.
+ * - Non-planar printing only replaces material within a few layer heights of
+ *   the surface, so flat roofs and their arc/brick-wall paths on lower layers
+ *   stay exactly as sliced: arc fill is never forced off because of
+ *   non-planar layers.
  * - No evidence either way: the explicit user setting is preserved.
  *
- * CurviSlicer itself is never auto-enabled: it is an explicit non-planar
- * pipeline that warps the whole model.
+ * Non-planar printing itself is never auto-enabled: it is an explicit
+ * pipeline the user turns on in the Non Planar sheet.
  */
 internal object SmartOverhangStrategy {
 
@@ -30,7 +32,7 @@ internal object SmartOverhangStrategy {
 
     fun resolve(
         settings: SlicerSettings,
-        curviSettings: NonPlanarSettings,
+        nonPlanarSettings: NonPlanarSettings,
         mesh: StlMesh,
         layerHeightMm: Double,
         nozzleDiameterMm: Double,
@@ -38,53 +40,38 @@ internal object SmartOverhangStrategy {
         if (!settings.smartOverhangStrategy) {
             return Resolution(settings, null)
         }
-        val curviActive = curviSettings.enabled
-        val plan = OverhangStrategyPlanner.plan(mesh, curviSettings, layerHeightMm, nozzleDiameterMm)
+        val nonPlanarActive = nonPlanarSettings.enabled
+        val plan = OverhangStrategyPlanner.plan(mesh, nonPlanarSettings, layerHeightMm, nozzleDiameterMm)
 
-        val roofsCurvedByCurvi = curviActive && plan.arcUseful && !plan.combinedSafe
-        val arcOn = when {
-            roofsCurvedByCurvi -> false
-            plan.arcUseful -> true
-            else -> settings.arcOverhangEnabled
-        }
+        val arcOn = if (plan.arcUseful) true else settings.arcOverhangEnabled
         val effective = settings.copy(
             arcOverhangEnabled = arcOn,
             waveOverhangEnabled = if (arcOn) false else settings.waveOverhangEnabled,
             brickWallEnabled = if (arcOn) false else settings.brickWallEnabled,
         )
-        return Resolution(effective, message(plan, curviActive, roofsCurvedByCurvi, arcOn))
+        return Resolution(effective, message(plan, nonPlanarActive, arcOn))
     }
 
     private fun message(
         plan: OverhangStrategyPlan,
-        curviActive: Boolean,
-        roofsCurvedByCurvi: Boolean,
+        nonPlanarActive: Boolean,
         arcOn: Boolean,
     ): String = buildString {
         append("Smart overhangs: ")
         when {
-            roofsCurvedByCurvi -> {
+            arcOn && nonPlanarActive -> {
                 append(
-                    "arc fill disabled because the flat roofs would be curved by non-planar layers; " +
-                        "CurviSlicer handles %.0f mm² of slopes".format(plan.slopedUpperAreaMm2),
+                    "arc fill kept for %.0f mm² of flat roofs together with non-planar printing".format(plan.flatRoofAreaMm2),
                 )
-            }
-            arcOn && curviActive -> {
-                append(
-                    "arc fill kept for %.0f mm² of flat roofs together with CurviSlicer".format(plan.flatRoofAreaMm2),
-                )
-                if (plan.lowReliefRoofFraction < 1.0) {
-                    append(" (%.0f%% of the roofs stay flat)".format(plan.lowReliefRoofFraction * 100.0))
-                }
             }
             arcOn -> {
                 append("arc fill auto-enabled for %.0f mm² of flat roofs".format(plan.flatRoofAreaMm2))
-                if (plan.curviUseful && !curviActive) {
-                    append("; CurviSlicer would also help %.0f mm² of slopes — enable it in Non Planar for the combined result".format(plan.slopedUpperAreaMm2))
+                if (plan.nonPlanarUseful && !nonPlanarActive) {
+                    append("; non-planar printing would also help %.0f mm² of slopes — enable it in Non Planar for the combined result".format(plan.slopedUpperAreaMm2))
                 }
             }
-            curviActive && plan.curviUseful -> {
-                append("no flat roofs for arc fill; CurviSlicer handles %.0f mm² of slopes".format(plan.slopedUpperAreaMm2))
+            nonPlanarActive && plan.nonPlanarUseful -> {
+                append("no flat roofs for arc fill; non-planar printing handles %.0f mm² of slopes".format(plan.slopedUpperAreaMm2))
             }
             else -> append(plan.summary.removePrefix("Smart overhangs: "))
         }

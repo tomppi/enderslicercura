@@ -1,7 +1,7 @@
 package com.tomppi.enderslicer.profile
 
 import com.tomppi.enderslicer.model.SlicerSettings
-import com.tomppi.enderslicer.nonplanar.CurviSlicerRuntime
+import com.tomppi.enderslicer.nonplanar.NonPlanarRuntime
 import com.tomppi.enderslicer.smartinfill.SmartInfillRuntime
 import com.tomppi.enderslicer.smartinfill.applyTo
 import kotlin.math.abs
@@ -68,10 +68,9 @@ internal object CuraSettingDelta {
         putValue(SlicerSettings.Keys.INITIAL_LAYER_INSET_DIRECTION, "initial_layer_inset_direction", settings.initialLayerInsetDirection)
         putValue(SlicerSettings.Keys.WALL_THICKNESS, "wall_thickness", settings.wallThicknessMm)
         putValue(SlicerSettings.Keys.TOP_LAYERS, "top_layers", settings.topLayers)
-        // Conformal surface mode replaces the top N planar layers with shells
-        // that ride below the surface, so the slice must carry at least that
-        // many solid top layers as source material.
-        CurviSlicerRuntime.snapshot()?.takeIf { it.settings.conformalMode }?.let { active ->
+        // The conformal shells replace the top N planar layers, so the slice
+        // must carry at least that many solid top layers as source material.
+        NonPlanarRuntime.snapshot()?.let { active ->
             put(
                 "top_layers",
                 max(settings.topLayers, active.settings.conformalShellLayers).toString(),

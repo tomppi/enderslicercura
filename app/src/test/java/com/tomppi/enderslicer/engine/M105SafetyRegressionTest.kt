@@ -72,16 +72,16 @@ class M105SafetyRegressionTest {
 
     private fun requireEverySharedConsumer(line: String) {
         val command = requireNotNull(GcodeCommand.parse(line))
-        GcodeCommandPolicy.requireCurviSupported(command, inPrintableLayers = false)
-        GcodeCommandPolicy.requireCurviSupported(command, inPrintableLayers = true)
+        GcodeCommandPolicy.requireNonPlanarSupported(command, inPrintableLayers = false)
+        GcodeCommandPolicy.requireNonPlanarSupported(command, inPrintableLayers = true)
         GcodeCommandPolicy.requirePublishedSafe(command, currentLayer = 0, lineNumber = 1)
         GcodeCommandPolicy.requirePreviewSafe(command, spatialMovesSeen = 10)
     }
 
     private fun requireRejectedByEverySharedConsumer(line: String) {
         val command = requireNotNull(GcodeCommand.parse(line))
-        assertTrue("CurviSlicer should reject $line", runCatching {
-            GcodeCommandPolicy.requireCurviSupported(command, inPrintableLayers = false)
+        assertTrue("Non-planar slicing should reject $line", runCatching {
+            GcodeCommandPolicy.requireNonPlanarSupported(command, inPrintableLayers = false)
         }.isFailure)
         assertTrue("Published G-code should reject $line", runCatching {
             GcodeCommandPolicy.requirePublishedSafe(command, currentLayer = null, lineNumber = 1)

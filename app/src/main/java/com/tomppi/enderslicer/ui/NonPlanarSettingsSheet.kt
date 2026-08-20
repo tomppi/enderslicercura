@@ -36,8 +36,6 @@ internal fun NonPlanarSettingsSheet(
     modifier: Modifier = Modifier,
 ) {
     var enabled by rememberSaveable(initial.enabled) { mutableStateOf(initial.enabled) }
-    var strength by rememberSaveable(initial.strengthPercent) { mutableStateOf(initial.strengthPercent.toString()) }
-    var smoothing by rememberSaveable(initial.smoothingRadiusMm) { mutableStateOf(initial.smoothingRadiusMm.toString()) }
     var slope by rememberSaveable(initial.maximumSlopeDegrees) { mutableStateOf(initial.maximumSlopeDegrees.toString()) }
     var clearanceAngle by rememberSaveable(initial.nozzleClearanceAngleDegrees) {
         mutableStateOf(initial.nozzleClearanceAngleDegrees.toString())
@@ -62,34 +60,14 @@ internal fun NonPlanarSettingsSheet(
     var blockOffsetY by rememberSaveable(initial.heatingBlockOffsetYmm) {
         mutableStateOf(initial.heatingBlockOffsetYmm.toString())
     }
-    var flatBaseLayers by rememberSaveable(initial.flatBaseLayers) { mutableStateOf(initial.flatBaseLayers.toString()) }
-    var fieldResolution by rememberSaveable(initial.fieldResolution) { mutableStateOf(initial.fieldResolution.toString()) }
-    var segmentLength by rememberSaveable(initial.maximumSegmentLengthMm) {
-        mutableStateOf(initial.maximumSegmentLengthMm.toString())
-    }
     var maximumZSpeed by rememberSaveable(initial.maximumZSpeedMmPerSecond) {
         mutableStateOf(initial.maximumZSpeedMmPerSecond.toString())
     }
-    var compensateExtrusion by rememberSaveable(initial.compensateExtrusion) {
-        mutableStateOf(initial.compensateExtrusion)
-    }
-    var warpSmartInfill by rememberSaveable(initial.warpSmartInfillModifiers) {
-        mutableStateOf(initial.warpSmartInfillModifiers)
-    }
     var pauseAfterProbe by rememberSaveable(initial.pauseAfterProbe) { mutableStateOf(initial.pauseAfterProbe) }
-    var drapeMode by rememberSaveable(initial.drapeMode) { mutableStateOf(initial.drapeMode) }
-    var fadeStart by rememberSaveable(initial.fadeStartPercent) { mutableStateOf(initial.fadeStartPercent.toString()) }
-    var conformalMode by rememberSaveable(initial.conformalMode) { mutableStateOf(initial.conformalMode) }
     var conformalShells by rememberSaveable(initial.conformalShellLayers) {
         mutableStateOf(initial.conformalShellLayers.toString())
     }
 
-    val parsedStrength = parseDecimal(strength, NonPlanarSettings.MIN_STRENGTH_PERCENT, NonPlanarSettings.MAX_STRENGTH_PERCENT)
-    val parsedSmoothing = parseDecimal(
-        smoothing,
-        NonPlanarSettings.MIN_SMOOTHING_RADIUS_MM,
-        NonPlanarSettings.MAX_SMOOTHING_RADIUS_MM,
-    )
     val parsedSlope = parseDecimal(slope, NonPlanarSettings.MIN_SLOPE_DEGREES, NonPlanarSettings.MAX_SLOPE_DEGREES)
     val parsedClearanceAngle = parseDecimal(
         clearanceAngle,
@@ -136,30 +114,10 @@ internal fun NonPlanarSettingsSheet(
         -NonPlanarSettings.MAX_BLOCK_OFFSET_MM,
         NonPlanarSettings.MAX_BLOCK_OFFSET_MM,
     )
-    val parsedFlatBaseLayers = parseInteger(
-        flatBaseLayers,
-        NonPlanarSettings.MIN_FLAT_BASE_LAYERS,
-        NonPlanarSettings.MAX_FLAT_BASE_LAYERS,
-    )
-    val parsedFieldResolution = parseInteger(
-        fieldResolution,
-        NonPlanarSettings.MIN_FIELD_RESOLUTION,
-        NonPlanarSettings.MAX_FIELD_RESOLUTION,
-    )
-    val parsedSegmentLength = parseDecimal(
-        segmentLength,
-        NonPlanarSettings.MIN_SEGMENT_LENGTH_MM,
-        NonPlanarSettings.MAX_SEGMENT_LENGTH_MM,
-    )
     val parsedMaximumZSpeed = parseDecimal(
         maximumZSpeed,
         NonPlanarSettings.MIN_Z_SPEED_MM_PER_SECOND,
         NonPlanarSettings.MAX_Z_SPEED_MM_PER_SECOND,
-    )
-    val parsedFadeStart = parseDecimal(
-        fadeStart,
-        NonPlanarSettings.MIN_FADE_START_PERCENT,
-        NonPlanarSettings.MAX_FADE_START_PERCENT,
     )
     val parsedConformalShells = parseInteger(
         conformalShells,
@@ -167,17 +125,14 @@ internal fun NonPlanarSettingsSheet(
         NonPlanarSettings.MAX_CONFORMAL_SHELL_LAYERS,
     )
     val draft = if (
-        parsedStrength != null && parsedSmoothing != null && parsedSlope != null &&
+        parsedSlope != null &&
         parsedClearanceAngle != null && parsedClearanceHeight != null && parsedMaximumLift != null &&
         parsedNozzleAngle != null && parsedNozzleProtrusion != null && parsedBlockWidth != null &&
         parsedBlockDepth != null && parsedBlockOffsetX != null && parsedBlockOffsetY != null &&
-        parsedFlatBaseLayers != null && parsedFieldResolution != null && parsedSegmentLength != null &&
-        parsedMaximumZSpeed != null && parsedFadeStart != null && parsedConformalShells != null
+        parsedMaximumZSpeed != null && parsedConformalShells != null
     ) {
         NonPlanarSettings(
             enabled = enabled,
-            strengthPercent = parsedStrength,
-            smoothingRadiusMm = parsedSmoothing,
             maximumSlopeDegrees = parsedSlope,
             nozzleClearanceAngleDegrees = parsedClearanceAngle,
             nozzleClearanceHeightMm = parsedClearanceHeight,
@@ -188,16 +143,8 @@ internal fun NonPlanarSettingsSheet(
             heatingBlockDepthMm = parsedBlockDepth,
             heatingBlockOffsetXmm = parsedBlockOffsetX,
             heatingBlockOffsetYmm = parsedBlockOffsetY,
-            flatBaseLayers = parsedFlatBaseLayers,
-            fieldResolution = parsedFieldResolution,
-            maximumSegmentLengthMm = parsedSegmentLength,
             maximumZSpeedMmPerSecond = parsedMaximumZSpeed,
-            compensateExtrusion = compensateExtrusion,
-            warpSmartInfillModifiers = warpSmartInfill,
             pauseAfterProbe = pauseAfterProbe,
-            drapeMode = drapeMode,
-            fadeStartPercent = parsedFadeStart,
-            conformalMode = conformalMode,
             conformalShellLayers = parsedConformalShells,
         )
     } else {
@@ -216,7 +163,7 @@ internal fun NonPlanarSettingsSheet(
                 Text(NonPlanarSettingsStore.BACKEND_NAME, style = MaterialTheme.typography.titleMedium)
                 Text("Ready · fully offline · Android ARM64", style = MaterialTheme.typography.bodyMedium)
                 Text(
-                    "Warp mode flattens the displayed STL with a monotone, slope-limited field, slices the flattened solid with CuraEngine, then restores continuously varying Z paths. Conformal surface mode keeps the STL as displayed and projects the top toolpath straight down onto the real 3D surface - true non-planar printing where the nozzle dives below the layer plane to the thinnest part and climbs to the thickest.",
+                    "The displayed STL is sliced exactly as shown, then the top toolpaths are projected straight down onto the real 3D surface: the nozzle follows it continuously, diving below the layer plane to the thinnest part of the model and climbing to the thickest. The stair steps those shells replace are removed from the planar layers, the measured hot-end volume is swept along the result, and Z speed is limited to keep the firmware in control.",
                     style = MaterialTheme.typography.bodySmall,
                 )
                 Text(
@@ -227,16 +174,10 @@ internal fun NonPlanarSettingsSheet(
         }
 
         SettingSwitch(
-            title = "Enable CurviSlicer",
-            description = "Generate curved layers for the next slice",
+            title = "Enable non-planar printing",
+            description = "Project the top layers onto the real surface for the next slice",
             checked = enabled,
             onChecked = { enabled = it },
-        )
-        SettingSwitch(
-            title = "Conformal surface mode (true non-planar)",
-            description = "Project the top layers onto the real surface: the nozzle follows it from the thinnest part to the thickest, diving below the layer plane. Replaces the warp pipeline; strength/smoothing/fade/drape settings are ignored.",
-            checked = conformalMode,
-            onChecked = { conformalMode = it },
         )
         IntegerSettingField(
             "Conformal shells (top layers replaced)",
@@ -246,21 +187,7 @@ internal fun NonPlanarSettingsSheet(
             onText = { conformalShells = it },
         )
         DecimalSettingField(
-            "Curvature strength (%)",
-            strength,
-            NonPlanarSettings.MIN_STRENGTH_PERCENT,
-            NonPlanarSettings.MAX_STRENGTH_PERCENT,
-            onText = { strength = it },
-        )
-        DecimalSettingField(
-            "Surface smoothing radius (mm)",
-            smoothing,
-            NonPlanarSettings.MIN_SMOOTHING_RADIUS_MM,
-            NonPlanarSettings.MAX_SMOOTHING_RADIUS_MM,
-            onText = { smoothing = it },
-        )
-        DecimalSettingField(
-            "Maximum path slope (degrees)",
+            "Maximum surface slope (degrees)",
             slope,
             NonPlanarSettings.MIN_SLOPE_DEGREES,
             NonPlanarSettings.MAX_SLOPE_DEGREES,
@@ -281,11 +208,16 @@ internal fun NonPlanarSettingsSheet(
             onText = { clearanceHeight = it },
         )
         DecimalSettingField(
-            "Maximum surface lift (mm)",
+            "Maximum surface span (mm)",
             maximumLift,
             NonPlanarSettings.MIN_MAXIMUM_LIFT_MM,
             NonPlanarSettings.MAX_MAXIMUM_LIFT_MM,
             onText = { maximumLift = it },
+        )
+        Text(
+            "The largest allowed rise between the thinnest and thickest point of a curved region. Surfaces taller than this stay planar.",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         DecimalSettingField(
             "Nozzle taper angle from horizontal (degrees)",
@@ -362,63 +294,12 @@ internal fun NonPlanarSettingsSheet(
                 onDismiss = { viewerOpen = false },
             )
         }
-        IntegerSettingField(
-            "Flat base layers",
-            flatBaseLayers,
-            NonPlanarSettings.MIN_FLAT_BASE_LAYERS,
-            NonPlanarSettings.MAX_FLAT_BASE_LAYERS,
-            onText = { flatBaseLayers = it },
-        )
-        IntegerSettingField(
-            "Curvature field resolution",
-            fieldResolution,
-            NonPlanarSettings.MIN_FIELD_RESOLUTION,
-            NonPlanarSettings.MAX_FIELD_RESOLUTION,
-            onText = { fieldResolution = it },
-        )
-        DecimalSettingField(
-            "Maximum generated move length (mm)",
-            segmentLength,
-            NonPlanarSettings.MIN_SEGMENT_LENGTH_MM,
-            NonPlanarSettings.MAX_SEGMENT_LENGTH_MM,
-            onText = { segmentLength = it },
-        )
         DecimalSettingField(
             "Maximum Z speed (mm/s)",
             maximumZSpeed,
             NonPlanarSettings.MIN_Z_SPEED_MM_PER_SECOND,
             NonPlanarSettings.MAX_Z_SPEED_MM_PER_SECOND,
             onText = { maximumZSpeed = it },
-        )
-        SettingSwitch(
-            title = "Extrusion length compensation",
-            description = "Scale positive extrusion for the true curved 3D path length",
-            checked = compensateExtrusion,
-            onChecked = { compensateExtrusion = it },
-        )
-        SettingSwitch(
-            title = "Warp Smart Infill modifiers",
-            description = "Keep filaSim density regions aligned with the flattened model",
-            checked = warpSmartInfill,
-            onChecked = { warpSmartInfill = it },
-        )
-        DecimalSettingField(
-            "Fade start (% of height)",
-            fadeStart,
-            NonPlanarSettings.MIN_FADE_START_PERCENT,
-            NonPlanarSettings.MAX_FADE_START_PERCENT,
-            onText = { fadeStart = it },
-        )
-        Text(
-            "0% = the curve ramps up from the flat base; higher values keep the lower part of the model flat and curve only the top. Drape mode ignores this.",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        SettingSwitch(
-            title = "Drape layers (curve every layer)",
-            description = "Like the original CurviSlicer: every layer above the flat base follows the surface shape, so the whole print becomes stacked curved sheets. Full strength, big Z sweeps.",
-            checked = drapeMode,
-            onChecked = { drapeMode = it },
         )
         SettingSwitch(
             title = "Pause after bed probing",
@@ -431,7 +312,7 @@ internal fun NonPlanarSettingsSheet(
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                 Text("Printer safety", style = MaterialTheme.typography.titleSmall)
                 Text(
-                    "The applied strength is automatically reduced against the inverse path slope. Final G-code is rejected if any move leaves the configured machine envelope, exceeds the clearance slope, or uses unsupported arcs.",
+                    "Surfaces steeper than the maximum slope or taller than the maximum span are excluded from the curved regions and stay planar. Final G-code is rejected if any move leaves the configured machine envelope, and the measured hot-end volume is swept along every move with a warning on collision.",
                     style = MaterialTheme.typography.bodySmall,
                 )
                 Text(
@@ -450,4 +331,3 @@ internal fun NonPlanarSettingsSheet(
         }
     }
 }
-

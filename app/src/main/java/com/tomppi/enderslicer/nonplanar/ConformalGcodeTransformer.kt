@@ -218,7 +218,7 @@ internal object ConformalGcodeTransformer {
                     checkCancellation(lineNumber, "Conformal processing")
                     val trimmed = rawLine.trimStart()
                     if (afterMachineEnd) continue
-                    if (trimmed == CurviSlicerRuntime.MACHINE_END_SENTINEL) {
+                    if (trimmed == NonPlanarRuntime.MACHINE_END_SENTINEL) {
                         afterMachineEnd = true
                         inPrintableLayers = false
                         continue
@@ -472,13 +472,13 @@ internal object ConformalGcodeTransformer {
                     fun processLine(rawLine: String) {
                         val trimmed = rawLine.trimStart()
                         if (emissionAfterMachineEnd) {
-                            require(trimmed != CurviSlicerRuntime.MACHINE_END_SENTINEL) {
+                            require(trimmed != NonPlanarRuntime.MACHINE_END_SENTINEL) {
                                 "Conformal machine-end sentinel appears more than once"
                             }
                             output.appendLine(rawLine)
                             return
                         }
-                        if (trimmed == CurviSlicerRuntime.MACHINE_END_SENTINEL) {
+                        if (trimmed == NonPlanarRuntime.MACHINE_END_SENTINEL) {
                             emissionLayer?.let { flushSkins(output, it) }
                             emissionAfterMachineEnd = true
                             emissionInPrintable = false
@@ -505,7 +505,7 @@ internal object ConformalGcodeTransformer {
                             output.appendLine(rawLine)
                             return
                         }
-                        GcodeCommandPolicy.requireCurviSupported(command, emissionInPrintable)
+                        GcodeCommandPolicy.requireNonPlanarSupported(command, emissionInPrintable)
                         if (emissionModal.apply(command)) {
                             output.appendLine(rawLine)
                             return

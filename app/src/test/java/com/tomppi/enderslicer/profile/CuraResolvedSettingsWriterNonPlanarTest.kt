@@ -1,6 +1,6 @@
 package com.tomppi.enderslicer.profile
 
-import com.tomppi.enderslicer.nonplanar.CurviSlicerRuntime
+import com.tomppi.enderslicer.nonplanar.NonPlanarRuntime
 import com.tomppi.enderslicer.nonplanar.NonPlanarSettings
 import com.tomppi.enderslicer.viewer.StlSliceTransform
 import java.io.File
@@ -12,7 +12,7 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-class CuraResolvedSettingsWriterCurviSlicerTest {
+class CuraResolvedSettingsWriterNonPlanarTest {
     @Test
     fun replacesPreStagedRequestModelAndSignalsThatTheCopyAlreadyHappened() {
         val root = Files.createTempDirectory("enderslicer-curvi-staging").toFile()
@@ -26,7 +26,7 @@ class CuraResolvedSettingsWriterCurviSlicerTest {
             }
             val displayedBytes = displayed.readBytes()
             var copyCount = 0
-            CurviSlicerRuntime.activate(NonPlanarSettings(enabled = true))
+            NonPlanarRuntime.activate(NonPlanarSettings(enabled = true))
 
             val transform = CuraResolvedSettingsWriter.copyResolvedSourceSnapshot(
                 stagedDisplayedFile = displayed,
@@ -52,16 +52,16 @@ class CuraResolvedSettingsWriterCurviSlicerTest {
             assertArrayEquals(displayedBytes, displayed.readBytes())
             assertTrue(displayed.isFile)
         } finally {
-            CurviSlicerRuntime.activate(NonPlanarSettings(enabled = false))
+            NonPlanarRuntime.activate(NonPlanarSettings(enabled = false))
             root.deleteRecursively()
         }
     }
 
     @Test
-    fun ordinaryPlanarIdentityTransformIsNotTheCurviStagingMarker() {
+    fun ordinaryPlanarIdentityTransformIsNotTheNonPlanarStagingMarker() {
         val root = Files.createTempDirectory("enderslicer-planar-identity").toFile()
         try {
-            CurviSlicerRuntime.activate(NonPlanarSettings(enabled = false))
+            NonPlanarRuntime.activate(NonPlanarSettings(enabled = false))
             val model = File(root, "model.stl")
             writeTriangle(model)
             val destination = File(root, "resolved-settings.json")
@@ -98,7 +98,7 @@ class CuraResolvedSettingsWriterCurviSlicerTest {
 
             assertTrue(destination.isFile && destination.length() > 0L)
         } finally {
-            CurviSlicerRuntime.activate(NonPlanarSettings(enabled = false))
+            NonPlanarRuntime.activate(NonPlanarSettings(enabled = false))
             root.deleteRecursively()
         }
     }

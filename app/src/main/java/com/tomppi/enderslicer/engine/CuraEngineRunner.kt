@@ -7,7 +7,7 @@ import com.tomppi.enderslicer.mesh.MeshTriangleLimits
 import com.tomppi.enderslicer.model.PrinterDefinition
 import com.tomppi.enderslicer.model.SlicerSettings
 import com.tomppi.enderslicer.model.withSettings
-import com.tomppi.enderslicer.nonplanar.CurviSlicerRuntime
+import com.tomppi.enderslicer.nonplanar.NonPlanarRuntime
 import com.tomppi.enderslicer.nonplanar.NozzleCollisionAlert
 import com.tomppi.enderslicer.profile.CuraEngineProfile
 import com.tomppi.enderslicer.profile.CuraResolvedSettingsWriter
@@ -120,7 +120,7 @@ class CuraEngineRunner(private val context: Context) {
         smartInfillSnapshot: SmartInfillSliceSnapshot?,
         supportPaint: SupportPaintState,
     ): SliceResult {
-        val curviRequestSnapshot = CurviSlicerRuntime.snapshot()
+        val nonPlanarRequestSnapshot = NonPlanarRuntime.snapshot()
         val conicalRequestSnapshot = ConicalRuntime.snapshot()
         val sliceSettings = if (conicalRequestSnapshot != null) {
             ConicalPreparations.adjustSettings(settings)
@@ -285,10 +285,10 @@ class CuraEngineRunner(private val context: Context) {
             )
             throwIfInterrupted()
 
-            val currentCurviSnapshot = CurviSlicerRuntime.snapshot()
+            val currentNonPlanarSnapshot = NonPlanarRuntime.snapshot()
             val currentConicalSnapshot = ConicalRuntime.snapshot()
             if (
-                curviRequestSnapshot?.generation != currentCurviSnapshot?.generation ||
+                nonPlanarRequestSnapshot?.generation != currentNonPlanarSnapshot?.generation ||
                 conicalRequestSnapshot?.generation != currentConicalSnapshot?.generation
             ) {
                 throw SliceException(

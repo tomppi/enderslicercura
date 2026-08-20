@@ -5,7 +5,7 @@ import java.io.File
 /**
  * Inserts a user-resumable pause immediately after the bed probe so the operator
  * can raise a deployable probe out of the way before non-planar (conical /
- * CurviSlicer) motion begins. The pause is emitted only when the start G-code
+ * conformal surface) motion begins. The pause is emitted only when the start G-code
  * actually probes with G29; a saved-mesh start script without G29 is left alone.
  */
 internal object GcodeProbePauseInjector {

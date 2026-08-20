@@ -12,7 +12,7 @@ internal object ConformalSurfaceStorage {
     private const val MAGIC = 0x434E4652
     private const val VERSION = 1
 
-    fun write(workspace: File, prepared: CurviSlicerPipeline.ConformalPrepared) {
+    fun write(workspace: File, prepared: NonPlanarPipeline.ConformalPrepared) {
         require(workspace.isDirectory) { "Conformal surface workspace is unavailable" }
         val destination = File(workspace, FILE_NAME)
         val temporary = File(workspace, "$FILE_NAME.tmp")
@@ -56,7 +56,7 @@ internal object ConformalSurfaceStorage {
 
     fun isPrepared(workspace: File): Boolean = File(workspace, FILE_NAME).isFile
 
-    fun read(file: File): CurviSlicerPipeline.ConformalPrepared =
+    fun read(file: File): NonPlanarPipeline.ConformalPrepared =
         DataInputStream(file.inputStream().buffered()).use { input ->
             require(input.readInt() == MAGIC) { "Invalid conformal surface marker" }
             require(input.readInt() == VERSION) { "Unsupported conformal surface version" }
@@ -93,7 +93,7 @@ internal object ConformalSurfaceStorage {
                 maximumZSpeedMmPerSecond = maximumZSpeedMmPerSecond,
                 conformalShellLayers = conformalShellLayers,
             ).validated()
-            CurviSlicerPipeline.ConformalPrepared(
+            NonPlanarPipeline.ConformalPrepared(
                 surface = ConformalSurface(regions, ConformalDiagnostics(
                     sourceTriangles = 0,
                     candidateTriangles = 0,

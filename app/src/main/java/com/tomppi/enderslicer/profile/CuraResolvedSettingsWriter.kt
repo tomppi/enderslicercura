@@ -4,7 +4,7 @@ import com.tomppi.enderslicer.conical.ConicalRuntime
 import com.tomppi.enderslicer.engine.AdaptiveWallModifier
 import com.tomppi.enderslicer.engine.NonPlanarPreparation
 import com.tomppi.enderslicer.engine.PrinterEnvelope
-import com.tomppi.enderslicer.nonplanar.CurviSlicerRuntime
+import com.tomppi.enderslicer.nonplanar.NonPlanarRuntime
 import com.tomppi.enderslicer.smartinfill.SmartInfillCuraContract
 import com.tomppi.enderslicer.smartinfill.SmartInfillModifier
 import com.tomppi.enderslicer.smartinfill.requireValidBinaryStl
@@ -33,23 +33,23 @@ internal object CuraResolvedSettingsWriter {
         require(modelFile.isFile && modelFile.length() > 0L) {
             "Resolved Cura STL is missing or empty: ${modelFile.absolutePath}"
         }
-        val curviSnapshot = CurviSlicerRuntime.snapshot()
+        val nonPlanarSnapshot = NonPlanarRuntime.snapshot()
         val conicalSnapshot = ConicalRuntime.snapshot()
-        val stagedForCurvi = modelTransform === CURVI_STAGED_IDENTITY
+        val stagedForNonPlanar = modelTransform === NON_PLANAR_STAGED_IDENTITY
         val stagedForConical = modelTransform === CONICAL_STAGED_IDENTITY
-        require(!stagedForCurvi || curviSnapshot != null) {
-            "The resolved model was staged for CurviSlicer but CurviSlicer is no longer active"
+        require(!stagedForNonPlanar || nonPlanarSnapshot != null) {
+            "The resolved model was staged for non-planar printing but non-planar printing is no longer active"
         }
         require(!stagedForConical || conicalSnapshot != null) {
             "The resolved model was staged for conical slicing but conical slicing is no longer active"
         }
-        require(curviSnapshot == null || stagedForCurvi) {
-            "CurviSlicer resolved requests must explicitly stage displayed geometry"
+        require(nonPlanarSnapshot == null || stagedForNonPlanar) {
+            "Non-planar resolved requests must explicitly stage displayed geometry"
         }
         require(conicalSnapshot == null || stagedForConical) {
             "Conical resolved requests must explicitly stage displayed geometry"
         }
-        val effectiveModelTransform = if (stagedForCurvi || stagedForConical) null else modelTransform
+        val effectiveModelTransform = if (stagedForNonPlanar || stagedForConical) null else modelTransform
 
         val effectiveSmartInfillModifiers = smartInfillModifiers
             .sortedBy(SmartInfillModifier::densityPercent)
@@ -102,8 +102,8 @@ internal object CuraResolvedSettingsWriter {
             modelFile = modelFile,
             workspace = modelDirectory,
             printerEnvelope = printerEnvelope,
-            layerHeightMm = curviSnapshot?.let { requiredResolvedNumber(resolved, "layer_height") } ?: 0.0,
-            nozzleDiameterMm = curviSnapshot?.let { requiredResolvedNumber(resolved, "machine_nozzle_size") } ?: 0.0,
+            layerHeightMm = nonPlanarSnapshot?.let { requiredResolvedNumber(resolved, "layer_height") } ?: 0.0,
+            nozzleDiameterMm = nonPlanarSnapshot?.let { requiredResolvedNumber(resolved, "machine_nozzle_size") } ?: 0.0,
             smartInfillModifiers = effectiveSmartInfillModifiers,
             adaptiveWallModifiers = adaptiveWallModifiers,
             supportPaintModifiers = supportPaintModifiers,
@@ -157,7 +157,7 @@ internal object CuraResolvedSettingsWriter {
         )
 
         val globalValues = LinkedHashMap(resolved.globalValues)
-        if (curviSnapshot != null || conicalSnapshot != null) {
+        if (nonPlanarSnapshot != null || conicalSnapshot != null) {
             globalValues["machine_end_gcode"] = NonPlanarPreparation.markMachineEndGcode(
                 globalValues["machine_end_gcode"].orEmpty(),
             )
@@ -253,17 +253,17 @@ internal object CuraResolvedSettingsWriter {
         require(stagedDisplayedFile.isFile && stagedDisplayedFile.length() > 0L) {
             "The transformed STL is unavailable for resolved source staging"
         }
-        if (CurviSlicerRuntime.snapshot() != null) {
+        if (NonPlanarRuntime.snapshot() != null) {
             val displayedStamp = fileStamp(stagedDisplayedFile)
             removePreStagedRequestModel(destination)
             copyFile(stagedDisplayedFile, destination)
             check(destination.isFile && destination.length() == displayedStamp.length) {
-                "Unable to stage displayed STL geometry for CurviSlicer"
+                "Unable to stage displayed STL geometry for non-planar printing"
             }
             check(fileStamp(stagedDisplayedFile) == displayedStamp) {
-                "The displayed STL changed while it was being staged for CurviSlicer"
+                "The displayed STL changed while it was being staged for non-planar printing"
             }
-            return CURVI_STAGED_IDENTITY
+            return NON_PLANAR_STAGED_IDENTITY
         }
         if (ConicalRuntime.snapshot() != null) {
             val displayedStamp = fileStamp(stagedDisplayedFile)
@@ -383,7 +383,7 @@ internal object CuraResolvedSettingsWriter {
         0.0, 1.0, 0.0,
         0.0, 0.0, 1.0,
     )
-    private val CURVI_STAGED_IDENTITY = StlSliceTransform(
+    private val NON_PLANAR_STAGED_IDENTITY = StlSliceTransform(
         linear = IDENTITY,
         translationXmm = 0.0,
         translationYmm = 0.0,

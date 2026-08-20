@@ -22,7 +22,7 @@ import com.tomppi.enderslicer.mesh.MeshTriangleLimits
 import com.tomppi.enderslicer.model.ModelPlacement
 import com.tomppi.enderslicer.model.SlicerSettings
 import com.tomppi.enderslicer.model.withSettings
-import com.tomppi.enderslicer.nonplanar.CurviSlicerRuntime
+import com.tomppi.enderslicer.nonplanar.NonPlanarRuntime
 import com.tomppi.enderslicer.nonplanar.SmartOverhangStrategy
 import com.tomppi.enderslicer.profile.CuraImportedSettingsResolver
 import com.tomppi.enderslicer.profile.CuraProfileParser
@@ -566,11 +566,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
         if (!beginOperation("CuraEngine is slicing…")) return
-        if (CurviSlicerRuntime.snapshot() != null && ConicalRuntime.snapshot() != null) {
+        if (NonPlanarRuntime.snapshot() != null && ConicalRuntime.snapshot() != null) {
             _uiState.update {
                 it.copy(
                     isBusy = false,
-                    statusMessage = "CurviSlicer and conical slicing are mutually exclusive; disable one before slicing",
+                    statusMessage = "Non-planar and conical slicing are mutually exclusive; disable one before slicing",
                     sliceResultId = null,
                     gcodePath = null,
                     baseGcodePath = null,
@@ -596,7 +596,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         StlMeshWriter.writeBinary(transformedMesh, transformedFile)
                         val smartResolution = SmartOverhangStrategy.resolve(
                             settings = snapshot.settings,
-                            curviSettings = CurviSlicerRuntime.current(),
+                            nonPlanarSettings = NonPlanarRuntime.current(),
                             mesh = transformedMesh,
                             layerHeightMm = snapshot.settings.layerHeightMm,
                             nozzleDiameterMm = snapshot.printer.withSettings(snapshot.settings).nozzleSizeMm,

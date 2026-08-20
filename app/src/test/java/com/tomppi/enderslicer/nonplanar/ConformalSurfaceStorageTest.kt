@@ -14,12 +14,11 @@ class ConformalSurfaceStorageTest {
             val mesh = testMesh(*domeTriangles(0f, 0f, 0f, 80f, 80f, 12f).toTypedArray(), name = "dome.stl")
             val settings = NonPlanarSettings(
                 enabled = true,
-                conformalMode = true,
                 conformalShellLayers = 4,
                 maximumLiftMm = 15.0,
             )
             val surface = ConformalSurfaceBuilder.build(mesh, settings)
-            val prepared = CurviSlicerPipeline.ConformalPrepared(surface, settings, 0.2)
+            val prepared = NonPlanarPipeline.ConformalPrepared(surface, settings, 0.2)
             ConformalSurfaceStorage.write(directory, prepared)
             assertTrue(ConformalSurfaceStorage.isPrepared(directory))
 

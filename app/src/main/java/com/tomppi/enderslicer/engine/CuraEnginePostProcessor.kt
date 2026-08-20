@@ -3,16 +3,15 @@ package com.tomppi.enderslicer.engine
 import com.tomppi.enderslicer.conical.ConicalRuntime
 import com.tomppi.enderslicer.conical.ConicalStorage
 import com.tomppi.enderslicer.nonplanar.ConformalSurfaceStorage
-import com.tomppi.enderslicer.nonplanar.CurviSlicerFieldStorage
-import com.tomppi.enderslicer.nonplanar.CurviSlicerRuntime
+import com.tomppi.enderslicer.nonplanar.NonPlanarRuntime
 import com.tomppi.enderslicer.nonplanar.NozzleCollisionAlert
 import com.tomppi.enderslicer.nonplanar.NozzleCollisionScanner
 import java.io.File
 
 /** Finalizes staged engine output before it is eligible for immutable publication. */
 internal object CuraEnginePostProcessor {
-    private fun gcodeRequestsCurvi(file: File): Boolean = file.bufferedReader().useLines { lines ->
-        lines.any { it.trim() == CurviSlicerRuntime.MACHINE_END_SENTINEL }
+    private fun gcodeRequestsNonPlanar(file: File): Boolean = file.bufferedReader().useLines { lines ->
+        lines.any { it.trim() == NonPlanarRuntime.MACHINE_END_SENTINEL }
     }
 
     private fun gcodeRequestsConical(file: File): Boolean = file.bufferedReader().useLines { lines ->
@@ -39,23 +38,16 @@ internal object CuraEnginePostProcessor {
             ?: error("CuraEngine output path has no parent workspace")
         val effectiveEnvelope = resolvedEnvelope(workspace) ?: printerEnvelope
         val firmware = CalibrationFirmwareEncoder.fromFlavor(effectiveEnvelope.gcodeFlavor)
-        val preparedModes = listOfNotNull(
-            ConformalSurfaceStorage.isPrepared(workspace),
-            CurviSlicerFieldStorage.isPrepared(workspace),
-            ConicalStorage.isPrepared(workspace),
-        ).count { it }
-        require(preparedModes <= 1) {
-            "Conformal, CurviSlicer and conical slicing cannot be combined for a single slice"
+        require(
+            !(ConformalSurfaceStorage.isPrepared(workspace) &&
+                ConicalStorage.isPrepared(workspace)),
+        ) {
+            "Non-planar and conical slicing cannot both be prepared for a single slice"
         }
         val conformalDiagnostics = ConformalSurfaceStorage.conformalStagedGcode(outputFile, effectiveEnvelope)
-        val curviDiagnostics = if (conformalDiagnostics == null) {
-            CurviSlicerFieldStorage.curveStagedGcode(outputFile, effectiveEnvelope)
-        } else {
-            null
-        }
-        if (conformalDiagnostics == null && curviDiagnostics == null && gcodeRequestsCurvi(outputFile)) {
+        if (conformalDiagnostics == null && gcodeRequestsNonPlanar(outputFile)) {
             throw IllegalStateException(
-                "CurviSlicer was requested for this slice but its surface/field data is missing; " +
+                "Non-planar printing was requested for this slice but its surface data is missing; " +
                     "refusing to publish a planar G-code for a non-planar request",
             )
         }
@@ -67,7 +59,7 @@ internal object CuraEnginePostProcessor {
             )
         }
         val probePauseInjected = if (
-            ((conformalDiagnostics != null || curviDiagnostics != null) && CurviSlicerRuntime.current().pauseAfterProbe) ||
+            (conformalDiagnostics != null && NonPlanarRuntime.current().pauseAfterProbe) ||
             (conicalDiagnostics != null && ConicalRuntime.current().pauseAfterProbe)
         ) {
             GcodeProbePauseInjector.inject(outputFile)
@@ -76,18 +68,17 @@ internal object CuraEnginePostProcessor {
         }
         val effectiveTransport = when {
             conformalDiagnostics != null -> "$settingsTransport+conformal-surface-android-v1"
-            curviDiagnostics != null -> "$settingsTransport+curvislicer-android-v1"
             conicalDiagnostics != null -> "$settingsTransport+conical-android-v1"
             else -> settingsTransport
         }.let { if (probePauseInjected) "$it+probe-pause" else it }
         // Sweep the user-measured collision volume (nozzle cone + heating
         // block cone + whole-plate cutoff) along the curved toolpath so the
         // slice result can warn before a nozzle scrape happens on the printer.
-        val nozzleCollisionAlert = if (conformalDiagnostics != null || curviDiagnostics != null) {
+        val nozzleCollisionAlert = if (conformalDiagnostics != null) {
             runCatching {
                 NozzleCollisionScanner.scan(
                     gcode = outputFile,
-                    settings = CurviSlicerRuntime.current(),
+                    settings = NonPlanarRuntime.current(),
                     buildPlateHalfWidthMm = effectiveEnvelope.widthMm / 2.0,
                     buildPlateHalfDepthMm = effectiveEnvelope.depthMm / 2.0,
                 )

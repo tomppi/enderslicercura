@@ -192,7 +192,7 @@ internal fun CategorizedSettingsSheet(
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Text(
-                    "Comma-separated; every layer cycles through the list. 90 sweeps straight across a bump, 0 runs along it - with CurviSlicer this changes how the curved Z motion shows.",
+                    "Comma-separated; every layer cycles through the list. 90 sweeps straight across a bump, 0 runs along it - with non-planar printing this changes how the curved Z motion shows.",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -659,7 +659,7 @@ internal fun CategorizedSettingsSheet(
             }
             if (settings.smartOverhangStrategy) {
                 Text(
-                    "The slicer inspects the model before slicing and decides where to use arc fill and curved (CurviSlicer) layers automatically, including a safe combined mode when CurviSlicer is enabled.",
+                    "The slicer inspects the model before slicing and decides where to use arc fill and non-planar curved layers automatically, including a safe combined mode when non-planar printing is enabled.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

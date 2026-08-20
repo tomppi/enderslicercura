@@ -6,7 +6,7 @@ import com.tomppi.enderslicer.conical.ConicalSettings
 import com.tomppi.enderslicer.engine.CuraEngineCommand
 import com.tomppi.enderslicer.model.PrinterDefinition
 import com.tomppi.enderslicer.model.SlicerSettings
-import com.tomppi.enderslicer.nonplanar.CurviSlicerRuntime
+import com.tomppi.enderslicer.nonplanar.NonPlanarRuntime
 import com.tomppi.enderslicer.nonplanar.NonPlanarSettings
 import com.tomppi.enderslicer.smartinfill.SmartInfillActivity
 import com.tomppi.enderslicer.smartinfill.SmartInfillPackage
@@ -28,7 +28,7 @@ import java.nio.file.Files
 
 /**
  * Settings-leak validation: when an advanced feature (arc/wave overhangs,
- * CurviSlicer, conical slicing, Smart Infill, calibration) is OFF, nothing it
+ * non-planar printing, conical slicing, Smart Infill, calibration) is OFF, nothing it
  * controls may fall through into the core CuraEngine slice. App-owned
  * `enderslicer_*` keys are always emitted because the patched engine has no
  * definition defaults for them, so the contract is value-neutrality: disabled
@@ -124,7 +124,7 @@ class AdvancedFeatureSettingsLeakTest {
 
         assertTrue(command.contains("enderslicer_arc_overhang_enabled=false"))
         assertTrue(command.contains("enderslicer_wave_overhang_enabled=false"))
-        assertFalse(command.any { it.contains(CurviSlicerRuntime.MACHINE_END_SENTINEL) })
+        assertFalse(command.any { it.contains(NonPlanarRuntime.MACHINE_END_SENTINEL) })
         assertFalse(command.any { it.contains(ConicalRuntime.MACHINE_END_SENTINEL) })
         assertFalse(command.any { it.contains("infill_mesh=true") })
         assertFalse(command.any { it.contains("support_mesh=true") })
@@ -160,19 +160,19 @@ class AdvancedFeatureSettingsLeakTest {
     }
 
     @Test
-    fun curviEnableThenDisableLeavesNoSettingsResidue() {
+    fun nonPlanarEnableThenDisableLeavesNoSettingsResidue() {
         val pristine = resolve(SlicerSettings())
 
-        CurviSlicerRuntime.activate(NonPlanarSettings(enabled = true))
-        assertTrue(CurviSlicerRuntime.snapshot() != null)
+        NonPlanarRuntime.activate(NonPlanarSettings(enabled = true))
+        assertTrue(NonPlanarRuntime.snapshot() != null)
         assertTrue(
-            CurviSlicerRuntime.markMachineEndGcode(END_GCODE)
-                .contains(CurviSlicerRuntime.MACHINE_END_SENTINEL),
+            NonPlanarRuntime.markMachineEndGcode(END_GCODE)
+                .contains(NonPlanarRuntime.MACHINE_END_SENTINEL),
         )
 
-        CurviSlicerRuntime.activate(NonPlanarSettings(enabled = false))
-        assertNull(CurviSlicerRuntime.snapshot())
-        assertEquals(END_GCODE, CurviSlicerRuntime.markMachineEndGcode(END_GCODE))
+        NonPlanarRuntime.activate(NonPlanarSettings(enabled = false))
+        assertNull(NonPlanarRuntime.snapshot())
+        assertEquals(END_GCODE, NonPlanarRuntime.markMachineEndGcode(END_GCODE))
         assertEquals(pristine, resolve(SlicerSettings()))
     }
 
@@ -199,8 +199,8 @@ class AdvancedFeatureSettingsLeakTest {
 
         ConicalRuntime.activate(ConicalSettings(enabled = true))
         ConicalRuntime.activate(ConicalSettings(enabled = false))
-        CurviSlicerRuntime.activate(NonPlanarSettings(enabled = true))
-        CurviSlicerRuntime.activate(NonPlanarSettings(enabled = false))
+        NonPlanarRuntime.activate(NonPlanarSettings(enabled = true))
+        NonPlanarRuntime.activate(NonPlanarSettings(enabled = false))
         SmartInfillRuntime.activate(packageValue("cycle"))
         SmartInfillRuntime.activate(null)
 
@@ -283,9 +283,9 @@ class AdvancedFeatureSettingsLeakTest {
 
     @Test
     fun paintedSupportsWithNonPlanarOnNeverLeakPaintMeshesWhenUnpainted() {
-        // Paint OFF + CurviSlicer ON: the slice must load exactly one mesh (the
+        // Paint OFF + non-planar ON: the slice must load exactly one mesh (the
         // model) and carry no support_mesh/anti_overhang_mesh roles.
-        CurviSlicerRuntime.activate(NonPlanarSettings(enabled = true, flatBaseLayers = 1))
+        NonPlanarRuntime.activate(NonPlanarSettings(enabled = true))
         val command = buildStandaloneCommand(SlicerSettings(), paint = false)
 
         assertEquals("Only the model mesh may be loaded", 1, command.count { it == "-l" })
@@ -308,7 +308,7 @@ class AdvancedFeatureSettingsLeakTest {
 
     private fun resetAllFeatures() {
         SmartInfillRuntime.activate(null)
-        CurviSlicerRuntime.activate(NonPlanarSettings())
+        NonPlanarRuntime.activate(NonPlanarSettings())
         ConicalRuntime.activate(ConicalSettings())
     }
 
@@ -331,7 +331,7 @@ class AdvancedFeatureSettingsLeakTest {
         val directory = Files.createTempDirectory("enderslicer-leak-command").toFile()
         try {
             val modelFile = File(directory, "model.stl")
-            writeTriangle(modelFile, 100f, 100f, 1f)
+            writeFlatTriangle(modelFile, 100f, 1f)
             val paintModifiers = if (paint) {
                 val enforcer = File(directory, "support-enforcer.stl")
                 writeTriangle(enforcer, 101f, 101f, 1f)
@@ -382,6 +382,19 @@ class AdvancedFeatureSettingsLeakTest {
         buffer.putFloat(x).putFloat(y).putFloat(z)
         buffer.putFloat(x + 1f).putFloat(y).putFloat(z)
         buffer.putFloat(x).putFloat(y + 1f).putFloat(z + 1f)
+        buffer.putShort(0)
+        file.writeBytes(buffer.array())
+    }
+
+    /** A large flat, up-facing triangle that qualifies as a conformal region. */
+    private fun writeFlatTriangle(file: File, size: Float, z: Float) {
+        val buffer = ByteBuffer.allocate(84 + 50).order(ByteOrder.LITTLE_ENDIAN)
+        buffer.position(80)
+        buffer.putInt(1)
+        buffer.putFloat(0f).putFloat(0f).putFloat(1f)
+        buffer.putFloat(size).putFloat(0f).putFloat(z)
+        buffer.putFloat(0f).putFloat(size).putFloat(z)
+        buffer.putFloat(0f).putFloat(0f).putFloat(z)
         buffer.putShort(0)
         file.writeBytes(buffer.array())
     }

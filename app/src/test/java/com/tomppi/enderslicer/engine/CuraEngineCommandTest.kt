@@ -4,7 +4,7 @@ import com.tomppi.enderslicer.conical.ConicalRuntime
 import com.tomppi.enderslicer.conical.ConicalSettings
 import com.tomppi.enderslicer.model.PrinterDefinition
 import com.tomppi.enderslicer.model.SlicerSettings
-import com.tomppi.enderslicer.nonplanar.CurviSlicerRuntime
+import com.tomppi.enderslicer.nonplanar.NonPlanarRuntime
 import com.tomppi.enderslicer.nonplanar.NonPlanarSettings
 import com.tomppi.enderslicer.profile.CuraEngineProfile
 import com.tomppi.enderslicer.smartinfill.SmartInfillCuraContract
@@ -169,10 +169,10 @@ class CuraEngineCommandTest {
     }
 
     @Test
-    fun curviSlicerWarpsPaintedSupportModifiersInsteadOfRejectingThem() {
-        val directory = Files.createTempDirectory("curvi-paint-command").toFile()
+    fun nonPlanarKeepsPaintedSupportModifiersUnwarped() {
+        val directory = Files.createTempDirectory("nonplanar-paint-command").toFile()
         try {
-            CurviSlicerRuntime.activate(NonPlanarSettings(enabled = true))
+            NonPlanarRuntime.activate(NonPlanarSettings(enabled = true))
             val model = File(directory, "model.stl")
             val enforcer = File(directory, "support-enforcer.stl")
             writePyramid(model)
@@ -200,13 +200,13 @@ class CuraEngineCommandTest {
             assertTrue(enforcerSettings.contains("support_mesh=true"))
             assertTrue(enforcerSettings.contains("anti_overhang_mesh=false"))
 
-            val warped = StlParser.parse(enforcer, enforcer.name)
+            val untouched = StlParser.parse(enforcer, enforcer.name)
             assertTrue(
-                "CurviSlicer must flatten the painted prism with the relief field",
-                warped.bounds.maxZ < sourceMaxZ,
+                "Non-planar printing must not warp the painted prism",
+                untouched.bounds.maxZ == sourceMaxZ,
             )
         } finally {
-            CurviSlicerRuntime.activate(NonPlanarSettings())
+            NonPlanarRuntime.activate(NonPlanarSettings())
             directory.deleteRecursively()
         }
     }
@@ -271,8 +271,8 @@ class CuraEngineCommandTest {
             writeTriangle(wallModifier, 101f, 101f, 0.4f)
             val adaptive = AdaptiveWallModifier(wallLineCount = 4, wallFlowPercent = 100.0, file = wallModifier)
 
-            CurviSlicerRuntime.activate(NonPlanarSettings(enabled = true))
-            val curviError = runCatching {
+            NonPlanarRuntime.activate(NonPlanarSettings(enabled = true))
+            val nonPlanarError = runCatching {
                 CuraEngineCommand.build(
                     executablePath = "/native/libcuraengine_exec.so",
                     definitionsDirectory = "/files/definitions",
@@ -288,10 +288,10 @@ class CuraEngineCommandTest {
                     threadCount = 4,
                 )
             }.exceptionOrNull()
-            assertTrue(curviError is IllegalArgumentException)
-            assertTrue(curviError?.message.orEmpty().contains("Adaptive walls"))
+            assertTrue(nonPlanarError is IllegalArgumentException)
+            assertTrue(nonPlanarError?.message.orEmpty().contains("Adaptive walls"))
 
-            CurviSlicerRuntime.activate(NonPlanarSettings())
+            NonPlanarRuntime.activate(NonPlanarSettings())
             ConicalRuntime.activate(ConicalSettings(enabled = true))
             val conicalError = runCatching {
                 CuraEngineCommand.build(
@@ -312,7 +312,7 @@ class CuraEngineCommandTest {
             assertTrue(conicalError is IllegalArgumentException)
             assertTrue(conicalError?.message.orEmpty().contains("Adaptive walls"))
         } finally {
-            CurviSlicerRuntime.activate(NonPlanarSettings())
+            NonPlanarRuntime.activate(NonPlanarSettings())
             ConicalRuntime.activate(ConicalSettings())
             directory.deleteRecursively()
         }
@@ -346,7 +346,7 @@ class CuraEngineCommandTest {
 
     /**
      * A 10 x 10 mm square pyramid whose apex sits at z = 1.2 over the centre:
-     * tall enough for CurviSlicer's flat-base requirement and gentle enough
+     * tall enough for a conformal surface region and gentle enough
      * (about 13 degrees) to stay inside the default slope limit.
      */
     private fun writePyramid(file: File) {

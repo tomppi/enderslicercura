@@ -97,7 +97,7 @@ internal object NozzleCollisionScanner {
         buildPlateHalfDepthMm: Double,
     ): NozzleCollisionAlert? {
         require(gcode.isFile && gcode.length() > 0L) { "Curved G-code is missing for the collision sweep" }
-        require(settings.enabled) { "CurviSlicer must be enabled for the collision sweep" }
+        require(settings.enabled) { "Non-planar printing must be enabled for the collision sweep" }
         val holderHeightMm = settings.holderHeightMm
         val protrusionMm = settings.nozzleProtrusionMm
         val blockHalfWidth = settings.heatingBlockWidthMm / 2.0

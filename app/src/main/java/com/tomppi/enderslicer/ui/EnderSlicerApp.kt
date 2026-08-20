@@ -345,9 +345,9 @@ fun EnderSlicerApp(
                                         text = {
                                             Text(
                                                 if (nonPlanarSettings.enabled) {
-                                                    "CurviSlicer options · enabled"
+                                                    "Non Planar options · enabled"
                                                 } else {
-                                                    "CurviSlicer options"
+                                                    "Non Planar options"
                                                 },
                                             )
                                         },
@@ -397,7 +397,7 @@ fun EnderSlicerApp(
                 conicalEnabled = conicalSettings.enabled,
                 sliceBlockedReason = sliceBlockedReason
                     ?: if (nonPlanarSettings.enabled && conicalSettings.enabled) {
-                        "CurviSlicer and conical slicing are mutually exclusive; disable one before slicing"
+                        "Non-planar and conical slicing are mutually exclusive; disable one before slicing"
                     } else {
                         null
                     },
@@ -504,14 +504,14 @@ fun EnderSlicerApp(
                         context,
                         if (changed) {
                             if (safe.enabled) {
-                                "CurviSlicer settings saved; slice again before export"
+                                "Non-planar settings saved; slice again before export"
                             } else {
-                                "CurviSlicer disabled; slice again before export"
+                                "Non-planar printing disabled; slice again before export"
                             }
                         } else if (safe.enabled) {
-                            "CurviSlicer settings unchanged"
+                            "Non-planar settings unchanged"
                         } else {
-                            "CurviSlicer remains disabled"
+                            "Non-planar printing remains disabled"
                         },
                         Toast.LENGTH_SHORT,
                     ).show()
@@ -785,7 +785,7 @@ private fun ViewerPanel(
                 )
                 if (nonPlanarEnabled) {
                     Text(
-                        "CurviSlicer enabled",
+                        "Non-planar printing enabled",
                         color = MaterialTheme.colorScheme.primary,
                         style = MaterialTheme.typography.labelSmall,
                     )

@@ -94,12 +94,12 @@ class CuraEnginePostProcessorTest {
     }
 
     @Test
-    fun failsLoudWhenCurviGcodeHasNoFieldInsteadOfSilentlyGoingPlanar() {
-        val directory = kotlin.io.path.createTempDirectory("enderslicer-postprocess-curvi-lost").toFile()
+    fun failsLoudWhenNonPlanarGcodeHasNoSurfaceDataInsteadOfSilentlyGoingPlanar() {
+        val directory = kotlin.io.path.createTempDirectory("enderslicer-postprocess-nonplanar-lost").toFile()
         val output = File(directory, "output.gcode").apply {
             writeText(
                 sampleGcode() + "\n" +
-                    com.tomppi.enderslicer.nonplanar.CurviSlicerRuntime.MACHINE_END_SENTINEL + "\n" +
+                    com.tomppi.enderslicer.nonplanar.NonPlanarRuntime.MACHINE_END_SENTINEL + "\n" +
                     "G28\n",
             )
         }
@@ -116,7 +116,7 @@ class CuraEnginePostProcessorTest {
         }.exceptionOrNull()
 
         assertTrue(error is IllegalStateException)
-        assertTrue(error!!.message!!.contains("CurviSlicer was requested"))
+        assertTrue(error!!.message!!.contains("Non-planar printing was requested"))
     }
 
     private fun envelope(): PrinterEnvelope = PrinterEnvelope(

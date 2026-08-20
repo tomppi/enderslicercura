@@ -51,7 +51,7 @@ class SmartOverhangStrategyTest {
     }
 
     @Test
-    fun curviActiveWithSafeRoofsKeepsArcFill() {
+    fun nonPlanarActiveWithSafeRoofsKeepsArcFill() {
         val settings = SlicerSettings(
             smartOverhangStrategy = true,
             arcOverhangEnabled = true,
@@ -65,16 +65,16 @@ class SmartOverhangStrategyTest {
             floatArrayOf(0f, 0f, 11f, 30f, 30f, 14f, 0f, 30f, 11f),
         )
         val mesh = testMesh(*triangles.toTypedArray())
-        val curvi = NonPlanarSettings(enabled = true, strengthPercent = 100.0)
+        val nonPlanar = NonPlanarSettings(enabled = true)
 
-        val result = SmartOverhangStrategy.resolve(settings, curvi, mesh, 0.2, 0.4)
+        val result = SmartOverhangStrategy.resolve(settings, nonPlanar, mesh, 0.2, 0.4)
 
-        assertTrue("Flat roofs that stay flat must keep arc fill with CurviSlicer", result.settings.arcOverhangEnabled)
-        assertTrue(result.message!!.contains("together with CurviSlicer"))
+        assertTrue("Flat roofs must keep arc fill with non-planar printing", result.settings.arcOverhangEnabled)
+        assertTrue(result.message!!.contains("together with non-planar"))
     }
 
     @Test
-    fun curviActiveWithCurvedRoofsForcesArcOff() {
+    fun nonPlanarActiveWithTallCurvedSurfaceKeepsArcFill() {
         val settings = SlicerSettings(
             smartOverhangStrategy = true,
             arcOverhangEnabled = true,
@@ -88,11 +88,11 @@ class SmartOverhangStrategyTest {
         )
         triangles += domeTriangles(20f, 20f, 5f, 80f, 80f, 12f)
         val mesh = testMesh(*triangles.toTypedArray())
-        val curvi = NonPlanarSettings(enabled = true, strengthPercent = 100.0)
+        val nonPlanar = NonPlanarSettings(enabled = true)
 
-        val result = SmartOverhangStrategy.resolve(settings, curvi, mesh, 0.2, 0.4)
+        val result = SmartOverhangStrategy.resolve(settings, nonPlanar, mesh, 0.2, 0.4)
 
-        assertFalse("Roofs curved by non-planar layers must force arc fill off", result.settings.arcOverhangEnabled)
-        assertTrue(result.message!!.contains("disabled"))
+        assertTrue("Roofs under a curved surface must keep arc fill", result.settings.arcOverhangEnabled)
+        assertTrue(result.message!!.contains("together with non-planar"))
     }
 }

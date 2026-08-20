@@ -14,7 +14,7 @@ class OverhangStrategyPlannerTest {
         val plan = OverhangStrategyPlanner.plan(mesh, NonPlanarSettings(), 0.2, 0.4)
 
         assertFalse(plan.arcUseful)
-        assertFalse(plan.curviUseful)
+        assertFalse(plan.nonPlanarUseful)
         assertEquals(OverhangRecommendation.NONE, plan.recommendation)
         assertEquals(0.0, plan.flatRoofAreaMm2, 1e-6)
     }
@@ -36,14 +36,14 @@ class OverhangStrategyPlannerTest {
         )
         val plan = OverhangStrategyPlanner.plan(
             mesh,
-            NonPlanarSettings(enabled = true, strengthPercent = 100.0),
+            NonPlanarSettings(enabled = true, maximumLiftMm = 15.0),
             0.2,
             0.4,
         )
 
-        assertTrue(plan.curviUseful)
+        assertTrue(plan.nonPlanarUseful)
         assertFalse(plan.arcUseful)
-        assertEquals(OverhangRecommendation.CURVI_ONLY, plan.recommendation)
+        assertEquals(OverhangRecommendation.NON_PLANAR_ONLY, plan.recommendation)
     }
 
     @Test
@@ -58,19 +58,22 @@ class OverhangStrategyPlannerTest {
         val mesh = testMesh(*triangles.toTypedArray())
         val plan = OverhangStrategyPlanner.plan(
             mesh,
-            NonPlanarSettings(enabled = true, strengthPercent = 100.0),
+            NonPlanarSettings(enabled = true),
             0.2,
             0.4,
         )
 
         assertTrue("A raised slab bottom must be an arc candidate", plan.arcUseful)
-        assertTrue("The ramp must be a curvi candidate", plan.curviUseful)
+        assertTrue("The ramp must be a non-planar candidate", plan.nonPlanarUseful)
         assertTrue(plan.combinedSafe)
-        assertEquals(OverhangRecommendation.ARC_AND_CURVI, plan.recommendation)
+        assertEquals(OverhangRecommendation.ARC_AND_NON_PLANAR, plan.recommendation)
     }
 
     @Test
-    fun roofUnderHighReliefIsNotSafeToCombine() {
+    fun roofUnderTallSurfaceStillCombinesSafely() {
+        // The conformal shells only replace material near the surface, so the
+        // arc paths on the roof layers below stay exactly as sliced: the
+        // combination is always safe even with a tall curved feature above.
         val triangles = mutableListOf<FloatArray>()
         triangles += flatBoxTriangles(0f, 0f, 0f, 100f, 100f, 1f)
         triangles += listOf(
@@ -81,15 +84,16 @@ class OverhangStrategyPlannerTest {
         val mesh = testMesh(*triangles.toTypedArray())
         val plan = OverhangStrategyPlanner.plan(
             mesh,
-            NonPlanarSettings(enabled = true, strengthPercent = 100.0),
+            NonPlanarSettings(enabled = true),
             0.2,
             0.4,
         )
 
         assertTrue(plan.arcUseful)
-        assertTrue(plan.curviUseful)
-        assertFalse("A roof under a tall sloped feature must not combine safely", plan.combinedSafe)
-        assertEquals(OverhangRecommendation.ARC_ONLY, plan.recommendation)
+        assertTrue(plan.nonPlanarUseful)
+        assertTrue("A roof under a curved surface must still combine safely", plan.combinedSafe)
+        assertEquals(1.0, plan.lowReliefRoofFraction, 1e-9)
+        assertEquals(OverhangRecommendation.ARC_AND_NON_PLANAR, plan.recommendation)
     }
 
     @Test
@@ -103,11 +107,11 @@ class OverhangStrategyPlannerTest {
             OverhangStrategyPlanner.decide(true, false, false),
         )
         assertEquals(
-            OverhangRecommendation.CURVI_ONLY,
+            OverhangRecommendation.NON_PLANAR_ONLY,
             OverhangStrategyPlanner.decide(false, true, false),
         )
         assertEquals(
-            OverhangRecommendation.ARC_AND_CURVI,
+            OverhangRecommendation.ARC_AND_NON_PLANAR,
             OverhangStrategyPlanner.decide(true, true, true),
         )
     }

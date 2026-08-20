@@ -22,7 +22,7 @@ class GcodeRoundTwoSafetyTest {
         assertEquals(null, GcodeCommand.parse("G1.5 X1"))
 
         listOf(
-            { GcodeCommandPolicy.requireCurviSupported(linear, inPrintableLayers = true) },
+            { GcodeCommandPolicy.requireNonPlanarSupported(linear, inPrintableLayers = true) },
             { GcodeCommandPolicy.requirePublishedSafe(linear, currentLayer = 0, lineNumber = 42) },
             { GcodeCommandPolicy.requirePreviewSafe(linear, spatialMovesSeen = 0) },
         ).forEach { consumer ->

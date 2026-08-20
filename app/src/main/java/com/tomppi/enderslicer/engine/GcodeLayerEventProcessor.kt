@@ -1,6 +1,6 @@
 package com.tomppi.enderslicer.engine
 
-import com.tomppi.enderslicer.nonplanar.CurviSlicerRuntime
+import com.tomppi.enderslicer.nonplanar.NonPlanarRuntime
 import java.io.File
 
 object GcodeLayerEventProcessor {
@@ -68,7 +68,7 @@ object GcodeLayerEventProcessor {
                         !restoresWritten &&
                         (trimmedLine.startsWith(";End of Gcode", ignoreCase = true) ||
                             trimmedLine.startsWith(";END_OF_PRINT") ||
-                            trimmedLine == CurviSlicerRuntime.MACHINE_END_SENTINEL)
+                            trimmedLine == NonPlanarRuntime.MACHINE_END_SENTINEL)
                     ) {
                         writeRestores()
                     }

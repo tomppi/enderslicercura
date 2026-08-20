@@ -162,7 +162,7 @@ internal fun ConicalSettingsSheet(
                     style = MaterialTheme.typography.bodySmall,
                 )
                 Text(
-                    "Preview the complete Path view before printing. This mode is mutually exclusive with CurviSlicer.",
+                    "Preview the complete Path view before printing. This mode is mutually exclusive with non-planar printing.",
                     style = MaterialTheme.typography.labelSmall,
                 )
             }

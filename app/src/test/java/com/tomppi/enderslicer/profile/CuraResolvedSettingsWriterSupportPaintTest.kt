@@ -3,7 +3,7 @@ package com.tomppi.enderslicer.profile
 import com.tomppi.enderslicer.conical.ConicalRuntime
 import com.tomppi.enderslicer.conical.ConicalSettings
 import com.tomppi.enderslicer.engine.AdaptiveWallModifier
-import com.tomppi.enderslicer.nonplanar.CurviSlicerRuntime
+import com.tomppi.enderslicer.nonplanar.NonPlanarRuntime
 import com.tomppi.enderslicer.nonplanar.NonPlanarSettings
 import com.tomppi.enderslicer.supportpaint.SupportPaintModifier
 import com.tomppi.enderslicer.viewer.StlParser
@@ -18,15 +18,16 @@ import org.junit.Test
 
 /**
  * Painted support enforcer/blocker prisms must survive the non-planar
- * pipelines: both writers warp the prisms with the same transform as the model
- * instead of rejecting the slice, while adaptive-wall modifiers stay rejected.
+ * pipelines: the conformal pipeline keeps them at their displayed coordinates,
+ * conical warps them with the same transform as the model, and adaptive-wall
+ * modifiers stay rejected.
  */
 class CuraResolvedSettingsWriterSupportPaintTest {
     @Test
-    fun curviSlicerWarpsPaintedEnforcerBeforeSerializingItsMeshSection() {
-        val directory = Files.createTempDirectory("resolved-curvi-paint").toFile()
+    fun nonPlanarKeepsPaintedEnforcerUntouchedBeforeSerializingItsMeshSection() {
+        val directory = Files.createTempDirectory("resolved-nonplanar-paint").toFile()
         try {
-            CurviSlicerRuntime.activate(NonPlanarSettings(enabled = true))
+            NonPlanarRuntime.activate(NonPlanarSettings(enabled = true))
             val displayed = File(directory, "displayed.stl")
             val model = File(directory, "model.stl")
             val enforcer = File(directory, "support-enforcer.stl")
@@ -58,13 +59,13 @@ class CuraResolvedSettingsWriterSupportPaintTest {
                 section.getBoolean("meshfix_union_all"),
             )
 
-            val warped = StlParser.parse(enforcer, enforcer.name)
+            val untouched = StlParser.parse(enforcer, enforcer.name)
             assertTrue(
-                "CurviSlicer must flatten the painted prism with the relief field",
-                warped.bounds.maxZ < sourceMaxZ,
+                "Non-planar printing must not warp the painted prism",
+                untouched.bounds.maxZ == sourceMaxZ,
             )
         } finally {
-            CurviSlicerRuntime.activate(NonPlanarSettings())
+            NonPlanarRuntime.activate(NonPlanarSettings())
             directory.deleteRecursively()
         }
     }
@@ -121,22 +122,22 @@ class CuraResolvedSettingsWriterSupportPaintTest {
             writeTriangle(wallModifier, 101f, 101f, 0.4f)
             val adaptive = AdaptiveWallModifier(wallLineCount = 4, wallFlowPercent = 100.0, file = wallModifier)
 
-            CurviSlicerRuntime.activate(NonPlanarSettings(enabled = true))
-            val curviModel = File(directory, "curvi-model.stl")
-            val curviMarker = CuraResolvedSettingsWriter.copyResolvedSourceSnapshot(displayed, curviModel)
-            val curviError = runCatching {
+            NonPlanarRuntime.activate(NonPlanarSettings(enabled = true))
+            val nonPlanarModel = File(directory, "nonplanar-model.stl")
+            val nonPlanarMarker = CuraResolvedSettingsWriter.copyResolvedSourceSnapshot(displayed, nonPlanarModel)
+            val nonPlanarError = runCatching {
                 CuraResolvedSettingsWriter.write(
-                    destination = File(directory, "curvi-resolved.json"),
-                    modelFileName = curviModel.name,
+                    destination = File(directory, "nonplanar-resolved.json"),
+                    modelFileName = nonPlanarModel.name,
                     resolved = resolvedResult(),
-                    modelTransform = curviMarker,
+                    modelTransform = nonPlanarMarker,
                     adaptiveWallModifiers = listOf(adaptive),
                 )
             }.exceptionOrNull()
-            assertTrue(curviError is IllegalArgumentException)
-            assertTrue(curviError?.message.orEmpty().contains("Adaptive walls"))
+            assertTrue(nonPlanarError is IllegalArgumentException)
+            assertTrue(nonPlanarError?.message.orEmpty().contains("Adaptive walls"))
 
-            CurviSlicerRuntime.activate(NonPlanarSettings())
+            NonPlanarRuntime.activate(NonPlanarSettings())
             ConicalRuntime.activate(ConicalSettings(enabled = true))
             val conicalModel = File(directory, "conical-model.stl")
             val conicalMarker = CuraResolvedSettingsWriter.copyResolvedSourceSnapshot(displayed, conicalModel)
@@ -152,7 +153,7 @@ class CuraResolvedSettingsWriterSupportPaintTest {
             assertTrue(conicalError is IllegalArgumentException)
             assertTrue(conicalError?.message.orEmpty().contains("Adaptive walls"))
         } finally {
-            CurviSlicerRuntime.activate(NonPlanarSettings())
+            NonPlanarRuntime.activate(NonPlanarSettings())
             ConicalRuntime.activate(ConicalSettings())
             directory.deleteRecursively()
         }
@@ -225,7 +226,7 @@ class CuraResolvedSettingsWriterSupportPaintTest {
 
     /**
      * A 10 x 10 mm square pyramid whose apex sits at z = 1.2 over the centre:
-     * tall enough for CurviSlicer's flat-base requirement and gentle enough
+     * tall enough for a conformal surface region and gentle enough
      * (about 13 degrees) to stay inside the default slope limit.
      */
     private fun writePyramid(file: File) {

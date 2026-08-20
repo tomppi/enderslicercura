@@ -36,7 +36,7 @@ class ConformalGcodeTransformerTest {
         "G1 X10 Y0 Z0.8 E7",
         "G1 X5 Y0 E8",
         "G1 X20 Y0 E9",
-        CurviSlicerRuntime.MACHINE_END_SENTINEL,
+        NonPlanarRuntime.MACHINE_END_SENTINEL,
         ";End of Gcode",
     ).filter { it.isNotEmpty() }.joinToString("\n") + "\n"
 
@@ -113,7 +113,7 @@ class ConformalGcodeTransformerTest {
             "G1 X5 Y0 Z0.4 E2",
             ";LAYER:11",
             "G1 X5 Y20 Z2.2 E3",
-            CurviSlicerRuntime.MACHINE_END_SENTINEL,
+            NonPlanarRuntime.MACHINE_END_SENTINEL,
             ";End of Gcode",
         ).joinToString("\n") + "\n"
         val directory = Files.createTempDirectory("conformal-dive").toFile()
@@ -162,7 +162,7 @@ class ConformalGcodeTransformerTest {
             ";LAYER:0",
             "G1 X20 Y20 Z0.2 E1 F1200",
             "G1 X30 Y20 E2",
-            CurviSlicerRuntime.MACHINE_END_SENTINEL,
+            NonPlanarRuntime.MACHINE_END_SENTINEL,
             ";End of Gcode",
         ).joinToString("\n") + "\n"
         val directory = Files.createTempDirectory("conformal-empty").toFile()
