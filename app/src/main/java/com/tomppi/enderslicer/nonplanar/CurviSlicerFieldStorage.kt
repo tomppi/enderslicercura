@@ -33,6 +33,7 @@ internal object CurviSlicerFieldStorage {
                     output.writeDouble(strength)
                     output.writeDouble(flatBaseHeightMm)
                     output.writeBoolean(uniformShift)
+                    output.writeDouble(fadeStartFraction)
                     output.writeInt(relief.size)
                     relief.forEach(output::writeFloat)
                 }
@@ -56,6 +57,7 @@ internal object CurviSlicerFieldStorage {
                     output.writeBoolean(compensateExtrusion)
                     output.writeBoolean(warpSmartInfillModifiers)
                     output.writeBoolean(drapeMode)
+                    output.writeDouble(fadeStartPercent)
                 }
                 with(prepared.diagnostics) {
                     output.writeDouble(requestedStrength)
@@ -96,6 +98,7 @@ internal object CurviSlicerFieldStorage {
             val strength = input.readDouble()
             val flatBaseHeightMm = input.readDouble()
             val uniformShift = input.readBoolean()
+            val fadeStartFraction = input.readDouble()
             val reliefSize = input.readInt()
             require(columns in 2..192 && rows in 2..192 && reliefSize == columns * rows) {
                 "Invalid CurviSlicer field dimensions"
@@ -123,6 +126,7 @@ internal object CurviSlicerFieldStorage {
                 compensateExtrusion = input.readBoolean(),
                 warpSmartInfillModifiers = input.readBoolean(),
                 drapeMode = input.readBoolean(),
+                fadeStartPercent = input.readDouble(),
             ).validated()
             val diagnostics = CurviSlicerPipeline.Diagnostics(
                 gridColumns = columns,
@@ -147,6 +151,7 @@ internal object CurviSlicerFieldStorage {
                 strength = strength,
                 flatBaseHeightMm = flatBaseHeightMm,
                 uniformShift = uniformShift,
+                fadeStartFraction = fadeStartFraction,
             )
             CurviSlicerPipeline.Prepared(field, diagnostics, settings)
         }

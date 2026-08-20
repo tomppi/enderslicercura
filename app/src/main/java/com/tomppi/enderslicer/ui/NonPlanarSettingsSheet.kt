@@ -78,6 +78,7 @@ internal fun NonPlanarSettingsSheet(
     }
     var pauseAfterProbe by rememberSaveable(initial.pauseAfterProbe) { mutableStateOf(initial.pauseAfterProbe) }
     var drapeMode by rememberSaveable(initial.drapeMode) { mutableStateOf(initial.drapeMode) }
+    var fadeStart by rememberSaveable(initial.fadeStartPercent) { mutableStateOf(initial.fadeStartPercent.toString()) }
 
     val parsedStrength = parseDecimal(strength, NonPlanarSettings.MIN_STRENGTH_PERCENT, NonPlanarSettings.MAX_STRENGTH_PERCENT)
     val parsedSmoothing = parseDecimal(
@@ -151,13 +152,18 @@ internal fun NonPlanarSettingsSheet(
         NonPlanarSettings.MIN_Z_SPEED_MM_PER_SECOND,
         NonPlanarSettings.MAX_Z_SPEED_MM_PER_SECOND,
     )
+    val parsedFadeStart = parseDecimal(
+        fadeStart,
+        NonPlanarSettings.MIN_FADE_START_PERCENT,
+        NonPlanarSettings.MAX_FADE_START_PERCENT,
+    )
     val draft = if (
         parsedStrength != null && parsedSmoothing != null && parsedSlope != null &&
         parsedClearanceAngle != null && parsedClearanceHeight != null && parsedMaximumLift != null &&
         parsedNozzleAngle != null && parsedNozzleProtrusion != null && parsedBlockWidth != null &&
         parsedBlockDepth != null && parsedBlockOffsetX != null && parsedBlockOffsetY != null &&
         parsedFlatBaseLayers != null && parsedFieldResolution != null && parsedSegmentLength != null &&
-        parsedMaximumZSpeed != null
+        parsedMaximumZSpeed != null && parsedFadeStart != null
     ) {
         NonPlanarSettings(
             enabled = enabled,
@@ -181,6 +187,7 @@ internal fun NonPlanarSettingsSheet(
             warpSmartInfillModifiers = warpSmartInfill,
             pauseAfterProbe = pauseAfterProbe,
             drapeMode = drapeMode,
+            fadeStartPercent = parsedFadeStart,
         )
     } else {
         null
@@ -370,6 +377,18 @@ internal fun NonPlanarSettingsSheet(
             description = "Keep filaSim density regions aligned with the flattened model",
             checked = warpSmartInfill,
             onChecked = { warpSmartInfill = it },
+        )
+        DecimalSettingField(
+            "Fade start (% of height)",
+            fadeStart,
+            NonPlanarSettings.MIN_FADE_START_PERCENT,
+            NonPlanarSettings.MAX_FADE_START_PERCENT,
+            onText = { fadeStart = it },
+        )
+        Text(
+            "0% = the curve ramps up from the flat base; higher values keep the lower part of the model flat and curve only the top. Drape mode ignores this.",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         SettingSwitch(
             title = "Drape layers (curve every layer)",

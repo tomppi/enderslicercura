@@ -17,6 +17,7 @@ internal data class CurviSlicerField(
     val strength: Double,
     val flatBaseHeightMm: Double,
     val uniformShift: Boolean = false,
+    val fadeStartFraction: Double = 0.0,
 ) {
     init {
         require(columns >= 2 && rows >= 2 && relief.size == columns * rows)
@@ -39,7 +40,9 @@ internal data class CurviSlicerField(
         }
         val usableHeight = modelHeightMm - flatBaseHeightMm
         if (usableHeight <= 1e-9) return 0.0
-        val u = ((originalZ - minZ - flatBaseHeightMm) / usableHeight).coerceIn(0.0, 1.0)
+        val fadeBand = usableHeight * (1.0 - fadeStartFraction)
+        if (fadeBand <= 1e-9) return 0.0
+        val u = ((originalZ - minZ - flatBaseHeightMm - usableHeight * fadeStartFraction) / fadeBand).coerceIn(0.0, 1.0)
         val weight = u * u * (3.0 - 2.0 * u)
         return sampleRelief(x, y) * strength * weight
     }
@@ -78,11 +81,14 @@ internal data class CurviSlicerField(
         val mappedTopZ = maxZ - amplitude
         if (flatZ >= mappedTopZ) return flatZ + amplitude
 
-        var original = (flatZ + amplitude).coerceIn(baseZ, maxZ)
+        val fadeBand = usableHeight * (1.0 - fadeStartFraction)
+        if (fadeBand <= 1e-9) return flatZ
+        val startZ = baseZ + usableHeight * fadeStartFraction
+        var original = (flatZ + amplitude).coerceIn(startZ, maxZ)
         repeat(8) {
-            val u = ((original - baseZ) / usableHeight).coerceIn(0.0, 1.0)
+            val u = ((original - startZ) / fadeBand).coerceIn(0.0, 1.0)
             val smooth = u * u * (3.0 - 2.0 * u)
-            val derivative = 1.0 - amplitude * (6.0 * u * (1.0 - u) / usableHeight)
+            val derivative = 1.0 - amplitude * (6.0 * u * (1.0 - u) / fadeBand)
             val residual = original - amplitude * smooth - flatZ
             if (abs(residual) <= 1e-9) return original
             require(derivative > 0.0) { "CurviSlicer field is not invertible at X=$x, Y=$y, Z=$flatZ" }

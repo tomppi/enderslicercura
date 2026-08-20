@@ -26,6 +26,7 @@ data class NonPlanarSettings(
     val warpSmartInfillModifiers: Boolean = true,
     val pauseAfterProbe: Boolean = false,
     val drapeMode: Boolean = false,
+    val fadeStartPercent: Double = 0.0,
 ) {
     fun validated(): NonPlanarSettings = copy(
         strengthPercent = strengthPercent.coerceIn(MIN_STRENGTH_PERCENT, MAX_STRENGTH_PERCENT),
@@ -56,6 +57,7 @@ data class NonPlanarSettings(
             MIN_Z_SPEED_MM_PER_SECOND,
             MAX_Z_SPEED_MM_PER_SECOND,
         ),
+        fadeStartPercent = fadeStartPercent.coerceIn(MIN_FADE_START_PERCENT, MAX_FADE_START_PERCENT),
     )
 
     val effectiveSlopeLimitDegrees: Double
@@ -97,6 +99,8 @@ data class NonPlanarSettings(
         const val MAX_SEGMENT_LENGTH_MM = 1000.0
         const val MIN_Z_SPEED_MM_PER_SECOND = 0.5
         const val MAX_Z_SPEED_MM_PER_SECOND = 20.0
+        const val MIN_FADE_START_PERCENT = 0.0
+        const val MAX_FADE_START_PERCENT = 95.0
         private const val CLEARANCE_MARGIN_DEGREES = 5.0
     }
 }
@@ -160,6 +164,7 @@ class NonPlanarSettingsStore(context: Context) {
         warpSmartInfillModifiers = preferences.getBoolean(KEY_WARP_SMART_INFILL, true),
         pauseAfterProbe = preferences.getBoolean(KEY_PAUSE_AFTER_PROBE, false),
         drapeMode = preferences.getBoolean(KEY_DRAPE_MODE, false),
+        fadeStartPercent = number(KEY_FADE_START, 0.0),
     ).validated().also(CurviSlicerRuntime::activate)
 
     fun save(settings: NonPlanarSettings) {
@@ -187,6 +192,7 @@ class NonPlanarSettingsStore(context: Context) {
             .putBoolean(KEY_WARP_SMART_INFILL, safe.warpSmartInfillModifiers)
             .putBoolean(KEY_PAUSE_AFTER_PROBE, safe.pauseAfterProbe)
             .putBoolean(KEY_DRAPE_MODE, safe.drapeMode)
+            .putString(KEY_FADE_START, safe.fadeStartPercent.toString())
             .commit()
         CurviSlicerRuntime.activate(safe)
         if (changed) invalidatePublishedSlices()
@@ -228,5 +234,6 @@ class NonPlanarSettingsStore(context: Context) {
         private const val KEY_WARP_SMART_INFILL = "warp-smart-infill"
         private const val KEY_PAUSE_AFTER_PROBE = "pause-after-probe"
         private const val KEY_DRAPE_MODE = "drape-mode"
+        private const val KEY_FADE_START = "fade-start-percent"
     }
 }

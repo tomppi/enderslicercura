@@ -98,7 +98,8 @@ internal object CurviSlicerFieldBuilder {
         val flatBaseHeight = settings.flatBaseLayers * layerHeightMm
         val usableHeight = max(bounds.height.toDouble() - flatBaseHeight, layerHeightMm)
         val slopeLimit = tan(Math.toRadians(settings.effectiveSlopeLimitDegrees))
-        val maximumSmoothDerivative = 1.5 / usableHeight
+        val fadeBand = usableHeight * (1.0 - settings.fadeStartPercent / 100.0)
+        val maximumSmoothDerivative = if (fadeBand <= 1e-9) 0.0 else 1.5 / fadeBand
         val appliedStrength = if (settings.drapeMode) {
             // Drape mode has a trivially invertible mapping, so the full
             // requested strength is kept - no monotonic bound needed.
@@ -199,6 +200,7 @@ internal object CurviSlicerFieldBuilder {
             strength = appliedStrength,
             flatBaseHeightMm = flatBaseHeight,
             uniformShift = settings.drapeMode,
+            fadeStartFraction = settings.fadeStartPercent / 100.0,
         )
         return Result(
             field,
