@@ -170,7 +170,7 @@ internal fun HotendVolumeViewer(
         val worldExtent = max(
             holder,
             max(width, depth) + max(abs(offsetX), abs(offsetY)) * 2.0 +
-                max(0.0, holder - protrusion) * tan(Math.toRadians(angle)) * 2.0,
+                max(0.0, holder - protrusion) * tan(Math.toRadians(90.0 - angle)) * 2.0,
         )
         val scale = (min(size.width * 0.42f, size.height * 0.40f) / worldExtent.toFloat()).toDouble()
         val center = Offset(size.width / 2f, size.height * 0.55f)
@@ -230,8 +230,10 @@ internal fun HotendVolumeViewer(
         drawCircle(nozzleColor, radius = 6f, center = tip)
         drawCircle(Color.White, radius = 2.2f, center = tip)
 
-        // Nozzle cone (the smaller cone angle) from the tip up to the junction.
-        val junctionRadius = protrusion * tan(Math.toRadians(nozzleAngle))
+        // Nozzle cone from the tip up to the junction. The taper angle is
+        // measured from horizontal, so the cone widens at the complementary
+        // angle: 75 degrees from horizontal = a thin cone.
+        val junctionRadius = protrusion * tan(Math.toRadians(90.0 - nozzleAngle))
         val nozzleBase = (0 until 12).map { i ->
             val a = 2.0 * PI * i / 12.0
             project(cos(a) * junctionRadius, sin(a) * junctionRadius, protrusion)
@@ -242,10 +244,10 @@ internal fun HotendVolumeViewer(
         }
 
         // Heating block frustum: footprint at the junction (offset from the
-        // tip axis), widening at the clearance angle up to the holder.
+        // tip axis), widening at the clearance angle measured from horizontal.
         val rise = max(0.0, holder - protrusion)
-        val topHalfW = width / 2.0 + rise * tan(Math.toRadians(angle))
-        val topHalfD = depth / 2.0 + rise * tan(Math.toRadians(angle))
+        val topHalfW = width / 2.0 + rise * tan(Math.toRadians(90.0 - angle))
+        val topHalfD = depth / 2.0 + rise * tan(Math.toRadians(90.0 - angle))
         val baseCorners = listOf(
             project(offsetX - width / 2.0, offsetY - depth / 2.0, protrusion),
             project(offsetX + width / 2.0, offsetY - depth / 2.0, protrusion),

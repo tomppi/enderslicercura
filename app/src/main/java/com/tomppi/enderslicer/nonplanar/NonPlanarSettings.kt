@@ -9,9 +9,14 @@ data class NonPlanarSettings(
     val strengthPercent: Double = 70.0,
     val smoothingRadiusMm: Double = 3.0,
     val maximumSlopeDegrees: Double = 30.0,
+    // Clearance to the nearest obstacle, measured from horizontal like every
+    // other angle (90 = straight up). 45 degrees is identical in both frames.
     val nozzleClearanceAngleDegrees: Double = 45.0,
     val nozzleClearanceHeightMm: Double = 50.0,
-    val nozzleAngleDegrees: Double = 30.0,
+    // Taper angle of the nozzle's own cone, measured from horizontal (the
+    // build plate): 90 degrees would be a vertical wall, 75 degrees is a
+    // thin cone. The old 30-degree-from-vertical convention is 60 here.
+    val nozzleAngleDegrees: Double = 60.0,
     val nozzleProtrusionMm: Double = 5.0,
     val heatingBlockWidthMm: Double = 20.0,
     val heatingBlockDepthMm: Double = 16.0,
@@ -60,6 +65,8 @@ data class NonPlanarSettings(
         fadeStartPercent = fadeStartPercent.coerceIn(MIN_FADE_START_PERCENT, MAX_FADE_START_PERCENT),
     )
 
+    // Both the surface slope and the clearance angle are measured from
+    // horizontal, so the path may never climb steeper than the obstacle cone.
     val effectiveSlopeLimitDegrees: Double
         get() = minOf(maximumSlopeDegrees, nozzleClearanceAngleDegrees - CLEARANCE_MARGIN_DEGREES)
             .coerceAtLeast(MIN_SLOPE_DEGREES)
@@ -76,13 +83,13 @@ data class NonPlanarSettings(
         const val MIN_SLOPE_DEGREES = 5.0
         const val MAX_SLOPE_DEGREES = 55.0
         const val MIN_CLEARANCE_ANGLE_DEGREES = 15.0
-        const val MAX_CLEARANCE_ANGLE_DEGREES = 80.0
+        const val MAX_CLEARANCE_ANGLE_DEGREES = 89.0
         const val MIN_CLEARANCE_HEIGHT_MM = 5.0
         const val MAX_CLEARANCE_HEIGHT_MM = 150.0
         const val MIN_MAXIMUM_LIFT_MM = 0.2
         const val MAX_MAXIMUM_LIFT_MM = 25.0
         const val MIN_NOZZLE_ANGLE_DEGREES = 5.0
-        const val MAX_NOZZLE_ANGLE_DEGREES = 80.0
+        const val MAX_NOZZLE_ANGLE_DEGREES = 89.0
         const val MIN_NOZZLE_PROTRUSION_MM = 0.5
         const val MAX_NOZZLE_PROTRUSION_MM = 30.0
         const val MIN_BLOCK_SIZE_MM = 2.0

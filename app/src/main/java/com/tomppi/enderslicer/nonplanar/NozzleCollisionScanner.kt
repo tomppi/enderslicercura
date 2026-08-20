@@ -25,11 +25,13 @@ data class NozzleCollisionAlert(
  *
  * The collision volume is built from hot-end measurements taken once on the
  * printer (all tip-relative, Z up):
- * 1. Nozzle cone: apex at the tip, widening at the smaller cone angle (the
- *    nozzle taper) up to the protrusion height.
+ * 1. Nozzle cone: apex at the tip, widening at the nozzle taper angle
+ *    measured from horizontal (75 degrees = thin cone) up to the protrusion
+ *    height.
  * 2. Heating block frustum: from the nozzle/block junction the free space
- *    widens at the SAME measured clearance angle from the block footprint
- *    (centered on the measured nozzle-axis offset) up to the holder height.
+ *    widens at the SAME measured clearance angle (from horizontal, 90 = up)
+ *    from the block footprint (centered on the measured nozzle-axis offset)
+ *    up to the holder height.
  * 3. Cutoff level: above the holding-object height the whole build plate
  *    (plus a 30% margin) is a no-go zone - anything protruding above it
  *    warns, regardless of horizontal distance.
@@ -102,8 +104,12 @@ internal object NozzleCollisionScanner {
         val blockHalfDepth = settings.heatingBlockDepthMm / 2.0
         val blockOffsetX = settings.heatingBlockOffsetXmm
         val blockOffsetY = settings.heatingBlockOffsetYmm
-        val nozzleK = tan(Math.toRadians(settings.nozzleAngleDegrees))
-        val blockK = tan(Math.toRadians(settings.nozzleClearanceAngleDegrees))
+        // Taper angle is measured from horizontal, so the cone widens from
+        // vertical at the complementary angle: 75 degrees -> tan(15 degrees).
+        val nozzleK = tan(Math.toRadians(90.0 - settings.nozzleAngleDegrees))
+        // The clearance angle is also measured from horizontal: the frustum
+        // widens from vertical at the complementary angle.
+        val blockK = tan(Math.toRadians(90.0 - settings.nozzleClearanceAngleDegrees))
 
         data class Point(val x: Double, val y: Double, val z: Double)
         data class Move(
@@ -198,6 +204,10 @@ internal object NozzleCollisionScanner {
                         val intrusion = allowed - hypot(dxMm, dyMm)
                         if (intrusion > SURFACE_MARGIN_MM) worst = maxOf(worst, intrusion)
                     } else {
+                        // The heating block only exists above the nozzle/block
+                        // junction: surfaces at or below the protrusion height
+                        // can only collide with the nozzle cone itself.
+                        if (dz <= protrusionMm) continue
                         val rise = dz - protrusionMm
                         val limitX = blockHalfWidth + rise * blockK
                         val limitY = blockHalfDepth + rise * blockK

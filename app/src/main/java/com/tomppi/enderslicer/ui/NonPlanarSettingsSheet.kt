@@ -243,7 +243,7 @@ internal fun NonPlanarSettingsSheet(
             onText = { slope = it },
         )
         DecimalSettingField(
-            "Nozzle clearance angle (degrees)",
+            "Nozzle clearance angle from horizontal (degrees)",
             clearanceAngle,
             NonPlanarSettings.MIN_CLEARANCE_ANGLE_DEGREES,
             NonPlanarSettings.MAX_CLEARANCE_ANGLE_DEGREES,
@@ -264,7 +264,7 @@ internal fun NonPlanarSettingsSheet(
             onText = { maximumLift = it },
         )
         DecimalSettingField(
-            "Nozzle taper angle (degrees)",
+            "Nozzle taper angle from horizontal (degrees)",
             nozzleAngle,
             NonPlanarSettings.MIN_NOZZLE_ANGLE_DEGREES,
             NonPlanarSettings.MAX_NOZZLE_ANGLE_DEGREES,
@@ -313,7 +313,7 @@ internal fun NonPlanarSettingsSheet(
                     style = MaterialTheme.typography.bodySmall,
                 )
                 Text(
-                    "Nozzle taper: angle of the nozzle's own cone from vertical (V6 ≈ 30°). Protrusion: how far the tip sticks out below the block (≈ 4–6 mm) - the first cone's height. Block cone height: from the top of the nozzle up to the lowest holding structure - the second cone's height. Block: the X × Y footprint of the heater block (E3D ≈ 20 × 16 mm) and the nozzle axis offset from the block centre in X and Y. Clearance angle: from vertical out to the nearest thing that could collide - the block's sides follow this same angle.",
+                    "Nozzle taper: angle of the nozzle's own cone from horizontal (V6 ≈ 60°; 75° = a thin cone). Protrusion: how far the tip sticks out below the block (≈ 4–6 mm) - the first cone's height. Block cone height: from the top of the nozzle up to the lowest holding structure - the second cone's height. Block: the X × Y footprint of the heater block (E3D ≈ 20 × 16 mm) and the nozzle axis offset from the block centre in X and Y. Clearance angle: from horizontal up to the nearest thing that could collide (90° = straight up) - the block's sides follow this same angle. All angles are measured with a triangle against the bed.",
                     style = MaterialTheme.typography.labelSmall,
                 )
             }
@@ -411,7 +411,7 @@ internal fun NonPlanarSettingsSheet(
                     style = MaterialTheme.typography.bodySmall,
                 )
                 Text(
-                    "Preview the complete Path view before printing. Physical fan ducts, probes and heater blocks can require a lower clearance angle than the bare nozzle.",
+                    "Preview the complete Path view before printing. Physical fan ducts, probes and heater blocks can require a higher clearance angle (steeper from the bed) than the bare nozzle.",
                     style = MaterialTheme.typography.labelSmall,
                 )
             }

@@ -66,7 +66,11 @@ internal object CurviSlicerFieldBuilder {
         val cellX = bounds.width.toDouble() / (columns - 1)
         val cellY = bounds.depth.toDouble() / (rows - 1)
         val cellSize = max(cellX, cellY)
-        val clearanceRadius = settings.nozzleClearanceHeightMm * tan(Math.toRadians(settings.nozzleClearanceAngleDegrees))
+        // Clearance angle measured from horizontal: the free space above the
+        // block widens at the complementary angle from vertical.
+        val clearanceRadius = settings.nozzleClearanceHeightMm * tan(
+            Math.toRadians(90.0 - settings.nozzleClearanceAngleDegrees),
+        )
         val smoothingRadius = maxOf(
             settings.smoothingRadiusMm,
             nozzleDiameterMm * 1.5,
