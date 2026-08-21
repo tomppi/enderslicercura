@@ -300,6 +300,15 @@ class AdvancedFeatureSettingsLeakTest {
                 SlicerSettings().copy(beadAngleOverhang = SlicerSettings().beadAngleOverhang.copy(enabled = true)),
             ).contains("enderslicer_bead_angle_enabled=true"),
         )
+
+        // Bridge detection is the bead-angle generator's anchor source, exactly
+        // like brick walls: it must turn on only with the feature.
+        assertFalse(buildStandaloneCommand(SlicerSettings()).contains("bridge_settings_enabled=true"))
+        assertTrue(
+            buildStandaloneCommand(
+                SlicerSettings().copy(beadAngleOverhang = SlicerSettings().beadAngleOverhang.copy(enabled = true)),
+            ).contains("bridge_settings_enabled=true"),
+        )
     }
 
     @Test

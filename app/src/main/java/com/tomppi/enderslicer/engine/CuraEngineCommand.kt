@@ -156,12 +156,12 @@ object CuraEngineCommand {
             WaveOverhangEngineSettings.values(effectiveSettings).forEach { (key, value) -> setting(key, value) }
             BrickWallEngineSettings.values(effectiveSettings).forEach { (key, value) -> setting(key, value) }
             BeadAngleEngineSettings.values(effectiveSettings).forEach { (key, value) -> setting(key, value) }
-            if (effectiveSettings.arcOverhangEnabled || effectiveSettings.waveOverhangEnabled || effectiveSettings.brickWallEnabled) {
+            if (effectiveSettings.arcOverhangEnabled || effectiveSettings.waveOverhangEnabled || effectiveSettings.brickWallEnabled || effectiveSettings.beadAngleOverhang.enabled) {
                 // Bridge detection classifies unsupported bottom skins and the
-                // layer below, which is exactly what the arc/wave/brick-wall
-                // overhang generators build on. The pinned definitions default
-                // this to false, and without it the overhang features never
-                // trigger.
+                // layer below, which is exactly what the arc/wave/brick-wall and
+                // bead-angle overhang generators build on. The pinned definitions
+                // default this to false, and without it the overhang features
+                // never trigger.
                 setting("bridge_settings_enabled", true)
             }
             applySmartInfillWidths()
