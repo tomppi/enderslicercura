@@ -461,9 +461,9 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
             appendQuadVertex(floats, bytes, vertex++, vertices[offset], vertices[offset + 1], vertices[offset + 2],
                 vertices[offset + 3], vertices[offset + 4], vertices[offset + 5], 1f, colors, colorOffset)
             appendQuadVertex(floats, bytes, vertex++, vertices[offset + 3], vertices[offset + 4], vertices[offset + 5],
-                vertices[offset], vertices[offset + 1], vertices[offset + 2], 1f, colors, colorOffset + 4)
+                vertices[offset], vertices[offset + 1], vertices[offset + 2], 3f, colors, colorOffset + 4)
             appendQuadVertex(floats, bytes, vertex++, vertices[offset + 3], vertices[offset + 4], vertices[offset + 5],
-                vertices[offset], vertices[offset + 1], vertices[offset + 2], -1f, colors, colorOffset + 4)
+                vertices[offset], vertices[offset + 1], vertices[offset + 2], -3f, colors, colorOffset + 4)
         }
         bytes.position(0)
         return bytes
@@ -845,13 +845,22 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
                 vec2 oo = o.xy / ow;
                 vec2 px = uViewport * 0.5;
                 vec2 p1 = pp * px;
-                vec2 dir = (oo - pp) * px;
-                float len = length(dir);
-                vec2 dirU = (len < 0.5) ? vec2(1.0, 0.0) : dir / len;
-                vec2 perpU = vec2(-dirU.y, dirU.x);
+                vec2 toOther = (oo - pp) * px;
+                float len = length(toOther);
+                vec2 toward = (len < 0.5) ? vec2(1.0, 0.0) : toOther / len;
+                vec2 perp = vec2(-toward.y, toward.x);
+                float side = sign(aOther.w);
+                float endFlag = step(2.0, abs(aOther.w));
                 float radius = uHalfWidthPx + uOutlinePx + 1.0;
-                vec2 posPx = p1 + perpU * (aOther.w * radius) + dirU * radius;
-                vLocal = vec2(dot(posPx - p1, dirU), dot(posPx - p1, perpU));
+                // Expand past this endpoint: perpendicular by the side, backward
+                // by the radius so the quad covers the round cap at both ends.
+                vec2 posPx = p1 + perp * (side * radius) - toward * radius;
+                // Canonical segment frame (start at the segment origin, +x along
+                // the segment) so the fragment can measure the capsule distance.
+                vec2 startPx = mix(p1, oo * px, endFlag);
+                vec2 dirU = mix(toward, -toward, endFlag);
+                vec2 perpU = vec2(-dirU.y, dirU.x);
+                vLocal = vec2(dot(posPx - startPx, dirU), dot(posPx - startPx, perpU));
                 vLenPx = len;
                 gl_Position = vec4((pp + (posPx - p1) / px) * pw, p.z, pw);
                 vColor = aColor;
