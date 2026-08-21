@@ -1,5 +1,6 @@
 package com.tomppi.enderslicer.profile
 
+import com.tomppi.enderslicer.model.BeadAngleOverhangSettings
 import com.tomppi.enderslicer.model.SlicerSettings
 import org.json.JSONObject
 import kotlin.math.abs
@@ -85,6 +86,15 @@ object PresetSettings {
         SlicerSettings.Keys.BRICK_WALL_FAN_SPEED,
         SlicerSettings.Keys.BRICK_WALL_MAX_ITERATIONS,
         SlicerSettings.Keys.BRICK_WALL_BRICK_LENGTH,
+        SlicerSettings.Keys.BEAD_ANGLE_ENABLED,
+        SlicerSettings.Keys.BEAD_ANGLE_PRESS_ANGLE,
+        SlicerSettings.Keys.BEAD_ANGLE_WAVELENGTH,
+        SlicerSettings.Keys.BEAD_ANGLE_SPEED,
+        SlicerSettings.Keys.BEAD_ANGLE_FLOW,
+        SlicerSettings.Keys.BEAD_ANGLE_FAN_SPEED,
+        SlicerSettings.Keys.BEAD_ANGLE_MAX_ITERATIONS,
+        SlicerSettings.Keys.BRICK_WALL_MAX_ITERATIONS,
+        SlicerSettings.Keys.BRICK_WALL_BRICK_LENGTH,
         SlicerSettings.Keys.SMART_OVERHANG_STRATEGY,
         SlicerSettings.Keys.IRONING_ENABLED,
         SlicerSettings.Keys.IRONING_ONLY_HIGHEST_LAYER,
@@ -119,8 +129,21 @@ object PresetSettings {
         SlicerSettings.Keys.COASTING_SPEED,
     )
 
+    // Keys that live inside the nested beadAngleOverhang value object (the
+    // SlicerSettings constructor is near the JVM's 255-slot limit, so these
+    // seven fields are grouped). JSON keys stay flat for preset compatibility.
+    private val nestedBeadFields: Map<String, Pair<String, String>> = linkedMapOf(
+        SlicerSettings.Keys.BEAD_ANGLE_ENABLED to ("beadAngleOverhang" to "enabled"),
+        SlicerSettings.Keys.BEAD_ANGLE_PRESS_ANGLE to ("beadAngleOverhang" to "pressAngleDegrees"),
+        SlicerSettings.Keys.BEAD_ANGLE_WAVELENGTH to ("beadAngleOverhang" to "wavelengthMm"),
+        SlicerSettings.Keys.BEAD_ANGLE_SPEED to ("beadAngleOverhang" to "speedMmPerSecond"),
+        SlicerSettings.Keys.BEAD_ANGLE_FLOW to ("beadAngleOverhang" to "flowPercent"),
+        SlicerSettings.Keys.BEAD_ANGLE_FAN_SPEED to ("beadAngleOverhang" to "fanSpeedPercent"),
+        SlicerSettings.Keys.BEAD_ANGLE_MAX_ITERATIONS to ("beadAngleOverhang" to "maxIterations"),
+    )
+
     private val fieldsByKey: Map<String, java.lang.reflect.Field> by lazy {
-        (printKeys + filamentKeys).associateWith { key ->
+        (printKeys + filamentKeys).filterNot { it in nestedBeadFields }.associateWith { key ->
             SlicerSettings::class.java.getDeclaredField(key).apply { isAccessible = true }
         }
     }
@@ -133,7 +156,18 @@ object PresetSettings {
     fun capture(kind: PresetKind, settings: SlicerSettings): JSONObject {
         val output = JSONObject()
         keys(kind).sorted().forEach { key ->
-            output.put(key, fieldsByKey.getValue(key).get(settings))
+            val value = when (val nested = nestedBeadFields[key]) {
+                null -> fieldsByKey.getValue(key).get(settings)
+                else -> {
+                    val container = SlicerSettings::class.java.getDeclaredField(nested.first)
+                        .apply { isAccessible = true }
+                        .get(settings)
+                    BeadAngleOverhangSettings::class.java.getDeclaredField(nested.second)
+                        .apply { isAccessible = true }
+                        .get(container)
+                }
+            }
+            output.put(key, value)
         }
         return output
     }
@@ -227,6 +261,13 @@ object PresetSettings {
                 SlicerSettings.Keys.BRICK_WALL_FAN_SPEED -> changed.copy(brickWallFanSpeedPercent = values.optDouble(key, changed.brickWallFanSpeedPercent))
                 SlicerSettings.Keys.BRICK_WALL_MAX_ITERATIONS -> changed.copy(brickWallMaxIterations = values.optInt(key, changed.brickWallMaxIterations))
                 SlicerSettings.Keys.BRICK_WALL_BRICK_LENGTH -> changed.copy(brickWallBrickLengthMm = values.optDouble(key, changed.brickWallBrickLengthMm))
+                SlicerSettings.Keys.BEAD_ANGLE_ENABLED -> changed.copy(beadAngleOverhang = changed.beadAngleOverhang.copy(enabled = values.optBoolean(key, changed.beadAngleOverhang.enabled)))
+                SlicerSettings.Keys.BEAD_ANGLE_PRESS_ANGLE -> changed.copy(beadAngleOverhang = changed.beadAngleOverhang.copy(pressAngleDegrees = values.optDouble(key, changed.beadAngleOverhang.pressAngleDegrees)))
+                SlicerSettings.Keys.BEAD_ANGLE_WAVELENGTH -> changed.copy(beadAngleOverhang = changed.beadAngleOverhang.copy(wavelengthMm = values.optDouble(key, changed.beadAngleOverhang.wavelengthMm)))
+                SlicerSettings.Keys.BEAD_ANGLE_SPEED -> changed.copy(beadAngleOverhang = changed.beadAngleOverhang.copy(speedMmPerSecond = values.optDouble(key, changed.beadAngleOverhang.speedMmPerSecond)))
+                SlicerSettings.Keys.BEAD_ANGLE_FLOW -> changed.copy(beadAngleOverhang = changed.beadAngleOverhang.copy(flowPercent = values.optDouble(key, changed.beadAngleOverhang.flowPercent)))
+                SlicerSettings.Keys.BEAD_ANGLE_FAN_SPEED -> changed.copy(beadAngleOverhang = changed.beadAngleOverhang.copy(fanSpeedPercent = values.optDouble(key, changed.beadAngleOverhang.fanSpeedPercent)))
+                SlicerSettings.Keys.BEAD_ANGLE_MAX_ITERATIONS -> changed.copy(beadAngleOverhang = changed.beadAngleOverhang.copy(maxIterations = values.optInt(key, changed.beadAngleOverhang.maxIterations)))
                 SlicerSettings.Keys.SMART_OVERHANG_STRATEGY -> changed.copy(smartOverhangStrategy = values.optBoolean(key, changed.smartOverhangStrategy))
                 SlicerSettings.Keys.IRONING_ENABLED -> changed.copy(ironingEnabled = values.optBoolean(key, changed.ironingEnabled))
                 SlicerSettings.Keys.IRONING_ONLY_HIGHEST_LAYER -> changed.copy(ironingOnlyHighestLayer = values.optBoolean(key, changed.ironingOnlyHighestLayer))
@@ -267,6 +308,9 @@ object PresetSettings {
         require(!(changed.brickWallEnabled && (changed.arcOverhangEnabled || changed.waveOverhangEnabled))) {
             "Brick walls cannot be combined with Arc or Wave overhangs"
         }
+        require(!(changed.beadAngleOverhang.enabled && (changed.arcOverhangEnabled || changed.waveOverhangEnabled || changed.brickWallEnabled))) {
+            "Bead-angle overhangs cannot be combined with Arc, Wave or Brick-wall overhangs"
+        }
         return changed.copy(overriddenSettingKeys = changed.overriddenSettingKeys + appliedKeys)
     }
 
@@ -298,7 +342,10 @@ object PresetSettings {
 
     private fun isCompatibleValue(key: String, value: Any?): Boolean {
         if (value == null || value == JSONObject.NULL) return false
-        val type = fieldsByKey.getValue(key).type
+        val type = when (val nested = nestedBeadFields[key]) {
+            null -> fieldsByKey.getValue(key).type
+            else -> BeadAngleOverhangSettings::class.java.getDeclaredField(nested.second).type
+        }
         return when (type) {
             java.lang.Double.TYPE -> value is Number
             java.lang.Integer.TYPE -> value is Number

@@ -1,6 +1,7 @@
 package com.tomppi.enderslicer.profile
 
 import com.tomppi.enderslicer.engine.ArcOverhangEngineSettings
+import com.tomppi.enderslicer.engine.BeadAngleEngineSettings
 import com.tomppi.enderslicer.engine.BrickWallEngineSettings
 import com.tomppi.enderslicer.engine.MachineCuraKeys
 import com.tomppi.enderslicer.engine.WaveOverhangEngineSettings
@@ -82,6 +83,7 @@ internal object CuraSliceSettingsResolver {
             putAll(ArcOverhangEngineSettings.values(effectiveSettings))
             putAll(WaveOverhangEngineSettings.values(effectiveSettings))
             putAll(BrickWallEngineSettings.values(effectiveSettings))
+            putAll(BeadAngleEngineSettings.values(effectiveSettings))
         }
 
         CuraSettingDelta.requireResolvedMatch(

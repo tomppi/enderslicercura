@@ -485,11 +485,13 @@ void FffGcodeWriter::addMeshPartToGCode(
 # Install the native brick-wall overhang source and register it with CuraEngine.
 (root / "include" / "BrickWalls.h").write_text((arc_patch_root / "include" / "BrickWalls.h").read_text())
 (root / "src" / "BrickWalls.cpp").write_text((arc_patch_root / "src" / "BrickWalls.cpp").read_text())
+(root / "include" / "BeadAngleOverhang.h").write_text((arc_patch_root / "include" / "BeadAngleOverhang.h").read_text())
+(root / "src" / "BeadAngleOverhang.cpp").write_text((arc_patch_root / "src" / "BeadAngleOverhang.cpp").read_text())
 
 replace(
     cmake,
     "        src/Application.cpp\n        src/ArcOverhang.cpp\n        src/WaveOverhang.cpp\n",
-    "        src/Application.cpp\n        src/ArcOverhang.cpp\n        src/WaveOverhang.cpp\n        src/BrickWalls.cpp\n",
+    "        src/Application.cpp\n        src/ArcOverhang.cpp\n        src/WaveOverhang.cpp\n        src/BrickWalls.cpp\n        src/BeadAngleOverhang.cpp\n",
 )
 
 # Brick-wall paths carry their own preview marker so EnderSlicer's layer
@@ -502,7 +504,8 @@ replace(
     '''    bool is_bridge_path{ false }; //!< whether current config is used when bridging
     bool is_arc_overhang{ false }; //!< EnderSlicer native Multiplex path
     bool is_wave_overhang{ false }; //!< EnderSlicer native wavefront path
-    bool is_brick_wall{ false }; //!< EnderSlicer brick-wall staircase path''',
+    bool is_brick_wall{ false }; //!< EnderSlicer brick-wall staircase path
+    bool is_bead_angle{ false }; //!< EnderSlicer bead-angle overhang path''',
 )
 
 replace(
@@ -515,7 +518,8 @@ replace(
                                          || last_extrusion_config.value().type != path.config.type
                                          || last_extrusion_config.value().is_arc_overhang != path.config.is_arc_overhang
                                          || last_extrusion_config.value().is_wave_overhang != path.config.is_wave_overhang
-                                         || last_extrusion_config.value().is_brick_wall != path.config.is_brick_wall;''',
+                                         || last_extrusion_config.value().is_brick_wall != path.config.is_brick_wall
+                                         || last_extrusion_config.value().is_bead_angle != path.config.is_bead_angle;''',
 )
 replace(
     layer_plan_cpp,
@@ -527,6 +531,11 @@ replace(
     '''                if (path.config.is_wave_overhang)
                 {
                     gcode.writeComment("TYPE:WAVE-OVERHANG");
+                }
+                else if (path.config.is_bead_angle)
+                {
+                    // App-owned semantic marker for the bead-angle pressed rings.
+                    gcode.writeComment("TYPE:BEAD-ANGLE-OVERHANG");
                 }
                 else if (path.config.is_brick_wall)
                 {
@@ -540,7 +549,7 @@ replace(
 replace(
     fff_gcode_writer_cpp,
     '#include "Application.h"\n#include "ArcOverhang.h"\n#include "WaveOverhang.h"\n',
-    '#include "Application.h"\n#include "ArcOverhang.h"\n#include "BrickWalls.h"\n#include "WaveOverhang.h"\n',
+    '#include "Application.h"\n#include "ArcOverhang.h"\n#include "BeadAngleOverhang.h"\n#include "BrickWalls.h"\n#include "WaveOverhang.h"\n',
 )
 
 # Brick-wall staircase courses print before the walls so a wall that would
@@ -566,7 +575,54 @@ replace(
         }
     }
 
-    const bool brick_walls_enabled = mesh.settings.get<bool>("enderslicer_brick_wall_enabled");
+    const bool bead_angle_enabled = mesh.settings.get<bool>("enderslicer_bead_angle_enabled");
+    const bool brick_walls_enabled = mesh.settings.get<bool>("enderslicer_brick_wall_enabled") && ! bead_angle_enabled;
+    if (layer_nr > 0 && bead_angle_enabled)
+    {
+        Shape supported;
+        bridgeAngle(mesh, part.outline, storage, layer_nr, 1, nullptr, supported);
+        if (! supported.empty())
+        {
+            BeadAngleParameters bead_parameters;
+            bead_parameters.line_width = mesh_config.inset0_config.getLineWidth();
+            bead_parameters.layer_height = mesh.settings.get<coord_t>("layer_height");
+            bead_parameters.press_angle = mesh.settings.get<double>("enderslicer_bead_angle_press_angle");
+            bead_parameters.press_wavelength = mesh.settings.get<coord_t>("enderslicer_bead_angle_wavelength");
+            bead_parameters.max_iterations = mesh.settings.get<size_t>("enderslicer_bead_angle_max_iterations");
+
+            OpenLinesSet bead_rings;
+            if (BeadAngleGenerator::generate(part.outline, supported, bead_parameters, bead_rings))
+            {
+                GCodePathConfig bead_config = mesh_config.inset0_config;
+                bead_config.is_bead_angle = true;
+                bead_config.speed_derivatives.speed = mesh.settings.get<Velocity>("enderslicer_bead_angle_speed");
+                bead_config.fan_speed = mesh.settings.get<double>("enderslicer_bead_angle_fan_speed");
+                const double bead_flow = mesh.settings.get<double>("enderslicer_bead_angle_flow") / 100.0;
+
+                gcode_layer.setIsInside(true);
+                for (OpenPolyline& ring : bead_rings.getLines())
+                {
+                    if (! ring.isValid())
+                    {
+                        continue;
+                    }
+                    OpenLinesSet ordered_ring;
+                    ordered_ring.push_back(std::move(ring), CheckNonEmptyParam::OnlyIfValid);
+                    gcode_layer.addLinesByOptimizer(
+                        ordered_ring,
+                        bead_config,
+                        SpaceFillType::PolyLines,
+                        false,
+                        0,
+                        bead_flow,
+                        std::nullopt,
+                        bead_config.fan_speed);
+                }
+                added_something = true;
+            }
+        }
+    }
+
     if (layer_nr > 0 && brick_walls_enabled)
     {
         Shape supported;

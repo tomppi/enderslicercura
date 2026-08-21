@@ -155,6 +155,7 @@ object CuraEngineCommand {
             ArcOverhangEngineSettings.values(effectiveSettings).forEach { (key, value) -> setting(key, value) }
             WaveOverhangEngineSettings.values(effectiveSettings).forEach { (key, value) -> setting(key, value) }
             BrickWallEngineSettings.values(effectiveSettings).forEach { (key, value) -> setting(key, value) }
+            BeadAngleEngineSettings.values(effectiveSettings).forEach { (key, value) -> setting(key, value) }
             if (effectiveSettings.arcOverhangEnabled || effectiveSettings.waveOverhangEnabled || effectiveSettings.brickWallEnabled) {
                 // Bridge detection classifies unsupported bottom skins and the
                 // layer below, which is exactly what the arc/wave/brick-wall

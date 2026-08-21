@@ -515,7 +515,54 @@ replace(
         }
     }
 
-    const bool brick_walls_enabled = mesh.settings.get<bool>("enderslicer_brick_wall_enabled");
+    const bool bead_angle_enabled = mesh.settings.get<bool>("enderslicer_bead_angle_enabled");
+    const bool brick_walls_enabled = mesh.settings.get<bool>("enderslicer_brick_wall_enabled") && ! bead_angle_enabled;
+    if (layer_nr > 0 && bead_angle_enabled)
+    {
+        Shape supported;
+        bridgeAngle(mesh, part.outline, storage, layer_nr, 1, nullptr, supported);
+        if (! supported.empty())
+        {
+            BeadAngleParameters bead_parameters;
+            bead_parameters.line_width = mesh_config.inset0_config.getLineWidth();
+            bead_parameters.layer_height = mesh.settings.get<coord_t>("layer_height");
+            bead_parameters.press_angle = mesh.settings.get<double>("enderslicer_bead_angle_press_angle");
+            bead_parameters.press_wavelength = mesh.settings.get<coord_t>("enderslicer_bead_angle_wavelength");
+            bead_parameters.max_iterations = mesh.settings.get<size_t>("enderslicer_bead_angle_max_iterations");
+
+            OpenLinesSet bead_rings;
+            if (BeadAngleGenerator::generate(part.outline, supported, bead_parameters, bead_rings))
+            {
+                GCodePathConfig bead_config = mesh_config.inset0_config;
+                bead_config.is_bead_angle = true;
+                bead_config.speed_derivatives.speed = mesh.settings.get<Velocity>("enderslicer_bead_angle_speed");
+                bead_config.fan_speed = mesh.settings.get<double>("enderslicer_bead_angle_fan_speed");
+                const double bead_flow = mesh.settings.get<double>("enderslicer_bead_angle_flow") / 100.0;
+
+                gcode_layer.setIsInside(true);
+                for (OpenPolyline& ring : bead_rings.getLines())
+                {
+                    if (! ring.isValid())
+                    {
+                        continue;
+                    }
+                    OpenLinesSet ordered_ring;
+                    ordered_ring.push_back(std::move(ring), CheckNonEmptyParam::OnlyIfValid);
+                    gcode_layer.addLinesByOptimizer(
+                        ordered_ring,
+                        bead_config,
+                        SpaceFillType::PolyLines,
+                        false,
+                        0,
+                        bead_flow,
+                        std::nullopt,
+                        bead_config.fan_speed);
+                }
+                added_something = true;
+            }
+        }
+    }
+
     if (layer_nr > 0 && brick_walls_enabled)
     {
         Shape supported;
@@ -564,3 +611,8 @@ replace(
 
     if (infill_before_walls)''',
 )
+
+# Bead-angle overhang generator (kept in its own module; idempotent).
+import _apply_bead_angle_patch
+_apply_bead_angle_patch.apply(root, arc_patch_root, replace)
+
