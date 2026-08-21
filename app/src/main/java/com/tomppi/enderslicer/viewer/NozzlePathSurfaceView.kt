@@ -19,6 +19,17 @@ import kotlin.math.min
 import kotlin.math.sqrt
 import kotlin.math.tan
 
+/**
+ * Hue for an extrusion move: the layer-height ramp (blue at the bed, red at
+ * the top) or the print-speed ramp (cyan slow, orange fast) when
+ * [colorBySpeed] is set.
+ */
+internal fun extrusionHue(zRatio: Float, speedRatio: Float, colorBySpeed: Boolean): Float {
+    val clampedZ = zRatio.coerceIn(0f, 1f)
+    val clampedSpeed = speedRatio.coerceIn(0f, 1f)
+    return if (colorBySpeed) 200f - 180f * clampedSpeed else 240f - 240f * clampedZ
+}
+
 class NozzlePathSurfaceView(context: Context) : GLSurfaceView(context) {
     private val pathRenderer = NozzlePathRenderer()
     private val scaleDetector = ScaleGestureDetector(context, ScaleListener())
@@ -56,6 +67,15 @@ class NozzlePathSurfaceView(context: Context) : GLSurfaceView(context) {
             requestRender()
         }
 
+    /** When true, extrusion colours follow print speed (cyan slow, orange fast) instead of layer height. */
+    var colorBySpeed: Boolean = false
+        set(value) {
+            if (field == value) return
+            field = value
+            queueEvent { pathRenderer.setColorBySpeed(value) }
+            requestRender()
+        }
+
     /** Invoked on the main thread whenever the turntable yaw/pitch changes. */
     var onOrientationChanged: ((ViewerOrientation) -> Unit)? = null
 
@@ -74,6 +94,8 @@ class NozzlePathSurfaceView(context: Context) : GLSurfaceView(context) {
                 previousX = event.x
                 previousY = event.y
                 panning = false
+                pathRenderer.setOrbitPivotAt(event.x, event.y)
+                requestRender()
             }
             MotionEvent.ACTION_POINTER_DOWN -> {
                 if (event.pointerCount >= 2) {
@@ -141,8 +163,8 @@ class NozzlePathSurfaceView(context: Context) : GLSurfaceView(context) {
         override fun onDown(event: MotionEvent): Boolean = true
 
         override fun onDoubleTap(event: MotionEvent): Boolean {
-            pathRenderer.resetCamera()
-            notifyOrientation()
+            queueEvent { pathRenderer.resetCamera() }
+            queueEvent { notifyOrientation() }
             requestRender()
             return true
         }
@@ -160,27 +182,38 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
     private var extrusionPrefix = IntArray(1)
     private var travelPrefix = IntArray(1)
     @Volatile private var showTravels = true
+    @Volatile private var colorBySpeed = false
     private var gridPositions: FloatBuffer? = null
     private var gridVertexCount = 0
     private var markerPositions: FloatBuffer? = null
     private var markerVertexCount = 0
     private var markerGlowPositions: FloatBuffer? = null
     private var markerGlowVertexCount = 0
+    // Screen-space quads carry the thick extrusion path (null = fall back to
+    // GL_LINES for oversized paths that would not fit in GPU memory).
+    private var extrusionQuads: ByteBuffer? = null
 
     private var colorProgram = 0
     private var solidProgram = 0
     private var maxLineWidth = 1f
     private var viewportWidth = 1
     private var viewportHeight = 1
-    // Camera pivot and fit use the EXTRUSION bounds (the printed model), not
-    // the whole path: travel moves to the prime line or skirt sit far from the
-    // part and would anchor the orbit to the plate instead of the model.
+    // Camera pivot and fit use robust bounds of the printed part: stray
+    // extrusion moves (purge line at the plate corner, distant skirt loops)
+    // are trimmed so the orbit follows the model instead of the plate.
     private var modelMinX = 0f
     private var modelMinY = 0f
     private var modelMinZ = 0f
     private var modelMaxX = 0f
     private var modelMaxY = 0f
     private var modelMaxZ = 0f
+    // World-space orbit pivot: the printed-part centre by default, and the
+    // point under the finger on touch-down so rotation follows the touch.
+    private var orbitPivot = FloatArray(3)
+    @Volatile private var pendingPivotX = Float.NaN
+    @Volatile private var pendingPivotY = Float.NaN
+    private var quadColorProgram = 0
+    private var quadSolidProgram = 0
     @Volatile private var yaw = DEFAULT_YAW
     @Volatile private var pitch = DEFAULT_PITCH
     @Volatile private var zoom = DEFAULT_ZOOM
@@ -216,6 +249,14 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         showTravels = value
     }
 
+    fun setColorBySpeed(value: Boolean) {
+        if (colorBySpeed == value) return
+        colorBySpeed = value
+        val current = path ?: return
+        // Colours are baked into the buffers, so rebuild them on the toggle.
+        buildPathBuffers(current)
+    }
+
     val orientation: ViewerOrientation
         get() = ViewerOrientation(yaw, pitch)
 
@@ -243,6 +284,17 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         zoom = DEFAULT_ZOOM
         panX = 0f
         panY = 0f
+        orbitPivot[0] = (modelMinX + modelMaxX) * 0.5f
+        orbitPivot[1] = (modelMinY + modelMaxY) * 0.5f
+        orbitPivot[2] = (modelMinZ + modelMaxZ) * 0.5f
+        pendingPivotX = Float.NaN
+        pendingPivotY = Float.NaN
+    }
+
+    /** Records a touch point; the orbit pivot is moved there on the next frame. */
+    fun setOrbitPivotAt(x: Float, y: Float) {
+        pendingPivotX = x
+        pendingPivotY = y
     }
 
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
@@ -255,6 +307,8 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA)
         colorProgram = createProgram(COLOR_VERTEX_SHADER, COLOR_FRAGMENT_SHADER)
         solidProgram = createProgram(SOLID_VERTEX_SHADER, SOLID_FRAGMENT_SHADER)
+        quadColorProgram = createProgram(QUAD_COLOR_VERTEX_SHADER, COLOR_FRAGMENT_SHADER)
+        quadSolidProgram = createProgram(QUAD_SOLID_VERTEX_SHADER, SOLID_FRAGMENT_SHADER)
         maxLineWidth = queryMaxLineWidth()
     }
 
@@ -287,27 +341,30 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         Matrix.setLookAtM(view, 0, 0f, -distance, distance * 0.58f, 0f, 0f, 0f, 0f, 0f, 1f)
         Matrix.translateM(view, 0, panX, panY, 0f)
         Matrix.setIdentityM(scene, 0)
+        Matrix.translateM(scene, 0, orbitPivot[0], orbitPivot[1], orbitPivot[2])
         Matrix.rotateM(scene, 0, pitch, 1f, 0f, 0f)
         Matrix.rotateM(scene, 0, yaw, 0f, 0f, 1f)
-        Matrix.translateM(
-            scene,
-            0,
-            -(modelMinX + modelMaxX) * 0.5f,
-            -(modelMinY + modelMaxY) * 0.5f,
-            -(modelMinZ + modelMaxZ) * 0.5f,
-        )
+        Matrix.translateM(scene, 0, -orbitPivot[0], -orbitPivot[1], -orbitPivot[2])
         Matrix.multiplyMM(modelView, 0, view, 0, scene, 0)
         Matrix.multiplyMM(mvp, 0, projection, 0, modelView, 0)
+        updateOrbitPivot()
 
         drawSolidLines(gridPositions, gridVertexCount, 1f, 0.24f, 0.30f, 0.40f, 0.48f)
         val upTo = (selectedMoveIndex + 1).coerceAtMost(extrusionPrefix.size - 1)
-        val extrusionVertexCount = extrusionPrefix[upTo] * 2
-        // Black outline under the extrusion: the coloured bead stays readable
-        // against overlapping travels, the grid and the marker glow.
-        drawSolidLines(extrusionPositions, extrusionVertexCount, PATH_WIDTH + OUTLINE_EXTRA_WIDTH, 0f, 0f, 0f, 1f)
-        drawColoredLines(extrusionPositions, extrusionColors, extrusionVertexCount)
+        val quads = extrusionQuads
+        if (quads != null) {
+            val quadCount = extrusionPrefix[upTo] * 4
+            // Black outline under the extrusion: the coloured bead stays readable
+            // against overlapping travels, the grid and the marker glow.
+            drawQuadPathSolid(quads, quadCount, PATH_WIDTH + OUTLINE_EXTRA_WIDTH, 0f, 0f, 0f, 1f)
+            drawQuadPathColored(quads, quadCount, PATH_WIDTH)
+        } else {
+            val extrusionVertexCount = extrusionPrefix[upTo] * 2
+            drawSolidLines(extrusionPositions, extrusionVertexCount, PATH_WIDTH + OUTLINE_EXTRA_WIDTH, 0f, 0f, 0f, 1f)
+            drawColoredLines(extrusionPositions, extrusionColors, extrusionVertexCount, PATH_WIDTH)
+        }
         if (showTravels) {
-            drawColoredLines(travelPositions, travelColors, travelPrefix[upTo] * 2)
+            drawColoredLines(travelPositions, travelColors, travelPrefix[upTo] * 2, TRAVEL_WIDTH)
         }
         drawSolidLines(markerGlowPositions, markerGlowVertexCount, 12f, 1f, 0.55f, 0.05f, 0.55f)
         drawSolidLines(markerPositions, markerVertexCount, 6f, 1f, 1f, 1f, 1f)
@@ -324,6 +381,21 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         var travelMoves = 0
         extrusionPrefix = IntArray(value.moveCount + 1)
         travelPrefix = IntArray(value.moveCount + 1)
+        // Print-speed range across extrusion moves backs the speed colouring
+        // mode; the light pre-pass keeps the per-move loop simple.
+        var minSpeed = Float.POSITIVE_INFINITY
+        var maxSpeed = Float.NEGATIVE_INFINITY
+        if (colorBySpeed) {
+            for (moveIndex in 0 until value.moveCount) {
+                val moveOffset = moveIndex * GcodeNozzlePath.VALUES_PER_MOVE
+                if (source[moveOffset + GcodeNozzlePath.KIND] == GcodeNozzlePath.Kind.EXTRUSION.code) {
+                    val speed = source[moveOffset + GcodeNozzlePath.SPEED]
+                    minSpeed = min(minSpeed, speed)
+                    maxSpeed = max(maxSpeed, speed)
+                }
+            }
+        }
+        val speedSpan = maxSpeed - minSpeed
         repeat(value.moveCount) { moveIndex ->
             val zRatio = if (value.maxZ > value.minZ) {
                 ((source[offset + GcodeNozzlePath.Z2] - value.minZ) / (value.maxZ - value.minZ)).coerceIn(0f, 1f)
@@ -331,7 +403,12 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
             val extrusion = source[offset + GcodeNozzlePath.KIND] == GcodeNozzlePath.Kind.EXTRUSION.code
             val vertices = if (extrusion) extrusionVertex else travelVertex
             val colors = if (extrusion) extrusionColor else travelColor
-            val color = if (extrusion) hsv(240f - 240f * zRatio, 0.95f, 1f, 1f) else floatArrayOf(0.50f, 0.54f, 0.64f, 0.32f)
+            val speedRatio = if (extrusion && speedSpan > 0f) {
+                ((source[offset + GcodeNozzlePath.SPEED] - minSpeed) / speedSpan).coerceIn(0f, 1f)
+            } else 0f
+            val color = if (extrusion) {
+                hsv(extrusionHue(zRatio, speedRatio, colorBySpeed), 0.95f, 1f, 1f)
+            } else floatArrayOf(0.50f, 0.54f, 0.64f, 0.32f)
             vertices += source[offset + GcodeNozzlePath.X1]
             vertices += source[offset + GcodeNozzlePath.Y1]
             vertices += source[offset + GcodeNozzlePath.Z1]
@@ -344,39 +421,96 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
             travelPrefix[moveIndex + 1] = travelMoves
             offset += GcodeNozzlePath.VALUES_PER_MOVE
         }
-        extrusionPositions = bufferOf(extrusionVertex)
-        extrusionColors = bufferOf(extrusionColor)
+        val extrusionArray = extrusionVertex.toFloatArray()
+        val useQuads = extrusionMoves in 1..QUAD_PATH_MAX_MOVES
+        // Screen-space quads carry the thick extrusion path; the line buffers
+        // only back the fallback for oversized paths and the travels.
+        extrusionPositions = if (useQuads) null else bufferOf(extrusionArray)
+        extrusionColors = if (useQuads) null else bufferOf(extrusionColor)
+        extrusionQuads = if (useQuads) buildExtrusionQuads(extrusionArray, extrusionColor) else null
         travelPositions = bufferOf(travelVertex)
         travelColors = bufferOf(travelColor)
 
-        // Camera bounds from the printed model only (extrusion moves). The
-        // fallback keeps the view valid for travel-only paths.
-        var minX = Float.POSITIVE_INFINITY
-        var minY = Float.POSITIVE_INFINITY
-        var minZ = Float.POSITIVE_INFINITY
-        var maxX = Float.NEGATIVE_INFINITY
-        var maxY = Float.NEGATIVE_INFINITY
-        var maxZ = Float.NEGATIVE_INFINITY
-        for (index in extrusionVertex.indices step 6) {
-            val x = extrusionVertex[index]
-            val y = extrusionVertex[index + 1]
-            val z = extrusionVertex[index + 2]
-            minX = min(minX, x); minY = min(minY, y); minZ = min(minZ, z)
-            maxX = max(maxX, x); maxY = max(maxY, y); maxZ = max(maxZ, z)
+        // Camera bounds from the printed part only. Stray extrusion moves
+        // (purge line at the plate corner, distant skirt loops) are trimmed
+        // with per-axis percentiles so the orbit pivots on the model, not the
+        // plate; the fallback keeps the view valid for travel-only paths.
+        val bounds = NozzlePathBounds.printedBounds(extrusionArray)
+        if (bounds != null) {
+            modelMinX = bounds[0]; modelMinY = bounds[1]; modelMinZ = bounds[2]
+            modelMaxX = bounds[3]; modelMaxY = bounds[4]; modelMaxZ = bounds[5]
+        } else {
+            modelMinX = value.minX; modelMinY = value.minY; modelMinZ = value.minZ
+            modelMaxX = value.maxX; modelMaxY = value.maxY; modelMaxZ = value.maxZ
         }
-        if (!minX.isFinite()) {
-            minX = value.minX; minY = value.minY; minZ = value.minZ
-            maxX = value.maxX; maxY = value.maxY; maxZ = value.maxZ
-        }
-        modelMinX = minX; modelMinY = minY; modelMinZ = minZ
-        modelMaxX = maxX; modelMaxY = maxY; modelMaxZ = maxZ
     }
 
-    private fun bufferOf(values: List<Float>): FloatBuffer? {
+    /**
+     * Expands every extrusion segment into a screen-space quad (four vertices:
+     * two sides per endpoint) so the rendered thickness never depends on the
+     * driver's glLineWidth support. Vertex layout: position xyz, other
+     * endpoint xyz + side in w, RGBA colour bytes.
+     */
+    private fun buildExtrusionQuads(vertices: FloatArray, colors: ArrayList<Float>): ByteBuffer? {
+        val moveCount = vertices.size / 6
+        if (moveCount <= 0) return null
+        val bytes = ByteBuffer.allocateDirect(moveCount * 4 * QUAD_VERTEX_BYTES).order(ByteOrder.nativeOrder())
+        val floats = bytes.asFloatBuffer()
+        var vertex = 0
+        for (move in 0 until moveCount) {
+            val offset = move * 6
+            val colorOffset = move * 8
+            appendQuadVertex(floats, bytes, vertex++, vertices[offset], vertices[offset + 1], vertices[offset + 2],
+                vertices[offset + 3], vertices[offset + 4], vertices[offset + 5], -1f, colors, colorOffset)
+            appendQuadVertex(floats, bytes, vertex++, vertices[offset], vertices[offset + 1], vertices[offset + 2],
+                vertices[offset + 3], vertices[offset + 4], vertices[offset + 5], 1f, colors, colorOffset)
+            appendQuadVertex(floats, bytes, vertex++, vertices[offset + 3], vertices[offset + 4], vertices[offset + 5],
+                vertices[offset], vertices[offset + 1], vertices[offset + 2], 1f, colors, colorOffset + 4)
+            appendQuadVertex(floats, bytes, vertex++, vertices[offset + 3], vertices[offset + 4], vertices[offset + 5],
+                vertices[offset], vertices[offset + 1], vertices[offset + 2], -1f, colors, colorOffset + 4)
+        }
+        bytes.position(0)
+        return bytes
+    }
+
+    private fun appendQuadVertex(
+        floats: FloatBuffer,
+        bytes: ByteBuffer,
+        vertex: Int,
+        px: Float,
+        py: Float,
+        pz: Float,
+        ox: Float,
+        oy: Float,
+        oz: Float,
+        side: Float,
+        colors: ArrayList<Float>,
+        colorIndex: Int,
+    ) {
+        val floatOffset = vertex * (QUAD_VERTEX_BYTES / Float.SIZE_BYTES)
+        floats.put(floatOffset, px)
+        floats.put(floatOffset + 1, py)
+        floats.put(floatOffset + 2, pz)
+        floats.put(floatOffset + 3, ox)
+        floats.put(floatOffset + 4, oy)
+        floats.put(floatOffset + 5, oz)
+        floats.put(floatOffset + 6, side)
+        val colorOffset = vertex * QUAD_VERTEX_BYTES + QUAD_COLOR_OFFSET
+        bytes.put(colorOffset, colorByte(colors[colorIndex]))
+        bytes.put(colorOffset + 1, colorByte(colors[colorIndex + 1]))
+        bytes.put(colorOffset + 2, colorByte(colors[colorIndex + 2]))
+        bytes.put(colorOffset + 3, colorByte(colors[colorIndex + 3]))
+    }
+
+    private fun colorByte(component: Float): Byte =
+        (component.coerceIn(0f, 1f) * 255f + 0.5f).toInt().toByte()
+
+    private fun bufferOf(values: List<Float>): FloatBuffer? = bufferOf(FloatArray(values.size) { values[it] })
+
+    private fun bufferOf(values: FloatArray): FloatBuffer? {
         if (values.isEmpty()) return null
-        val array = FloatArray(values.size) { values[it] }
-        val buffer = allocate(array.size)
-        buffer.put(array)
+        val buffer = allocate(values.size)
+        buffer.put(values)
         buffer.position(0)
         return buffer
     }
@@ -441,7 +575,7 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         markerGlowVertexCount = 6
     }
 
-    private fun drawColoredLines(positions: FloatBuffer?, colors: FloatBuffer?, vertexCount: Int) {
+    private fun drawColoredLines(positions: FloatBuffer?, colors: FloatBuffer?, vertexCount: Int, width: Float) {
         if (positions == null || colors == null || vertexCount <= 0) return
         GLES20.glUseProgram(colorProgram)
         val position = GLES20.glGetAttribLocation(colorProgram, "aPosition")
@@ -454,11 +588,65 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         GLES20.glVertexAttribPointer(position, 3, GLES20.GL_FLOAT, false, 12, positions)
         GLES20.glVertexAttribPointer(color, 4, GLES20.GL_FLOAT, false, 16, colors)
         GLES20.glUniformMatrix4fv(matrix, 1, false, mvp, 0)
-        lineWidth(PATH_WIDTH)
+        lineWidth(width)
         GLES20.glDrawArrays(GLES20.GL_LINES, 0, vertexCount)
         GLES20.glLineWidth(1f)
         GLES20.glDisableVertexAttribArray(position)
         GLES20.glDisableVertexAttribArray(color)
+    }
+
+    private fun drawQuadPathColored(quads: ByteBuffer, vertexCount: Int, widthPx: Float) {
+        GLES20.glUseProgram(quadColorProgram)
+        val position = GLES20.glGetAttribLocation(quadColorProgram, "aPosition")
+        val other = GLES20.glGetAttribLocation(quadColorProgram, "aOther")
+        val color = GLES20.glGetAttribLocation(quadColorProgram, "aColor")
+        GLES20.glEnableVertexAttribArray(position)
+        GLES20.glEnableVertexAttribArray(other)
+        GLES20.glEnableVertexAttribArray(color)
+        bindQuadAttributes(quads, position, other, color)
+        GLES20.glUniformMatrix4fv(GLES20.glGetUniformLocation(quadColorProgram, "uMvpMatrix"), 1, false, mvp, 0)
+        GLES20.glUniform2f(GLES20.glGetUniformLocation(quadColorProgram, "uViewport"), viewportWidth.toFloat(), viewportHeight.toFloat())
+        GLES20.glUniform1f(GLES20.glGetUniformLocation(quadColorProgram, "uHalfWidthPx"), widthPx * 0.5f)
+        GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, vertexCount)
+        GLES20.glDisableVertexAttribArray(position)
+        GLES20.glDisableVertexAttribArray(other)
+        GLES20.glDisableVertexAttribArray(color)
+    }
+
+    private fun drawQuadPathSolid(
+        quads: ByteBuffer,
+        vertexCount: Int,
+        widthPx: Float,
+        red: Float,
+        green: Float,
+        blue: Float,
+        alpha: Float,
+    ) {
+        GLES20.glUseProgram(quadSolidProgram)
+        val position = GLES20.glGetAttribLocation(quadSolidProgram, "aPosition")
+        val other = GLES20.glGetAttribLocation(quadSolidProgram, "aOther")
+        GLES20.glEnableVertexAttribArray(position)
+        GLES20.glEnableVertexAttribArray(other)
+        bindQuadAttributes(quads, position, other, -1)
+        GLES20.glUniformMatrix4fv(GLES20.glGetUniformLocation(quadSolidProgram, "uMvpMatrix"), 1, false, mvp, 0)
+        GLES20.glUniform2f(GLES20.glGetUniformLocation(quadSolidProgram, "uViewport"), viewportWidth.toFloat(), viewportHeight.toFloat())
+        GLES20.glUniform1f(GLES20.glGetUniformLocation(quadSolidProgram, "uHalfWidthPx"), widthPx * 0.5f)
+        GLES20.glUniform4f(GLES20.glGetUniformLocation(quadSolidProgram, "uColor"), red, green, blue, alpha)
+        GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, vertexCount)
+        GLES20.glDisableVertexAttribArray(position)
+        GLES20.glDisableVertexAttribArray(other)
+    }
+
+    private fun bindQuadAttributes(quads: ByteBuffer, position: Int, other: Int, color: Int) {
+        quads.position(0)
+        GLES20.glVertexAttribPointer(position, 3, GLES20.GL_FLOAT, false, QUAD_VERTEX_BYTES, quads)
+        quads.position(12)
+        GLES20.glVertexAttribPointer(other, 4, GLES20.GL_FLOAT, false, QUAD_VERTEX_BYTES, quads)
+        if (color >= 0) {
+            quads.position(QUAD_COLOR_OFFSET)
+            GLES20.glVertexAttribPointer(color, 4, GLES20.GL_UNSIGNED_BYTE, true, QUAD_VERTEX_BYTES, quads)
+        }
+        quads.position(0)
     }
 
     private fun drawSolidLines(
@@ -484,6 +672,59 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         GLES20.glDrawArrays(GLES20.GL_LINES, 0, vertexCount)
         GLES20.glLineWidth(1f)
         GLES20.glDisableVertexAttribArray(position)
+    }
+
+    /** Moves the orbit pivot to the pending touch point (ray-plane intersection). */
+    private fun updateOrbitPivot() {
+        if (!pendingPivotX.isFinite() || !pendingPivotY.isFinite()) return
+        val invMvp = FloatArray(16)
+        if (!Matrix.invertM(invMvp, 0, mvp, 0)) {
+            pendingPivotX = Float.NaN
+            pendingPivotY = Float.NaN
+            return
+        }
+        val ndcX = 2f * pendingPivotX / max(viewportWidth, 1) - 1f
+        val ndcY = 1f - 2f * pendingPivotY / max(viewportHeight, 1)
+        val near = unproject(invMvp, ndcX, ndcY, -1f)
+        val far = unproject(invMvp, ndcX, ndcY, 1f)
+        pendingPivotX = Float.NaN
+        pendingPivotY = Float.NaN
+        var dx = far[0] - near[0]
+        var dy = far[1] - near[1]
+        var dz = far[2] - near[2]
+        val length = sqrt(dx * dx + dy * dy + dz * dz)
+        if (length < 1e-5f) return
+        dx /= length
+        dy /= length
+        dz /= length
+        // Intersect the view ray with the plane through the current pivot that
+        // faces the camera, then keep the result only while it stays close to
+        // the printed part (touching empty space keeps the previous pivot).
+        val t = (orbitPivot[0] - near[0]) * dx + (orbitPivot[1] - near[1]) * dy + (orbitPivot[2] - near[2]) * dz
+        val tx = near[0] + dx * t
+        val ty = near[1] + dy * t
+        val tz = near[2] + dz * t
+        val marginX = max((modelMaxX - modelMinX) * 0.25f, 1f)
+        val marginY = max((modelMaxY - modelMinY) * 0.25f, 1f)
+        val marginZ = max((modelMaxZ - modelMinZ) * 0.25f, 1f)
+        if (tx < modelMinX - marginX || tx > modelMaxX + marginX ||
+            ty < modelMinY - marginY || ty > modelMaxY + marginY ||
+            tz < modelMinZ - marginZ || tz > modelMaxZ + marginZ
+        ) {
+            return
+        }
+        orbitPivot[0] = tx
+        orbitPivot[1] = ty
+        orbitPivot[2] = tz
+    }
+
+    private fun unproject(invMvp: FloatArray, ndcX: Float, ndcY: Float, ndcZ: Float): FloatArray {
+        val w = invMvp[3] * ndcX + invMvp[7] * ndcY + invMvp[11] * ndcZ + invMvp[15]
+        if (w == 0f) return floatArrayOf(0f, 0f, 0f)
+        val x = invMvp[0] * ndcX + invMvp[4] * ndcY + invMvp[8] * ndcZ + invMvp[12]
+        val y = invMvp[1] * ndcX + invMvp[5] * ndcY + invMvp[9] * ndcZ + invMvp[13]
+        val z = invMvp[2] * ndcX + invMvp[6] * ndcY + invMvp[10] * ndcZ + invMvp[14]
+        return floatArrayOf(x / w, y / w, z / w)
     }
 
     private fun cameraDistance(): Float {
@@ -564,9 +805,15 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         private const val DEFAULT_PITCH = 58f
         private const val DEFAULT_ZOOM = 1f
         private const val MIN_ZOOM = 0.25f
-        private const val MAX_ZOOM = 24f
-        private const val PATH_WIDTH = 3.4f
+        private const val MAX_ZOOM = 60f
+        private const val PATH_WIDTH = 6f
         private const val OUTLINE_EXTRA_WIDTH = 2f
+        private const val TRAVEL_WIDTH = 2f
+        // Quad-based path rendering is used while the extrusion move count
+        // stays under this limit; larger paths fall back to GL_LINES.
+        private const val QUAD_PATH_MAX_MOVES = 300_000
+        private const val QUAD_VERTEX_BYTES = 32
+        private const val QUAD_COLOR_OFFSET = 28
         // Eye sits at (0, -distance, 0.58*distance); true eye distance is distance * sqrt(1 + 0.58^2).
         private const val CAMERA_EYE_DISTANCE_SCALE = 1.1561f
 
@@ -599,6 +846,54 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
             uniform vec4 uColor;
             void main() {
                 gl_FragColor = uColor;
+            }
+        """
+        // Screen-space quad expansion: each segment endpoint is widened by
+        // uHalfWidthPx pixels perpendicular to the segment, so the rendered
+        // thickness does not depend on the driver's glLineWidth support.
+        private const val QUAD_COLOR_VERTEX_SHADER = """
+            uniform mat4 uMvpMatrix;
+            uniform vec2 uViewport;
+            uniform float uHalfWidthPx;
+            attribute vec4 aPosition;
+            attribute vec4 aOther;
+            attribute vec4 aColor;
+            varying vec4 vColor;
+            void main() {
+                vec4 p = uMvpMatrix * aPosition;
+                vec4 o = uMvpMatrix * aOther;
+                float pw = max(p.w, 1e-6);
+                float ow = max(o.w, 1e-6);
+                vec2 pp = p.xy / pw;
+                vec2 oo = o.xy / ow;
+                vec2 dir = oo - pp;
+                float len = length(dir);
+                vec2 n = (len < 1e-5) ? vec2(1.0, 0.0) : vec2(-dir.y, dir.x) / len;
+                vec2 halfPx = vec2(uHalfWidthPx * 2.0 / uViewport.x, uHalfWidthPx * 2.0 / uViewport.y);
+                vec2 cap = (len < 1e-5) ? vec2(0.0) : dir / len * min(halfPx.x, halfPx.y);
+                gl_Position = vec4((pp + n * (aOther.w * halfPx) + cap) * pw, p.z, pw);
+                vColor = aColor;
+            }
+        """
+        private const val QUAD_SOLID_VERTEX_SHADER = """
+            uniform mat4 uMvpMatrix;
+            uniform vec2 uViewport;
+            uniform float uHalfWidthPx;
+            attribute vec4 aPosition;
+            attribute vec4 aOther;
+            void main() {
+                vec4 p = uMvpMatrix * aPosition;
+                vec4 o = uMvpMatrix * aOther;
+                float pw = max(p.w, 1e-6);
+                float ow = max(o.w, 1e-6);
+                vec2 pp = p.xy / pw;
+                vec2 oo = o.xy / ow;
+                vec2 dir = oo - pp;
+                float len = length(dir);
+                vec2 n = (len < 1e-5) ? vec2(1.0, 0.0) : vec2(-dir.y, dir.x) / len;
+                vec2 halfPx = vec2(uHalfWidthPx * 2.0 / uViewport.x, uHalfWidthPx * 2.0 / uViewport.y);
+                vec2 cap = (len < 1e-5) ? vec2(0.0) : dir / len * min(halfPx.x, halfPx.y);
+                gl_Position = vec4((pp + n * (aOther.w * halfPx) + cap) * pw, p.z, pw);
             }
         """
     }

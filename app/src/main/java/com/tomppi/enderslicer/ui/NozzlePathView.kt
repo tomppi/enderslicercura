@@ -145,6 +145,7 @@ private fun NozzlePathPlayer(path: GcodeNozzlePath, artifactKey: String, modifie
     var surfaceView by remember(artifactKey) { mutableStateOf<NozzlePathSurfaceView?>(null) }
     var orientation by remember(artifactKey) { mutableStateOf<ViewerOrientation?>(null) }
     var showTravels by rememberSaveable(artifactKey) { mutableStateOf(true) }
+    var colorBySpeed by rememberSaveable(artifactKey) { mutableStateOf(false) }
 
     LaunchedEffect(surfaceView) {
         surfaceView?.let { orientation = it.currentOrientation() }
@@ -207,6 +208,7 @@ private fun NozzlePathPlayer(path: GcodeNozzlePath, artifactKey: String, modifie
                         view.setPath(path, safeIndex)
                         view.onOrientationChanged = { orientation = it }
                         view.showTravels = showTravels
+                        view.colorBySpeed = colorBySpeed
                     },
                     onRelease = { view ->
                         view.onPause()
@@ -231,17 +233,25 @@ private fun NozzlePathPlayer(path: GcodeNozzlePath, artifactKey: String, modifie
                         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
                         shadowElevation = 3.dp,
                     ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 2.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text("Hide travel moves", style = MaterialTheme.typography.labelMedium)
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Switch(
-                                checked = showTravels,
-                                onCheckedChange = { showTravels = it },
-                                modifier = Modifier.scale(0.75f),
-                            )
+                        Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 2.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("Hide travel moves", style = MaterialTheme.typography.labelMedium)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Switch(
+                                    checked = showTravels,
+                                    onCheckedChange = { showTravels = it },
+                                    modifier = Modifier.scale(0.75f),
+                                )
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("Color by print speed", style = MaterialTheme.typography.labelMedium)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Switch(
+                                    checked = colorBySpeed,
+                                    onCheckedChange = { colorBySpeed = it },
+                                    modifier = Modifier.scale(0.75f),
+                                )
+                            }
                         }
                     }
                 }
@@ -267,6 +277,17 @@ private fun NozzlePathPlayer(path: GcodeNozzlePath, artifactKey: String, modifie
                         Switch(
                             checked = showTravels,
                             onCheckedChange = { showTravels = it },
+                        )
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text("Color by print speed", style = MaterialTheme.typography.titleSmall)
+                        Switch(
+                            checked = colorBySpeed,
+                            onCheckedChange = { colorBySpeed = it },
                         )
                     }
                     val offset = safeIndex * GcodeNozzlePath.VALUES_PER_MOVE
