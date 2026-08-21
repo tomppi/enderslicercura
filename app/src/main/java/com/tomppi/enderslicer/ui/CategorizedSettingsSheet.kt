@@ -775,20 +775,10 @@ internal fun CategorizedSettingsSheet(
             }
             if (settings.beadAngleOverhang.enabled) {
                 Text(
-                    "Anchored staircase rings are pressed at the chosen angle around the bead: 90° = flat, 0°/180° = side press like wave overhangs. Angles beyond 180° need a tilting nozzle.",
+                    "The press angle is derived automatically from the model: flat near the 45° engagement threshold, growing to the full side press (0°/180° around the bead) as the overhang steepens. Angles beyond 180° need a tilting nozzle and are not generated.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                NumberField(
-                    "Bead press angle (°)",
-                    settings.beadAngleOverhang.pressAngleDegrees,
-                    source(state, SlicerSettings.Keys.BEAD_ANGLE_PRESS_ANGLE),
-                    decimals = 1,
-                ) {
-                    onSettings(SlicerSettings.Keys.BEAD_ANGLE_PRESS_ANGLE) { current ->
-                        current.copy(beadAngleOverhang = current.beadAngleOverhang.copy(pressAngleDegrees = it.coerceIn(0.0, 180.0)))
-                    }
-                }
                 NumberField(
                     "Press wavelength (mm)",
                     settings.beadAngleOverhang.wavelengthMm,

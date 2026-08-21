@@ -14,7 +14,6 @@ class BeadAngleEngineSettingsTest {
         val values = BeadAngleEngineSettings.values(SlicerSettings())
 
         assertFalse(values.getValue(BeadAngleEngineSettings.ENABLED).toBoolean())
-        assertEquals("45.0", values.getValue(BeadAngleEngineSettings.PRESS_ANGLE))
         assertEquals("3.0", values.getValue(BeadAngleEngineSettings.WAVELENGTH))
         assertEquals("25.0", values.getValue(BeadAngleEngineSettings.SPEED))
         assertEquals("105.0", values.getValue(BeadAngleEngineSettings.FLOW))
@@ -28,7 +27,6 @@ class BeadAngleEngineSettingsTest {
             SlicerSettings(
                 beadAngleOverhang = BeadAngleOverhangSettings(
                     enabled = true,
-                    pressAngleDegrees = 0.0,
                     wavelengthMm = 5.0,
                     speedMmPerSecond = 10.0,
                     flowPercent = 120.0,
@@ -39,7 +37,6 @@ class BeadAngleEngineSettingsTest {
         )
 
         assertTrue(values.getValue(BeadAngleEngineSettings.ENABLED).toBoolean())
-        assertEquals("0.0", values.getValue(BeadAngleEngineSettings.PRESS_ANGLE))
         assertEquals("5.0", values.getValue(BeadAngleEngineSettings.WAVELENGTH))
         assertEquals("10.0", values.getValue(BeadAngleEngineSettings.SPEED))
         assertEquals("120.0", values.getValue(BeadAngleEngineSettings.FLOW))
@@ -48,11 +45,11 @@ class BeadAngleEngineSettingsTest {
     }
 
     @Test
-    fun outOfRangePressAngleIsRejectedBeforeSlicing() {
+    fun outOfRangeWavelengthIsRejectedBeforeSlicing() {
         assertThrows(IllegalArgumentException::class.java) {
             BeadAngleEngineSettings.values(
                 SlicerSettings(
-                    beadAngleOverhang = BeadAngleOverhangSettings(pressAngleDegrees = 185.0),
+                    beadAngleOverhang = BeadAngleOverhangSettings(wavelengthMm = 20.0),
                 ),
             )
         }

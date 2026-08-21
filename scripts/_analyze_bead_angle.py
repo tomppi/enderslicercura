@@ -1,7 +1,8 @@
 import math
 import re
+import sys
 
-path = r"C:\Users\FREDRIK\Documents\enderslicercura\.build\brick-test\bead-cliff70.gcode"
+path = sys.argv[1] if len(sys.argv) > 1 else r"C:\Users\FREDRIK\Documents\enderslicercura\.build\brick-test\adaptive-cliff70.gcode"
 lines = open(path, encoding="utf-8").read().splitlines()
 sections = []
 cur = None

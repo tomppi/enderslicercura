@@ -87,7 +87,6 @@ object PresetSettings {
         SlicerSettings.Keys.BRICK_WALL_MAX_ITERATIONS,
         SlicerSettings.Keys.BRICK_WALL_BRICK_LENGTH,
         SlicerSettings.Keys.BEAD_ANGLE_ENABLED,
-        SlicerSettings.Keys.BEAD_ANGLE_PRESS_ANGLE,
         SlicerSettings.Keys.BEAD_ANGLE_WAVELENGTH,
         SlicerSettings.Keys.BEAD_ANGLE_SPEED,
         SlicerSettings.Keys.BEAD_ANGLE_FLOW,
@@ -134,7 +133,6 @@ object PresetSettings {
     // seven fields are grouped). JSON keys stay flat for preset compatibility.
     private val nestedBeadFields: Map<String, Pair<String, String>> = linkedMapOf(
         SlicerSettings.Keys.BEAD_ANGLE_ENABLED to ("beadAngleOverhang" to "enabled"),
-        SlicerSettings.Keys.BEAD_ANGLE_PRESS_ANGLE to ("beadAngleOverhang" to "pressAngleDegrees"),
         SlicerSettings.Keys.BEAD_ANGLE_WAVELENGTH to ("beadAngleOverhang" to "wavelengthMm"),
         SlicerSettings.Keys.BEAD_ANGLE_SPEED to ("beadAngleOverhang" to "speedMmPerSecond"),
         SlicerSettings.Keys.BEAD_ANGLE_FLOW to ("beadAngleOverhang" to "flowPercent"),
@@ -262,7 +260,6 @@ object PresetSettings {
                 SlicerSettings.Keys.BRICK_WALL_MAX_ITERATIONS -> changed.copy(brickWallMaxIterations = values.optInt(key, changed.brickWallMaxIterations))
                 SlicerSettings.Keys.BRICK_WALL_BRICK_LENGTH -> changed.copy(brickWallBrickLengthMm = values.optDouble(key, changed.brickWallBrickLengthMm))
                 SlicerSettings.Keys.BEAD_ANGLE_ENABLED -> changed.copy(beadAngleOverhang = changed.beadAngleOverhang.copy(enabled = values.optBoolean(key, changed.beadAngleOverhang.enabled)))
-                SlicerSettings.Keys.BEAD_ANGLE_PRESS_ANGLE -> changed.copy(beadAngleOverhang = changed.beadAngleOverhang.copy(pressAngleDegrees = values.optDouble(key, changed.beadAngleOverhang.pressAngleDegrees)))
                 SlicerSettings.Keys.BEAD_ANGLE_WAVELENGTH -> changed.copy(beadAngleOverhang = changed.beadAngleOverhang.copy(wavelengthMm = values.optDouble(key, changed.beadAngleOverhang.wavelengthMm)))
                 SlicerSettings.Keys.BEAD_ANGLE_SPEED -> changed.copy(beadAngleOverhang = changed.beadAngleOverhang.copy(speedMmPerSecond = values.optDouble(key, changed.beadAngleOverhang.speedMmPerSecond)))
                 SlicerSettings.Keys.BEAD_ANGLE_FLOW -> changed.copy(beadAngleOverhang = changed.beadAngleOverhang.copy(flowPercent = values.optDouble(key, changed.beadAngleOverhang.flowPercent)))

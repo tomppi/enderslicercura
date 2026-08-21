@@ -526,7 +526,6 @@ replace(
             BeadAngleParameters bead_parameters;
             bead_parameters.line_width = mesh_config.inset0_config.getLineWidth();
             bead_parameters.layer_height = mesh.settings.get<coord_t>("layer_height");
-            bead_parameters.press_angle = mesh.settings.get<double>("enderslicer_bead_angle_press_angle");
             bead_parameters.press_wavelength = mesh.settings.get<coord_t>("enderslicer_bead_angle_wavelength");
             bead_parameters.max_iterations = mesh.settings.get<size_t>("enderslicer_bead_angle_max_iterations");
 

@@ -289,7 +289,6 @@ class AdvancedFeatureSettingsLeakTest {
         )
         assertEquals("false", offResolved.extruderValues["enderslicer_bead_angle_enabled"])
         assertEquals("true", onResolved.extruderValues["enderslicer_bead_angle_enabled"])
-        assertEquals("45.0", offResolved.extruderValues["enderslicer_bead_angle_press_angle"])
         assertEquals(
             offResolved.extruderValues.withoutAppKeys(),
             onResolved.extruderValues.withoutAppKeys(),

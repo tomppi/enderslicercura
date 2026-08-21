@@ -10,7 +10,6 @@ import com.tomppi.enderslicer.model.SlicerSettings
  */
 internal object BeadAngleEngineSettings {
     const val ENABLED = "enderslicer_bead_angle_enabled"
-    const val PRESS_ANGLE = "enderslicer_bead_angle_press_angle"
     const val WAVELENGTH = "enderslicer_bead_angle_wavelength"
     const val SPEED = "enderslicer_bead_angle_speed"
     const val FLOW = "enderslicer_bead_angle_flow"
@@ -22,7 +21,6 @@ internal object BeadAngleEngineSettings {
         val bead = settings.beadAngleOverhang
         return linkedMapOf(
             ENABLED to bead.enabled.toString(),
-            PRESS_ANGLE to bead.pressAngleDegrees.toString(),
             WAVELENGTH to bead.wavelengthMm.toString(),
             SPEED to bead.speedMmPerSecond.toString(),
             FLOW to bead.flowPercent.toString(),
@@ -33,9 +31,6 @@ internal object BeadAngleEngineSettings {
 
     fun validate(settings: SlicerSettings) {
         val bead = settings.beadAngleOverhang
-        require(bead.pressAngleDegrees in 0.0..180.0) {
-            "Bead press angle must be between 0 and 180 degrees"
-        }
         require(bead.wavelengthMm in 1.0..10.0) {
             "Bead press wavelength must be between 1 and 10 mm"
         }

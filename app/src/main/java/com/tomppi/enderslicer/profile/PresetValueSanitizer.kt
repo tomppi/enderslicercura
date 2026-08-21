@@ -254,7 +254,6 @@ internal object PresetValueSanitizer {
         SlicerSettings.Keys.BRICK_WALL_FAN_SPEED to 0.0..100.0,
         SlicerSettings.Keys.BRICK_WALL_MAX_ITERATIONS to 2.0..200.0,
         SlicerSettings.Keys.BRICK_WALL_BRICK_LENGTH to 0.5..10.0,
-        SlicerSettings.Keys.BEAD_ANGLE_PRESS_ANGLE to 0.0..180.0,
         SlicerSettings.Keys.BEAD_ANGLE_WAVELENGTH to 1.0..10.0,
         SlicerSettings.Keys.BEAD_ANGLE_SPEED to 0.5..100.0,
         SlicerSettings.Keys.BEAD_ANGLE_FLOW to 50.0..200.0,

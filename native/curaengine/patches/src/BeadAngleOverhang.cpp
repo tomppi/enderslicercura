@@ -194,15 +194,12 @@ bool BeadAngleGenerator::generate(
         return false;
     }
 
-    const double beta = std::abs(parameters.press_angle - 90.0);
-    if (beta > 90.0)
+    constexpr double PI = 3.14159265358979323846;
+    const coord_t max_excursion = std::max<coord_t>(0, parameters.line_width / 2 - ANCHOR_MARGIN_UM);
+    if (max_excursion <= 0)
     {
-        // Underside presses (beyond 180 degrees) need a tilting nozzle.
         return false;
     }
-    constexpr double PI = 3.14159265358979323846;
-    const coord_t press_amplitude = static_cast<coord_t>(
-        std::llround(std::max(0.0, parameters.line_width / 2.0 - ANCHOR_MARGIN_UM) * std::sin(beta * PI / 180.0)));
     // Half-line-width staircase: the pressed bead inner half always rests on
     // the previous ring, even at the full side press.
     const coord_t ring_step = parameters.line_width / 2;
@@ -228,6 +225,19 @@ bool BeadAngleGenerator::generate(
         {
             continue;
         }
+
+        // Per-island press angle from the top (beta, 0..90 degrees), derived
+        // entirely from the local overhang angle, like the brick-wall course
+        // count: tan(theta) = layer_height / thickness. The press grows from
+        // zero at the 45-degree engagement threshold to the full side press
+        // (0/180 degrees around the bead) at tan(theta) = 3, i.e. a ~71.6
+        // degree wall. No user angle: the model decides.
+        const double thickness = 2.0 * area / polygonPerimeter(island_polygon);
+        const double tan_theta = parameters.layer_height / std::max(thickness, 1.0);
+        constexpr double PRESS_GAIN = 45.0; // degrees per (tan(theta) - 1)
+        const double beta = std::clamp(PRESS_GAIN * (tan_theta - 1.0), 0.0, 90.0);
+        const coord_t press_amplitude = static_cast<coord_t>(
+            std::llround(max_excursion * std::sin(beta * PI / 180.0)));
 
         const Shape island_shape(island_polygon);
         const Shape zone = island_shape.offset(2 * parameters.line_width);

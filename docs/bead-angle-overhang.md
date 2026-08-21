@@ -66,10 +66,10 @@ BrickWalls.cpp, ConicalOverhang.cpp):
 
 1. New CuraEngine generator `BeadAngleOverhang.cpp` hooked in
    `FffGcodeWriter.cpp` the same way as the brick-wall hook.
-2. Settings `enderslicer_bead_angle_overhang_enabled`,
-   `enderslicer_bead_angle_overhang_press_angle` (0–180),
-   `..._flow`, `..._speed`, `..._fan_speed`, `..._oscillation_amplitude`,
-   plumbed through `CuraSettingDelta` + the resolved settings writer.
+2. Settings enderslicer_bead_angle_enabled, ..._wavelength,
+   ..._flow, ..._speed, ..._fan_speed, ..._max_iterations
+   (no press-angle setting: it is derived from the model), plumbed through
+   CuraSettingDelta + the resolved settings writer.
 3. Smart-overhang planner: new recommendation so the planner can pick
    bead-angle instead of ARC/WAVE/BRICK when the overhang band suits it.
 4. G-code transport: new `;TYPE:BEAD-ANGLE-OVERHANG` marker for the path view.

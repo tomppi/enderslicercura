@@ -10,7 +10,6 @@ import kotlin.math.ceil
  * constructor already approaches the JVM's 255-slot method signature limit. */
 data class BeadAngleOverhangSettings(
     val enabled: Boolean = false,
-    val pressAngleDegrees: Double = 45.0,
     val wavelengthMm: Double = 3.0,
     val speedMmPerSecond: Double = 25.0,
     val flowPercent: Double = 105.0,
@@ -354,7 +353,6 @@ data class SlicerSettings(
         const val BRICK_WALL_MAX_ITERATIONS = "brickWallMaxIterations"
         const val BRICK_WALL_BRICK_LENGTH = "brickWallBrickLengthMm"
         const val BEAD_ANGLE_ENABLED = "beadAngleEnabled"
-        const val BEAD_ANGLE_PRESS_ANGLE = "beadAnglePressAngleDegrees"
         const val BEAD_ANGLE_WAVELENGTH = "beadAngleWavelengthMm"
         const val BEAD_ANGLE_SPEED = "beadAngleSpeedMmPerSecond"
         const val BEAD_ANGLE_FLOW = "beadAngleFlowPercent"

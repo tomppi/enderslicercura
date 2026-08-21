@@ -22,7 +22,6 @@ struct BeadAngleParameters
 {
     coord_t line_width{ 400 };        // extrusion width (microns)
     coord_t layer_height{ 200 };      // layer height (microns)
-    double press_angle{ 90.0 };       // degrees: 0..180, 90 = top press
     coord_t press_wavelength{ 3000 }; // press wiggle period along the ring (microns)
     size_t max_iterations{ 60 };      // fail-closed cap on rings per island
 };
