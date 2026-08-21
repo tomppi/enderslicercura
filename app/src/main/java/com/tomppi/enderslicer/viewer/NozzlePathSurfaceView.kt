@@ -213,7 +213,6 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
     @Volatile private var pendingPivotX = Float.NaN
     @Volatile private var pendingPivotY = Float.NaN
     private var quadColorProgram = 0
-    private var quadSolidProgram = 0
     @Volatile private var yaw = DEFAULT_YAW
     @Volatile private var pitch = DEFAULT_PITCH
     @Volatile private var zoom = DEFAULT_ZOOM
@@ -307,8 +306,7 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA)
         colorProgram = createProgram(COLOR_VERTEX_SHADER, COLOR_FRAGMENT_SHADER)
         solidProgram = createProgram(SOLID_VERTEX_SHADER, SOLID_FRAGMENT_SHADER)
-        quadColorProgram = createProgram(QUAD_COLOR_VERTEX_SHADER, COLOR_FRAGMENT_SHADER)
-        quadSolidProgram = createProgram(QUAD_SOLID_VERTEX_SHADER, SOLID_FRAGMENT_SHADER)
+        quadColorProgram = createProgram(QUAD_COLOR_VERTEX_SHADER, QUAD_COLOR_FRAGMENT_SHADER)
         maxLineWidth = queryMaxLineWidth()
     }
 
@@ -353,11 +351,9 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         val upTo = (selectedMoveIndex + 1).coerceAtMost(extrusionPrefix.size - 1)
         val quads = extrusionQuads
         if (quads != null) {
-            val quadCount = extrusionPrefix[upTo] * 4
-            // Black outline under the extrusion: the coloured bead stays readable
-            // against overlapping travels, the grid and the marker glow.
-            drawQuadPathSolid(quads, quadCount, PATH_WIDTH + OUTLINE_EXTRA_WIDTH, 0f, 0f, 0f, 1f)
-            drawQuadPathColored(quads, quadCount, PATH_WIDTH)
+            // Single capsule pass: the coloured bead with its black outline and
+            // round caps, drawn without per-segment seams at the joints.
+            drawQuadPath(quads, extrusionPrefix[upTo] * 4, PATH_WIDTH * 0.5f, OUTLINE_EXTRA_WIDTH)
         } else {
             val extrusionVertexCount = extrusionPrefix[upTo] * 2
             drawSolidLines(extrusionPositions, extrusionVertexCount, PATH_WIDTH + OUTLINE_EXTRA_WIDTH, 0f, 0f, 0f, 1f)
@@ -595,7 +591,7 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         GLES20.glDisableVertexAttribArray(color)
     }
 
-    private fun drawQuadPathColored(quads: ByteBuffer, vertexCount: Int, widthPx: Float) {
+    private fun drawQuadPath(quads: ByteBuffer, vertexCount: Int, halfWidthPx: Float, outlinePx: Float) {
         GLES20.glUseProgram(quadColorProgram)
         val position = GLES20.glGetAttribLocation(quadColorProgram, "aPosition")
         val other = GLES20.glGetAttribLocation(quadColorProgram, "aOther")
@@ -606,35 +602,12 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         bindQuadAttributes(quads, position, other, color)
         GLES20.glUniformMatrix4fv(GLES20.glGetUniformLocation(quadColorProgram, "uMvpMatrix"), 1, false, mvp, 0)
         GLES20.glUniform2f(GLES20.glGetUniformLocation(quadColorProgram, "uViewport"), viewportWidth.toFloat(), viewportHeight.toFloat())
-        GLES20.glUniform1f(GLES20.glGetUniformLocation(quadColorProgram, "uHalfWidthPx"), widthPx * 0.5f)
+        GLES20.glUniform1f(GLES20.glGetUniformLocation(quadColorProgram, "uHalfWidthPx"), halfWidthPx)
+        GLES20.glUniform1f(GLES20.glGetUniformLocation(quadColorProgram, "uOutlinePx"), outlinePx)
         GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, vertexCount)
         GLES20.glDisableVertexAttribArray(position)
         GLES20.glDisableVertexAttribArray(other)
         GLES20.glDisableVertexAttribArray(color)
-    }
-
-    private fun drawQuadPathSolid(
-        quads: ByteBuffer,
-        vertexCount: Int,
-        widthPx: Float,
-        red: Float,
-        green: Float,
-        blue: Float,
-        alpha: Float,
-    ) {
-        GLES20.glUseProgram(quadSolidProgram)
-        val position = GLES20.glGetAttribLocation(quadSolidProgram, "aPosition")
-        val other = GLES20.glGetAttribLocation(quadSolidProgram, "aOther")
-        GLES20.glEnableVertexAttribArray(position)
-        GLES20.glEnableVertexAttribArray(other)
-        bindQuadAttributes(quads, position, other, -1)
-        GLES20.glUniformMatrix4fv(GLES20.glGetUniformLocation(quadSolidProgram, "uMvpMatrix"), 1, false, mvp, 0)
-        GLES20.glUniform2f(GLES20.glGetUniformLocation(quadSolidProgram, "uViewport"), viewportWidth.toFloat(), viewportHeight.toFloat())
-        GLES20.glUniform1f(GLES20.glGetUniformLocation(quadSolidProgram, "uHalfWidthPx"), widthPx * 0.5f)
-        GLES20.glUniform4f(GLES20.glGetUniformLocation(quadSolidProgram, "uColor"), red, green, blue, alpha)
-        GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, vertexCount)
-        GLES20.glDisableVertexAttribArray(position)
-        GLES20.glDisableVertexAttribArray(other)
     }
 
     private fun bindQuadAttributes(quads: ByteBuffer, position: Int, other: Int, color: Int) {
@@ -848,17 +821,21 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
                 gl_FragColor = uColor;
             }
         """
-        // Screen-space quad expansion: each segment endpoint is widened by
-        // uHalfWidthPx pixels perpendicular to the segment, so the rendered
-        // thickness does not depend on the driver's glLineWidth support.
+        // Screen-space capsule quads: every segment is expanded into a quad
+        // covering the stroke, its outline and its round caps, and the fragment
+        // shader shades the exact distance to the segment, so joints and corners
+        // have no seams and the thickness never depends on glLineWidth support.
         private const val QUAD_COLOR_VERTEX_SHADER = """
             uniform mat4 uMvpMatrix;
             uniform vec2 uViewport;
             uniform float uHalfWidthPx;
+            uniform float uOutlinePx;
             attribute vec4 aPosition;
             attribute vec4 aOther;
             attribute vec4 aColor;
             varying vec4 vColor;
+            varying vec2 vLocal;
+            varying float vLenPx;
             void main() {
                 vec4 p = uMvpMatrix * aPosition;
                 vec4 o = uMvpMatrix * aOther;
@@ -866,34 +843,35 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
                 float ow = max(o.w, 1e-6);
                 vec2 pp = p.xy / pw;
                 vec2 oo = o.xy / ow;
-                vec2 dir = oo - pp;
+                vec2 px = uViewport * 0.5;
+                vec2 p1 = pp * px;
+                vec2 dir = (oo - pp) * px;
                 float len = length(dir);
-                vec2 n = (len < 1e-5) ? vec2(1.0, 0.0) : vec2(-dir.y, dir.x) / len;
-                vec2 halfPx = vec2(uHalfWidthPx * 2.0 / uViewport.x, uHalfWidthPx * 2.0 / uViewport.y);
-                vec2 cap = (len < 1e-5) ? vec2(0.0) : dir / len * min(halfPx.x, halfPx.y);
-                gl_Position = vec4((pp + n * (aOther.w * halfPx) + cap) * pw, p.z, pw);
+                vec2 dirU = (len < 0.5) ? vec2(1.0, 0.0) : dir / len;
+                vec2 perpU = vec2(-dirU.y, dirU.x);
+                float radius = uHalfWidthPx + uOutlinePx + 1.0;
+                vec2 posPx = p1 + perpU * (aOther.w * radius) + dirU * radius;
+                vLocal = vec2(dot(posPx - p1, dirU), dot(posPx - p1, perpU));
+                vLenPx = len;
+                gl_Position = vec4((pp + (posPx - p1) / px) * pw, p.z, pw);
                 vColor = aColor;
             }
         """
-        private const val QUAD_SOLID_VERTEX_SHADER = """
-            uniform mat4 uMvpMatrix;
-            uniform vec2 uViewport;
+        private const val QUAD_COLOR_FRAGMENT_SHADER = """
+            precision mediump float;
             uniform float uHalfWidthPx;
-            attribute vec4 aPosition;
-            attribute vec4 aOther;
+            uniform float uOutlinePx;
+            varying vec4 vColor;
+            varying vec2 vLocal;
+            varying float vLenPx;
             void main() {
-                vec4 p = uMvpMatrix * aPosition;
-                vec4 o = uMvpMatrix * aOther;
-                float pw = max(p.w, 1e-6);
-                float ow = max(o.w, 1e-6);
-                vec2 pp = p.xy / pw;
-                vec2 oo = o.xy / ow;
-                vec2 dir = oo - pp;
-                float len = length(dir);
-                vec2 n = (len < 1e-5) ? vec2(1.0, 0.0) : vec2(-dir.y, dir.x) / len;
-                vec2 halfPx = vec2(uHalfWidthPx * 2.0 / uViewport.x, uHalfWidthPx * 2.0 / uViewport.y);
-                vec2 cap = (len < 1e-5) ? vec2(0.0) : dir / len * min(halfPx.x, halfPx.y);
-                gl_Position = vec4((pp + n * (aOther.w * halfPx) + cap) * pw, p.z, pw);
+                float along = clamp(vLocal.x, 0.0, max(vLenPx, 0.0));
+                float d = length(vec2(vLocal.x - along, vLocal.y));
+                float limit = uHalfWidthPx + uOutlinePx;
+                float alpha = 1.0 - smoothstep(limit - 1.0, limit + 1.0, d);
+                if (alpha < 0.003) discard;
+                float inner = smoothstep(uHalfWidthPx - 1.0, uHalfWidthPx + 1.0, d);
+                gl_FragColor = vec4(mix(vec3(0.0, 0.0, 0.0), vColor.rgb, 1.0 - inner), alpha);
             }
         """
     }
