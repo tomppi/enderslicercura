@@ -83,21 +83,37 @@ Point2LL pointAtPolyline(const OpenPolyline& line, const std::vector<double>& cu
     return line[line.size() - 1];
 }
 
-//! Inward direction at a ring point: the perpendicular of the local segment
+//! How far past the contour the interior probe travels. The probe must stay
+//! much shorter than the thinnest engaged band (thickness in the line-width
+//! range): a long probe overshoots a thin band and flips the press outward,
+//! pushing the outer wall past the model outline.
+constexpr coord_t PROBE_UM = 20; // 0.02 mm
+
+//! Inward direction at a contour point: the perpendicular of the local segment
 //! that points INTO the shape the contour bounds (toward the backing walls
 //! and the supported region - the press squeezes the bead against its
-//! neighbour instead of pushing past the outline).
+//! neighbour instead of pushing past the outline). Both sides are probed and
+//! zero is returned when neither resolves, so a degenerate segment keeps the
+//! contour straight instead of guessing outward.
 Point2LL inwardNormal(const Point2LL& previous, const Point2LL& next, const Shape& bounded)
 {
     const Point2LL tangent = next - previous;
-    if (tangent.X == 0 && tangent.Y == 0)
+    const double length = std::hypot(static_cast<double>(tangent.X), static_cast<double>(tangent.Y));
+    if (length <= 0.0)
     {
         return Point2LL(0, 0);
     }
-    const Point2LL candidate_a(tangent.Y, -tangent.X);
-    const Point2LL candidate_b(-tangent.Y, tangent.X);
-    const Point2LL probe = previous + candidate_a;
-    return bounded.inside(probe) ? candidate_a : candidate_b;
+    const double nx = static_cast<double>(tangent.Y) / length;
+    const double ny = -static_cast<double>(tangent.X) / length;
+    const Point2LL candidate(
+        static_cast<coord_t>(std::llround(nx * PROBE_UM)),
+        static_cast<coord_t>(std::llround(ny * PROBE_UM)));
+    if (bounded.inside(previous + candidate))
+    {
+        return candidate;
+    }
+    const Point2LL opposite(-candidate.X, -candidate.Y);
+    return bounded.inside(previous + opposite) ? opposite : Point2LL(0, 0);
 }
 
 //! Re-sample one contour into a slightly pressed path: every press_wavelength
@@ -235,8 +251,11 @@ bool BeadAngleGenerator::generate(
         const Shape zone = island_shape.offset(2 * parameters.line_width);
 
         // The leaning wall stack: outer contour on the true outline, inner
-        // contours nested behind it. Inner first, so every contour has its
-        // backing already laid when it prints.
+        // contours nested behind it - the stack always expands inward. Inner
+        // first, so every contour has its backing already laid when it prints.
+        // Each contour presses against ITS OWN inset shape (whose boundary it
+        // follows exactly), so the wiggle always points inward toward the
+        // model core and the outer wall never crosses the outline.
         for (size_t i = walls; i-- > 0;)
         {
             const Shape inset = outline.offset(-static_cast<coord_t>(i) * parameters.line_width);
@@ -247,7 +266,7 @@ bool BeadAngleGenerator::generate(
             OpenLinesSet contours = contoursOf(inset, zone);
             for (OpenPolyline& line : contours.getLines())
             {
-                emitPressedContour(line, island_shape, press_amplitude, parameters.press_wavelength, output);
+                emitPressedContour(line, inset, press_amplitude, parameters.press_wavelength, output);
             }
         }
         engaged = engaged.unionPolygons(island_shape);
