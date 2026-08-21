@@ -15,6 +15,7 @@ import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 import kotlin.math.floor
 import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.sqrt
 import kotlin.math.tan
 
@@ -171,6 +172,15 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
     private var maxLineWidth = 1f
     private var viewportWidth = 1
     private var viewportHeight = 1
+    // Camera pivot and fit use the EXTRUSION bounds (the printed model), not
+    // the whole path: travel moves to the prime line or skirt sit far from the
+    // part and would anchor the orbit to the plate instead of the model.
+    private var modelMinX = 0f
+    private var modelMinY = 0f
+    private var modelMinZ = 0f
+    private var modelMaxX = 0f
+    private var modelMaxY = 0f
+    private var modelMaxZ = 0f
     @Volatile private var yaw = DEFAULT_YAW
     @Volatile private var pitch = DEFAULT_PITCH
     @Volatile private var zoom = DEFAULT_ZOOM
@@ -282,16 +292,20 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         Matrix.translateM(
             scene,
             0,
-            -(current.minX + current.maxX) * 0.5f,
-            -(current.minY + current.maxY) * 0.5f,
-            -(current.minZ + current.maxZ) * 0.5f,
+            -(modelMinX + modelMaxX) * 0.5f,
+            -(modelMinY + modelMaxY) * 0.5f,
+            -(modelMinZ + modelMaxZ) * 0.5f,
         )
         Matrix.multiplyMM(modelView, 0, view, 0, scene, 0)
         Matrix.multiplyMM(mvp, 0, projection, 0, modelView, 0)
 
         drawSolidLines(gridPositions, gridVertexCount, 1f, 0.24f, 0.30f, 0.40f, 0.48f)
         val upTo = (selectedMoveIndex + 1).coerceAtMost(extrusionPrefix.size - 1)
-        drawColoredLines(extrusionPositions, extrusionColors, extrusionPrefix[upTo] * 2)
+        val extrusionVertexCount = extrusionPrefix[upTo] * 2
+        // Black outline under the extrusion: the coloured bead stays readable
+        // against overlapping travels, the grid and the marker glow.
+        drawSolidLines(extrusionPositions, extrusionVertexCount, PATH_WIDTH + OUTLINE_EXTRA_WIDTH, 0f, 0f, 0f, 1f)
+        drawColoredLines(extrusionPositions, extrusionColors, extrusionVertexCount)
         if (showTravels) {
             drawColoredLines(travelPositions, travelColors, travelPrefix[upTo] * 2)
         }
@@ -334,6 +348,28 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         extrusionColors = bufferOf(extrusionColor)
         travelPositions = bufferOf(travelVertex)
         travelColors = bufferOf(travelColor)
+
+        // Camera bounds from the printed model only (extrusion moves). The
+        // fallback keeps the view valid for travel-only paths.
+        var minX = Float.POSITIVE_INFINITY
+        var minY = Float.POSITIVE_INFINITY
+        var minZ = Float.POSITIVE_INFINITY
+        var maxX = Float.NEGATIVE_INFINITY
+        var maxY = Float.NEGATIVE_INFINITY
+        var maxZ = Float.NEGATIVE_INFINITY
+        for (index in extrusionVertex.indices step 6) {
+            val x = extrusionVertex[index]
+            val y = extrusionVertex[index + 1]
+            val z = extrusionVertex[index + 2]
+            minX = min(minX, x); minY = min(minY, y); minZ = min(minZ, z)
+            maxX = max(maxX, x); maxY = max(maxY, y); maxZ = max(maxZ, z)
+        }
+        if (!minX.isFinite()) {
+            minX = value.minX; minY = value.minY; minZ = value.minZ
+            maxX = value.maxX; maxY = value.maxY; maxZ = value.maxZ
+        }
+        modelMinX = minX; modelMinY = minY; modelMinZ = minZ
+        modelMaxX = maxX; modelMaxY = maxY; modelMaxZ = maxZ
     }
 
     private fun bufferOf(values: List<Float>): FloatBuffer? {
@@ -346,17 +382,17 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
     }
 
     private fun buildGrid(value: GcodeNozzlePath) {
-        val width = max(value.maxX - value.minX, 1f)
-        val depth = max(value.maxY - value.minY, 1f)
+        val width = max(modelMaxX - modelMinX, 1f)
+        val depth = max(modelMaxY - modelMinY, 1f)
         val step = gridStep(max(width, depth))
-        val minX = floor(value.minX / step) * step
-        val maxX = kotlin.math.ceil(value.maxX / step) * step
-        val minY = floor(value.minY / step) * step
-        val maxY = kotlin.math.ceil(value.maxY / step) * step
+        val minX = floor(modelMinX / step) * step
+        val maxX = kotlin.math.ceil(modelMaxX / step) * step
+        val minY = floor(modelMinY / step) * step
+        val maxY = kotlin.math.ceil(modelMaxY / step) * step
         val xLines = ((maxX - minX) / step).toInt() + 1
         val yLines = ((maxY - minY) / step).toInt() + 1
         val buffer = allocate((xLines + yLines) * 2 * 3)
-        val z = value.minZ
+        val z = modelMinZ
         for (line in 0 until xLines) {
             val x = minX + line * step
             buffer.put(x); buffer.put(minY); buffer.put(z)
@@ -452,13 +488,13 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
 
     private fun cameraDistance(): Float {
         val current = path ?: return 300f
-        return max(sceneRadius(current) * 2.8f / zoom, 20f)
+        return max(sceneRadius(current) * 2.8f / zoom, 2f)
     }
 
     private fun sceneRadius(value: GcodeNozzlePath): Float {
-        val dx = max(value.maxX - value.minX, 1f)
-        val dy = max(value.maxY - value.minY, 1f)
-        val dz = max(value.maxZ - value.minZ, 1f)
+        val dx = max(modelMaxX - modelMinX, 1f)
+        val dy = max(modelMaxY - modelMinY, 1f)
+        val dz = max(modelMaxZ - modelMinZ, 1f)
         return sqrt(dx * dx + dy * dy + dz * dz) * 0.5f
     }
 
@@ -530,6 +566,7 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         private const val MIN_ZOOM = 0.25f
         private const val MAX_ZOOM = 24f
         private const val PATH_WIDTH = 3.4f
+        private const val OUTLINE_EXTRA_WIDTH = 2f
         // Eye sits at (0, -distance, 0.58*distance); true eye distance is distance * sqrt(1 + 0.58^2).
         private const val CAMERA_EYE_DISTANCE_SCALE = 1.1561f
 
