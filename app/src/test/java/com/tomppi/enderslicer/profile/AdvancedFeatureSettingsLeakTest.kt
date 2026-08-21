@@ -282,6 +282,28 @@ class AdvancedFeatureSettingsLeakTest {
     }
 
     @Test
+    fun beadAngleKeysReachEngineOnlyWhenEnabled() {
+        val offResolved = resolve(SlicerSettings())
+        val onResolved = resolve(
+            SlicerSettings().copy(beadAngleOverhang = SlicerSettings().beadAngleOverhang.copy(enabled = true)),
+        )
+        assertEquals("false", offResolved.extruderValues["enderslicer_bead_angle_enabled"])
+        assertEquals("true", onResolved.extruderValues["enderslicer_bead_angle_enabled"])
+        assertEquals("45.0", offResolved.extruderValues["enderslicer_bead_angle_press_angle"])
+        assertEquals(
+            offResolved.extruderValues.withoutAppKeys(),
+            onResolved.extruderValues.withoutAppKeys(),
+        )
+
+        assertTrue(buildStandaloneCommand(SlicerSettings()).contains("enderslicer_bead_angle_enabled=false"))
+        assertTrue(
+            buildStandaloneCommand(
+                SlicerSettings().copy(beadAngleOverhang = SlicerSettings().beadAngleOverhang.copy(enabled = true)),
+            ).contains("enderslicer_bead_angle_enabled=true"),
+        )
+    }
+
+    @Test
     fun paintedSupportsWithNonPlanarOnNeverLeakPaintMeshesWhenUnpainted() {
         // Paint OFF + non-planar ON: the slice must load exactly one mesh (the
         // model) and carry no support_mesh/anti_overhang_mesh roles.

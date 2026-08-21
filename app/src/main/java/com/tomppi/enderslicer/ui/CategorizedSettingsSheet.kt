@@ -674,6 +674,7 @@ internal fun CategorizedSettingsSheet(
                         waveOverhangEnabled = it,
                         arcOverhangEnabled = if (it) false else current.arcOverhangEnabled,
                         brickWallEnabled = if (it) false else current.brickWallEnabled,
+                        beadAngleOverhang = if (it) current.beadAngleOverhang.copy(enabled = false) else current.beadAngleOverhang,
                     )
                 }
             }
@@ -731,6 +732,7 @@ internal fun CategorizedSettingsSheet(
                         brickWallEnabled = it,
                         arcOverhangEnabled = if (it) false else current.arcOverhangEnabled,
                         waveOverhangEnabled = if (it) false else current.waveOverhangEnabled,
+                        beadAngleOverhang = if (it) current.beadAngleOverhang.copy(enabled = false) else current.beadAngleOverhang,
                     )
                 }
             }
@@ -758,6 +760,88 @@ internal fun CategorizedSettingsSheet(
             }
 
             SwitchRow(
+                "Bead-angle overhangs (experimental)",
+                settings.beadAngleOverhang.enabled,
+                source(state, SlicerSettings.Keys.BEAD_ANGLE_ENABLED),
+            ) {
+                onSettings(SlicerSettings.Keys.BEAD_ANGLE_ENABLED) { current ->
+                    current.copy(
+                        beadAngleOverhang = current.beadAngleOverhang.copy(enabled = it),
+                        arcOverhangEnabled = if (it) false else current.arcOverhangEnabled,
+                        waveOverhangEnabled = if (it) false else current.waveOverhangEnabled,
+                        brickWallEnabled = if (it) false else current.brickWallEnabled,
+                    )
+                }
+            }
+            if (settings.beadAngleOverhang.enabled) {
+                Text(
+                    "Anchored staircase rings are pressed at the chosen angle around the bead: 90° = flat, 0°/180° = side press like wave overhangs. Angles beyond 180° need a tilting nozzle.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                NumberField(
+                    "Bead press angle (°)",
+                    settings.beadAngleOverhang.pressAngleDegrees,
+                    source(state, SlicerSettings.Keys.BEAD_ANGLE_PRESS_ANGLE),
+                    decimals = 1,
+                ) {
+                    onSettings(SlicerSettings.Keys.BEAD_ANGLE_PRESS_ANGLE) { current ->
+                        current.copy(beadAngleOverhang = current.beadAngleOverhang.copy(pressAngleDegrees = it.coerceIn(0.0, 180.0)))
+                    }
+                }
+                NumberField(
+                    "Press wavelength (mm)",
+                    settings.beadAngleOverhang.wavelengthMm,
+                    source(state, SlicerSettings.Keys.BEAD_ANGLE_WAVELENGTH),
+                    decimals = 1,
+                ) {
+                    onSettings(SlicerSettings.Keys.BEAD_ANGLE_WAVELENGTH) { current ->
+                        current.copy(beadAngleOverhang = current.beadAngleOverhang.copy(wavelengthMm = it.coerceIn(1.0, 10.0)))
+                    }
+                }
+                NumberField(
+                    "Bead-angle speed (mm/s)",
+                    settings.beadAngleOverhang.speedMmPerSecond,
+                    source(state, SlicerSettings.Keys.BEAD_ANGLE_SPEED),
+                    decimals = 1,
+                ) {
+                    onSettings(SlicerSettings.Keys.BEAD_ANGLE_SPEED) { current ->
+                        current.copy(beadAngleOverhang = current.beadAngleOverhang.copy(speedMmPerSecond = it.coerceIn(0.5, 100.0)))
+                    }
+                }
+                NumberField(
+                    "Bead-angle flow (%)",
+                    settings.beadAngleOverhang.flowPercent,
+                    source(state, SlicerSettings.Keys.BEAD_ANGLE_FLOW),
+                    decimals = 1,
+                ) {
+                    onSettings(SlicerSettings.Keys.BEAD_ANGLE_FLOW) { current ->
+                        current.copy(beadAngleOverhang = current.beadAngleOverhang.copy(flowPercent = it.coerceIn(50.0, 200.0)))
+                    }
+                }
+                NumberField(
+                    "Bead-angle fan (%)",
+                    settings.beadAngleOverhang.fanSpeedPercent,
+                    source(state, SlicerSettings.Keys.BEAD_ANGLE_FAN_SPEED),
+                    decimals = 1,
+                ) {
+                    onSettings(SlicerSettings.Keys.BEAD_ANGLE_FAN_SPEED) { current ->
+                        current.copy(beadAngleOverhang = current.beadAngleOverhang.copy(fanSpeedPercent = it.coerceIn(0.0, 100.0)))
+                    }
+                }
+                NumberField(
+                    "Maximum rings",
+                    settings.beadAngleOverhang.maxIterations.toDouble(),
+                    source(state, SlicerSettings.Keys.BEAD_ANGLE_MAX_ITERATIONS),
+                    decimals = 0,
+                ) {
+                    onSettings(SlicerSettings.Keys.BEAD_ANGLE_MAX_ITERATIONS) { current ->
+                        current.copy(beadAngleOverhang = current.beadAngleOverhang.copy(maxIterations = it.toInt().coerceIn(2, 200)))
+                    }
+                }
+            }
+
+            SwitchRow(
                 "Arc overhangs (Multiplex, experimental)",
                 settings.arcOverhangEnabled,
                 source(state, SlicerSettings.Keys.ARC_OVERHANG_ENABLED),
@@ -767,6 +851,7 @@ internal fun CategorizedSettingsSheet(
                         arcOverhangEnabled = it,
                         waveOverhangEnabled = if (it) false else current.waveOverhangEnabled,
                         brickWallEnabled = if (it) false else current.brickWallEnabled,
+                        beadAngleOverhang = if (it) current.beadAngleOverhang.copy(enabled = false) else current.beadAngleOverhang,
                     )
                 }
             }
