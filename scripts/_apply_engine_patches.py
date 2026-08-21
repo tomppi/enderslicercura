@@ -400,7 +400,7 @@ void FffGcodeWriter::addMeshPartToGCode(
     // print onto the freshly laid overhang floor instead of into the void.
     // Handled skin parts are emptied so the later skin phase skips them.
     const size_t layer_nr = gcode_layer.getLayerNr();
-    if (layer_nr > 0 && (mesh.settings.get<bool>("enderslicer_wave_overhang_enabled") || mesh.settings.get<bool>("enderslicer_arc_overhang_enabled")))
+    if (layer_nr > 0 && (mesh.settings.get<bool>("enderslicer_wave_overhang_enabled") || mesh.settings.get<bool>("enderslicer_arc_overhang_enabled") || mesh.settings.get<bool>("enderslicer_brick_wall_enabled") || mesh.settings.get<bool>("enderslicer_bead_angle_enabled")))
     {
         for (SkinPart& skin_part : part.skin_parts)
         {
