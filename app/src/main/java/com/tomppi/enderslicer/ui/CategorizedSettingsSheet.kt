@@ -775,7 +775,7 @@ internal fun CategorizedSettingsSheet(
             }
             if (settings.beadAngleOverhang.enabled) {
                 Text(
-                    "The press angle is derived automatically from the model: flat near the 45° engagement threshold, growing to the full side press (0°/180° around the bead) as the overhang steepens. Angles beyond 180° need a tilting nozzle and are not generated.",
+                    "Overhang walls are rebuilt as a leaning wall stack that follows the model outline: extra walls are added automatically on steeper angles, and every bead gets a slight, slow press into the layer beside it. No supports, no extra infill.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -820,13 +820,13 @@ internal fun CategorizedSettingsSheet(
                     }
                 }
                 NumberField(
-                    "Maximum rings",
+                    "Maximum extra walls",
                     settings.beadAngleOverhang.maxIterations.toDouble(),
                     source(state, SlicerSettings.Keys.BEAD_ANGLE_MAX_ITERATIONS),
                     decimals = 0,
                 ) {
                     onSettings(SlicerSettings.Keys.BEAD_ANGLE_MAX_ITERATIONS) { current ->
-                        current.copy(beadAngleOverhang = current.beadAngleOverhang.copy(maxIterations = it.toInt().coerceIn(2, 200)))
+                        current.copy(beadAngleOverhang = current.beadAngleOverhang.copy(maxIterations = it.toInt().coerceIn(1, 10)))
                     }
                 }
             }

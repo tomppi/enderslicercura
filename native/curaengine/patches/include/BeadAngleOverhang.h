@@ -1,16 +1,17 @@
 // Copyright (c) 2026 EnderSlicerCura contributors
-// Bead-angle overhangs: anchored staircase rings whose extrusion is pressed at
-// a chosen angle around the bead's circular cross-section. The press angle is
-// measured around the bead with the top at 90 degrees, the left side at 0 and
-// the right side at 180 (mirrored per overhang direction): 90 prints flat,
-// 0/180 press from the side exactly like wave overhangs, and every value in
-// between leans the bead. Angles beyond 180 (the underside) are impossible on
-// a fixed vertical nozzle and are not generated.
+// Bead-angle overhangs: in every unsupported overhang band the WHOLE wall
+// stack is rebuilt as a leaning wall - the outer contour rides the true model
+// outline, the inner contours nest behind it, and the wall count grows with the
+// local overhang angle so every bead has backing material to press into.
+// All contours carry a slight, slow, inward press (the wave-overhang squeeze)
+// that welds each bead sideways into the layer beside it. No rings, no extra
+// infill: the adjusted wall stack is the support.
 // Distributed under GNU AGPL-3.0-or-later with CuraEngine.
 
 #pragma once
 
 #include "geometry/OpenLinesSet.h"
+#include "geometry/Shape.h"
 #include "utils/Coord_t.h"
 
 #include <cstddef>
@@ -22,25 +23,24 @@ struct BeadAngleParameters
 {
     coord_t line_width{ 400 };        // extrusion width (microns)
     coord_t layer_height{ 200 };      // layer height (microns)
-    coord_t press_wavelength{ 3000 }; // press wiggle period along the ring (microns)
-    size_t max_iterations{ 60 };      // fail-closed cap on rings per island
+    coord_t press_wavelength{ 3000 }; // press wiggle period along the wall (microns)
+    size_t base_wall_count{ 2 };      // the sliced wall_line_count
+    size_t max_extra_walls{ 4 };      // fail-closed cap on angle-added walls
 };
 
 class BeadAngleGenerator
 {
 public:
-    // Generates bead-angle rings for every unsupported region of the outline:
-    // a half-line-width staircase anchored on the supported region, each ring
-    // pressed outward by an excursion whose amplitude follows the chosen press
-    // angle, plus the true island boundary as the outer ring so the visible
-    // surface stays exact. Returns false when the layer is fully supported
-    // (ordinary walls suffice) or when no region can be covered within
-    // max_iterations.
+    // Builds the leaning wall stack for every engaged unsupported band and
+    // collects the engaged regions (so the caller can clip the ordinary wall
+    // toolpaths there and avoid double-printing). Returns false when nothing
+    // engages (gentle/fully supported bands keep their normal walls).
     static bool generate(
         const Shape& outline,
         const Shape& supported_region,
         const BeadAngleParameters& parameters,
-        OpenLinesSet& output);
+        OpenLinesSet& output,
+        Shape& engaged);
 };
 
 } // namespace cura

@@ -2,7 +2,7 @@ import math
 import re
 import sys
 
-path = sys.argv[1] if len(sys.argv) > 1 else r"C:\Users\FREDRIK\Documents\enderslicercura\.build\brick-test\adaptive-cliff70.gcode"
+path = sys.argv[1] if len(sys.argv) > 1 else r"C:\Users\FREDRIK\Documents\enderslicercura\.build\brick-test\stack-arc.gcode"
 lines = open(path, encoding="utf-8").read().splitlines()
 sections = []
 cur = None
@@ -38,4 +38,4 @@ for idx in (0, 1, 2):
             devs.append(math.hypot(x - px, y - py))
         devs.sort()
         print(f"section {idx}: points={len(pts)} max perpendicular dev={devs[-1]:.4f} mm p90={devs[int(len(devs) * 0.9)]:.4f} mm")
-        print("  first moves:", pts[:8])
+        print("  first moves:", pts[:10])

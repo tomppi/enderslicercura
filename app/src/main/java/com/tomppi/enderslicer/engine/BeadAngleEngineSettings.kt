@@ -43,8 +43,8 @@ internal object BeadAngleEngineSettings {
         require(bead.fanSpeedPercent in 0.0..100.0) {
             "Bead-angle fan speed must be between 0% and 100%"
         }
-        require(bead.maxIterations in 2..200) {
-            "Bead-angle ring limit must be between 2 and 200"
+        require(bead.maxIterations in 1..10) {
+            "Bead-angle extra-wall limit must be between 1 and 10"
         }
     }
 }

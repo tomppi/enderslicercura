@@ -22,9 +22,11 @@ constexpr double MIN_ISLAND_AREA_UM2 = 10000.0; // 0.01 mm^2
 //! Gentle-and-thin gate: a band thinner than one line width at an overhang
 //! angle below 45 degrees prints fine with ordinary walls.
 constexpr double MIN_STEEP_THICKNESS_FACTOR = 1.0;
-//! The outward excursion keeps this much bead-to-bead anchor overlap so the
-//! pressed bead can never slide off the previous ring.
-constexpr coord_t ANCHOR_MARGIN_UM = 25; // 0.025 mm
+//! The slight press grows from zero at the 45-degree engagement threshold to
+//! PRESS_MAX_MM at tan(theta) = 3 (roughly a 71.6 degree wall): a gentle
+//! squeeze into the layer beside, never a big excursion.
+constexpr double PRESS_GAIN_MM = 0.05;
+constexpr double PRESS_MAX_MM = 0.10;
 
 OpenLinesSet contoursOf(const Shape& shape, const Shape& clip)
 {
@@ -81,10 +83,11 @@ Point2LL pointAtPolyline(const OpenPolyline& line, const std::vector<double>& cu
     return line[line.size() - 1];
 }
 
-//! Outward direction at a ring point: the perpendicular of the local segment
-//! that points away from the shape the ring bounds (so the press excursion
-//! always goes toward the free, unsupported side).
-Point2LL outwardNormal(const Point2LL& previous, const Point2LL& next, const Shape& bounded)
+//! Inward direction at a ring point: the perpendicular of the local segment
+//! that points INTO the shape the contour bounds (toward the backing walls
+//! and the supported region - the press squeezes the bead against its
+//! neighbour instead of pushing past the outline).
+Point2LL inwardNormal(const Point2LL& previous, const Point2LL& next, const Shape& bounded)
 {
     const Point2LL tangent = next - previous;
     if (tangent.X == 0 && tangent.Y == 0)
@@ -94,14 +97,13 @@ Point2LL outwardNormal(const Point2LL& previous, const Point2LL& next, const Sha
     const Point2LL candidate_a(tangent.Y, -tangent.X);
     const Point2LL candidate_b(-tangent.Y, tangent.X);
     const Point2LL probe = previous + candidate_a;
-    return bounded.inside(probe) ? candidate_b : candidate_a;
+    return bounded.inside(probe) ? candidate_a : candidate_b;
 }
 
-//! Re-sample one ring polyline into a pressed path: every press_wavelength the
-//! path makes a triangular excursion outward by amplitude (lay on the way out,
-//! press back toward the anchor on the way back). amplitude == 0 emits the
-//! ring unchanged (the 90 degree flat-press case).
-void emitPressedRing(const OpenPolyline& line, const Shape& bounded, coord_t amplitude, coord_t wavelength, OpenLinesSet& out)
+//! Re-sample one contour into a slightly pressed path: every press_wavelength
+//! the path makes a small triangular excursion INWARD (lay outward, press back
+//! against the neighbour). amplitude == 0 emits the contour unchanged.
+void emitPressedContour(const OpenPolyline& line, const Shape& bounded, coord_t amplitude, coord_t wavelength, OpenLinesSet& out)
 {
     if (! line.isValid() || line.length() < 50)
     {
@@ -141,7 +143,7 @@ void emitPressedRing(const OpenPolyline& line, const Shape& bounded, coord_t amp
         const Point2LL a = pointAtPolyline(line, cumulative, cursor);
         const Point2LL b = pointAtPolyline(line, cumulative, mid);
         const Point2LL c = pointAtPolyline(line, cumulative, end);
-        const Point2LL normal = outwardNormal(a, c, bounded);
+        const Point2LL normal = inwardNormal(a, c, bounded);
         if (normal.X == 0 && normal.Y == 0)
         {
             pressed.push_back(c);
@@ -172,10 +174,13 @@ bool BeadAngleGenerator::generate(
     const Shape& outline,
     const Shape& supported_region,
     const BeadAngleParameters& parameters,
-    OpenLinesSet& output)
+    OpenLinesSet& output,
+    Shape& engaged)
 {
     output.getLines().clear();
-    if (outline.empty() || supported_region.empty() || parameters.line_width <= 0 || parameters.max_iterations < 1)
+    engaged.clear();
+    if (outline.empty() || supported_region.empty() || parameters.line_width <= 0
+        || parameters.layer_height <= 0 || parameters.base_wall_count < 1)
     {
         return false;
     }
@@ -183,26 +188,8 @@ bool BeadAngleGenerator::generate(
     const Shape unsupported = outline.difference(supported_region);
     if (unsupported.empty())
     {
-        // Fully supported layer: ordinary walls are the right tool.
         return false;
     }
-
-    const Shape supported = outline.intersection(supported_region);
-    if (supported.empty())
-    {
-        // Nothing of the outline overlaps the layer below: nowhere to anchor.
-        return false;
-    }
-
-    constexpr double PI = 3.14159265358979323846;
-    const coord_t max_excursion = std::max<coord_t>(0, parameters.line_width / 2 - ANCHOR_MARGIN_UM);
-    if (max_excursion <= 0)
-    {
-        return false;
-    }
-    // Half-line-width staircase: the pressed bead inner half always rests on
-    // the previous ring, even at the full side press.
-    const coord_t ring_step = parameters.line_width / 2;
 
     bool any_region = false;
     for (const Polygon& island_polygon : unsupported)
@@ -217,87 +204,53 @@ bool BeadAngleGenerator::generate(
             continue; // triangulation sliver
         }
 
-        // Gentle-and-thin gate, identical to the brick-wall strategy: bands
-        // below 45 degrees that are thinner than one line width print fine
-        // with ordinary walls.
-        const double thickness_gate = 2.0 * area / polygonPerimeter(island_polygon);
-        if (parameters.layer_height < MIN_STEEP_THICKNESS_FACTOR * thickness_gate && thickness_gate < parameters.line_width)
+        // Gentle-and-thin gate, identical to the brick-wall strategy.
+        const double thickness = 2.0 * area / polygonPerimeter(island_polygon);
+        if (parameters.layer_height < MIN_STEEP_THICKNESS_FACTOR * thickness && thickness < parameters.line_width)
         {
             continue;
         }
 
-        // Per-island press angle from the top (beta, 0..90 degrees), derived
-        // entirely from the local overhang angle, like the brick-wall course
-        // count: tan(theta) = layer_height / thickness. The press grows from
-        // zero at the 45-degree engagement threshold to the full side press
-        // (0/180 degrees around the bead) at tan(theta) = 3, i.e. a ~71.6
-        // degree wall. No user angle: the model decides.
-        const double thickness = 2.0 * area / polygonPerimeter(island_polygon);
+        // Local overhang angle: tan(theta) = layer_height / thickness.
         const double tan_theta = parameters.layer_height / std::max(thickness, 1.0);
-        constexpr double PRESS_GAIN = 45.0; // degrees per (tan(theta) - 1)
-        const double beta = std::clamp(PRESS_GAIN * (tan_theta - 1.0), 0.0, 90.0);
-        const coord_t press_amplitude = static_cast<coord_t>(
-            std::llround(max_excursion * std::sin(beta * PI / 180.0)));
+
+        // Angle-driven wall count: the leaning stack must reach the layer
+        // below, so the per-layer step s = layer_height / tan(theta) must be
+        // covered by (walls - 1) * line_width: walls >= 1 + ceil(s / lw).
+        const double step = parameters.layer_height / std::max(tan_theta, 0.001);
+        const size_t needed_walls = 1 + static_cast<size_t>(std::ceil(step / parameters.line_width - 1e-9));
+        const size_t wall_cap = parameters.base_wall_count + parameters.max_extra_walls;
+        if (needed_walls > wall_cap)
+        {
+            continue; // fail-closed: too shallow for the cap, keep normal walls
+        }
+        const size_t walls = std::max(parameters.base_wall_count, needed_walls);
+
+        // Slight press: zero at the engagement threshold, PRESS_MAX_MM at
+        // tan(theta) = 3.
+        const double press_mm = std::clamp(PRESS_GAIN_MM * (tan_theta - 1.0), 0.0, PRESS_MAX_MM);
+        const coord_t press_amplitude = static_cast<coord_t>(std::llround(press_mm * 1000.0));
 
         const Shape island_shape(island_polygon);
         const Shape zone = island_shape.offset(2 * parameters.line_width);
 
-        // Staircase rings from the supported front outward until the island is
-        // covered. Ring j is the anchor edge of the band (current, next).
-        Shape current = supported;
-        std::vector<OpenLinesSet> rings;
-        bool covered = false;
-        for (size_t step = 1; step <= parameters.max_iterations; ++step)
+        // The leaning wall stack: outer contour on the true outline, inner
+        // contours nested behind it. Inner first, so every contour has its
+        // backing already laid when it prints.
+        for (size_t i = walls; i-- > 0;)
         {
-            const Shape next = outline.intersection(current.offset(ring_step));
-            const Shape band = next.difference(current);
-            if (band.empty())
+            const Shape inset = outline.offset(-static_cast<coord_t>(i) * parameters.line_width);
+            if (inset.empty())
             {
-                break; // offset stalled
-            }
-            LinesSet<ClosedPolyline> band_closed;
-            for (const Polygon& polygon : band)
-            {
-                if (polygon.size() < 3)
-                {
-                    continue;
-                }
-                ClipperLib::Path points(polygon.begin(), polygon.end());
-                band_closed.push_back(ClosedPolyline(std::move(points), false), CheckNonEmptyParam::OnlyIfValid);
-            }
-            rings.push_back(current.offset(1).intersection(band_closed));
-            if (island_shape.difference(next).empty())
-            {
-                covered = true;
                 break;
             }
-            current = next;
-        }
-        if (! covered)
-        {
-            continue; // fail-closed: region too wide for the cap
-        }
-
-        // Inner rings first (each anchors on the previous), pressed toward the
-        // free side. bounded tracks the shape each ring bounds so the outward
-        // normal pushes away from its interior.
-        Shape bounded = supported;
-        for (OpenLinesSet& ring : rings)
-        {
-            for (OpenPolyline& line : ring.getLines())
+            OpenLinesSet contours = contoursOf(inset, zone);
+            for (OpenPolyline& line : contours.getLines())
             {
-                emitPressedRing(line, bounded, press_amplitude, parameters.press_wavelength, output);
+                emitPressedContour(line, island_shape, press_amplitude, parameters.press_wavelength, output);
             }
-            bounded = outline.intersection(bounded.offset(ring_step));
         }
-
-        // Outer ring: the true island boundary, continuous for surface
-        // fidelity, pressed outward past the boundary.
-        OpenLinesSet outline_course = contoursOf(outline, zone);
-        for (OpenPolyline& line : outline_course.getLines())
-        {
-            emitPressedRing(line, island_shape, press_amplitude, parameters.press_wavelength, output);
-        }
+        engaged = engaged.unionPolygons(island_shape);
         any_region = true;
     }
 

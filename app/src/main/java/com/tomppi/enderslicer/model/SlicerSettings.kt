@@ -11,10 +11,10 @@ import kotlin.math.ceil
 data class BeadAngleOverhangSettings(
     val enabled: Boolean = false,
     val wavelengthMm: Double = 3.0,
-    val speedMmPerSecond: Double = 25.0,
+    val speedMmPerSecond: Double = 10.0,
     val flowPercent: Double = 105.0,
     val fanSpeedPercent: Double = 100.0,
-    val maxIterations: Int = 60,
+    val maxIterations: Int = 4,
 )
 
 data class SlicerSettings(

@@ -15,10 +15,10 @@ class BeadAngleEngineSettingsTest {
 
         assertFalse(values.getValue(BeadAngleEngineSettings.ENABLED).toBoolean())
         assertEquals("3.0", values.getValue(BeadAngleEngineSettings.WAVELENGTH))
-        assertEquals("25.0", values.getValue(BeadAngleEngineSettings.SPEED))
+        assertEquals("10.0", values.getValue(BeadAngleEngineSettings.SPEED))
         assertEquals("105.0", values.getValue(BeadAngleEngineSettings.FLOW))
         assertEquals("100.0", values.getValue(BeadAngleEngineSettings.FAN_SPEED))
-        assertEquals("60", values.getValue(BeadAngleEngineSettings.MAX_ITERATIONS))
+        assertEquals("4", values.getValue(BeadAngleEngineSettings.MAX_ITERATIONS))
     }
 
     @Test
@@ -31,7 +31,7 @@ class BeadAngleEngineSettingsTest {
                     speedMmPerSecond = 10.0,
                     flowPercent = 120.0,
                     fanSpeedPercent = 80.0,
-                    maxIterations = 90,
+                    maxIterations = 4,
                 ),
             ),
         )
@@ -41,7 +41,7 @@ class BeadAngleEngineSettingsTest {
         assertEquals("10.0", values.getValue(BeadAngleEngineSettings.SPEED))
         assertEquals("120.0", values.getValue(BeadAngleEngineSettings.FLOW))
         assertEquals("80.0", values.getValue(BeadAngleEngineSettings.FAN_SPEED))
-        assertEquals("90", values.getValue(BeadAngleEngineSettings.MAX_ITERATIONS))
+        assertEquals("4", values.getValue(BeadAngleEngineSettings.MAX_ITERATIONS))
     }
 
     @Test

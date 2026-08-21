@@ -527,10 +527,12 @@ replace(
             bead_parameters.line_width = mesh_config.inset0_config.getLineWidth();
             bead_parameters.layer_height = mesh.settings.get<coord_t>("layer_height");
             bead_parameters.press_wavelength = mesh.settings.get<coord_t>("enderslicer_bead_angle_wavelength");
-            bead_parameters.max_iterations = mesh.settings.get<size_t>("enderslicer_bead_angle_max_iterations");
+            bead_parameters.base_wall_count = mesh.settings.get<size_t>("wall_line_count");
+            bead_parameters.max_extra_walls = mesh.settings.get<size_t>("enderslicer_bead_angle_max_iterations");
 
-            OpenLinesSet bead_rings;
-            if (BeadAngleGenerator::generate(part.outline, supported, bead_parameters, bead_rings))
+            OpenLinesSet bead_walls;
+            Shape engaged;
+            if (BeadAngleGenerator::generate(part.outline, supported, bead_parameters, bead_walls, engaged))
             {
                 GCodePathConfig bead_config = mesh_config.inset0_config;
                 bead_config.is_bead_angle = true;
@@ -539,16 +541,16 @@ replace(
                 const double bead_flow = mesh.settings.get<double>("enderslicer_bead_angle_flow") / 100.0;
 
                 gcode_layer.setIsInside(true);
-                for (OpenPolyline& ring : bead_rings.getLines())
+                for (OpenPolyline& wall : bead_walls.getLines())
                 {
-                    if (! ring.isValid())
+                    if (! wall.isValid())
                     {
                         continue;
                     }
-                    OpenLinesSet ordered_ring;
-                    ordered_ring.push_back(std::move(ring), CheckNonEmptyParam::OnlyIfValid);
+                    OpenLinesSet ordered_wall;
+                    ordered_wall.push_back(std::move(wall), CheckNonEmptyParam::OnlyIfValid);
                     gcode_layer.addLinesByOptimizer(
-                        ordered_ring,
+                        ordered_wall,
                         bead_config,
                         SpaceFillType::PolyLines,
                         false,
@@ -558,6 +560,49 @@ replace(
                         bead_config.fan_speed);
                 }
                 added_something = true;
+
+                // Clip the ordinary wall toolpaths inside the engaged bands so
+                // the leaning stack replaces them instead of doubling.
+                const Shape engaged_bands = engaged;
+                for (VariableWidthLines& inset_lines : part.wall_toolpaths)
+                {
+                    for (auto line_it = inset_lines.begin(); line_it != inset_lines.end();)
+                    {
+                        ExtrusionLine& line = *line_it;
+                        std::vector<std::vector<ExtrusionJunction>> runs;
+                        runs.emplace_back();
+                        for (const ExtrusionJunction& junction : line.junctions_)
+                        {
+                            if (engaged_bands.inside(junction.p_))
+                            {
+                                if (! runs.back().empty())
+                                {
+                                    runs.emplace_back();
+                                }
+                            }
+                            else
+                            {
+                                runs.back().push_back(junction);
+                            }
+                        }
+                        runs.erase(std::remove_if(runs.begin(), runs.end(), [](const std::vector<ExtrusionJunction>& run) { return run.size() < 2; }), runs.end());
+                        if (runs.empty())
+                        {
+                            line_it = inset_lines.erase(line_it);
+                            continue;
+                        }
+                        line.junctions_ = std::move(runs.front());
+                        line.is_closed_ = false;
+                        ++line_it;
+                        for (size_t run_index = 1; run_index < runs.size(); ++run_index)
+                        {
+                            ExtrusionLine split_line(line.inset_idx_, line.is_odd_, false);
+                            split_line.junctions_ = std::move(runs[run_index]);
+                            line_it = inset_lines.insert(line_it, std::move(split_line));
+                            ++line_it;
+                        }
+                    }
+                }
             }
         }
     }
