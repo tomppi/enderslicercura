@@ -91,6 +91,10 @@ BrickWalls.cpp, ConicalOverhang.cpp):
 ## Validation plan
 
 - Engine harness fixtures (same .build/pattern as brick/wave): cliff at 45/60/70/80°,
-  dome, ring, pyramid cap — assert marker counts and path geometry.
+  dome, ring, pyramid cap, mushroom (cap underside) and a two-ball snowman
+  (sphere-on-sphere bands) — assert marker counts and path geometry. Note: a
+  solid dome sitting on its widest layer nests every layer inside the previous
+  one, so it has no unsupported band and correctly stays unengaged; sphere
+  undersides (snowman/mushroom) DO engage.
 - Printed test protocol on the Ender 3 V2: pyramid cap at 45°, dome at two angles,
   then the snowman head.
