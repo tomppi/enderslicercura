@@ -333,8 +333,11 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         Matrix.perspectiveM(projection, 0, FIELD_OF_VIEW, aspect, nearPlane, farPlane)
         Matrix.setLookAtM(view, 0, 0f, -distance, distance * 0.58f, 0f, 0f, 0f, 0f, 0f, 1f)
         Matrix.translateM(view, 0, panX, panY, 0f)
+        // Rotate first, then bring the orbit pivot to the origin: the camera
+        // looks at the origin, so the pivot (the point under the finger, or
+        // the printed-part centre) stays centred on screen while the scene
+        // rotates around it.
         Matrix.setIdentityM(scene, 0)
-        Matrix.translateM(scene, 0, orbitPivot[0], orbitPivot[1], orbitPivot[2])
         Matrix.rotateM(scene, 0, pitch, 1f, 0f, 0f)
         Matrix.rotateM(scene, 0, yaw, 0f, 0f, 1f)
         Matrix.translateM(scene, 0, -orbitPivot[0], -orbitPivot[1], -orbitPivot[2])
@@ -595,7 +598,7 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
 
     private fun cameraDistance(): Float {
         val current = path ?: return 300f
-        return max(sceneRadius(current) * 2.8f / zoom, 2f)
+        return max(sceneRadius(current) * 3.4f / zoom, 2f)
     }
 
     private fun sceneRadius(value: GcodeNozzlePath): Float {
