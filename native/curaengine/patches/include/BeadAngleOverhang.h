@@ -62,6 +62,15 @@ public:
         const BeadAngleParameters& parameters,
         coord_t lean,
         OpenLinesSet& output);
+
+    // Emits the plain wall insets (0 .. base_wall_count - 1) for the whole
+    // layer; the innermost wall sprouts straight anchor teeth into the core as
+    // continuous detours of the wall bead, so the wall and the infill-facing
+    // material are one hot extrusion instead of a cooled butt joint.
+    static void generateWallAnchors(
+        const Shape& outline,
+        const BeadAngleParameters& parameters,
+        OpenLinesSet& output);
 };
 
 } // namespace cura

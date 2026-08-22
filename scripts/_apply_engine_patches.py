@@ -515,9 +515,49 @@ replace(
         }
     }
 
-    const bool masonry_walls_enabled = mesh.settings.get<bool>("enderslicer_masonry_walls_enabled");
-    const bool bead_angle_enabled = mesh.settings.get<bool>("enderslicer_bead_angle_enabled") && ! masonry_walls_enabled;
-    const bool brick_walls_enabled = mesh.settings.get<bool>("enderslicer_brick_wall_enabled") && ! bead_angle_enabled && ! masonry_walls_enabled;
+    const bool wall_anchor_infill_enabled = mesh.settings.get<bool>("enderslicer_wall_anchor_infill_enabled");
+    const bool masonry_walls_enabled = mesh.settings.get<bool>("enderslicer_masonry_walls_enabled") && ! wall_anchor_infill_enabled;
+    const bool bead_angle_enabled = mesh.settings.get<bool>("enderslicer_bead_angle_enabled") && ! masonry_walls_enabled && ! wall_anchor_infill_enabled;
+    const bool brick_walls_enabled = mesh.settings.get<bool>("enderslicer_brick_wall_enabled") && ! bead_angle_enabled && ! masonry_walls_enabled && ! wall_anchor_infill_enabled;
+    if (wall_anchor_infill_enabled)
+    {
+        // Wall-anchored infill: plain flat walls, and the innermost wall
+        // sprouts anchor teeth into the core as one continuous extrusion, so
+        // the wall and the infill-facing material share a hot junction instead
+        // of a cooled butt joint. Cura's wall emission is replaced for the
+        // layer; the regular infill still prints around the teeth.
+        insets_preprocess_result.walls_optimizer.reset();
+        part.wall_toolpaths.clear();
+
+        BeadAngleParameters wall_parameters;
+        wall_parameters.line_width = mesh_config.inset0_config.getLineWidth();
+        wall_parameters.base_wall_count = std::max<size_t>(mesh.settings.get<size_t>("wall_line_count"), 1);
+
+        OpenLinesSet anchor_walls;
+        BeadAngleGenerator::generateWallAnchors(part.outline, wall_parameters, anchor_walls);
+
+        gcode_layer.setIsInside(true);
+        for (OpenPolyline& wall : anchor_walls.getLines())
+        {
+            if (! wall.isValid())
+            {
+                continue;
+            }
+            OpenLinesSet ordered_wall;
+            ordered_wall.push_back(std::move(wall), CheckNonEmptyParam::OnlyIfValid);
+            gcode_layer.addLinesByOptimizer(
+                ordered_wall,
+                mesh_config.inset0_config,
+                SpaceFillType::PolyLines,
+                false,
+                0,
+                1.0,
+                std::nullopt,
+                mesh_config.inset0_config.fan_speed);
+        }
+        added_something = true;
+    }
+
     if (masonry_walls_enabled)
     {
         // Masonry-bonded walls: the whole wall stack leans alternately +/- half

@@ -311,6 +311,9 @@ object PresetSettings {
         require(!(changed.masonryWallsEnabled && (changed.arcOverhangEnabled || changed.waveOverhangEnabled || changed.brickWallEnabled || changed.beadAngleOverhang.enabled))) {
             "Masonry walls cannot be combined with Arc, Wave, Brick-wall or Bead-angle overhangs"
         }
+        require(!(changed.wallAnchorInfillEnabled && (changed.arcOverhangEnabled || changed.waveOverhangEnabled || changed.brickWallEnabled || changed.beadAngleOverhang.enabled || changed.masonryWallsEnabled))) {
+            "Wall-anchored infill cannot be combined with Arc, Wave, Brick-wall, Bead-angle or Masonry walls"
+        }
         return changed.copy(overriddenSettingKeys = changed.overriddenSettingKeys + appliedKeys)
     }
 

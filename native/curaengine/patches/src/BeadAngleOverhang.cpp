@@ -44,11 +44,20 @@ Point2LL inwardNormal(const Point2LL& previous, const Point2LL& next, const Shap
 
 //! Insert hook eyes into an innermost wall contour: every HOOK_SPACING_UM the
 //! path steps inward, draws a small closed ring and steps back along the stem.
-//! Eyes whose centre would leave the outline are skipped (thin walls).
-OpenPolyline withHookEyes(const OpenPolyline& line, const Shape& bounded, const Shape& outline, coord_t line_width)
+//! The ring radius alternates per layer (big/small) so each small ring prints
+//! inside the hole of the big ring beneath it and can never pull back through
+//! the rim - a rivet through the layers. Eyes whose centre would leave the
+//! outline are skipped (thin walls).
+OpenPolyline withHookEyes(
+    const OpenPolyline& line,
+    const Shape& bounded,
+    const Shape& outline,
+    coord_t line_width,
+    bool large_eye)
 {
     const double total = line.length();
-    const coord_t radius = static_cast<coord_t>(std::llround(HOOK_RADIUS_LW * static_cast<double>(line_width)));
+    const double radius_lw = large_eye ? 1.2 : 0.6;
+    const coord_t radius = static_cast<coord_t>(std::llround(radius_lw * static_cast<double>(line_width)));
     if (line.size() < 2 || total < HOOK_SPACING_UM + radius + HOOK_NECK_UM || line_width <= 0)
     {
         return line;
@@ -381,8 +390,136 @@ void BeadAngleGenerator::generateMasonryWalls(
             if (innermost)
             {
                 // Hook-and-loop shell anchors on the inside of the wall stack:
-                // small closed eyes that the core material locks around.
-                line = withHookEyes(line, inset, outline, parameters.line_width);
+                // closed eyes that the core material locks around, alternating
+                // big/small per layer so each pair rivets the layers together.
+                line = withHookEyes(line, inset, outline, parameters.line_width, lean >= 0);
+            }
+            output.push_back(std::move(line), CheckNonEmptyParam::OnlyIfValid);
+        }
+    }
+}
+
+//! Wall-anchored infill teeth: the innermost wall turns inward, runs a
+//! straight anchor line deep into the core, jogs one line width sideways and
+//! returns to the wall - all in one continuous extrusion.
+constexpr coord_t TOOTH_SPACING_UM = 4000; // 4 mm between teeth
+constexpr coord_t TOOTH_DEPTH_UM = 5000;   // 5 mm into the core
+constexpr coord_t TOOTH_JOG_UM = 400;      // tip jog = one line width
+
+OpenPolyline withWallTeeth(const OpenPolyline& line, const Shape& bounded, const Shape& outline)
+{
+    const double total = line.length();
+    if (line.size() < 2 || total < TOOTH_SPACING_UM + TOOTH_DEPTH_UM)
+    {
+        return line;
+    }
+
+    std::vector<double> cumulative(line.size(), 0.0);
+    for (size_t i = 1; i < line.size(); ++i)
+    {
+        const Point2LL delta = line[i] - line[i - 1];
+        cumulative[i] = cumulative[i - 1] + std::hypot(static_cast<double>(delta.X), static_cast<double>(delta.Y));
+    }
+
+    OpenPolyline out;
+    out.reserve(line.size() + (static_cast<size_t>(total / TOOTH_SPACING_UM) + 1) * 4);
+    out.push_back(line[0]);
+    double next_tooth = std::min(static_cast<double>(TOOTH_SPACING_UM), total - 1.0);
+    for (size_t i = 1; i < line.size(); ++i)
+    {
+        while (next_tooth <= cumulative[i])
+        {
+            const double segment = cumulative[i] - cumulative[i - 1];
+            const double t = segment > 0.0 ? (next_tooth - cumulative[i - 1]) / segment : 0.0;
+            const Point2LL p0 = line[i - 1] + (line[i] - line[i - 1]) * t;
+            // Inward direction at the tooth point (probing at a corner vertex
+            // can land on two boundary lines and fail the inside test).
+            const Point2LL tangent = line[i] - line[i - 1];
+            const double t_len = std::hypot(static_cast<double>(tangent.X), static_cast<double>(tangent.Y));
+            Point2LL normal(0, 0);
+            if (t_len > 0.0)
+            {
+                const double nx = static_cast<double>(tangent.Y) / t_len;
+                const double ny = -static_cast<double>(tangent.X) / t_len;
+                const Point2LL cand(
+                    static_cast<coord_t>(std::llround(nx * PROBE_UM)),
+                    static_cast<coord_t>(std::llround(ny * PROBE_UM)));
+                if (bounded.inside(p0 + cand))
+                {
+                    normal = cand;
+                }
+                else
+                {
+                    const Point2LL opposite(-cand.X, -cand.Y);
+                    if (bounded.inside(p0 + opposite))
+                    {
+                        normal = opposite;
+                    }
+                }
+            }
+            const double n_len = std::hypot(static_cast<double>(normal.X), static_cast<double>(normal.Y));
+            if (n_len > 0.0)
+            {
+                const Point2LL unit(
+                    static_cast<coord_t>(std::llround(normal.X / n_len * 1000.0)),
+                    static_cast<coord_t>(std::llround(normal.Y / n_len * 1000.0)));
+                const Point2LL tip(
+                    p0.X + unit.X * TOOTH_DEPTH_UM / 1000,
+                    p0.Y + unit.Y * TOOTH_DEPTH_UM / 1000);
+                const Point2LL jog(
+                    static_cast<coord_t>(std::llround(static_cast<double>(tangent.X) / std::max(t_len, 1.0) * TOOTH_JOG_UM)),
+                    static_cast<coord_t>(std::llround(static_cast<double>(tangent.Y) / std::max(t_len, 1.0) * TOOTH_JOG_UM)));
+                if (outline.inside(tip))
+                {
+                    out.push_back(tip);
+                    out.push_back(Point2LL(tip.X + jog.X, tip.Y + jog.Y));
+                    out.push_back(Point2LL(p0.X + jog.X, p0.Y + jog.Y));
+                }
+                else
+                {
+                    out.push_back(p0);
+                }
+            }
+            else
+            {
+                out.push_back(p0);
+            }
+            next_tooth += TOOTH_SPACING_UM;
+        }
+        out.push_back(line[i]);
+    }
+    return out;
+}
+
+void BeadAngleGenerator::generateWallAnchors(
+    const Shape& outline,
+    const BeadAngleParameters& parameters,
+    OpenLinesSet& output)
+{
+    for (size_t i = 0; i < parameters.base_wall_count; ++i)
+    {
+        const Shape inset = (i == 0) ? outline : outline.offset(-static_cast<coord_t>(i) * parameters.line_width);
+        if (inset.empty())
+        {
+            continue;
+        }
+        const bool innermost = (i + 1 == parameters.base_wall_count);
+        for (const Polygon& polygon : inset)
+        {
+            if (polygon.size() < 3)
+            {
+                continue;
+            }
+            OpenPolyline line;
+            line.reserve(polygon.size() + 1);
+            for (const Point2LL& point : polygon)
+            {
+                line.push_back(point);
+            }
+            line.push_back(polygon.front());
+            if (innermost)
+            {
+                line = withWallTeeth(line, inset, outline);
             }
             output.push_back(std::move(line), CheckNonEmptyParam::OnlyIfValid);
         }

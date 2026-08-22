@@ -676,6 +676,7 @@ internal fun CategorizedSettingsSheet(
                         brickWallEnabled = if (it) false else current.brickWallEnabled,
                         beadAngleOverhang = if (it) current.beadAngleOverhang.copy(enabled = false) else current.beadAngleOverhang,
                         masonryWallsEnabled = if (it) false else current.masonryWallsEnabled,
+                        wallAnchorInfillEnabled = if (it) false else current.wallAnchorInfillEnabled,
                     )
                 }
             }
@@ -735,6 +736,7 @@ internal fun CategorizedSettingsSheet(
                         waveOverhangEnabled = if (it) false else current.waveOverhangEnabled,
                         beadAngleOverhang = if (it) current.beadAngleOverhang.copy(enabled = false) else current.beadAngleOverhang,
                         masonryWallsEnabled = if (it) false else current.masonryWallsEnabled,
+                        wallAnchorInfillEnabled = if (it) false else current.wallAnchorInfillEnabled,
                     )
                 }
             }
@@ -773,6 +775,7 @@ internal fun CategorizedSettingsSheet(
                         waveOverhangEnabled = if (it) false else current.waveOverhangEnabled,
                         brickWallEnabled = if (it) false else current.brickWallEnabled,
                         masonryWallsEnabled = if (it) false else current.masonryWallsEnabled,
+                        wallAnchorInfillEnabled = if (it) false else current.wallAnchorInfillEnabled,
                     )
                 }
             }
@@ -846,12 +849,37 @@ internal fun CategorizedSettingsSheet(
                         waveOverhangEnabled = if (it) false else current.waveOverhangEnabled,
                         brickWallEnabled = if (it) false else current.brickWallEnabled,
                         beadAngleOverhang = if (it) current.beadAngleOverhang.copy(enabled = false) else current.beadAngleOverhang,
+                        wallAnchorInfillEnabled = if (it) false else current.wallAnchorInfillEnabled,
                     )
                 }
             }
             if (settings.masonryWallsEnabled) {
                 Text(
-                    "Every wall leans alternately ± half a bead per layer, so each bead rests on the shoulder of the bead beneath instead of stacking flat; the outer surface gets a fine ±0.2 mm zigzag. The innermost wall also prints a small hook eye into the core every 4 mm - the surrounding material locks around it like a hook-and-loop joint.",
+                    "Every wall leans alternately ± half a bead per layer, so each bead rests on the shoulder of the bead beneath instead of stacking flat; the outer surface gets a fine ±0.2 mm zigzag. The innermost wall also prints loop eyes into the core every 4 mm - big and small rings alternate per layer, so each small ring prints inside the big ring beneath it and rivets the layers together.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            SwitchRow(
+                "Wall-anchored infill (experimental)",
+                settings.wallAnchorInfillEnabled,
+                source(state, SlicerSettings.Keys.WALL_ANCHOR_INFILL_ENABLED),
+            ) {
+                onSettings(SlicerSettings.Keys.WALL_ANCHOR_INFILL_ENABLED) { current ->
+                    current.copy(
+                        wallAnchorInfillEnabled = it,
+                        arcOverhangEnabled = if (it) false else current.arcOverhangEnabled,
+                        waveOverhangEnabled = if (it) false else current.waveOverhangEnabled,
+                        brickWallEnabled = if (it) false else current.brickWallEnabled,
+                        beadAngleOverhang = if (it) current.beadAngleOverhang.copy(enabled = false) else current.beadAngleOverhang,
+                        masonryWallsEnabled = if (it) false else current.masonryWallsEnabled,
+                    )
+                }
+            }
+            if (settings.wallAnchorInfillEnabled) {
+                Text(
+                    "Plain flat walls, but the innermost wall sprouts straight anchor teeth into the core every 4 mm as one continuous extrusion - the wall and the infill-facing material share a hot junction instead of a cooled butt joint. Set infill density to 0 for a teeth-only interior.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -869,6 +897,7 @@ internal fun CategorizedSettingsSheet(
                         brickWallEnabled = if (it) false else current.brickWallEnabled,
                         beadAngleOverhang = if (it) current.beadAngleOverhang.copy(enabled = false) else current.beadAngleOverhang,
                         masonryWallsEnabled = if (it) false else current.masonryWallsEnabled,
+                        wallAnchorInfillEnabled = if (it) false else current.wallAnchorInfillEnabled,
                     )
                 }
             }

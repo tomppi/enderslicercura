@@ -147,6 +147,7 @@ object SlicerSettingsJson {
         SlicerSettings.Keys.BEAD_ANGLE_FAN_SPEED,
         SlicerSettings.Keys.BEAD_ANGLE_MAX_ITERATIONS,
         SlicerSettings.Keys.MASONRY_WALLS_ENABLED,
+        SlicerSettings.Keys.WALL_ANCHOR_INFILL_ENABLED,
         SlicerSettings.Keys.SMART_OVERHANG_STRATEGY,
         SlicerSettings.Keys.IRONING_ENABLED,
         SlicerSettings.Keys.IRONING_ONLY_HIGHEST_LAYER,
@@ -307,6 +308,7 @@ object SlicerSettingsJson {
         .put(SlicerSettings.Keys.BEAD_ANGLE_FAN_SPEED, settings.beadAngleOverhang.fanSpeedPercent)
         .put(SlicerSettings.Keys.BEAD_ANGLE_MAX_ITERATIONS, settings.beadAngleOverhang.maxIterations)
         .put(SlicerSettings.Keys.MASONRY_WALLS_ENABLED, settings.masonryWallsEnabled)
+        .put(SlicerSettings.Keys.WALL_ANCHOR_INFILL_ENABLED, settings.wallAnchorInfillEnabled)
         .put(SlicerSettings.Keys.BRICK_WALL_BRICK_LENGTH, settings.brickWallBrickLengthMm)
         .put(SlicerSettings.Keys.SMART_OVERHANG_STRATEGY, settings.smartOverhangStrategy)
         .put(SlicerSettings.Keys.IRONING_ENABLED, settings.ironingEnabled)
@@ -489,6 +491,7 @@ object SlicerSettingsJson {
                 SlicerSettings.Keys.BEAD_ANGLE_FAN_SPEED -> restored.copy(beadAngleOverhang = restored.beadAngleOverhang.copy(fanSpeedPercent = values.optDouble(key, restored.beadAngleOverhang.fanSpeedPercent)))
                 SlicerSettings.Keys.BEAD_ANGLE_MAX_ITERATIONS -> restored.copy(beadAngleOverhang = restored.beadAngleOverhang.copy(maxIterations = values.optInt(key, restored.beadAngleOverhang.maxIterations)))
                 SlicerSettings.Keys.MASONRY_WALLS_ENABLED -> restored.copy(masonryWallsEnabled = values.optBoolean(key, restored.masonryWallsEnabled))
+                SlicerSettings.Keys.WALL_ANCHOR_INFILL_ENABLED -> restored.copy(wallAnchorInfillEnabled = values.optBoolean(key, restored.wallAnchorInfillEnabled))
                 SlicerSettings.Keys.SMART_OVERHANG_STRATEGY -> restored.copy(smartOverhangStrategy = values.optBoolean(key, restored.smartOverhangStrategy))
                 SlicerSettings.Keys.IRONING_ENABLED -> restored.copy(ironingEnabled = values.optBoolean(key, restored.ironingEnabled))
                 SlicerSettings.Keys.IRONING_ONLY_HIGHEST_LAYER -> restored.copy(ironingOnlyHighestLayer = values.optBoolean(key, restored.ironingOnlyHighestLayer))
