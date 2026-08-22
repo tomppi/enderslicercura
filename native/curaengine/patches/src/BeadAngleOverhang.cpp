@@ -329,7 +329,7 @@ bool BeadAngleGenerator::generate(
             const Shape inset = outline.offset(-static_cast<coord_t>(i) * parameters.line_width);
             if (inset.empty())
             {
-                break;
+                continue; // deeper insets no longer fit; shallower ones still do
             }
             OpenLinesSet contours = contoursOf(inset, zone);
             for (OpenPolyline& line : contours.getLines())
