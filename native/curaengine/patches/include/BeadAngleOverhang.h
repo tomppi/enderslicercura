@@ -52,6 +52,16 @@ public:
         const BeadAngleParameters& parameters,
         const Shape& replacement,
         OpenLinesSet& output);
+
+    // Emits the wall insets (0 .. base_wall_count - 1) shifted sideways by
+    // [lean] (signed microns). Masonry-bonded walls lean alternately +/- half
+    // a bead per layer so every bead rests on the shoulder of the bead
+    // beneath instead of stacking flat like Lego bricks.
+    static void generateMasonryWalls(
+        const Shape& outline,
+        const BeadAngleParameters& parameters,
+        coord_t lean,
+        OpenLinesSet& output);
 };
 
 } // namespace cura

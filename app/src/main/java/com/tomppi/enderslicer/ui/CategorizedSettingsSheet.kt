@@ -675,6 +675,7 @@ internal fun CategorizedSettingsSheet(
                         arcOverhangEnabled = if (it) false else current.arcOverhangEnabled,
                         brickWallEnabled = if (it) false else current.brickWallEnabled,
                         beadAngleOverhang = if (it) current.beadAngleOverhang.copy(enabled = false) else current.beadAngleOverhang,
+                        masonryWallsEnabled = if (it) false else current.masonryWallsEnabled,
                     )
                 }
             }
@@ -733,6 +734,7 @@ internal fun CategorizedSettingsSheet(
                         arcOverhangEnabled = if (it) false else current.arcOverhangEnabled,
                         waveOverhangEnabled = if (it) false else current.waveOverhangEnabled,
                         beadAngleOverhang = if (it) current.beadAngleOverhang.copy(enabled = false) else current.beadAngleOverhang,
+                        masonryWallsEnabled = if (it) false else current.masonryWallsEnabled,
                     )
                 }
             }
@@ -770,6 +772,7 @@ internal fun CategorizedSettingsSheet(
                         arcOverhangEnabled = if (it) false else current.arcOverhangEnabled,
                         waveOverhangEnabled = if (it) false else current.waveOverhangEnabled,
                         brickWallEnabled = if (it) false else current.brickWallEnabled,
+                        masonryWallsEnabled = if (it) false else current.masonryWallsEnabled,
                     )
                 }
             }
@@ -832,6 +835,29 @@ internal fun CategorizedSettingsSheet(
             }
 
             SwitchRow(
+                "Masonry-bonded walls (experimental)",
+                settings.masonryWallsEnabled,
+                source(state, SlicerSettings.Keys.MASONRY_WALLS_ENABLED),
+            ) {
+                onSettings(SlicerSettings.Keys.MASONRY_WALLS_ENABLED) { current ->
+                    current.copy(
+                        masonryWallsEnabled = it,
+                        arcOverhangEnabled = if (it) false else current.arcOverhangEnabled,
+                        waveOverhangEnabled = if (it) false else current.waveOverhangEnabled,
+                        brickWallEnabled = if (it) false else current.brickWallEnabled,
+                        beadAngleOverhang = if (it) current.beadAngleOverhang.copy(enabled = false) else current.beadAngleOverhang,
+                    )
+                }
+            }
+            if (settings.masonryWallsEnabled) {
+                Text(
+                    "Every wall leans alternately ± half a bead per layer, so each bead rests on the shoulder of the bead beneath instead of stacking flat. The outer surface gets a fine ±0.2 mm zigzag.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            SwitchRow(
                 "Arc overhangs (Multiplex, experimental)",
                 settings.arcOverhangEnabled,
                 source(state, SlicerSettings.Keys.ARC_OVERHANG_ENABLED),
@@ -842,6 +868,7 @@ internal fun CategorizedSettingsSheet(
                         waveOverhangEnabled = if (it) false else current.waveOverhangEnabled,
                         brickWallEnabled = if (it) false else current.brickWallEnabled,
                         beadAngleOverhang = if (it) current.beadAngleOverhang.copy(enabled = false) else current.beadAngleOverhang,
+                        masonryWallsEnabled = if (it) false else current.masonryWallsEnabled,
                     )
                 }
             }

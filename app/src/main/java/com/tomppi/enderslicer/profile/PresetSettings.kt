@@ -308,6 +308,9 @@ object PresetSettings {
         require(!(changed.beadAngleOverhang.enabled && (changed.arcOverhangEnabled || changed.waveOverhangEnabled || changed.brickWallEnabled))) {
             "Bead-angle overhangs cannot be combined with Arc, Wave or Brick-wall overhangs"
         }
+        require(!(changed.masonryWallsEnabled && (changed.arcOverhangEnabled || changed.waveOverhangEnabled || changed.brickWallEnabled || changed.beadAngleOverhang.enabled))) {
+            "Masonry walls cannot be combined with Arc, Wave, Brick-wall or Bead-angle overhangs"
+        }
         return changed.copy(overriddenSettingKeys = changed.overriddenSettingKeys + appliedKeys)
     }
 

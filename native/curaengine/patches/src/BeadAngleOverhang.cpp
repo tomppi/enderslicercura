@@ -254,6 +254,38 @@ void BeadAngleGenerator::generateBaseWalls(
     }
 }
 
+void BeadAngleGenerator::generateMasonryWalls(
+    const Shape& outline,
+    const BeadAngleParameters& parameters,
+    const coord_t lean,
+    OpenLinesSet& output)
+{
+    for (size_t i = 0; i < parameters.base_wall_count; ++i)
+    {
+        const coord_t offset = lean - static_cast<coord_t>(i) * parameters.line_width;
+        const Shape inset = (offset == 0) ? outline : outline.offset(offset);
+        if (inset.empty())
+        {
+            continue;
+        }
+        for (const Polygon& polygon : inset)
+        {
+            if (polygon.size() < 3)
+            {
+                continue;
+            }
+            OpenPolyline line;
+            line.reserve(polygon.size() + 1);
+            for (const Point2LL& point : polygon)
+            {
+                line.push_back(point);
+            }
+            line.push_back(polygon.front());
+            output.push_back(std::move(line), CheckNonEmptyParam::OnlyIfValid);
+        }
+    }
+}
+
 bool BeadAngleGenerator::generate(
     const Shape& outline,
     const Shape& supported_region,

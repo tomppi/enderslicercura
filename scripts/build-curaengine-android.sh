@@ -575,8 +575,48 @@ replace(
         }
     }
 
-    const bool bead_angle_enabled = mesh.settings.get<bool>("enderslicer_bead_angle_enabled");
-    const bool brick_walls_enabled = mesh.settings.get<bool>("enderslicer_brick_wall_enabled") && ! bead_angle_enabled;
+    const bool masonry_walls_enabled = mesh.settings.get<bool>("enderslicer_masonry_walls_enabled");
+    const bool bead_angle_enabled = mesh.settings.get<bool>("enderslicer_bead_angle_enabled") && ! masonry_walls_enabled;
+    const bool brick_walls_enabled = mesh.settings.get<bool>("enderslicer_brick_wall_enabled") && ! bead_angle_enabled && ! masonry_walls_enabled;
+    if (masonry_walls_enabled)
+    {
+        // Masonry-bonded walls: the whole wall stack leans alternately +/- half
+        // a bead per layer, so every bead rests on the shoulder of the bead
+        // beneath instead of stacking flat (Lego style). Cura's wall emission
+        // is replaced for the layer; layer 0 prints straight.
+        insets_preprocess_result.walls_optimizer.reset();
+        part.wall_toolpaths.clear();
+
+        BeadAngleParameters wall_parameters;
+        wall_parameters.line_width = mesh_config.inset0_config.getLineWidth();
+        wall_parameters.base_wall_count = std::max<size_t>(mesh.settings.get<size_t>("wall_line_count"), 1);
+        const coord_t lean = (layer_nr % 2 == 0) ? wall_parameters.line_width / 2 : -wall_parameters.line_width / 2;
+
+        OpenLinesSet masonry_walls;
+        BeadAngleGenerator::generateMasonryWalls(part.outline, wall_parameters, layer_nr > 0 ? lean : 0, masonry_walls);
+
+        gcode_layer.setIsInside(true);
+        for (OpenPolyline& wall : masonry_walls.getLines())
+        {
+            if (! wall.isValid())
+            {
+                continue;
+            }
+            OpenLinesSet ordered_wall;
+            ordered_wall.push_back(std::move(wall), CheckNonEmptyParam::OnlyIfValid);
+            gcode_layer.addLinesByOptimizer(
+                ordered_wall,
+                mesh_config.inset0_config,
+                SpaceFillType::PolyLines,
+                false,
+                0,
+                1.0,
+                std::nullopt,
+                mesh_config.inset0_config.fan_speed);
+        }
+        added_something = true;
+    }
+
     if (bead_angle_enabled)
     {
         // Bead-angle mode owns the walls: drop Cura's wall emission for the

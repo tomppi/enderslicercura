@@ -149,6 +149,7 @@ data class SlicerSettings(
     val brickWallMaxIterations: Int = 60,
     val brickWallBrickLengthMm: Double = 1.6,
     val beadAngleOverhang: BeadAngleOverhangSettings = BeadAngleOverhangSettings(),
+    val masonryWallsEnabled: Boolean = false,
     val smartOverhangStrategy: Boolean = false,
     val ironingEnabled: Boolean = false,
     val ironingOnlyHighestLayer: Boolean = false,
@@ -358,6 +359,7 @@ data class SlicerSettings(
         const val BEAD_ANGLE_FLOW = "beadAngleFlowPercent"
         const val BEAD_ANGLE_FAN_SPEED = "beadAngleFanSpeedPercent"
         const val BEAD_ANGLE_MAX_ITERATIONS = "beadAngleMaxIterations"
+        const val MASONRY_WALLS_ENABLED = "masonryWallsEnabled"
         const val SMART_OVERHANG_STRATEGY = "smartOverhangStrategy"
         const val IRONING_ENABLED = "ironingEnabled"
         const val IRONING_ONLY_HIGHEST_LAYER = "ironingOnlyHighestLayer"

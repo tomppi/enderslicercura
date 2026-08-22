@@ -312,6 +312,28 @@ class AdvancedFeatureSettingsLeakTest {
     }
 
     @Test
+    fun masonryWallsKeyReachesEngineOnlyWhenEnabled() {
+        val offResolved = resolve(SlicerSettings())
+        val onResolved = resolve(SlicerSettings().copy(masonryWallsEnabled = true))
+        assertEquals("false", offResolved.extruderValues["enderslicer_masonry_walls_enabled"])
+        assertEquals("true", onResolved.extruderValues["enderslicer_masonry_walls_enabled"])
+        assertEquals(
+            offResolved.extruderValues.withoutAppKeys(),
+            onResolved.extruderValues.withoutAppKeys(),
+        )
+
+        assertTrue(buildStandaloneCommand(SlicerSettings()).contains("enderslicer_masonry_walls_enabled=false"))
+        assertTrue(
+            buildStandaloneCommand(SlicerSettings().copy(masonryWallsEnabled = true))
+                .contains("enderslicer_masonry_walls_enabled=true"),
+        )
+
+        // Masonry walls do not depend on bridge detection, so the bridge gate
+        // must stay off unless an overhang feature turns it on.
+        assertFalse(buildStandaloneCommand(SlicerSettings().copy(masonryWallsEnabled = true)).contains("bridge_settings_enabled=true"))
+    }
+
+    @Test
     fun paintedSupportsWithNonPlanarOnNeverLeakPaintMeshesWhenUnpainted() {
         // Paint OFF + non-planar ON: the slice must load exactly one mesh (the
         // model) and carry no support_mesh/anti_overhang_mesh roles.
