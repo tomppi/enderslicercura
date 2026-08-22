@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -130,9 +131,19 @@ private fun HoldRepeatButton(
         }
     }
     if (outlined) {
-        OutlinedButton(onClick = { }, enabled = enabled, modifier = interactionModifier) { Text(text) }
+        OutlinedButton(
+            onClick = { },
+            enabled = enabled,
+            modifier = interactionModifier,
+            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+        ) { Text(text, style = MaterialTheme.typography.labelMedium) }
     } else {
-        Button(onClick = { }, enabled = enabled, modifier = interactionModifier) { Text(text) }
+        Button(
+            onClick = { },
+            enabled = enabled,
+            modifier = interactionModifier,
+            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+        ) { Text(text, style = MaterialTheme.typography.labelMedium) }
     }
 }
 
@@ -192,7 +203,13 @@ private fun NozzlePathPlayer(path: GcodeNozzlePath, artifactKey: String, modifie
     }
 
     BoxWithConstraints(modifier = modifier) {
-        val controlsMaxHeight = maxHeight * 0.58f
+        val offset = safeIndex * GcodeNozzlePath.VALUES_PER_MOVE
+        val sourceIndex = path.sourceMoveIndices[safeIndex]
+        val moveLabel = if (path.truncated) {
+            "Preview segment ${safeIndex + 1}/${path.moveCount} · source move ${sourceIndex + 1}/${path.sourceMoveCount}"
+        } else {
+            "Move ${sourceIndex + 1}/${path.sourceMoveCount}"
+        }
         Column(modifier = Modifier.fillMaxSize()) {
             Box(
                 modifier = Modifier
@@ -252,75 +269,28 @@ private fun NozzlePathPlayer(path: GcodeNozzlePath, artifactKey: String, modifie
                                     modifier = Modifier.scale(0.75f),
                                 )
                             }
+                            Text(
+                                "$moveLabel · Z %.3f mm · %.1f mm/s".format(
+                                    path.moves[offset + GcodeNozzlePath.Z2],
+                                    path.moves[offset + GcodeNozzlePath.SPEED],
+                                ),
+                                style = MaterialTheme.typography.labelSmall,
+                            )
                         }
                     }
                 }
             }
 
             Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = controlsMaxHeight),
+                modifier = Modifier.fillMaxWidth(),
             ) {
-                Column(
+                Row(
                     modifier = Modifier
-                        .verticalScroll(rememberScrollState())
-                        .padding(horizontal = 14.dp, vertical = 10.dp),
-                    verticalArrangement = Arrangement.spacedBy(7.dp),
+                        .fillMaxWidth()
+                        .padding(horizontal = 10.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
-                        Text("Hide travel moves", style = MaterialTheme.typography.titleSmall)
-                        Switch(
-                            checked = showTravels,
-                            onCheckedChange = { showTravels = it },
-                        )
-                    }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
-                        Text("Color by print speed", style = MaterialTheme.typography.titleSmall)
-                        Switch(
-                            checked = colorBySpeed,
-                            onCheckedChange = { colorBySpeed = it },
-                        )
-                    }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.Center,
-                    ) {
-                        OutlinedButton(onClick = { surfaceView?.resetView() }) {
-                            Text("Reset view")
-                        }
-                    }
-                    val offset = safeIndex * GcodeNozzlePath.VALUES_PER_MOVE
-                    val sourceIndex = path.sourceMoveIndices[safeIndex]
-                    val moveLabel = if (path.truncated) {
-                        "Preview segment ${safeIndex + 1}/${path.moveCount} · source move ${sourceIndex + 1}/${path.sourceMoveCount}"
-                    } else {
-                        "Move ${sourceIndex + 1}/${path.sourceMoveCount}"
-                    }
-                    Text(
-                        "$moveLabel · Z %.3f mm · %.1f mm/s requested".format(
-                            path.moves[offset + GcodeNozzlePath.Z2],
-                            path.moves[offset + GcodeNozzlePath.SPEED],
-                        ),
-                        style = MaterialTheme.typography.titleSmall,
-                    )
-                    Text(
-                        if (path.truncated) {
-                            "Sampled preview retains ${path.moveCount} of ${path.sourceMoveCount} spatial moves; " +
-                                "Previous and Next step between retained preview segments."
-                        } else {
-                            "${path.extrusionMoveCount} extrusion moves · ${path.travelMoveCount} travel moves"
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                    )
                     Slider(
                         value = safeIndex.toFloat(),
                         onValueChange = {
@@ -329,51 +299,49 @@ private fun NozzlePathPlayer(path: GcodeNozzlePath, artifactKey: String, modifie
                         },
                         valueRange = 0f..max(path.moveCount - 1, 1).toFloat(),
                         enabled = path.moveCount > 1,
+                        modifier = Modifier.weight(1f),
                     )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                        HoldRepeatButton(
-                            text = "Previous",
-                            outlined = true,
-                            enabled = safeIndex > 0,
-                            modifier = Modifier.weight(1f),
-                            onStep = {
-                                playing = false
-                                moveIndex = (moveIndex - 1).coerceAtLeast(0)
-                            },
-                        )
-                        if (playing) {
-                            Button(onClick = { playing = false }, modifier = Modifier.weight(1f)) { Text("Pause") }
-                        } else {
-                            Button(
-                                onClick = {
-                                    if (moveIndex >= path.moveCount - 1) moveIndex = 0
-                                    playing = true
-                                },
-                                modifier = Modifier.weight(1f),
-                            ) { Text("Play") }
-                        }
-                        HoldRepeatButton(
-                            text = "Next",
-                            outlined = true,
-                            enabled = safeIndex < path.moveCount - 1,
-                            modifier = Modifier.weight(1f),
-                            onStep = {
-                                playing = false
-                                moveIndex = (moveIndex + 1).coerceAtMost(path.moveCount - 1)
-                            },
-                        )
-                    }
-                    OutlinedButton(
-                        onClick = {
+                    HoldRepeatButton(
+                        text = "Prev",
+                        outlined = true,
+                        enabled = safeIndex > 0,
+                        modifier = Modifier.height(32.dp),
+                        onStep = {
                             playing = false
-                            moveIndex = 0
+                            moveIndex = (moveIndex - 1).coerceAtLeast(0)
                         },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) { Text("Restart") }
-                    Text(
-                        "Gray is travel. Extrusion changes from blue at low Z to red at high Z. The amber crosshair marks the nozzle tip. Drag to orbit, pinch to zoom, use two fingers to pan, and double-tap to reset. Use the corner toggle to hide travel moves.",
-                        style = MaterialTheme.typography.labelSmall,
                     )
+                    if (playing) {
+                        Button(
+                            onClick = { playing = false },
+                            modifier = Modifier.height(32.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                        ) { Text("Pause", style = MaterialTheme.typography.labelMedium) }
+                    } else {
+                        Button(
+                            onClick = {
+                                if (moveIndex >= path.moveCount - 1) moveIndex = 0
+                                playing = true
+                            },
+                            modifier = Modifier.height(32.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                        ) { Text("Play", style = MaterialTheme.typography.labelMedium) }
+                    }
+                    HoldRepeatButton(
+                        text = "Next",
+                        outlined = true,
+                        enabled = safeIndex < path.moveCount - 1,
+                        modifier = Modifier.height(32.dp),
+                        onStep = {
+                            playing = false
+                            moveIndex = (moveIndex + 1).coerceAtMost(path.moveCount - 1)
+                        },
+                    )
+                    OutlinedButton(
+                        onClick = { surfaceView?.resetView() },
+                        modifier = Modifier.height(32.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                    ) { Text("Reset", style = MaterialTheme.typography.labelMedium) }
                 }
             }
         }
