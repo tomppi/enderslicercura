@@ -189,18 +189,15 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
     private var markerVertexCount = 0
     private var markerGlowPositions: FloatBuffer? = null
     private var markerGlowVertexCount = 0
-    // Screen-space quads carry the thick extrusion path (null = fall back to
-    // GL_LINES for oversized paths that would not fit in GPU memory).
-    private var extrusionQuads: ByteBuffer? = null
 
     private var colorProgram = 0
     private var solidProgram = 0
     private var maxLineWidth = 1f
     private var viewportWidth = 1
     private var viewportHeight = 1
-    // Camera pivot and fit use robust bounds of the printed part: stray
-    // extrusion moves (purge line at the plate corner, distant skirt loops)
-    // are trimmed so the orbit follows the model instead of the plate.
+    // Camera pivot and fit use the EXTRUSION bounds (the printed model), not
+    // the whole path: travel moves to the prime line or skirt sit far from the
+    // part and would anchor the orbit to the plate instead of the model.
     private var modelMinX = 0f
     private var modelMinY = 0f
     private var modelMinZ = 0f
@@ -212,7 +209,6 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
     private var orbitPivot = FloatArray(3)
     @Volatile private var pendingPivotX = Float.NaN
     @Volatile private var pendingPivotY = Float.NaN
-    private var quadColorProgram = 0
     @Volatile private var yaw = DEFAULT_YAW
     @Volatile private var pitch = DEFAULT_PITCH
     @Volatile private var zoom = DEFAULT_ZOOM
@@ -306,7 +302,6 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA)
         colorProgram = createProgram(COLOR_VERTEX_SHADER, COLOR_FRAGMENT_SHADER)
         solidProgram = createProgram(SOLID_VERTEX_SHADER, SOLID_FRAGMENT_SHADER)
-        quadColorProgram = createProgram(QUAD_COLOR_VERTEX_SHADER, QUAD_COLOR_FRAGMENT_SHADER)
         maxLineWidth = queryMaxLineWidth()
     }
 
@@ -349,16 +344,11 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
 
         drawSolidLines(gridPositions, gridVertexCount, 1f, 0.24f, 0.30f, 0.40f, 0.48f)
         val upTo = (selectedMoveIndex + 1).coerceAtMost(extrusionPrefix.size - 1)
-        val quads = extrusionQuads
-        if (quads != null) {
-            // Single capsule pass: the coloured bead with its black outline and
-            // round caps, drawn without per-segment seams at the joints.
-            drawQuadPath(quads, extrusionPrefix[upTo] * 4, PATH_WIDTH * 0.5f, OUTLINE_EXTRA_WIDTH)
-        } else {
-            val extrusionVertexCount = extrusionPrefix[upTo] * 2
-            drawSolidLines(extrusionPositions, extrusionVertexCount, PATH_WIDTH + OUTLINE_EXTRA_WIDTH, 0f, 0f, 0f, 1f)
-            drawColoredLines(extrusionPositions, extrusionColors, extrusionVertexCount, PATH_WIDTH)
-        }
+        val extrusionVertexCount = extrusionPrefix[upTo] * 2
+        // Black outline under the extrusion: the coloured bead stays readable
+        // against overlapping travels, the grid and the marker glow.
+        drawSolidLines(extrusionPositions, extrusionVertexCount, PATH_WIDTH + OUTLINE_EXTRA_WIDTH, 0f, 0f, 0f, 1f)
+        drawColoredLines(extrusionPositions, extrusionColors, extrusionVertexCount, PATH_WIDTH)
         if (showTravels) {
             drawColoredLines(travelPositions, travelColors, travelPrefix[upTo] * 2, TRAVEL_WIDTH)
         }
@@ -417,13 +407,8 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
             travelPrefix[moveIndex + 1] = travelMoves
             offset += GcodeNozzlePath.VALUES_PER_MOVE
         }
-        val extrusionArray = extrusionVertex.toFloatArray()
-        val useQuads = extrusionMoves in 1..QUAD_PATH_MAX_MOVES
-        // Screen-space quads carry the thick extrusion path; the line buffers
-        // only back the fallback for oversized paths and the travels.
-        extrusionPositions = if (useQuads) null else bufferOf(extrusionArray)
-        extrusionColors = if (useQuads) null else bufferOf(extrusionColor)
-        extrusionQuads = if (useQuads) buildExtrusionQuads(extrusionArray, extrusionColor) else null
+        extrusionPositions = bufferOf(extrusionVertex)
+        extrusionColors = bufferOf(extrusionColor)
         travelPositions = bufferOf(travelVertex)
         travelColors = bufferOf(travelColor)
 
@@ -431,7 +416,7 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         // (purge line at the plate corner, distant skirt loops) are trimmed
         // with per-axis percentiles so the orbit pivots on the model, not the
         // plate; the fallback keeps the view valid for travel-only paths.
-        val bounds = NozzlePathBounds.printedBounds(extrusionArray)
+        val bounds = NozzlePathBounds.printedBounds(extrusionVertex.toFloatArray())
         if (bounds != null) {
             modelMinX = bounds[0]; modelMinY = bounds[1]; modelMinZ = bounds[2]
             modelMaxX = bounds[3]; modelMaxY = bounds[4]; modelMaxZ = bounds[5]
@@ -441,72 +426,11 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         }
     }
 
-    /**
-     * Expands every extrusion segment into a screen-space quad (four vertices:
-     * two sides per endpoint) so the rendered thickness never depends on the
-     * driver's glLineWidth support. Vertex layout: position xyz, other
-     * endpoint xyz + side in w, RGBA colour bytes.
-     */
-    private fun buildExtrusionQuads(vertices: FloatArray, colors: ArrayList<Float>): ByteBuffer? {
-        val moveCount = vertices.size / 6
-        if (moveCount <= 0) return null
-        val bytes = ByteBuffer.allocateDirect(moveCount * 4 * QUAD_VERTEX_BYTES).order(ByteOrder.nativeOrder())
-        val floats = bytes.asFloatBuffer()
-        var vertex = 0
-        for (move in 0 until moveCount) {
-            val offset = move * 6
-            val colorOffset = move * 8
-            appendQuadVertex(floats, bytes, vertex++, vertices[offset], vertices[offset + 1], vertices[offset + 2],
-                vertices[offset + 3], vertices[offset + 4], vertices[offset + 5], -1f, colors, colorOffset)
-            appendQuadVertex(floats, bytes, vertex++, vertices[offset], vertices[offset + 1], vertices[offset + 2],
-                vertices[offset + 3], vertices[offset + 4], vertices[offset + 5], 1f, colors, colorOffset)
-            appendQuadVertex(floats, bytes, vertex++, vertices[offset + 3], vertices[offset + 4], vertices[offset + 5],
-                vertices[offset], vertices[offset + 1], vertices[offset + 2], 3f, colors, colorOffset + 4)
-            appendQuadVertex(floats, bytes, vertex++, vertices[offset + 3], vertices[offset + 4], vertices[offset + 5],
-                vertices[offset], vertices[offset + 1], vertices[offset + 2], -3f, colors, colorOffset + 4)
-        }
-        bytes.position(0)
-        return bytes
-    }
-
-    private fun appendQuadVertex(
-        floats: FloatBuffer,
-        bytes: ByteBuffer,
-        vertex: Int,
-        px: Float,
-        py: Float,
-        pz: Float,
-        ox: Float,
-        oy: Float,
-        oz: Float,
-        side: Float,
-        colors: ArrayList<Float>,
-        colorIndex: Int,
-    ) {
-        val floatOffset = vertex * (QUAD_VERTEX_BYTES / Float.SIZE_BYTES)
-        floats.put(floatOffset, px)
-        floats.put(floatOffset + 1, py)
-        floats.put(floatOffset + 2, pz)
-        floats.put(floatOffset + 3, ox)
-        floats.put(floatOffset + 4, oy)
-        floats.put(floatOffset + 5, oz)
-        floats.put(floatOffset + 6, side)
-        val colorOffset = vertex * QUAD_VERTEX_BYTES + QUAD_COLOR_OFFSET
-        bytes.put(colorOffset, colorByte(colors[colorIndex]))
-        bytes.put(colorOffset + 1, colorByte(colors[colorIndex + 1]))
-        bytes.put(colorOffset + 2, colorByte(colors[colorIndex + 2]))
-        bytes.put(colorOffset + 3, colorByte(colors[colorIndex + 3]))
-    }
-
-    private fun colorByte(component: Float): Byte =
-        (component.coerceIn(0f, 1f) * 255f + 0.5f).toInt().toByte()
-
-    private fun bufferOf(values: List<Float>): FloatBuffer? = bufferOf(FloatArray(values.size) { values[it] })
-
-    private fun bufferOf(values: FloatArray): FloatBuffer? {
+    private fun bufferOf(values: List<Float>): FloatBuffer? {
         if (values.isEmpty()) return null
-        val buffer = allocate(values.size)
-        buffer.put(values)
+        val array = FloatArray(values.size) { values[it] }
+        val buffer = allocate(array.size)
+        buffer.put(array)
         buffer.position(0)
         return buffer
     }
@@ -589,37 +513,6 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         GLES20.glLineWidth(1f)
         GLES20.glDisableVertexAttribArray(position)
         GLES20.glDisableVertexAttribArray(color)
-    }
-
-    private fun drawQuadPath(quads: ByteBuffer, vertexCount: Int, halfWidthPx: Float, outlinePx: Float) {
-        GLES20.glUseProgram(quadColorProgram)
-        val position = GLES20.glGetAttribLocation(quadColorProgram, "aPosition")
-        val other = GLES20.glGetAttribLocation(quadColorProgram, "aOther")
-        val color = GLES20.glGetAttribLocation(quadColorProgram, "aColor")
-        GLES20.glEnableVertexAttribArray(position)
-        GLES20.glEnableVertexAttribArray(other)
-        GLES20.glEnableVertexAttribArray(color)
-        bindQuadAttributes(quads, position, other, color)
-        GLES20.glUniformMatrix4fv(GLES20.glGetUniformLocation(quadColorProgram, "uMvpMatrix"), 1, false, mvp, 0)
-        GLES20.glUniform2f(GLES20.glGetUniformLocation(quadColorProgram, "uViewport"), viewportWidth.toFloat(), viewportHeight.toFloat())
-        GLES20.glUniform1f(GLES20.glGetUniformLocation(quadColorProgram, "uHalfWidthPx"), halfWidthPx)
-        GLES20.glUniform1f(GLES20.glGetUniformLocation(quadColorProgram, "uOutlinePx"), outlinePx)
-        GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, vertexCount)
-        GLES20.glDisableVertexAttribArray(position)
-        GLES20.glDisableVertexAttribArray(other)
-        GLES20.glDisableVertexAttribArray(color)
-    }
-
-    private fun bindQuadAttributes(quads: ByteBuffer, position: Int, other: Int, color: Int) {
-        quads.position(0)
-        GLES20.glVertexAttribPointer(position, 3, GLES20.GL_FLOAT, false, QUAD_VERTEX_BYTES, quads)
-        quads.position(12)
-        GLES20.glVertexAttribPointer(other, 4, GLES20.GL_FLOAT, false, QUAD_VERTEX_BYTES, quads)
-        if (color >= 0) {
-            quads.position(QUAD_COLOR_OFFSET)
-            GLES20.glVertexAttribPointer(color, 4, GLES20.GL_UNSIGNED_BYTE, true, QUAD_VERTEX_BYTES, quads)
-        }
-        quads.position(0)
     }
 
     private fun drawSolidLines(
@@ -782,11 +675,6 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         private const val PATH_WIDTH = 6f
         private const val OUTLINE_EXTRA_WIDTH = 2f
         private const val TRAVEL_WIDTH = 2f
-        // Quad-based path rendering is used while the extrusion move count
-        // stays under this limit; larger paths fall back to GL_LINES.
-        private const val QUAD_PATH_MAX_MOVES = 300_000
-        private const val QUAD_VERTEX_BYTES = 32
-        private const val QUAD_COLOR_OFFSET = 28
         // Eye sits at (0, -distance, 0.58*distance); true eye distance is distance * sqrt(1 + 0.58^2).
         private const val CAMERA_EYE_DISTANCE_SCALE = 1.1561f
 
@@ -819,68 +707,6 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
             uniform vec4 uColor;
             void main() {
                 gl_FragColor = uColor;
-            }
-        """
-        // Screen-space capsule quads: every segment is expanded into a quad
-        // covering the stroke, its outline and its round caps, and the fragment
-        // shader shades the exact distance to the segment, so joints and corners
-        // have no seams and the thickness never depends on glLineWidth support.
-        private const val QUAD_COLOR_VERTEX_SHADER = """
-            uniform mat4 uMvpMatrix;
-            uniform vec2 uViewport;
-            uniform float uHalfWidthPx;
-            uniform float uOutlinePx;
-            attribute vec4 aPosition;
-            attribute vec4 aOther;
-            attribute vec4 aColor;
-            varying vec4 vColor;
-            varying vec2 vLocal;
-            varying float vLenPx;
-            void main() {
-                vec4 p = uMvpMatrix * aPosition;
-                vec4 o = uMvpMatrix * aOther;
-                float pw = max(p.w, 1e-6);
-                float ow = max(o.w, 1e-6);
-                vec2 pp = p.xy / pw;
-                vec2 oo = o.xy / ow;
-                vec2 px = uViewport * 0.5;
-                vec2 p1 = pp * px;
-                vec2 toOther = (oo - pp) * px;
-                float len = length(toOther);
-                vec2 toward = (len < 0.5) ? vec2(1.0, 0.0) : toOther / len;
-                vec2 perp = vec2(-toward.y, toward.x);
-                float side = sign(aOther.w);
-                float endFlag = step(2.0, abs(aOther.w));
-                float radius = uHalfWidthPx + uOutlinePx + 1.0;
-                // Expand past this endpoint: perpendicular by the side, backward
-                // by the radius so the quad covers the round cap at both ends.
-                vec2 posPx = p1 + perp * (side * radius) - toward * radius;
-                // Canonical segment frame (start at the segment origin, +x along
-                // the segment) so the fragment can measure the capsule distance.
-                vec2 startPx = mix(p1, oo * px, endFlag);
-                vec2 dirU = mix(toward, -toward, endFlag);
-                vec2 perpU = vec2(-dirU.y, dirU.x);
-                vLocal = vec2(dot(posPx - startPx, dirU), dot(posPx - startPx, perpU));
-                vLenPx = len;
-                gl_Position = vec4((pp + (posPx - p1) / px) * pw, p.z, pw);
-                vColor = aColor;
-            }
-        """
-        private const val QUAD_COLOR_FRAGMENT_SHADER = """
-            precision mediump float;
-            uniform float uHalfWidthPx;
-            uniform float uOutlinePx;
-            varying vec4 vColor;
-            varying vec2 vLocal;
-            varying float vLenPx;
-            void main() {
-                float along = clamp(vLocal.x, 0.0, max(vLenPx, 0.0));
-                float d = length(vec2(vLocal.x - along, vLocal.y));
-                float limit = uHalfWidthPx + uOutlinePx;
-                float alpha = 1.0 - smoothstep(limit - 1.0, limit + 1.0, d);
-                if (alpha < 0.003) discard;
-                float inner = smoothstep(uHalfWidthPx - 1.0, uHalfWidthPx + 1.0, d);
-                gl_FragColor = vec4(mix(vec3(0.0, 0.0, 0.0), vColor.rgb, 1.0 - inner), alpha);
             }
         """
     }
