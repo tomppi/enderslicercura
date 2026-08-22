@@ -42,6 +42,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
@@ -65,7 +66,7 @@ private const val PLAYBACK_TICK_MS = 16L
 private const val PLAYBACK_TOTAL_MS = 60_000L
 private const val PLAYBACK_MAX_STEP_MS = 2_000L
 private const val HOLD_REPEAT_DELAY_MS = 400L
-private const val HOLD_REPEAT_INTERVAL_MS = 250L
+private const val HOLD_REPEAT_INTERVAL_MS = 100L
 
 private sealed interface NozzlePathLoadState {
     data object Loading : NozzlePathLoadState
@@ -245,52 +246,18 @@ private fun NozzlePathPlayer(path: GcodeNozzlePath, artifactKey: String, modifie
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                     }
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
-                        shadowElevation = 3.dp,
-                    ) {
-                        Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 2.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text("Hide travel moves", style = MaterialTheme.typography.labelMedium)
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Switch(
-                                    checked = showTravels,
-                                    onCheckedChange = { showTravels = it },
-                                    modifier = Modifier.scale(0.75f),
-                                )
-                            }
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text("Color by print speed", style = MaterialTheme.typography.labelMedium)
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Switch(
-                                    checked = colorBySpeed,
-                                    onCheckedChange = { colorBySpeed = it },
-                                    modifier = Modifier.scale(0.75f),
-                                )
-                            }
-                            Text(
-                                "$moveLabel · Z %.3f mm · %.1f mm/s".format(
-                                    path.moves[offset + GcodeNozzlePath.Z2],
-                                    path.moves[offset + GcodeNozzlePath.SPEED],
-                                ),
-                                style = MaterialTheme.typography.labelSmall,
-                            )
-                        }
-                    }
                 }
             }
 
             Card(
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 10.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
+                Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
                     Slider(
                         value = safeIndex.toFloat(),
                         onValueChange = {
@@ -337,11 +304,40 @@ private fun NozzlePathPlayer(path: GcodeNozzlePath, artifactKey: String, modifie
                             moveIndex = (moveIndex + 1).coerceAtMost(path.moveCount - 1)
                         },
                     )
-                    OutlinedButton(
-                        onClick = { surfaceView?.resetView() },
-                        modifier = Modifier.height(32.dp),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-                    ) { Text("Reset", style = MaterialTheme.typography.labelMedium) }
+                        OutlinedButton(
+                            onClick = { surfaceView?.resetView() },
+                            modifier = Modifier.height(32.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                        ) { Text("Reset", style = MaterialTheme.typography.labelMedium) }
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text("Travel moves", style = MaterialTheme.typography.labelMedium)
+                        Switch(
+                            checked = showTravels,
+                            onCheckedChange = { showTravels = it },
+                            modifier = Modifier.scale(0.7f),
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text("Speed colors", style = MaterialTheme.typography.labelMedium)
+                        Switch(
+                            checked = colorBySpeed,
+                            onCheckedChange = { colorBySpeed = it },
+                            modifier = Modifier.scale(0.7f),
+                        )
+                        Spacer(modifier = Modifier.weight(1f))
+                        Text(
+                            "$moveLabel · Z %.3f mm · %.1f mm/s".format(
+                                path.moves[offset + GcodeNozzlePath.Z2],
+                                path.moves[offset + GcodeNozzlePath.SPEED],
+                            ),
+                            style = MaterialTheme.typography.labelSmall,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
             }
         }
