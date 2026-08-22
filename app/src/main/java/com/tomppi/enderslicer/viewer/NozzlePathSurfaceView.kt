@@ -4,7 +4,6 @@ import android.content.Context
 import android.opengl.GLES20
 import android.opengl.GLSurfaceView
 import android.opengl.Matrix
-import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import com.tomppi.enderslicer.engine.GcodeNozzlePath
@@ -33,7 +32,6 @@ internal fun extrusionHue(zRatio: Float, speedRatio: Float, colorBySpeed: Boolea
 class NozzlePathSurfaceView(context: Context) : GLSurfaceView(context) {
     private val pathRenderer = NozzlePathRenderer()
     private val scaleDetector = ScaleGestureDetector(context, ScaleListener())
-    private val gestureDetector = GestureDetector(context, GestureListener())
     private var previousX = 0f
     private var previousY = 0f
     private var previousFocusX = 0f
@@ -87,7 +85,6 @@ class NozzlePathSurfaceView(context: Context) : GLSurfaceView(context) {
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        gestureDetector.onTouchEvent(event)
         scaleDetector.onTouchEvent(event)
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
@@ -159,15 +156,11 @@ class NozzlePathSurfaceView(context: Context) : GLSurfaceView(context) {
         }
     }
 
-    private inner class GestureListener : GestureDetector.SimpleOnGestureListener() {
-        override fun onDown(event: MotionEvent): Boolean = true
-
-        override fun onDoubleTap(event: MotionEvent): Boolean {
-            queueEvent { pathRenderer.resetCamera() }
-            queueEvent { notifyOrientation() }
-            requestRender()
-            return true
-        }
+    /** Resets yaw, pitch, zoom, pan and the orbit pivot back to the model fit. */
+    fun resetView() {
+        queueEvent { pathRenderer.resetCamera() }
+        queueEvent { notifyOrientation() }
+        requestRender()
     }
 }
 

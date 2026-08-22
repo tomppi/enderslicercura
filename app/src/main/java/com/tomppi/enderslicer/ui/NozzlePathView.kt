@@ -290,6 +290,14 @@ private fun NozzlePathPlayer(path: GcodeNozzlePath, artifactKey: String, modifie
                             onCheckedChange = { colorBySpeed = it },
                         )
                     }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center,
+                    ) {
+                        OutlinedButton(onClick = { surfaceView?.resetView() }) {
+                            Text("Reset view")
+                        }
+                    }
                     val offset = safeIndex * GcodeNozzlePath.VALUES_PER_MOVE
                     val sourceIndex = path.sourceMoveIndices[safeIndex]
                     val moveLabel = if (path.truncated) {
