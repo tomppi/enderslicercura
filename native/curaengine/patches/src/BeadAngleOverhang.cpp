@@ -27,6 +27,108 @@ constexpr double MIN_STEEP_THICKNESS_FACTOR = 1.0;
 //! squeeze into the layer beside, never a big excursion.
 constexpr double PRESS_GAIN_MM = 0.05;
 constexpr double PRESS_MAX_MM = 0.10;
+constexpr double PI = 3.14159265358979323846;
+//! How far past the contour the interior probe travels (0.02 mm).
+constexpr coord_t PROBE_UM = 20;
+
+//! Hook-and-loop shell anchors (masonry mode): every HOOK_SPACING_UM along the
+//! innermost wall the toolpath steps inward and draws a small closed ring - the
+//! eye is the hook and the core material printed around and through it is the
+//! loop, pinning the shell to the core instead of only melting against it.
+constexpr coord_t HOOK_SPACING_UM = 4000; // 4 mm between hook eyes
+constexpr coord_t HOOK_NECK_UM = 600;     // stem length from the wall to the eye
+constexpr double HOOK_RADIUS_LW = 1.0;    // eye radius in line widths
+constexpr int HOOK_CIRCLE_POINTS = 16;
+
+Point2LL inwardNormal(const Point2LL& previous, const Point2LL& next, const Shape& bounded);
+
+//! Insert hook eyes into an innermost wall contour: every HOOK_SPACING_UM the
+//! path steps inward, draws a small closed ring and steps back along the stem.
+//! Eyes whose centre would leave the outline are skipped (thin walls).
+OpenPolyline withHookEyes(const OpenPolyline& line, const Shape& bounded, const Shape& outline, coord_t line_width)
+{
+    const double total = line.length();
+    const coord_t radius = static_cast<coord_t>(std::llround(HOOK_RADIUS_LW * static_cast<double>(line_width)));
+    if (line.size() < 2 || total < HOOK_SPACING_UM + radius + HOOK_NECK_UM || line_width <= 0)
+    {
+        return line;
+    }
+
+    std::vector<double> cumulative(line.size(), 0.0);
+    for (size_t i = 1; i < line.size(); ++i)
+    {
+        const Point2LL delta = line[i] - line[i - 1];
+        cumulative[i] = cumulative[i - 1] + std::hypot(static_cast<double>(delta.X), static_cast<double>(delta.Y));
+    }
+
+    OpenPolyline out;
+    out.reserve(line.size() + (static_cast<size_t>(total / HOOK_SPACING_UM) + 1) * (HOOK_CIRCLE_POINTS + 4));
+    out.push_back(line[0]);
+    double next_hook = std::min(static_cast<double>(HOOK_SPACING_UM), total - 1.0);
+    for (size_t i = 1; i < line.size(); ++i)
+    {
+        while (next_hook <= cumulative[i])
+        {
+            const double segment = cumulative[i] - cumulative[i - 1];
+            const double t = segment > 0.0 ? (next_hook - cumulative[i - 1]) / segment : 0.0;
+            const Point2LL p0 = line[i - 1] + (line[i] - line[i - 1]) * t;
+            // Inward direction at the hook point itself: probing at a corner
+            // vertex can land on both boundary lines and fail the inside test.
+            const Point2LL tangent = line[i] - line[i - 1];
+            const double t_len = std::hypot(static_cast<double>(tangent.X), static_cast<double>(tangent.Y));
+            Point2LL normal(0, 0);
+            if (t_len > 0.0)
+            {
+                const double nx = static_cast<double>(tangent.Y) / t_len;
+                const double ny = -static_cast<double>(tangent.X) / t_len;
+                const Point2LL cand(
+                    static_cast<coord_t>(std::llround(nx * PROBE_UM)),
+                    static_cast<coord_t>(std::llround(ny * PROBE_UM)));
+                if (bounded.inside(p0 + cand))
+                {
+                    normal = cand;
+                }
+                else
+                {
+                    const Point2LL opposite(-cand.X, -cand.Y);
+                    if (bounded.inside(p0 + opposite))
+                    {
+                        normal = opposite;
+                    }
+                }
+            }
+            const double n_len = std::hypot(static_cast<double>(normal.X), static_cast<double>(normal.Y));
+            if (n_len > 0.0)
+            {
+                const Point2LL unit(
+                    static_cast<coord_t>(std::llround(normal.X / n_len * 1000.0)),
+                    static_cast<coord_t>(std::llround(normal.Y / n_len * 1000.0)));
+                const Point2LL p1(p0.X + unit.X * HOOK_NECK_UM / 1000, p0.Y + unit.Y * HOOK_NECK_UM / 1000);
+                const Point2LL centre(p1.X + unit.X * radius / 1000, p1.Y + unit.Y * radius / 1000);
+                if (outline.inside(centre))
+                {
+                    out.push_back(p1);
+                    const Point2LL arm(p1 - centre);
+                    for (int k = 1; k <= HOOK_CIRCLE_POINTS; ++k)
+                    {
+                        const double angle = 2.0 * PI * static_cast<double>(k) / HOOK_CIRCLE_POINTS;
+                        const double cos_a = std::cos(angle);
+                        const double sin_a = std::sin(angle);
+                        const Point2LL rotated(
+                            centre.X + static_cast<coord_t>(std::llround(arm.X * cos_a - arm.Y * sin_a)),
+                            centre.Y + static_cast<coord_t>(std::llround(arm.X * sin_a + arm.Y * cos_a)));
+                        out.push_back(rotated);
+                    }
+                    out.push_back(p1);
+                }
+                out.push_back(p0);
+            }
+            next_hook += HOOK_SPACING_UM;
+        }
+        out.push_back(line[i]);
+    }
+    return out;
+}
 
 OpenLinesSet contoursOf(const Shape& shape, const Shape& clip)
 {
@@ -82,12 +184,6 @@ Point2LL pointAtPolyline(const OpenPolyline& line, const std::vector<double>& cu
     }
     return line[line.size() - 1];
 }
-
-//! How far past the contour the interior probe travels. The probe must stay
-//! much shorter than the thinnest engaged band (thickness in the line-width
-//! range): a long probe overshoots a thin band and flips the press outward,
-//! pushing the outer wall past the model outline.
-constexpr coord_t PROBE_UM = 20; // 0.02 mm
 
 //! Inward direction at a contour point: the perpendicular of the local segment
 //! that points INTO the shape the contour bounds (toward the backing walls
@@ -268,6 +364,7 @@ void BeadAngleGenerator::generateMasonryWalls(
         {
             continue;
         }
+        const bool innermost = (i + 1 == parameters.base_wall_count);
         for (const Polygon& polygon : inset)
         {
             if (polygon.size() < 3)
@@ -281,6 +378,12 @@ void BeadAngleGenerator::generateMasonryWalls(
                 line.push_back(point);
             }
             line.push_back(polygon.front());
+            if (innermost)
+            {
+                // Hook-and-loop shell anchors on the inside of the wall stack:
+                // small closed eyes that the core material locks around.
+                line = withHookEyes(line, inset, outline, parameters.line_width);
+            }
             output.push_back(std::move(line), CheckNonEmptyParam::OnlyIfValid);
         }
     }
