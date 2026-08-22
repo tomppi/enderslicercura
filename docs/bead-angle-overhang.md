@@ -1,6 +1,6 @@
 # Bead-Angle Overhang (working design)
 
-Status: design draft, not yet implemented.
+Status: implemented (adaptive angle, inward press, full wall takeover), iterating on print quality.
 
 ## Goal
 
@@ -65,7 +65,12 @@ Follows the existing engine strategy pattern (ArcOverhang.cpp, WaveOverhang.cpp,
 BrickWalls.cpp, ConicalOverhang.cpp):
 
 1. New CuraEngine generator `BeadAngleOverhang.cpp` hooked in
-   `FffGcodeWriter.cpp` the same way as the brick-wall hook.
+   `FffGcodeWriter.cpp` the same way as the brick-wall hook. In bead-angle
+   mode the generator OWNS the walls: Cura's wall toolpaths are dropped for
+   every layer (`part.wall_toolpaths.clear()`) and replaced by our base
+   insets (`generateBaseWalls`, normal wall speed/flow, clipped out of the
+   band zones) plus the pressed leaning stacks of the engaged bands, so
+   nothing doubles up with them.
 2. Settings enderslicer_bead_angle_enabled, ..._wavelength,
    ..._flow, ..._speed, ..._fan_speed, ..._max_iterations
    (no press-angle setting: it is derived from the model), plumbed through

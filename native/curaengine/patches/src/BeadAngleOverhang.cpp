@@ -184,17 +184,85 @@ void emitPressedContour(const OpenPolyline& line, const Shape& bounded, coord_t 
     }
 }
 
+//! Split a contour into the runs that stay outside the replacement region
+//! (the leaning stacks already own the area inside it).
+void clipOutside(const OpenPolyline& line, const Shape& region, OpenLinesSet& output)
+{
+    if (region.empty())
+    {
+        output.push_back(line, CheckNonEmptyParam::OnlyIfValid);
+        return;
+    }
+    OpenPolyline run;
+    for (const Point2LL& point : line)
+    {
+        if (region.inside(point))
+        {
+            if (run.size() >= 2)
+            {
+                output.push_back(std::move(run), CheckNonEmptyParam::OnlyIfValid);
+            }
+            run.clear();
+        }
+        else
+        {
+            run.push_back(point);
+        }
+    }
+    if (run.size() >= 2)
+    {
+        output.push_back(std::move(run), CheckNonEmptyParam::OnlyIfValid);
+    }
+}
+
 } // namespace
+
+void BeadAngleGenerator::generateBaseWalls(
+    const Shape& outline,
+    const BeadAngleParameters& parameters,
+    const Shape& replacement,
+    OpenLinesSet& output)
+{
+    for (size_t i = 0; i < parameters.base_wall_count; ++i)
+    {
+        // The outer wall follows the raw outline (offset(0) can collapse
+        // very thin parts); the inner walls nest inward and stop as soon as
+        // the inset no longer fits.
+        const Shape inset = (i == 0) ? outline : outline.offset(-static_cast<coord_t>(i) * parameters.line_width);
+        if (inset.empty())
+        {
+            break;
+        }
+        // The insets lie inside the outline by construction, so they need no
+        // clipping: emit each boundary directly (Clipper polygon intersection
+        // would drop closed rings when extracting open paths).
+        for (const Polygon& polygon : inset)
+        {
+            if (polygon.size() < 3)
+            {
+                continue;
+            }
+            OpenPolyline line;
+            line.reserve(polygon.size() + 1);
+            for (const Point2LL& point : polygon)
+            {
+                line.push_back(point);
+            }
+            line.push_back(polygon.front());
+            clipOutside(line, replacement, output);
+        }
+    }
+}
 
 bool BeadAngleGenerator::generate(
     const Shape& outline,
     const Shape& supported_region,
     const BeadAngleParameters& parameters,
     OpenLinesSet& output,
-    Shape& engaged)
+    Shape& replacement)
 {
     output.getLines().clear();
-    engaged.clear();
+    replacement.clear();
     if (outline.empty() || supported_region.empty() || parameters.line_width <= 0
         || parameters.layer_height <= 0 || parameters.base_wall_count < 1)
     {
@@ -269,7 +337,7 @@ bool BeadAngleGenerator::generate(
                 emitPressedContour(line, inset, press_amplitude, parameters.press_wavelength, output);
             }
         }
-        engaged = engaged.unionPolygons(island_shape);
+        replacement = replacement.unionPolygons(zone);
         any_region = true;
     }
 
