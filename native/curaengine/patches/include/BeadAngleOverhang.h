@@ -1,8 +1,7 @@
 // Copyright (c) 2026 EnderSlicerCura contributors
 // Masonry-bonded walls: the wall stack leans alternately +/- half a bead per
 // layer, so every bead rests on the shoulder of the bead beneath instead of
-// stacking flat, and the innermost wall prints hook-and-loop shell anchors
-// into the core. Distributed under GNU AGPL-3.0-or-later with CuraEngine.
+// stacking flat. Distributed under GNU AGPL-3.0-or-later with CuraEngine.
 
 #pragma once
 
@@ -35,8 +34,7 @@ public:
     // Emits the wall insets (0 .. base_wall_count - 1) shifted sideways by
     // [lean] (signed microns). Masonry-bonded walls lean alternately +/- half
     // a bead per layer so every bead rests on the shoulder of the bead
-    // beneath instead of stacking flat like Lego bricks. The innermost wall
-    // also prints hook-and-loop eyes into the core.
+    // beneath instead of stacking flat like Lego bricks.
     static void generateMasonryWalls(
         const Shape& outline,
         const BeadAngleParameters& parameters,

@@ -775,7 +775,7 @@ internal fun CategorizedSettingsSheet(
             }
             if (settings.masonryWallsEnabled) {
                 Text(
-                    "Every wall leans alternately ± half a bead per layer, so each bead rests on the shoulder of the bead beneath instead of stacking flat; the outer surface gets a fine ±0.2 mm zigzag. The innermost wall also prints loop eyes into the core every 4 mm - big and small rings alternate per layer, so each small ring prints inside the big ring beneath it and rivets the layers together.",
+                    "Every wall leans alternately ± half a bead per layer, so each bead rests on the shoulder of the bead beneath instead of stacking flat; the outer surface gets a fine ±0.2 mm zigzag.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
