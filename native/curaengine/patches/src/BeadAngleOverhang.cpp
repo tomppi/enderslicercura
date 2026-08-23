@@ -327,9 +327,10 @@ void BeadAngleGenerator::generateBaseWalls(
     const Shape& outline,
     const BeadAngleParameters& parameters,
     const Shape& replacement,
-    OpenLinesSet& output)
+    OpenLinesSet& output,
+    size_t outer_skip)
 {
-    for (size_t i = 0; i < parameters.base_wall_count; ++i)
+    for (size_t i = outer_skip; i < parameters.base_wall_count; ++i)
     {
         // The outer wall follows the raw outline (offset(0) can collapse
         // very thin parts); the inner walls nest inward and stop as soon as
@@ -676,24 +677,6 @@ bool BeadAngleGenerator::generateChain(
         }
         const Shape outside_zones = zones.empty() ? outline : outline.difference(zones);
 
-        // Base rows (the inner walls of the stack) at full width, clipped out
-        // of the band zones (the wedge rows own those areas). Deepest first.
-        ChainPaint rows_base;
-        rows_base.width_um = parameters.line_width;
-        for (size_t j = parameters.base_wall_count; j-- > 1;)
-        {
-            const Shape inset = outline.offset(-static_cast<coord_t>(j) * parameters.line_width);
-            if (inset.empty())
-            {
-                continue;
-            }
-            appendClipped(inset, outside_zones, rows_base.lines);
-        }
-        if (! rows_base.lines.getLines().empty())
-        {
-            paints.push_back(std::move(rows_base));
-        }
-
         // Wedge rows + adaptive chain width inside the band zones.
         for (const Polygon& island_polygon : outline.difference(supported_region))
         {
@@ -780,9 +763,10 @@ bool BeadAngleGenerator::generateChain(
             paints.push_back(std::move(chain_full));
         }
 
-        // The chain owns the whole outer wall: the caller's base walls are
-        // clipped against the full outline and emit nothing.
-        replacement = outline;
+        // The chain owns the outer wall; the caller keeps Cura's remaining
+        // wall insets (1 .. base-1) as the stack behind it, clipped away from
+        // the band zones (the wedge rows own those areas). No replacement
+        // region is needed here - the writer skips the outermost wall inset.
         return ! paints.empty();
     }
 

@@ -71,7 +71,8 @@ public:
         const Shape& outline,
         const BeadAngleParameters& parameters,
         const Shape& replacement,
-        OpenLinesSet& output);
+        OpenLinesSet& output,
+        size_t outer_skip = 0);
 
     // Emits the wall insets (0 .. base_wall_count - 1) shifted sideways by
     // [lean] (signed microns). Masonry-bonded walls lean alternately +/- half

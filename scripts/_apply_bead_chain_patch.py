@@ -1,14 +1,10 @@
 # Bead-chain overhang engine patch (applied after the bead-angle module).
-# Adds the chain mode to the G-code writer, its preview marker plumbing and
-# the per-path width emission. The generator itself lives in BeadAngleOverhang
-# (installed by the bead-angle module, which this one extends).
 
 def apply(root, arc_patch_root, replace):
     gcode_path_config_h = root / "include" / "GCodePathConfig.h"
     layer_plan_cpp = root / "src" / "LayerPlan.cpp"
     fff_gcode_writer_cpp = root / "src" / "FffGcodeWriter.cpp"
 
-    # Chain paths carry their own preview marker.
     replace(
         gcode_path_config_h,
         """    bool is_bead_angle{ false }; //!< EnderSlicer bead-angle overhang path""",
@@ -42,7 +38,6 @@ def apply(root, arc_patch_root, replace):
                 }""",
     )
 
-    # Mutual exclusion: the chain mode is its own wall owner.
     replace(
         fff_gcode_writer_cpp,
         """    const bool bead_angle_enabled = mesh.settings.get<bool>("enderslicer_bead_angle_enabled") && ! masonry_walls_enabled && ! wall_anchor_infill_enabled;""",
@@ -55,13 +50,35 @@ def apply(root, arc_patch_root, replace):
         """    const bool brick_walls_enabled = mesh.settings.get<bool>("enderslicer_brick_wall_enabled") && ! bead_angle_enabled && ! bead_chain_enabled && ! masonry_walls_enabled && ! wall_anchor_infill_enabled;""",
     )
 
-    # The chain branch, right before the brick branch. Guarded on an
-    # independent marker so edits to the branch text stay idempotent.
+    # The chain branch, right before the brick branch (guarded on a marker so
+    # edits to the branch text stay idempotent).
     if "    if (bead_chain_enabled)" not in fff_gcode_writer_cpp.read_text():
         replace(
+            fff_gcode_writer_cpp,
+            """    if (layer_nr > 0 && brick_walls_enabled)""",
+            BRANCH + """    if (layer_nr > 0 && brick_walls_enabled)""",
+        )
+
+    # Hybrid stack: the chain owns the outer bead; the remaining Cura walls
+    # (1 .. base-1) stay behind it, printing before the chain paints.
+    replace(
         fff_gcode_writer_cpp,
-        """    if (layer_nr > 0 && brick_walls_enabled)""",
-        """    if (bead_chain_enabled)
+        OLD_BASE_GEN,
+        NEW_BASE_GEN,
+    )
+    replace(
+        fff_gcode_writer_cpp,
+        OLD_ORDER,
+        NEW_ORDER,
+    )
+    replace(
+        fff_gcode_writer_cpp,
+        OLD_TRAIL,
+        "",
+    )
+
+
+BRANCH = """    if (bead_chain_enabled)
     {
         // Bead-chain mode owns the walls: drop Cura's wall emission and
         // replace it with the chain bands - the outer seated chain bead plus
@@ -98,10 +115,10 @@ def apply(root, arc_patch_root, replace):
             BeadAngleGenerator::generateChain(part.outline, supported, chain_parameters, chain_paint_buckets, replacement);
         }
         OpenLinesSet base_walls;
-        if (! chain_parameters.all_walls)
-        {
-            BeadAngleGenerator::generateBaseWalls(part.outline, chain_parameters, replacement, base_walls);
-        }
+        // The chain owns the outer wall: the remaining Cura wall insets
+        // (1 .. base-1, with real transitions) stay as the stack behind it.
+        BeadAngleGenerator::generateBaseWalls(part.outline, chain_parameters, replacement, base_walls,
+                                                chain_parameters.all_walls ? 1 : 0);
 
         GCodePathConfig chain_config = mesh_config.inset0_config;
         chain_config.is_bead_chain = true;
@@ -109,7 +126,27 @@ def apply(root, arc_patch_root, replace):
         chain_config.fan_speed = mesh.settings.get<double>("enderslicer_bead_chain_fan_speed");
 
         gcode_layer.setIsInside(true);
-        // Rows first, chain bead last: it seats and presses into the row.
+        // The inner wall insets print first (the chain's backing), then the
+        // chain paints rows-first with the chain bead last: it seats and
+        // presses into the row.
+        for (OpenPolyline& wall : base_walls.getLines())
+        {
+            if (! wall.isValid())
+            {
+                continue;
+            }
+            OpenLinesSet ordered_wall;
+            ordered_wall.push_back(std::move(wall), CheckNonEmptyParam::OnlyIfValid);
+            gcode_layer.addLinesByOptimizer(
+                ordered_wall,
+                mesh_config.inset0_config,
+                SpaceFillType::PolyLines,
+                false,
+                0,
+                1.0,
+                std::nullopt,
+                mesh_config.inset0_config.fan_speed);
+        }
         std::vector<ChainPaint> paints = std::move(chain_paint_buckets);
         for (ChainPaint& paint : paints)
         {
@@ -134,7 +171,52 @@ def apply(root, arc_patch_root, replace):
                     paint_config.fan_speed);
             }
         }
+        added_something = true;
+    }
+
+"""
+
+OLD_BASE_GEN = """        OpenLinesSet base_walls;
         if (! chain_parameters.all_walls)
+        {
+            BeadAngleGenerator::generateBaseWalls(part.outline, chain_parameters, replacement, base_walls);
+        }"""
+
+NEW_BASE_GEN = """        OpenLinesSet base_walls;
+        // The chain owns the outer wall: the remaining Cura wall insets
+        // (1 .. base-1, with real transitions) stay as the stack behind it.
+        BeadAngleGenerator::generateBaseWalls(part.outline, chain_parameters, replacement, base_walls,
+                                                chain_parameters.all_walls ? 1 : 0);"""
+
+OLD_ORDER = """        gcode_layer.setIsInside(true);
+        // Rows first, chain bead last: it seats and presses into the row.
+        std::vector<ChainPaint> paints = std::move(chain_paint_buckets);"""
+
+NEW_ORDER = """        gcode_layer.setIsInside(true);
+        // The inner wall insets print first (the chain's backing), then the
+        // chain paints rows-first with the chain bead last: it seats and
+        // presses into the row.
+        for (OpenPolyline& wall : base_walls.getLines())
+        {
+            if (! wall.isValid())
+            {
+                continue;
+            }
+            OpenLinesSet ordered_wall;
+            ordered_wall.push_back(std::move(wall), CheckNonEmptyParam::OnlyIfValid);
+            gcode_layer.addLinesByOptimizer(
+                ordered_wall,
+                mesh_config.inset0_config,
+                SpaceFillType::PolyLines,
+                false,
+                0,
+                1.0,
+                std::nullopt,
+                mesh_config.inset0_config.fan_speed);
+        }
+        std::vector<ChainPaint> paints = std::move(chain_paint_buckets);"""
+
+OLD_TRAIL = """        if (! chain_parameters.all_walls)
         {
             for (OpenPolyline& wall : base_walls.getLines())
             {
@@ -155,8 +237,4 @@ def apply(root, arc_patch_root, replace):
                     mesh_config.inset0_config.fan_speed);
             }
         }
-        added_something = true;
-    }
-
-    if (layer_nr > 0 && brick_walls_enabled)""",
-    )
+"""
