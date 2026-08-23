@@ -786,6 +786,30 @@ replace(
 
 PY
 
+# EnderSlicer: bead-chain overhang mode (writer hook, marker, flags). The
+# inline patch above predates it; the chain module knows the same anchors.
+python3 - "$ENGINE_ROOT" <<'PY'
+from pathlib import Path
+import sys
+
+sys.path.insert(0, str(Path.cwd() / "scripts"))
+import _apply_bead_chain_patch
+
+root = Path(sys.argv[1])
+arc_patch_root = Path.cwd() / "native" / "curaengine" / "patches"
+
+def replace(path: Path, old: str, new: str) -> None:
+    text = path.read_text()
+    if new in text:
+        return
+    if old not in text:
+        raise SystemExit(f"Expected bead-chain Android patch context was not found in {path}: {old!r}")
+    path.write_text(text.replace(old, new))
+
+_apply_bead_chain_patch.apply(root, arc_patch_root, replace)
+print("EnderSlicer: bead-chain patch applied")
+PY
+
 python3 -m pip install --user --upgrade 'conan>=2.7,<3'
 export PATH="$HOME/.local/bin:$PATH"
 
