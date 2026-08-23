@@ -400,7 +400,7 @@ void FffGcodeWriter::addMeshPartToGCode(
     // print onto the freshly laid overhang floor instead of into the void.
     // Handled skin parts are emptied so the later skin phase skips them.
     const size_t layer_nr = gcode_layer.getLayerNr();
-    if (layer_nr > 0 && (mesh.settings.get<bool>("enderslicer_wave_overhang_enabled") || mesh.settings.get<bool>("enderslicer_arc_overhang_enabled") || mesh.settings.get<bool>("enderslicer_brick_wall_enabled") || mesh.settings.get<bool>("enderslicer_bead_angle_enabled")))
+    if (layer_nr > 0 && (mesh.settings.get<bool>("enderslicer_wave_overhang_enabled") || mesh.settings.get<bool>("enderslicer_arc_overhang_enabled") || mesh.settings.get<bool>("enderslicer_brick_wall_enabled") ))
     {
         for (SkinPart& skin_part : part.skin_parts)
         {
@@ -515,48 +515,8 @@ replace(
         }
     }
 
-    const bool wall_anchor_infill_enabled = mesh.settings.get<bool>("enderslicer_wall_anchor_infill_enabled");
-    const bool masonry_walls_enabled = mesh.settings.get<bool>("enderslicer_masonry_walls_enabled") && ! wall_anchor_infill_enabled;
-    const bool bead_angle_enabled = mesh.settings.get<bool>("enderslicer_bead_angle_enabled") && ! masonry_walls_enabled && ! wall_anchor_infill_enabled;
-    const bool brick_walls_enabled = mesh.settings.get<bool>("enderslicer_brick_wall_enabled") && ! bead_angle_enabled && ! masonry_walls_enabled && ! wall_anchor_infill_enabled;
-    if (wall_anchor_infill_enabled)
-    {
-        // Wall-anchored infill: plain flat walls, and the innermost wall
-        // sprouts anchor teeth into the core as one continuous extrusion, so
-        // the wall and the infill-facing material share a hot junction instead
-        // of a cooled butt joint. Cura's wall emission is replaced for the
-        // layer; the regular infill still prints around the teeth.
-        insets_preprocess_result.walls_optimizer.reset();
-        part.wall_toolpaths.clear();
-
-        BeadAngleParameters wall_parameters;
-        wall_parameters.line_width = mesh_config.inset0_config.getLineWidth();
-        wall_parameters.base_wall_count = std::max<size_t>(mesh.settings.get<size_t>("wall_line_count"), 1);
-
-        OpenLinesSet anchor_walls;
-        BeadAngleGenerator::generateWallAnchors(part.outline, wall_parameters, anchor_walls);
-
-        gcode_layer.setIsInside(true);
-        for (OpenPolyline& wall : anchor_walls.getLines())
-        {
-            if (! wall.isValid())
-            {
-                continue;
-            }
-            OpenLinesSet ordered_wall;
-            ordered_wall.push_back(std::move(wall), CheckNonEmptyParam::OnlyIfValid);
-            gcode_layer.addLinesByOptimizer(
-                ordered_wall,
-                mesh_config.inset0_config,
-                SpaceFillType::PolyLines,
-                false,
-                0,
-                1.0,
-                std::nullopt,
-                mesh_config.inset0_config.fan_speed);
-        }
-        added_something = true;
-    }
+    const bool masonry_walls_enabled = mesh.settings.get<bool>("enderslicer_masonry_walls_enabled") ;
+    const bool brick_walls_enabled = mesh.settings.get<bool>("enderslicer_brick_wall_enabled") && ! masonry_walls_enabled;
 
     if (masonry_walls_enabled)
     {
@@ -597,83 +557,6 @@ replace(
         added_something = true;
     }
 
-    if (bead_angle_enabled)
-    {
-        // Bead-angle mode owns the walls: drop Cura's wall emission for the
-        // layer (the preprocessed inset optimizer owns the wall toolpaths, so
-        // it must be reset too) and replace it with our base insets plus the
-        // pressed leaning stacks of the overhang bands, so nothing doubles up.
-        insets_preprocess_result.walls_optimizer.reset();
-        part.wall_toolpaths.clear();
-
-        BeadAngleParameters bead_parameters;
-        bead_parameters.line_width = mesh_config.inset0_config.getLineWidth();
-        bead_parameters.layer_height = mesh.settings.get<coord_t>("layer_height");
-        bead_parameters.press_wavelength = mesh.settings.get<coord_t>("enderslicer_bead_angle_wavelength");
-        bead_parameters.base_wall_count = std::max<size_t>(mesh.settings.get<size_t>("wall_line_count"), 1);
-        bead_parameters.max_extra_walls = mesh.settings.get<size_t>("enderslicer_bead_angle_max_iterations");
-
-        OpenLinesSet bead_walls;
-        Shape replacement;
-        if (layer_nr > 0)
-        {
-            Shape supported;
-            bridgeAngle(mesh, part.outline, storage, layer_nr, 1, nullptr, supported);
-            if (! supported.empty())
-            {
-                BeadAngleGenerator::generate(part.outline, supported, bead_parameters, bead_walls, replacement);
-            }
-        }
-        OpenLinesSet base_walls;
-        BeadAngleGenerator::generateBaseWalls(part.outline, bead_parameters, replacement, base_walls);
-
-        GCodePathConfig bead_config = mesh_config.inset0_config;
-        bead_config.is_bead_angle = true;
-        bead_config.speed_derivatives.speed = mesh.settings.get<Velocity>("enderslicer_bead_angle_speed");
-        bead_config.fan_speed = mesh.settings.get<double>("enderslicer_bead_angle_fan_speed");
-        const double bead_flow = mesh.settings.get<double>("enderslicer_bead_angle_flow") / 100.0;
-
-        gcode_layer.setIsInside(true);
-        // Leaning stacks first (their backing is the overhang floor below),
-        // then the base walls cover the rest of the layer.
-        for (OpenPolyline& wall : bead_walls.getLines())
-        {
-            if (! wall.isValid())
-            {
-                continue;
-            }
-            OpenLinesSet ordered_wall;
-            ordered_wall.push_back(std::move(wall), CheckNonEmptyParam::OnlyIfValid);
-            gcode_layer.addLinesByOptimizer(
-                ordered_wall,
-                bead_config,
-                SpaceFillType::PolyLines,
-                false,
-                0,
-                bead_flow,
-                std::nullopt,
-                bead_config.fan_speed);
-        }
-        for (OpenPolyline& wall : base_walls.getLines())
-        {
-            if (! wall.isValid())
-            {
-                continue;
-            }
-            OpenLinesSet ordered_wall;
-            ordered_wall.push_back(std::move(wall), CheckNonEmptyParam::OnlyIfValid);
-            gcode_layer.addLinesByOptimizer(
-                ordered_wall,
-                mesh_config.inset0_config,
-                SpaceFillType::PolyLines,
-                false,
-                0,
-                1.0,
-                std::nullopt,
-                mesh_config.inset0_config.fan_speed);
-        }
-        added_something = true;
-    }
 
     if (layer_nr > 0 && brick_walls_enabled)
     {
@@ -727,7 +610,3 @@ replace(
 # Bead-angle overhang generator (kept in its own module; idempotent).
 import _apply_bead_angle_patch
 _apply_bead_angle_patch.apply(root, arc_patch_root, replace)
-
-# Bead-chain overhang mode (rows + seated chain bead, per-path widths).
-import _apply_bead_chain_patch
-_apply_bead_chain_patch.apply(root, arc_patch_root, replace)

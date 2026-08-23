@@ -5,7 +5,6 @@ import com.tomppi.enderslicer.conical.ConicalRuntime
 import com.tomppi.enderslicer.conical.ConicalSettings
 import com.tomppi.enderslicer.engine.CuraEngineCommand
 import com.tomppi.enderslicer.model.PrinterDefinition
-import com.tomppi.enderslicer.model.BeadChainSettings
 import com.tomppi.enderslicer.model.SlicerSettings
 import com.tomppi.enderslicer.nonplanar.NonPlanarRuntime
 import com.tomppi.enderslicer.nonplanar.NonPlanarSettings
@@ -283,36 +282,6 @@ class AdvancedFeatureSettingsLeakTest {
     }
 
     @Test
-    fun beadAngleKeysReachEngineOnlyWhenEnabled() {
-        val offResolved = resolve(SlicerSettings())
-        val onResolved = resolve(
-            SlicerSettings().copy(beadAngleOverhang = SlicerSettings().beadAngleOverhang.copy(enabled = true)),
-        )
-        assertEquals("false", offResolved.extruderValues["enderslicer_bead_angle_enabled"])
-        assertEquals("true", onResolved.extruderValues["enderslicer_bead_angle_enabled"])
-        assertEquals(
-            offResolved.extruderValues.withoutAppKeys(),
-            onResolved.extruderValues.withoutAppKeys(),
-        )
-
-        assertTrue(buildStandaloneCommand(SlicerSettings()).contains("enderslicer_bead_angle_enabled=false"))
-        assertTrue(
-            buildStandaloneCommand(
-                SlicerSettings().copy(beadAngleOverhang = SlicerSettings().beadAngleOverhang.copy(enabled = true)),
-            ).contains("enderslicer_bead_angle_enabled=true"),
-        )
-
-        // Bridge detection is the bead-angle generator's anchor source, exactly
-        // like brick walls: it must turn on only with the feature.
-        assertFalse(buildStandaloneCommand(SlicerSettings()).contains("bridge_settings_enabled=true"))
-        assertTrue(
-            buildStandaloneCommand(
-                SlicerSettings().copy(beadAngleOverhang = SlicerSettings().beadAngleOverhang.copy(enabled = true)),
-            ).contains("bridge_settings_enabled=true"),
-        )
-    }
-
-    @Test
     fun masonryWallsKeyReachesEngineOnlyWhenEnabled() {
         val offResolved = resolve(SlicerSettings())
         val onResolved = resolve(SlicerSettings().copy(masonryWallsEnabled = true))
@@ -332,49 +301,6 @@ class AdvancedFeatureSettingsLeakTest {
         // Masonry walls do not depend on bridge detection, so the bridge gate
         // must stay off unless an overhang feature turns it on.
         assertFalse(buildStandaloneCommand(SlicerSettings().copy(masonryWallsEnabled = true)).contains("bridge_settings_enabled=true"))
-    }
-
-    @Test
-    fun beadChainKeyReachesEngineOnlyWhenEnabled() {
-        val offResolved = resolve(SlicerSettings())
-        val onResolved = resolve(SlicerSettings().copy(beadChain = BeadChainSettings(enabled = true)))
-        assertEquals("false", offResolved.extruderValues["enderslicer_bead_chain_enabled"])
-        assertEquals("true", onResolved.extruderValues["enderslicer_bead_chain_enabled"])
-        assertEquals(
-            offResolved.extruderValues.withoutAppKeys(),
-            onResolved.extruderValues.withoutAppKeys(),
-        )
-
-        assertTrue(buildStandaloneCommand(SlicerSettings()).contains("enderslicer_bead_chain_enabled=false"))
-        assertTrue(
-            buildStandaloneCommand(SlicerSettings().copy(beadChain = BeadChainSettings(enabled = true)))
-                .contains("enderslicer_bead_chain_enabled=true"),
-        )
-
-        // The chain generator reads the supported region from bridge detection,
-        // so the bridge gate must come on together with the chain.
-        assertTrue(
-            buildStandaloneCommand(SlicerSettings().copy(beadChain = BeadChainSettings(enabled = true)))
-                .contains("bridge_settings_enabled=true"),
-        )
-    }
-
-    @Test
-    fun wallAnchorInfillKeyReachesEngineOnlyWhenEnabled() {
-        val offResolved = resolve(SlicerSettings())
-        val onResolved = resolve(SlicerSettings().copy(wallAnchorInfillEnabled = true))
-        assertEquals("false", offResolved.extruderValues["enderslicer_wall_anchor_infill_enabled"])
-        assertEquals("true", onResolved.extruderValues["enderslicer_wall_anchor_infill_enabled"])
-        assertEquals(
-            offResolved.extruderValues.withoutAppKeys(),
-            onResolved.extruderValues.withoutAppKeys(),
-        )
-
-        assertTrue(buildStandaloneCommand(SlicerSettings()).contains("enderslicer_wall_anchor_infill_enabled=false"))
-        assertTrue(
-            buildStandaloneCommand(SlicerSettings().copy(wallAnchorInfillEnabled = true))
-                .contains("enderslicer_wall_anchor_infill_enabled=true"),
-        )
     }
 
     @Test

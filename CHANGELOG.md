@@ -6,20 +6,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Removed
+
+- Bead-angle overhangs, wall-anchored infill and bead-chain overhangs were
+  removed from the engine, the app and the settings UI; masonry-bonded walls
+  remain (their generator keeps its home in BeadAngleOverhang for that).
+  Nothing depends on the removed settings; presets/imports carrying the old
+  keys ignore them.
+
 ### Added
 
-- Bead-chain overhangs: in an overhang band the wall's outer face becomes one
-  seated bead per layer (the chain) riding the model outline, dropped into the
-  valley of the chain bead below (half-embedded weld), with a row of inner
-  beads behind it that fills the wedge the diagonal step opens so the inner
-  face stays in line with the straight wall. Bead count follows the bend
-  angle (ceil(wall_line_count / cos(theta)), V-collapse to the chain alone
-  when the step falls under a third of a layer height), chain/inner extrusion
-  widths are derived per band (weld target, flow floor, inner flow cap, press)
-  and per-path, and the band falls back to normal walls beyond the bead's
-  reach. Type marker TYPE:BEAD-CHAIN feeds the layer preview. See
-  docs/bead-chain-overhang.md and the cross-section simulations in
-  docs/chain-sim/.
+- Support painting now combines with both non-planar pipelines: painted
+  enforcer/blocker prisms are warped with the same transform as the model
+  (relief-field flatten for CurviSlicer, cone warp around the model centre for
+  conical slicing) so CuraEngine generates supports against the warped solid
+  and the G-code transform restores both together.
 
 ### Simplified
 

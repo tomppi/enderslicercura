@@ -189,9 +189,7 @@ jobs:
           grep -q 'TYPE:WAVE-OVERHANG' .build/CuraEngine/src/LayerPlan.cpp
           grep -q 'is_wave_overhang' .build/CuraEngine/include/GCodePathConfig.h
           test -s .build/CuraEngine/src/WaveOverhang.cpp
-          grep -q 'TYPE:BEAD-CHAIN' .build/CuraEngine/src/LayerPlan.cpp
-          grep -q 'is_bead_chain' .build/CuraEngine/include/GCodePathConfig.h
-          grep -q 'enderslicer_bead_chain_enabled' .build/CuraEngine/src/FffGcodeWriter.cpp
+
           test -s app/src/main/jniLibs/arm64-v8a/libcuraengine_exec.so
           file app/src/main/jniLibs/arm64-v8a/libcuraengine_exec.so
           readelf -d app/src/main/jniLibs/arm64-v8a/libcuraengine_exec.so | tee curaengine-needed.log

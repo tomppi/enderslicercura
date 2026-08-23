@@ -30,7 +30,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.unit.dp
-import com.tomppi.enderslicer.model.BeadChainSettings
 import com.tomppi.enderslicer.model.SlicerSettings
 
 @Composable
@@ -675,10 +674,7 @@ internal fun CategorizedSettingsSheet(
                         waveOverhangEnabled = it,
                         arcOverhangEnabled = if (it) false else current.arcOverhangEnabled,
                         brickWallEnabled = if (it) false else current.brickWallEnabled,
-                        beadAngleOverhang = if (it) current.beadAngleOverhang.copy(enabled = false) else current.beadAngleOverhang,
                         masonryWallsEnabled = if (it) false else current.masonryWallsEnabled,
-                        wallAnchorInfillEnabled = if (it) false else current.wallAnchorInfillEnabled,
-                        beadChain = if (it) BeadChainSettings(enabled = false) else current.beadChain,
                     )
                 }
             }
@@ -736,10 +732,7 @@ internal fun CategorizedSettingsSheet(
                         brickWallEnabled = it,
                         arcOverhangEnabled = if (it) false else current.arcOverhangEnabled,
                         waveOverhangEnabled = if (it) false else current.waveOverhangEnabled,
-                        beadAngleOverhang = if (it) current.beadAngleOverhang.copy(enabled = false) else current.beadAngleOverhang,
                         masonryWallsEnabled = if (it) false else current.masonryWallsEnabled,
-                        wallAnchorInfillEnabled = if (it) false else current.wallAnchorInfillEnabled,
-                        beadChain = if (it) BeadChainSettings(enabled = false) else current.beadChain,
                     )
                 }
             }
@@ -767,81 +760,6 @@ internal fun CategorizedSettingsSheet(
             }
 
             SwitchRow(
-                "Bead-angle overhangs (experimental)",
-                settings.beadAngleOverhang.enabled,
-                source(state, SlicerSettings.Keys.BEAD_ANGLE_ENABLED),
-            ) {
-                onSettings(SlicerSettings.Keys.BEAD_ANGLE_ENABLED) { current ->
-                    current.copy(
-                        beadAngleOverhang = current.beadAngleOverhang.copy(enabled = it),
-                        arcOverhangEnabled = if (it) false else current.arcOverhangEnabled,
-                        waveOverhangEnabled = if (it) false else current.waveOverhangEnabled,
-                        brickWallEnabled = if (it) false else current.brickWallEnabled,
-                        masonryWallsEnabled = if (it) false else current.masonryWallsEnabled,
-                        wallAnchorInfillEnabled = if (it) false else current.wallAnchorInfillEnabled,
-                        beadChain = if (it) BeadChainSettings(enabled = false) else current.beadChain,
-                    )
-                }
-            }
-            if (settings.beadAngleOverhang.enabled) {
-                Text(
-                    "Overhang walls are rebuilt as a leaning wall stack that follows the model outline: extra walls are added automatically on steeper angles, and every bead gets a slight, slow press into the layer beside it. No supports, no extra infill.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                NumberField(
-                    "Press wavelength (mm)",
-                    settings.beadAngleOverhang.wavelengthMm,
-                    source(state, SlicerSettings.Keys.BEAD_ANGLE_WAVELENGTH),
-                    decimals = 1,
-                ) {
-                    onSettings(SlicerSettings.Keys.BEAD_ANGLE_WAVELENGTH) { current ->
-                        current.copy(beadAngleOverhang = current.beadAngleOverhang.copy(wavelengthMm = it.coerceIn(1.0, 10.0)))
-                    }
-                }
-                NumberField(
-                    "Bead-angle speed (mm/s)",
-                    settings.beadAngleOverhang.speedMmPerSecond,
-                    source(state, SlicerSettings.Keys.BEAD_ANGLE_SPEED),
-                    decimals = 1,
-                ) {
-                    onSettings(SlicerSettings.Keys.BEAD_ANGLE_SPEED) { current ->
-                        current.copy(beadAngleOverhang = current.beadAngleOverhang.copy(speedMmPerSecond = it.coerceIn(0.5, 100.0)))
-                    }
-                }
-                NumberField(
-                    "Bead-angle flow (%)",
-                    settings.beadAngleOverhang.flowPercent,
-                    source(state, SlicerSettings.Keys.BEAD_ANGLE_FLOW),
-                    decimals = 1,
-                ) {
-                    onSettings(SlicerSettings.Keys.BEAD_ANGLE_FLOW) { current ->
-                        current.copy(beadAngleOverhang = current.beadAngleOverhang.copy(flowPercent = it.coerceIn(50.0, 200.0)))
-                    }
-                }
-                NumberField(
-                    "Bead-angle fan (%)",
-                    settings.beadAngleOverhang.fanSpeedPercent,
-                    source(state, SlicerSettings.Keys.BEAD_ANGLE_FAN_SPEED),
-                    decimals = 1,
-                ) {
-                    onSettings(SlicerSettings.Keys.BEAD_ANGLE_FAN_SPEED) { current ->
-                        current.copy(beadAngleOverhang = current.beadAngleOverhang.copy(fanSpeedPercent = it.coerceIn(0.0, 100.0)))
-                    }
-                }
-                NumberField(
-                    "Maximum extra walls",
-                    settings.beadAngleOverhang.maxIterations.toDouble(),
-                    source(state, SlicerSettings.Keys.BEAD_ANGLE_MAX_ITERATIONS),
-                    decimals = 0,
-                ) {
-                    onSettings(SlicerSettings.Keys.BEAD_ANGLE_MAX_ITERATIONS) { current ->
-                        current.copy(beadAngleOverhang = current.beadAngleOverhang.copy(maxIterations = it.toInt().coerceIn(1, 10)))
-                    }
-                }
-            }
-
-            SwitchRow(
                 "Masonry-bonded walls (experimental)",
                 settings.masonryWallsEnabled,
                 source(state, SlicerSettings.Keys.MASONRY_WALLS_ENABLED),
@@ -852,9 +770,6 @@ internal fun CategorizedSettingsSheet(
                         arcOverhangEnabled = if (it) false else current.arcOverhangEnabled,
                         waveOverhangEnabled = if (it) false else current.waveOverhangEnabled,
                         brickWallEnabled = if (it) false else current.brickWallEnabled,
-                        beadAngleOverhang = if (it) current.beadAngleOverhang.copy(enabled = false) else current.beadAngleOverhang,
-                        wallAnchorInfillEnabled = if (it) false else current.wallAnchorInfillEnabled,
-                        beadChain = if (it) BeadChainSettings(enabled = false) else current.beadChain,
                     )
                 }
             }
@@ -867,135 +782,6 @@ internal fun CategorizedSettingsSheet(
             }
 
             SwitchRow(
-                "Wall-anchored infill (experimental)",
-                settings.wallAnchorInfillEnabled,
-                source(state, SlicerSettings.Keys.WALL_ANCHOR_INFILL_ENABLED),
-            ) {
-                onSettings(SlicerSettings.Keys.WALL_ANCHOR_INFILL_ENABLED) { current ->
-                    current.copy(
-                        wallAnchorInfillEnabled = it,
-                        arcOverhangEnabled = if (it) false else current.arcOverhangEnabled,
-                        waveOverhangEnabled = if (it) false else current.waveOverhangEnabled,
-                        brickWallEnabled = if (it) false else current.brickWallEnabled,
-                        beadAngleOverhang = if (it) current.beadAngleOverhang.copy(enabled = false) else current.beadAngleOverhang,
-                        masonryWallsEnabled = if (it) false else current.masonryWallsEnabled,
-                        beadChain = if (it) BeadChainSettings(enabled = false) else current.beadChain,
-                    )
-                }
-            }
-            if (settings.wallAnchorInfillEnabled) {
-                Text(
-                    "Plain flat walls, but the innermost wall sprouts straight anchor teeth into the core every 4 mm as one continuous extrusion - the wall and the infill-facing material share a hot junction instead of a cooled butt joint. Set infill density to 0 for a teeth-only interior.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-
-            SwitchRow(
-                "Bead chain overhang (experimental)",
-                settings.beadChain.enabled,
-                source(state, SlicerSettings.Keys.BEAD_CHAIN_ENABLED),
-            ) {
-                onSettings(SlicerSettings.Keys.BEAD_CHAIN_ENABLED) { current ->
-                    current.copy(
-                        beadChain = current.beadChain.copy(enabled = it),
-                        arcOverhangEnabled = if (it) false else current.arcOverhangEnabled,
-                        waveOverhangEnabled = if (it) false else current.waveOverhangEnabled,
-                        brickWallEnabled = if (it) false else current.brickWallEnabled,
-                        beadAngleOverhang = if (it) current.beadAngleOverhang.copy(enabled = false) else current.beadAngleOverhang,
-                        masonryWallsEnabled = if (it) false else current.masonryWallsEnabled,
-                        wallAnchorInfillEnabled = if (it) false else current.wallAnchorInfillEnabled,
-                    )
-                }
-            }
-            if (settings.beadChain.enabled) {
-                Text(
-                    "In overhang bands the outer face becomes one seated chain bead that drops into the valley of the chain bead below (half-embedded weld), with a row of inner beads behind it that fills the wedge the diagonal step opens - the inner face stays in line with the straight wall. Very steep bends collapse to the chain alone; shallow slopes fall back to normal walls.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                NumberField(
-                    "Bead-chain speed (mm/s)",
-                    settings.beadChain.speedMmPerSecond,
-                    source(state, SlicerSettings.Keys.BEAD_CHAIN_SPEED),
-                    decimals = 1,
-                ) {
-                    onSettings(SlicerSettings.Keys.BEAD_CHAIN_SPEED) { current ->
-                        current.copy(beadChain = current.beadChain.copy(speedMmPerSecond = it.coerceIn(5.0, 300.0)))
-                    }
-                }
-                NumberField(
-                    "Bead-chain fan (%)",
-                    settings.beadChain.fanSpeedPercent,
-                    source(state, SlicerSettings.Keys.BEAD_CHAIN_FAN_SPEED),
-                    decimals = 0,
-                ) {
-                    onSettings(SlicerSettings.Keys.BEAD_CHAIN_FAN_SPEED) { current ->
-                        current.copy(beadChain = current.beadChain.copy(fanSpeedPercent = it.coerceIn(0.0, 100.0)))
-                    }
-                }
-                NumberField(
-                    "Chain weld target (%)",
-                    settings.beadChain.weldTargetPercent,
-                    source(state, SlicerSettings.Keys.BEAD_CHAIN_WELD_TARGET),
-                    decimals = 0,
-                ) {
-                    onSettings(SlicerSettings.Keys.BEAD_CHAIN_WELD_TARGET) { current ->
-                        current.copy(beadChain = current.beadChain.copy(weldTargetPercent = it.coerceIn(5.0, 50.0)))
-                    }
-                }
-                NumberField(
-                    "Chain flow floor (%)",
-                    settings.beadChain.flowMinPercent,
-                    source(state, SlicerSettings.Keys.BEAD_CHAIN_FLOW_MIN),
-                    decimals = 0,
-                ) {
-                    onSettings(SlicerSettings.Keys.BEAD_CHAIN_FLOW_MIN) { current ->
-                        current.copy(beadChain = current.beadChain.copy(flowMinPercent = it.coerceIn(40.0, 100.0)))
-                    }
-                }
-                NumberField(
-                    "Inner flow cap (%)",
-                    settings.beadChain.innerFlowPercent,
-                    source(state, SlicerSettings.Keys.BEAD_CHAIN_INNER_FLOW),
-                    decimals = 0,
-                ) {
-                    onSettings(SlicerSettings.Keys.BEAD_CHAIN_INNER_FLOW) { current ->
-                        current.copy(beadChain = current.beadChain.copy(innerFlowPercent = it.coerceIn(100.0, 200.0)))
-                    }
-                }
-                SwitchRow(
-                    "Chain the whole outer wall",
-                    settings.beadChain.allWalls,
-                    source(state, SlicerSettings.Keys.BEAD_CHAIN_ALL_WALLS),
-                ) {
-                    onSettings(SlicerSettings.Keys.BEAD_CHAIN_ALL_WALLS) { current ->
-                        current.copy(beadChain = current.beadChain.copy(allWalls = it))
-                    }
-                }
-                NumberField(
-                    "Chain press (%)",
-                    settings.beadChain.pressPercent,
-                    source(state, SlicerSettings.Keys.BEAD_CHAIN_PRESS),
-                    decimals = 0,
-                ) {
-                    onSettings(SlicerSettings.Keys.BEAD_CHAIN_PRESS) { current ->
-                        current.copy(beadChain = current.beadChain.copy(pressPercent = it.coerceIn(1.0, 20.0)))
-                    }
-                }
-                NumberField(
-                    "Maximum extra walls",
-                    settings.beadChain.maxIterations.toDouble(),
-                    source(state, SlicerSettings.Keys.BEAD_CHAIN_MAX_ITERATIONS),
-                    decimals = 0,
-                ) {
-                    onSettings(SlicerSettings.Keys.BEAD_CHAIN_MAX_ITERATIONS) { current ->
-                        current.copy(beadChain = current.beadChain.copy(maxIterations = it.toInt().coerceIn(1, 20)))
-                    }
-                }
-            }
-
-            SwitchRow(
                 "Arc overhangs (Multiplex, experimental)",
                 settings.arcOverhangEnabled,
                 source(state, SlicerSettings.Keys.ARC_OVERHANG_ENABLED),
@@ -1005,10 +791,7 @@ internal fun CategorizedSettingsSheet(
                         arcOverhangEnabled = it,
                         waveOverhangEnabled = if (it) false else current.waveOverhangEnabled,
                         brickWallEnabled = if (it) false else current.brickWallEnabled,
-                        beadAngleOverhang = if (it) current.beadAngleOverhang.copy(enabled = false) else current.beadAngleOverhang,
                         masonryWallsEnabled = if (it) false else current.masonryWallsEnabled,
-                        wallAnchorInfillEnabled = if (it) false else current.wallAnchorInfillEnabled,
-                        beadChain = if (it) BeadChainSettings(enabled = false) else current.beadChain,
                     )
                 }
             }

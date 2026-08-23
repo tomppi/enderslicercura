@@ -140,23 +140,7 @@ object SlicerSettingsJson {
         SlicerSettings.Keys.BRICK_WALL_FAN_SPEED,
         SlicerSettings.Keys.BRICK_WALL_MAX_ITERATIONS,
         SlicerSettings.Keys.BRICK_WALL_BRICK_LENGTH,
-        SlicerSettings.Keys.BEAD_ANGLE_ENABLED,
-        SlicerSettings.Keys.BEAD_ANGLE_WAVELENGTH,
-        SlicerSettings.Keys.BEAD_ANGLE_SPEED,
-        SlicerSettings.Keys.BEAD_ANGLE_FLOW,
-        SlicerSettings.Keys.BEAD_ANGLE_FAN_SPEED,
-        SlicerSettings.Keys.BEAD_ANGLE_MAX_ITERATIONS,
         SlicerSettings.Keys.MASONRY_WALLS_ENABLED,
-        SlicerSettings.Keys.BEAD_CHAIN_ENABLED,
-        SlicerSettings.Keys.BEAD_CHAIN_WELD_TARGET,
-        SlicerSettings.Keys.BEAD_CHAIN_FLOW_MIN,
-        SlicerSettings.Keys.BEAD_CHAIN_INNER_FLOW,
-        SlicerSettings.Keys.BEAD_CHAIN_PRESS,
-        SlicerSettings.Keys.BEAD_CHAIN_ALL_WALLS,
-        SlicerSettings.Keys.BEAD_CHAIN_MAX_ITERATIONS,
-        SlicerSettings.Keys.BEAD_CHAIN_SPEED,
-        SlicerSettings.Keys.BEAD_CHAIN_FAN_SPEED,
-        SlicerSettings.Keys.WALL_ANCHOR_INFILL_ENABLED,
         SlicerSettings.Keys.SMART_OVERHANG_STRATEGY,
         SlicerSettings.Keys.IRONING_ENABLED,
         SlicerSettings.Keys.IRONING_ONLY_HIGHEST_LAYER,
@@ -310,23 +294,7 @@ object SlicerSettingsJson {
         .put(SlicerSettings.Keys.BRICK_WALL_FLOW, settings.brickWallFlowPercent)
         .put(SlicerSettings.Keys.BRICK_WALL_FAN_SPEED, settings.brickWallFanSpeedPercent)
         .put(SlicerSettings.Keys.BRICK_WALL_MAX_ITERATIONS, settings.brickWallMaxIterations)
-        .put(SlicerSettings.Keys.BEAD_ANGLE_ENABLED, settings.beadAngleOverhang.enabled)
-        .put(SlicerSettings.Keys.BEAD_ANGLE_WAVELENGTH, settings.beadAngleOverhang.wavelengthMm)
-        .put(SlicerSettings.Keys.BEAD_ANGLE_SPEED, settings.beadAngleOverhang.speedMmPerSecond)
-        .put(SlicerSettings.Keys.BEAD_ANGLE_FLOW, settings.beadAngleOverhang.flowPercent)
-        .put(SlicerSettings.Keys.BEAD_ANGLE_FAN_SPEED, settings.beadAngleOverhang.fanSpeedPercent)
-        .put(SlicerSettings.Keys.BEAD_ANGLE_MAX_ITERATIONS, settings.beadAngleOverhang.maxIterations)
         .put(SlicerSettings.Keys.MASONRY_WALLS_ENABLED, settings.masonryWallsEnabled)
-        .put(SlicerSettings.Keys.BEAD_CHAIN_ENABLED, settings.beadChain.enabled)
-        .put(SlicerSettings.Keys.BEAD_CHAIN_WELD_TARGET, settings.beadChain.weldTargetPercent)
-        .put(SlicerSettings.Keys.BEAD_CHAIN_FLOW_MIN, settings.beadChain.flowMinPercent)
-        .put(SlicerSettings.Keys.BEAD_CHAIN_INNER_FLOW, settings.beadChain.innerFlowPercent)
-        .put(SlicerSettings.Keys.BEAD_CHAIN_PRESS, settings.beadChain.pressPercent)
-        .put(SlicerSettings.Keys.BEAD_CHAIN_ALL_WALLS, settings.beadChain.allWalls)
-        .put(SlicerSettings.Keys.BEAD_CHAIN_MAX_ITERATIONS, settings.beadChain.maxIterations)
-        .put(SlicerSettings.Keys.BEAD_CHAIN_SPEED, settings.beadChain.speedMmPerSecond)
-        .put(SlicerSettings.Keys.BEAD_CHAIN_FAN_SPEED, settings.beadChain.fanSpeedPercent)
-        .put(SlicerSettings.Keys.WALL_ANCHOR_INFILL_ENABLED, settings.wallAnchorInfillEnabled)
         .put(SlicerSettings.Keys.BRICK_WALL_BRICK_LENGTH, settings.brickWallBrickLengthMm)
         .put(SlicerSettings.Keys.SMART_OVERHANG_STRATEGY, settings.smartOverhangStrategy)
         .put(SlicerSettings.Keys.IRONING_ENABLED, settings.ironingEnabled)
@@ -502,23 +470,7 @@ object SlicerSettingsJson {
                 SlicerSettings.Keys.BRICK_WALL_FAN_SPEED -> restored.copy(brickWallFanSpeedPercent = values.optDouble(key, restored.brickWallFanSpeedPercent))
                 SlicerSettings.Keys.BRICK_WALL_MAX_ITERATIONS -> restored.copy(brickWallMaxIterations = values.optInt(key, restored.brickWallMaxIterations))
                 SlicerSettings.Keys.BRICK_WALL_BRICK_LENGTH -> restored.copy(brickWallBrickLengthMm = values.optDouble(key, restored.brickWallBrickLengthMm))
-                SlicerSettings.Keys.BEAD_ANGLE_ENABLED -> restored.copy(beadAngleOverhang = restored.beadAngleOverhang.copy(enabled = values.optBoolean(key, restored.beadAngleOverhang.enabled)))
-                SlicerSettings.Keys.BEAD_ANGLE_WAVELENGTH -> restored.copy(beadAngleOverhang = restored.beadAngleOverhang.copy(wavelengthMm = values.optDouble(key, restored.beadAngleOverhang.wavelengthMm)))
-                SlicerSettings.Keys.BEAD_ANGLE_SPEED -> restored.copy(beadAngleOverhang = restored.beadAngleOverhang.copy(speedMmPerSecond = values.optDouble(key, restored.beadAngleOverhang.speedMmPerSecond)))
-                SlicerSettings.Keys.BEAD_ANGLE_FLOW -> restored.copy(beadAngleOverhang = restored.beadAngleOverhang.copy(flowPercent = values.optDouble(key, restored.beadAngleOverhang.flowPercent)))
-                SlicerSettings.Keys.BEAD_ANGLE_FAN_SPEED -> restored.copy(beadAngleOverhang = restored.beadAngleOverhang.copy(fanSpeedPercent = values.optDouble(key, restored.beadAngleOverhang.fanSpeedPercent)))
-                SlicerSettings.Keys.BEAD_ANGLE_MAX_ITERATIONS -> restored.copy(beadAngleOverhang = restored.beadAngleOverhang.copy(maxIterations = values.optInt(key, restored.beadAngleOverhang.maxIterations)))
                 SlicerSettings.Keys.MASONRY_WALLS_ENABLED -> restored.copy(masonryWallsEnabled = values.optBoolean(key, restored.masonryWallsEnabled))
-                SlicerSettings.Keys.BEAD_CHAIN_ENABLED -> restored.copy(beadChain = restored.beadChain.copy(enabled = values.optBoolean(key, restored.beadChain.enabled)))
-                SlicerSettings.Keys.BEAD_CHAIN_WELD_TARGET -> restored.copy(beadChain = restored.beadChain.copy(weldTargetPercent = values.optDouble(key, restored.beadChain.weldTargetPercent)))
-                SlicerSettings.Keys.BEAD_CHAIN_FLOW_MIN -> restored.copy(beadChain = restored.beadChain.copy(flowMinPercent = values.optDouble(key, restored.beadChain.flowMinPercent)))
-                SlicerSettings.Keys.BEAD_CHAIN_INNER_FLOW -> restored.copy(beadChain = restored.beadChain.copy(innerFlowPercent = values.optDouble(key, restored.beadChain.innerFlowPercent)))
-                SlicerSettings.Keys.BEAD_CHAIN_PRESS -> restored.copy(beadChain = restored.beadChain.copy(pressPercent = values.optDouble(key, restored.beadChain.pressPercent)))
-                SlicerSettings.Keys.BEAD_CHAIN_ALL_WALLS -> restored.copy(beadChain = restored.beadChain.copy(allWalls = values.optBoolean(key, restored.beadChain.allWalls)))
-                SlicerSettings.Keys.BEAD_CHAIN_MAX_ITERATIONS -> restored.copy(beadChain = restored.beadChain.copy(maxIterations = values.optInt(key, restored.beadChain.maxIterations)))
-                SlicerSettings.Keys.BEAD_CHAIN_SPEED -> restored.copy(beadChain = restored.beadChain.copy(speedMmPerSecond = values.optDouble(key, restored.beadChain.speedMmPerSecond)))
-                SlicerSettings.Keys.BEAD_CHAIN_FAN_SPEED -> restored.copy(beadChain = restored.beadChain.copy(fanSpeedPercent = values.optDouble(key, restored.beadChain.fanSpeedPercent)))
-                SlicerSettings.Keys.WALL_ANCHOR_INFILL_ENABLED -> restored.copy(wallAnchorInfillEnabled = values.optBoolean(key, restored.wallAnchorInfillEnabled))
                 SlicerSettings.Keys.SMART_OVERHANG_STRATEGY -> restored.copy(smartOverhangStrategy = values.optBoolean(key, restored.smartOverhangStrategy))
                 SlicerSettings.Keys.IRONING_ENABLED -> restored.copy(ironingEnabled = values.optBoolean(key, restored.ironingEnabled))
                 SlicerSettings.Keys.IRONING_ONLY_HIGHEST_LAYER -> restored.copy(ironingOnlyHighestLayer = values.optBoolean(key, restored.ironingOnlyHighestLayer))

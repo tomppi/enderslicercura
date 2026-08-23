@@ -4,31 +4,6 @@ import java.math.BigDecimal
 import java.math.RoundingMode
 import kotlin.math.ceil
 
-/** Bead-angle overhang strategy: the press angle around the bead's circular
- * cross-section (0 = left side, 90 = top, 180 = right side; mirrored per
- * overhang direction). Kept as a nested value object because the SlicerSettings
- * constructor already approaches the JVM's 255-slot method signature limit. */
-data class BeadChainSettings(
-    val enabled: Boolean = false,
-    val weldTargetPercent: Double = 15.0,
-    val flowMinPercent: Double = 60.0,
-    val innerFlowPercent: Double = 135.0,
-    val pressPercent: Double = 5.0,
-    val allWalls: Boolean = true,
-    val maxIterations: Int = 8,
-    val speedMmPerSecond: Double = 25.0,
-    val fanSpeedPercent: Double = 100.0,
-)
-
-data class BeadAngleOverhangSettings(
-    val enabled: Boolean = false,
-    val wavelengthMm: Double = 3.0,
-    val speedMmPerSecond: Double = 10.0,
-    val flowPercent: Double = 105.0,
-    val fanSpeedPercent: Double = 100.0,
-    val maxIterations: Int = 4,
-)
-
 data class SlicerSettings(
     val printerName: String = "Modified Ender 3 V2",
     val machineWidthMm: Double = 230.0,
@@ -160,10 +135,7 @@ data class SlicerSettings(
     val brickWallFanSpeedPercent: Double = 100.0,
     val brickWallMaxIterations: Int = 60,
     val brickWallBrickLengthMm: Double = 1.6,
-    val beadAngleOverhang: BeadAngleOverhangSettings = BeadAngleOverhangSettings(),
     val masonryWallsEnabled: Boolean = false,
-    val beadChain: BeadChainSettings = BeadChainSettings(),
-    val wallAnchorInfillEnabled: Boolean = false,
     val smartOverhangStrategy: Boolean = false,
     val ironingEnabled: Boolean = false,
     val ironingOnlyHighestLayer: Boolean = false,
@@ -367,23 +339,7 @@ data class SlicerSettings(
         const val BRICK_WALL_FAN_SPEED = "brickWallFanSpeedPercent"
         const val BRICK_WALL_MAX_ITERATIONS = "brickWallMaxIterations"
         const val BRICK_WALL_BRICK_LENGTH = "brickWallBrickLengthMm"
-        const val BEAD_ANGLE_ENABLED = "beadAngleEnabled"
-        const val BEAD_ANGLE_WAVELENGTH = "beadAngleWavelengthMm"
-        const val BEAD_ANGLE_SPEED = "beadAngleSpeedMmPerSecond"
-        const val BEAD_ANGLE_FLOW = "beadAngleFlowPercent"
-        const val BEAD_ANGLE_FAN_SPEED = "beadAngleFanSpeedPercent"
-        const val BEAD_ANGLE_MAX_ITERATIONS = "beadAngleMaxIterations"
         const val MASONRY_WALLS_ENABLED = "masonryWallsEnabled"
-        const val BEAD_CHAIN_ENABLED = "beadChainEnabled"
-        const val BEAD_CHAIN_WELD_TARGET = "beadChainWeldTargetPercent"
-        const val BEAD_CHAIN_FLOW_MIN = "beadChainFlowMinPercent"
-        const val BEAD_CHAIN_INNER_FLOW = "beadChainInnerFlowPercent"
-        const val BEAD_CHAIN_PRESS = "beadChainPressPercent"
-        const val BEAD_CHAIN_ALL_WALLS = "beadChainAllWalls"
-        const val BEAD_CHAIN_MAX_ITERATIONS = "beadChainMaxIterations"
-        const val BEAD_CHAIN_SPEED = "beadChainSpeedMmPerSecond"
-        const val BEAD_CHAIN_FAN_SPEED = "beadChainFanSpeedPercent"
-        const val WALL_ANCHOR_INFILL_ENABLED = "wallAnchorInfillEnabled"
         const val SMART_OVERHANG_STRATEGY = "smartOverhangStrategy"
         const val IRONING_ENABLED = "ironingEnabled"
         const val IRONING_ONLY_HIGHEST_LAYER = "ironingOnlyHighestLayer"
