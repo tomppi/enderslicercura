@@ -311,8 +311,11 @@ object PresetSettings {
         require(!(changed.masonryWallsEnabled && (changed.arcOverhangEnabled || changed.waveOverhangEnabled || changed.brickWallEnabled || changed.beadAngleOverhang.enabled))) {
             "Masonry walls cannot be combined with Arc, Wave, Brick-wall or Bead-angle overhangs"
         }
-        require(!(changed.wallAnchorInfillEnabled && (changed.arcOverhangEnabled || changed.waveOverhangEnabled || changed.brickWallEnabled || changed.beadAngleOverhang.enabled || changed.masonryWallsEnabled))) {
-            "Wall-anchored infill cannot be combined with Arc, Wave, Brick-wall, Bead-angle or Masonry walls"
+        require(!(changed.wallAnchorInfillEnabled && (changed.arcOverhangEnabled || changed.waveOverhangEnabled || changed.brickWallEnabled || changed.beadAngleOverhang.enabled || changed.masonryWallsEnabled || changed.beadChain.enabled))) {
+            "Wall-anchored infill cannot be combined with Arc, Wave, Brick-wall, Bead-angle, Masonry or Bead-chain"
+        }
+        require(!(changed.beadChain.enabled && (changed.arcOverhangEnabled || changed.waveOverhangEnabled || changed.brickWallEnabled || changed.beadAngleOverhang.enabled || changed.masonryWallsEnabled || changed.wallAnchorInfillEnabled))) {
+            "Bead chain cannot be combined with Arc, Wave, Brick-wall, Bead-angle, Masonry or Wall-anchored infill"
         }
         return changed.copy(overriddenSettingKeys = changed.overriddenSettingKeys + appliedKeys)
     }

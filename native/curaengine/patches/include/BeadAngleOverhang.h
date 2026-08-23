@@ -16,9 +16,17 @@
 #include "utils/Coord_t.h"
 
 #include <cstddef>
+#include <vector>
 
 namespace cura
 {
+
+struct ChainPaint
+{
+    coord_t width_um{ 400 };  // extrusion width for this paint (microns)
+    bool is_chain{ false };   // true = the outer seated chain bead
+    OpenLinesSet lines;       // contour runs for this width, in print order
+};
 
 struct BeadAngleParameters
 {
@@ -27,6 +35,16 @@ struct BeadAngleParameters
     coord_t press_wavelength{ 3000 }; // press wiggle period along the wall (microns)
     size_t base_wall_count{ 2 };      // the sliced wall_line_count
     size_t max_extra_walls{ 4 };      // fail-closed cap on angle-added walls
+
+    // Chain-overhang mode (fractions of the line width, from settings):
+    // the outer chain bead rides the outline with width
+    // clamp(step + weld_target, flow_min, 1.0) * line_width, the inner rows
+    // swell up to inner_flow_cap * line_width to fill the wedge the diagonal
+    // chain step opens, and the chain welds into the rows by chain_press.
+    double chain_weld_target{ 0.15 };  // min chain-chain overlap, fraction of lw
+    double chain_flow_min{ 0.60 };     // floor for the chain bead width factor
+    double chain_flow_cap{ 1.35 };     // cap for the inner row bead width factor
+    double chain_press{ 0.05 };        // chain-row weld overlap, fraction of lw
 };
 
 class BeadAngleGenerator
@@ -71,6 +89,20 @@ public:
         const Shape& outline,
         const BeadAngleParameters& parameters,
         OpenLinesSet& output);
+
+    // Chain-overhang bands: the band's outer face is ONE bead (the chain)
+    // riding the outline, seated into the valley of the chain bead below,
+    // with a row of inner insets behind it that fill the wedge the diagonal
+    // step opens (the inner face stays in line with the straight wall). The
+    // per-bead widths ride the associated ChainPaint so the writer can use
+    // per-path extrusion widths. Fills nothing (and reports false) when the
+    // band slope is beyond the bead reach or nothing engages.
+    static bool generateChain(
+        const Shape& outline,
+        const Shape& supported_region,
+        const BeadAngleParameters& parameters,
+        std::vector<ChainPaint>& paints,
+        Shape& replacement);
 };
 
 } // namespace cura

@@ -8,6 +8,7 @@
 #include "geometry/LinesSet.h"
 #include "geometry/SingleShape.h"
 
+
 #include <algorithm>
 #include <cmath>
 #include <vector>
@@ -614,6 +615,160 @@ bool BeadAngleGenerator::generate(
     }
 
     return any_region && ! output.getLines().empty();
+}
+
+
+//! Appends one clipped contour bucket's runs into a ChainPaint (in order).
+void appendClipped(const Shape& inset, const Shape& zone, OpenLinesSet& lines)
+{
+    OpenLinesSet clipped = contoursOf(inset, zone);
+    for (OpenPolyline& line : clipped.getLines())
+    {
+        if (line.isValid())
+        {
+            lines.push_back(std::move(line), CheckNonEmptyParam::OnlyIfValid);
+        }
+    }
+}
+
+bool BeadAngleGenerator::generateChain(
+    const Shape& outline,
+    const Shape& supported_region,
+    const BeadAngleParameters& parameters,
+    std::vector<ChainPaint>& paints,
+    Shape& replacement)
+{
+    paints.clear();
+    replacement.clear();
+    if (outline.empty() || supported_region.empty() || parameters.line_width <= 0
+        || parameters.layer_height <= 0 || parameters.base_wall_count < 1)
+    {
+        return false;
+    }
+
+    const Shape unsupported = outline.difference(supported_region);
+    if (unsupported.empty())
+    {
+        return false;
+    }
+
+    const double lw = static_cast<double>(parameters.line_width);
+    const double press = parameters.chain_press * lw;
+    const double weld_um = parameters.chain_weld_target * lw;
+    const double row_cap = parameters.chain_flow_cap * lw;
+    bool any_region = false;
+
+    for (const Polygon& island_polygon : unsupported)
+    {
+        if (island_polygon.size() < 3)
+        {
+            continue;
+        }
+        const double area = polygonArea(island_polygon);
+        if (area < MIN_ISLAND_AREA_UM2)
+        {
+            continue;
+        }
+
+        // Gentle-and-thin gate, identical to the bead-angle strategy.
+        const double thickness = 2.0 * area / polygonPerimeter(island_polygon);
+        if (parameters.layer_height < MIN_STEEP_THICKNESS_FACTOR * thickness && thickness < parameters.line_width)
+        {
+            continue;
+        }
+
+        // Local overhang angle: tan(theta) = layer_height / thickness.
+        const double tan_theta = parameters.layer_height / std::max(thickness, 1.0);
+        const double step = parameters.layer_height / std::max(tan_theta, 0.001);
+        if (step > lw + 1e-9)
+        {
+            // Beyond the bead's reach (shallow slope): the ordinary walls
+            // print the band - no chain, no replacement.
+            continue;
+        }
+
+        // Chain bead width: the smallest bead that still reaches down to the
+        // chain bead of the layer below (width = step + weld target), floored
+        // by chain_flow_min and capped at one line width.
+        const double chain_wide_d = std::clamp(step + weld_um, parameters.chain_flow_min * lw, lw);
+        const coord_t chain_wide = static_cast<coord_t>(std::llround(chain_wide_d));
+        const double half_chain = chain_wide / 2.0;
+
+        // Bead count: moderate bends grow the wall so its inner face stays in
+        // line with the straight wall (ceil(base / cos(theta))); once the
+        // per-layer step closes below a quarter bead the band collapses to
+        // the chain alone (steep V: one bead, welded into the 2 beneath it).
+        const double cos_theta = 1.0 / std::sqrt(1.0 + tan_theta * tan_theta);
+        size_t total = static_cast<size_t>(std::ceil(
+            static_cast<double>(parameters.base_wall_count) / std::max(cos_theta, 0.05)));
+        const size_t cap = parameters.base_wall_count + parameters.max_extra_walls;
+        total = std::max<size_t>(1, std::min(total, cap));
+        // V collapse: when the per-layer step is under a third of a layer
+        // height the chain is stacking nearly straight up - rows add nothing
+        // and the band is the chain alone (one bead, welded into the two
+        // under it). Scale-free vs the layer height, so thin slices keep
+        // their geometry on every slope.
+        if (step < 0.35 * static_cast<double>(parameters.layer_height))
+        {
+            total = 1;
+        }
+        size_t rows = total > 1 ? total - 1 : 0;
+
+        // The rows fill the wedge the diagonal chain step opens: the band
+        // thickness (its unsupported strip) is the wedge accumulated so far.
+        const double row_width_d = static_cast<double>(parameters.base_wall_count) * lw + thickness;
+        if (rows > 0)
+        {
+            const size_t by_cap = static_cast<size_t>(std::ceil(row_width_d / std::max(row_cap, 1.0)));
+            rows = std::max(rows, std::max<size_t>(by_cap, 1));
+        }
+        const double d_i = rows > 0 ? row_width_d / static_cast<double>(rows) : 0.0;
+        const coord_t row_wide = static_cast<coord_t>(std::llround(d_i));
+        if (rows > 0 && (row_wide <= 0 || row_wide > parameters.line_width * 2))
+        {
+            continue; // degenerate row geometry: leave the band to normal walls
+        }
+
+        const Shape island_shape(island_polygon);
+        const Shape zone = island_shape.offset(2 * parameters.line_width);
+
+        // Rows, deepest first (each has its backing laid when it prints); the
+        // chain bead is emitted last so it seats and presses into the row.
+        if (rows > 0)
+        {
+            ChainPaint row_paint;
+            row_paint.width_um = row_wide;
+            row_paint.is_chain = false;
+            for (size_t j = rows; j-- > 0;)
+            {
+                const double depth = half_chain - press + (j + 0.5) * d_i;
+                const Shape inset = outline.offset(-static_cast<coord_t>(std::llround(depth)));
+                if (inset.empty())
+                {
+                    continue;
+                }
+                appendClipped(inset, zone, row_paint.lines);
+            }
+            if (! row_paint.lines.getLines().empty())
+            {
+                paints.push_back(std::move(row_paint));
+            }
+        }
+
+        ChainPaint chain_paint;
+        chain_paint.width_um = chain_wide;
+        chain_paint.is_chain = true;
+        appendClipped(outline, zone, chain_paint.lines);
+        if (! chain_paint.lines.getLines().empty())
+        {
+            paints.push_back(std::move(chain_paint));
+        }
+
+        replacement = replacement.unionPolygons(zone);
+        any_region = true;
+    }
+
+    return any_region && ! paints.empty();
 }
 
 } // namespace cura

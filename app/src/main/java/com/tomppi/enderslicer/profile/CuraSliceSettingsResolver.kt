@@ -3,6 +3,7 @@ package com.tomppi.enderslicer.profile
 import com.tomppi.enderslicer.engine.ArcOverhangEngineSettings
 import com.tomppi.enderslicer.engine.BeadAngleEngineSettings
 import com.tomppi.enderslicer.engine.MasonryWallsEngineSettings
+import com.tomppi.enderslicer.engine.BeadChainEngineSettings
 import com.tomppi.enderslicer.engine.WallAnchorInfillEngineSettings
 import com.tomppi.enderslicer.engine.BrickWallEngineSettings
 import com.tomppi.enderslicer.engine.MachineCuraKeys
@@ -87,6 +88,7 @@ internal object CuraSliceSettingsResolver {
             putAll(BrickWallEngineSettings.values(effectiveSettings))
             putAll(BeadAngleEngineSettings.values(effectiveSettings))
             putAll(MasonryWallsEngineSettings.values(effectiveSettings))
+            putAll(BeadChainEngineSettings.values(effectiveSettings))
             putAll(WallAnchorInfillEngineSettings.values(effectiveSettings))
         }
 

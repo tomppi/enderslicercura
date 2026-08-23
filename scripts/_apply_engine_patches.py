@@ -728,3 +728,6 @@ replace(
 import _apply_bead_angle_patch
 _apply_bead_angle_patch.apply(root, arc_patch_root, replace)
 
+# Bead-chain overhang mode (rows + seated chain bead, per-path widths).
+import _apply_bead_chain_patch
+_apply_bead_chain_patch.apply(root, arc_patch_root, replace)

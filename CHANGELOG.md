@@ -6,6 +6,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Bead-chain overhangs: in an overhang band the wall's outer face becomes one
+  seated bead per layer (the chain) riding the model outline, dropped into the
+  valley of the chain bead below (half-embedded weld), with a row of inner
+  beads behind it that fills the wedge the diagonal step opens so the inner
+  face stays in line with the straight wall. Bead count follows the bend
+  angle (ceil(wall_line_count / cos(theta)), V-collapse to the chain alone
+  when the step falls under a third of a layer height), chain/inner extrusion
+  widths are derived per band (weld target, flow floor, inner flow cap, press)
+  and per-path, and the band falls back to normal walls beyond the bead's
+  reach. Type marker TYPE:BEAD-CHAIN feeds the layer preview. See
+  docs/bead-chain-overhang.md and the cross-section simulations in
+  docs/chain-sim/.
+
 ### Simplified
 
 - Single source of truth for the non-planar preparation shared by both engine
