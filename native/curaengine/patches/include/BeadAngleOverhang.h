@@ -45,6 +45,8 @@ struct BeadAngleParameters
     double chain_flow_min{ 0.60 };     // floor for the chain bead width factor
     double chain_flow_cap{ 1.35 };     // cap for the inner row bead width factor
     double chain_press{ 0.05 };        // chain-row weld overlap, fraction of lw
+    bool all_walls{ false };           // true = the chain is the whole outer wall
+                                       // (every layer), not just overhang bands
 };
 
 class BeadAngleGenerator

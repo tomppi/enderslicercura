@@ -49,6 +49,16 @@ bead-angle).
 - The chain sits between the previous layer's material only; real
   support-free reach is bounded by the bead's weld footprint per layer.
 
+## Whole-outer-wall mode (all_walls)
+
+The chain is not limited to overhang bands: with "Chain the whole outer wall"
+on (default) the outer wall is the chain on EVERY layer - a full-width bead
+seated into the wall behind it on straight sections (smooth surface, real
+layer bond), while overhang bands still get the adaptive chain width, the
+wedge rows and the V collapse. Layer 0 is chained too (bridgeAngle is skipped
+there; the empty supported region chains the whole outline). In all_walls
+mode the chain + rows ARE the wall stack - Cura's base walls are dropped.
+
 ## Settings (enderslicer_bead_chain_*)
 
 enabled, speed, fan_speed, weld_target (%), flow_min (%), inner_flow (%),

@@ -55,8 +55,10 @@ def apply(root, arc_patch_root, replace):
         """    const bool brick_walls_enabled = mesh.settings.get<bool>("enderslicer_brick_wall_enabled") && ! bead_angle_enabled && ! bead_chain_enabled && ! masonry_walls_enabled && ! wall_anchor_infill_enabled;""",
     )
 
-    # The chain branch, right before the brick branch.
-    replace(
+    # The chain branch, right before the brick branch. Guarded on an
+    # independent marker so edits to the branch text stay idempotent.
+    if "    if (bead_chain_enabled)" not in fff_gcode_writer_cpp.read_text():
+        replace(
         fff_gcode_writer_cpp,
         """    if (layer_nr > 0 && brick_walls_enabled)""",
         """    if (bead_chain_enabled)
@@ -77,20 +79,29 @@ def apply(root, arc_patch_root, replace):
         chain_parameters.chain_flow_min = mesh.settings.get<double>("enderslicer_bead_chain_flow_min") / 100.0;
         chain_parameters.chain_flow_cap = mesh.settings.get<double>("enderslicer_bead_chain_inner_flow") / 100.0;
         chain_parameters.chain_press = mesh.settings.get<double>("enderslicer_bead_chain_press") / 100.0;
+        chain_parameters.all_walls = mesh.settings.get<bool>("enderslicer_bead_chain_all_walls");
 
         std::vector<ChainPaint> chain_paint_buckets;
         Shape replacement;
-        if (layer_nr > 0)
+        // All-walls mode chains layer 0 as well (the whole outer wall is the
+        // chain); band-only mode needs the supported region, so layer 0 stays
+        // with the normal walls. bridgeAngle reads the layer below, so it
+        // must not run on layer 0 - generateChain treats the empty supported
+        // region as "everything unsupported" and chains the whole outline.
+        if (layer_nr > 0 || chain_parameters.all_walls)
         {
             Shape supported;
-            bridgeAngle(mesh, part.outline, storage, layer_nr, 1, nullptr, supported);
-            if (! supported.empty())
+            if (layer_nr > 0)
             {
-                BeadAngleGenerator::generateChain(part.outline, supported, chain_parameters, chain_paint_buckets, replacement);
+                bridgeAngle(mesh, part.outline, storage, layer_nr, 1, nullptr, supported);
             }
+            BeadAngleGenerator::generateChain(part.outline, supported, chain_parameters, chain_paint_buckets, replacement);
         }
         OpenLinesSet base_walls;
-        BeadAngleGenerator::generateBaseWalls(part.outline, chain_parameters, replacement, base_walls);
+        if (! chain_parameters.all_walls)
+        {
+            BeadAngleGenerator::generateBaseWalls(part.outline, chain_parameters, replacement, base_walls);
+        }
 
         GCodePathConfig chain_config = mesh_config.inset0_config;
         chain_config.is_bead_chain = true;
@@ -123,23 +134,26 @@ def apply(root, arc_patch_root, replace):
                     paint_config.fan_speed);
             }
         }
-        for (OpenPolyline& wall : base_walls.getLines())
+        if (! chain_parameters.all_walls)
         {
-            if (! wall.isValid())
+            for (OpenPolyline& wall : base_walls.getLines())
             {
-                continue;
+                if (! wall.isValid())
+                {
+                    continue;
+                }
+                OpenLinesSet ordered_wall;
+                ordered_wall.push_back(std::move(wall), CheckNonEmptyParam::OnlyIfValid);
+                gcode_layer.addLinesByOptimizer(
+                    ordered_wall,
+                    mesh_config.inset0_config,
+                    SpaceFillType::PolyLines,
+                    false,
+                    0,
+                    1.0,
+                    std::nullopt,
+                    mesh_config.inset0_config.fan_speed);
             }
-            OpenLinesSet ordered_wall;
-            ordered_wall.push_back(std::move(wall), CheckNonEmptyParam::OnlyIfValid);
-            gcode_layer.addLinesByOptimizer(
-                ordered_wall,
-                mesh_config.inset0_config,
-                SpaceFillType::PolyLines,
-                false,
-                0,
-                1.0,
-                std::nullopt,
-                mesh_config.inset0_config.fan_speed);
         }
         added_something = true;
     }

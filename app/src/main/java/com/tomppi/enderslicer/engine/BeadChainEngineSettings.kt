@@ -14,6 +14,7 @@ internal object BeadChainEngineSettings {
     const val FLOW_MIN = "enderslicer_bead_chain_flow_min"
     const val INNER_FLOW = "enderslicer_bead_chain_inner_flow"
     const val PRESS = "enderslicer_bead_chain_press"
+    const val ALL_WALLS = "enderslicer_bead_chain_all_walls"
     const val MAX_ITERATIONS = "enderslicer_bead_chain_max_iterations"
     const val SPEED = "enderslicer_bead_chain_speed"
     const val FAN_SPEED = "enderslicer_bead_chain_fan_speed"
@@ -26,6 +27,7 @@ internal object BeadChainEngineSettings {
             FLOW_MIN to chain.flowMinPercent.toString(),
             INNER_FLOW to chain.innerFlowPercent.toString(),
             PRESS to chain.pressPercent.toString(),
+            ALL_WALLS to chain.allWalls.toString(),
             MAX_ITERATIONS to chain.maxIterations.toString(),
             SPEED to chain.speedMmPerSecond.toString(),
             FAN_SPEED to chain.fanSpeedPercent.toString(),

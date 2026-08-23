@@ -640,14 +640,8 @@ bool BeadAngleGenerator::generateChain(
 {
     paints.clear();
     replacement.clear();
-    if (outline.empty() || supported_region.empty() || parameters.line_width <= 0
-        || parameters.layer_height <= 0 || parameters.base_wall_count < 1)
-    {
-        return false;
-    }
-
-    const Shape unsupported = outline.difference(supported_region);
-    if (unsupported.empty())
+    if (outline.empty() || parameters.line_width <= 0 || parameters.layer_height <= 0
+        || parameters.base_wall_count < 1)
     {
         return false;
     }
@@ -657,6 +651,145 @@ bool BeadAngleGenerator::generateChain(
     const double weld_um = parameters.chain_weld_target * lw;
     const double row_cap = parameters.chain_flow_cap * lw;
     bool any_region = false;
+
+    const Shape unsupported = parameters.all_walls ? Shape() : outline.difference(supported_region);
+
+    // All-walls mode: the chain is the whole outer wall. The overhang bands
+    // still drive the wedge rows and the adaptive chain width; everywhere
+    // else the chain is a full-width bead seated into the wall behind it.
+    if (parameters.all_walls)
+    {
+        if (outline.empty())
+        {
+            return false;
+        }
+
+        // Band zones (from the unsupported islands, when present).
+        Shape zones;
+        for (const Polygon& island_polygon : outline.difference(supported_region))
+        {
+            if (island_polygon.size() < 3)
+            {
+                continue;
+            }
+            zones = zones.unionPolygons(Shape(island_polygon).offset(2 * parameters.line_width));
+        }
+        const Shape outside_zones = zones.empty() ? outline : outline.difference(zones);
+
+        // Base rows (the inner walls of the stack) at full width, clipped out
+        // of the band zones (the wedge rows own those areas). Deepest first.
+        ChainPaint rows_base;
+        rows_base.width_um = parameters.line_width;
+        for (size_t j = parameters.base_wall_count; j-- > 1;)
+        {
+            const Shape inset = outline.offset(-static_cast<coord_t>(j) * parameters.line_width);
+            if (inset.empty())
+            {
+                continue;
+            }
+            appendClipped(inset, outside_zones, rows_base.lines);
+        }
+        if (! rows_base.lines.getLines().empty())
+        {
+            paints.push_back(std::move(rows_base));
+        }
+
+        // Wedge rows + adaptive chain width inside the band zones.
+        for (const Polygon& island_polygon : outline.difference(supported_region))
+        {
+            if (island_polygon.size() < 3)
+            {
+                continue;
+            }
+            const double area = polygonArea(island_polygon);
+            if (area < MIN_ISLAND_AREA_UM2)
+            {
+                continue;
+            }
+            const double thickness = 2.0 * area / polygonPerimeter(island_polygon);
+            if (parameters.layer_height < MIN_STEEP_THICKNESS_FACTOR * thickness && thickness < parameters.line_width)
+            {
+                continue;
+            }
+            const double tan_theta = parameters.layer_height / std::max(thickness, 1.0);
+            const double step = parameters.layer_height / std::max(tan_theta, 0.001);
+            const double cos_theta = 1.0 / std::sqrt(1.0 + tan_theta * tan_theta);
+            size_t total = static_cast<size_t>(std::ceil(
+                static_cast<double>(parameters.base_wall_count) / std::max(cos_theta, 0.05)));
+            const size_t cap = parameters.base_wall_count + parameters.max_extra_walls;
+            total = std::max<size_t>(1, std::min(total, cap));
+            if (step < 0.35 * static_cast<double>(parameters.layer_height))
+            {
+                total = 1;
+            }
+            const double chain_wide_d = std::clamp(step + weld_um, parameters.chain_flow_min * lw, lw);
+            const coord_t chain_wide = static_cast<coord_t>(std::llround(chain_wide_d));
+
+            size_t rows = total > 1 ? total - 1 : 0;
+            const double row_width_d = static_cast<double>(parameters.base_wall_count) * lw + thickness;
+            if (rows > 0)
+            {
+                const size_t by_cap = static_cast<size_t>(std::ceil(row_width_d / std::max(row_cap, 1.0)));
+                rows = std::max(rows, std::max<size_t>(by_cap, 1));
+            }
+            const double d_i = rows > 0 ? row_width_d / static_cast<double>(rows) : 0.0;
+            const coord_t row_wide = static_cast<coord_t>(std::llround(d_i));
+            if (rows > 0 && (row_wide <= 0 || row_wide > parameters.line_width * 2))
+            {
+                rows = 0;
+            }
+
+            const Shape zone = Shape(island_polygon).offset(2 * parameters.line_width);
+            if (rows > 0)
+            {
+                ChainPaint wedge;
+                wedge.width_um = row_wide;
+                for (size_t j = rows; j-- > 0;)
+                {
+                    const double depth = chain_wide / 2.0 - press + (j + 0.5) * d_i;
+                    const Shape inset = outline.offset(-static_cast<coord_t>(std::llround(depth)));
+                    if (inset.empty())
+                    {
+                        continue;
+                    }
+                    appendClipped(inset, zone, wedge.lines);
+                }
+                if (! wedge.lines.getLines().empty())
+                {
+                    paints.push_back(std::move(wedge));
+                }
+            }
+
+            ChainPaint chain_band;
+            chain_band.width_um = chain_wide;
+            chain_band.is_chain = true;
+            appendClipped(outline, zone, chain_band.lines);
+            if (! chain_band.lines.getLines().empty())
+            {
+                paints.push_back(std::move(chain_band));
+            }
+        }
+
+        // The rest of the outer wall: full-width chain bead everywhere else.
+        ChainPaint chain_full;
+        chain_full.width_um = parameters.line_width;
+        chain_full.is_chain = true;
+        appendClipped(outline, outside_zones, chain_full.lines);
+        if (! chain_full.lines.getLines().empty())
+        {
+            paints.push_back(std::move(chain_full));
+        }
+
+        // The chain owns the whole outer wall: the caller's base walls are
+        // clipped against the full outline and emit nothing.
+        replacement = outline;
+        return ! paints.empty();
+    }
+
+    if (unsupported.empty() || supported_region.empty())
+    {
+        return false;
+    }
 
     for (const Polygon& island_polygon : unsupported)
     {
@@ -670,52 +803,34 @@ bool BeadAngleGenerator::generateChain(
             continue;
         }
 
-        // Gentle-and-thin gate, identical to the bead-angle strategy.
         const double thickness = 2.0 * area / polygonPerimeter(island_polygon);
         if (parameters.layer_height < MIN_STEEP_THICKNESS_FACTOR * thickness && thickness < parameters.line_width)
         {
             continue;
         }
 
-        // Local overhang angle: tan(theta) = layer_height / thickness.
         const double tan_theta = parameters.layer_height / std::max(thickness, 1.0);
         const double step = parameters.layer_height / std::max(tan_theta, 0.001);
         if (step > lw + 1e-9)
         {
-            // Beyond the bead's reach (shallow slope): the ordinary walls
-            // print the band - no chain, no replacement.
             continue;
         }
 
-        // Chain bead width: the smallest bead that still reaches down to the
-        // chain bead of the layer below (width = step + weld target), floored
-        // by chain_flow_min and capped at one line width.
         const double chain_wide_d = std::clamp(step + weld_um, parameters.chain_flow_min * lw, lw);
         const coord_t chain_wide = static_cast<coord_t>(std::llround(chain_wide_d));
         const double half_chain = chain_wide / 2.0;
 
-        // Bead count: moderate bends grow the wall so its inner face stays in
-        // line with the straight wall (ceil(base / cos(theta))); once the
-        // per-layer step closes below a quarter bead the band collapses to
-        // the chain alone (steep V: one bead, welded into the 2 beneath it).
         const double cos_theta = 1.0 / std::sqrt(1.0 + tan_theta * tan_theta);
         size_t total = static_cast<size_t>(std::ceil(
             static_cast<double>(parameters.base_wall_count) / std::max(cos_theta, 0.05)));
         const size_t cap = parameters.base_wall_count + parameters.max_extra_walls;
         total = std::max<size_t>(1, std::min(total, cap));
-        // V collapse: when the per-layer step is under a third of a layer
-        // height the chain is stacking nearly straight up - rows add nothing
-        // and the band is the chain alone (one bead, welded into the two
-        // under it). Scale-free vs the layer height, so thin slices keep
-        // their geometry on every slope.
         if (step < 0.35 * static_cast<double>(parameters.layer_height))
         {
             total = 1;
         }
         size_t rows = total > 1 ? total - 1 : 0;
 
-        // The rows fill the wedge the diagonal chain step opens: the band
-        // thickness (its unsupported strip) is the wedge accumulated so far.
         const double row_width_d = static_cast<double>(parameters.base_wall_count) * lw + thickness;
         if (rows > 0)
         {
@@ -726,14 +841,12 @@ bool BeadAngleGenerator::generateChain(
         const coord_t row_wide = static_cast<coord_t>(std::llround(d_i));
         if (rows > 0 && (row_wide <= 0 || row_wide > parameters.line_width * 2))
         {
-            continue; // degenerate row geometry: leave the band to normal walls
+            continue;
         }
 
         const Shape island_shape(island_polygon);
         const Shape zone = island_shape.offset(2 * parameters.line_width);
 
-        // Rows, deepest first (each has its backing laid when it prints); the
-        // chain bead is emitted last so it seats and presses into the row.
         if (rows > 0)
         {
             ChainPaint row_paint;
@@ -770,5 +883,6 @@ bool BeadAngleGenerator::generateChain(
 
     return any_region && ! paints.empty();
 }
+
 
 } // namespace cura

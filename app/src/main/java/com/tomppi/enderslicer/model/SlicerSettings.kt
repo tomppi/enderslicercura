@@ -14,6 +14,7 @@ data class BeadChainSettings(
     val flowMinPercent: Double = 60.0,
     val innerFlowPercent: Double = 135.0,
     val pressPercent: Double = 5.0,
+    val allWalls: Boolean = true,
     val maxIterations: Int = 8,
     val speedMmPerSecond: Double = 25.0,
     val fanSpeedPercent: Double = 100.0,
@@ -378,6 +379,7 @@ data class SlicerSettings(
         const val BEAD_CHAIN_FLOW_MIN = "beadChainFlowMinPercent"
         const val BEAD_CHAIN_INNER_FLOW = "beadChainInnerFlowPercent"
         const val BEAD_CHAIN_PRESS = "beadChainPressPercent"
+        const val BEAD_CHAIN_ALL_WALLS = "beadChainAllWalls"
         const val BEAD_CHAIN_MAX_ITERATIONS = "beadChainMaxIterations"
         const val BEAD_CHAIN_SPEED = "beadChainSpeedMmPerSecond"
         const val BEAD_CHAIN_FAN_SPEED = "beadChainFanSpeedPercent"

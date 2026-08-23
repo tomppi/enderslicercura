@@ -964,6 +964,15 @@ internal fun CategorizedSettingsSheet(
                         current.copy(beadChain = current.beadChain.copy(innerFlowPercent = it.coerceIn(100.0, 200.0)))
                     }
                 }
+                SwitchRow(
+                    "Chain the whole outer wall",
+                    settings.beadChain.allWalls,
+                    source(state, SlicerSettings.Keys.BEAD_CHAIN_ALL_WALLS),
+                ) {
+                    onSettings(SlicerSettings.Keys.BEAD_CHAIN_ALL_WALLS) { current ->
+                        current.copy(beadChain = current.beadChain.copy(allWalls = it))
+                    }
+                }
                 NumberField(
                     "Chain press (%)",
                     settings.beadChain.pressPercent,
