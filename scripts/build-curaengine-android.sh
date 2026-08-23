@@ -505,6 +505,7 @@ replace(
     bool is_arc_overhang{ false }; //!< EnderSlicer native Multiplex path
     bool is_wave_overhang{ false }; //!< EnderSlicer native wavefront path
     bool is_brick_wall{ false }; //!< EnderSlicer brick-wall staircase path
+''',
 )
 
 replace(
@@ -517,7 +518,6 @@ replace(
                                          || last_extrusion_config.value().type != path.config.type
                                          || last_extrusion_config.value().is_arc_overhang != path.config.is_arc_overhang
                                          || last_extrusion_config.value().is_wave_overhang != path.config.is_wave_overhang
-                                         || last_extrusion_config.value().is_brick_wall != path.config.is_brick_wall
                                          || last_extrusion_config.value().is_brick_wall != path.config.is_brick_wall;''',
 )
 replace(
