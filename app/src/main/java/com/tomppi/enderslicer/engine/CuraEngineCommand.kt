@@ -242,7 +242,15 @@ object CuraEngineCommand {
         setting("support_roof_extruder_nr", 0)
         setting("support_bottom_extruder_nr", 0)
         setting("support_interface_height", interfaceHeight)
+        setting("support_roof_height", interfaceHeight)
+        setting("support_bottom_height", interfaceHeight)
         setting("support_interface_pattern", "grid")
+        // The support generator reads the per-extruder roof/bottom keys, never
+        // the support_interface_* parents; mirror the hardcoded grid pattern
+        // into them or the engine falls back to their definition defaults
+        // ("concentric") and renders a different interface than requested.
+        setting("support_roof_pattern", "grid")
+        setting("support_bottom_pattern", "grid")
         setting("support_roof_line_width", effectiveSettings.lineWidthMm)
         setting("support_bottom_line_width", effectiveSettings.lineWidthMm)
         setting("support_roof_line_distance", lineDistance)

@@ -68,7 +68,7 @@ class CuraEngineCommandPrinterTest {
     }
 
     @Test
-    fun standaloneFallbackUsesTreeDensityAndGenericInterfaceWithoutForcingRoofOrBottom() {
+    fun standaloneFallbackMirrorsInterfaceIntoEngineReadRoofBottomKeys() {
         val settings = SlicerSettings(
             machineWidthMm = 230.0,
             machineDepthMm = 230.0,
@@ -96,8 +96,20 @@ class CuraEngineCommandPrinterTest {
         assertEquals("grid", values["support_interface_pattern"])
         assertEquals("2.4000240002400024", values["support_roof_line_distance"])
         assertEquals("30.0", values["speed_support_interface"])
-        assertFalse(values.containsKey("support_roof_enable"))
-        assertFalse(values.containsKey("support_bottom_enable"))
+        // CuraEngine only reads the per-extruder roof/bottom children; the
+        // standalone transport must mirror the interface enable/density/height
+        // into them or the support generator silently uses their defaults
+        // (get<...> reads directly from the settings container).
+        assertEquals("true", values["support_roof_enable"])
+        assertEquals("true", values["support_bottom_enable"])
+        assertEquals("33.333", values["support_roof_density"])
+        assertEquals("33.333", values["support_bottom_density"])
+        assertEquals("0.8", values["support_roof_height"])
+        assertEquals("0.8", values["support_bottom_height"])
+        assertEquals("30.0", values["speed_support_roof"])
+        assertEquals("30.0", values["speed_support_bottom"])
+        assertEquals("0.2", values["support_top_distance"])
+        assertEquals("0.2", values["support_bottom_distance"])
     }
 
     private fun build(

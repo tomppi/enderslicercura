@@ -244,6 +244,20 @@ internal object CuraDefinitionResolver {
                     bestEffort = true
                     rawValueExpression
                 }
+                // Cura also stores plain child references such as
+                // cool_fan_speed_min = "cool_fan_speed" or
+                // speed_roofing = "speed_topbottom". CuraEngine never evaluates
+                // these (it reads the child key at its default_value), and
+                // previously neither did this resolver, so the child silently
+                // won its definition default. Treat a bare identifier as a
+                // VariableExpr reference; the multi-pass evaluation resolves it
+                // once the parent is known. Identifiers that never resolve stay
+                // best-effort at their default, exactly like before.
+                rawValueExpression.isNotEmpty() &&
+                    isBareIdentifier(rawValueExpression) -> {
+                    bestEffort = true
+                    rawValueExpression
+                }
                 else -> null
             }
             val type = setting.optString("type")
@@ -293,10 +307,27 @@ internal object CuraDefinitionResolver {
         if (trimmed.toDoubleOrNull() != null) return false
         if (trimmed.lowercase() in BOOLEAN_LITERALS) return false
         // A formula uses arithmetic/boolean/conditional syntax or a Cura
-        // function call. Bare single identifiers (plain setting references or
-        // option strings) are left to the engine and stay at their default.
+        // function call. Bare single identifiers are handled separately by
+        // isBareIdentifier as setting references.
         if (trimmed.any { it in FORMULA_OPERATORS }) return true
         return trimmed.any { it == '(' } && trimmed.any { it == ')' }
+    }
+
+    /**
+     * True when a definition `value` is a bare identifier naming another
+     * setting (e.g. cool_fan_speed_min = "cool_fan_speed"). These are Cura
+     * parent/child references, never option strings, in the pinned stacks
+     * (verified: every bare identifier in the bundled definitions names a
+     * known setting key).
+     */
+    private fun isBareIdentifier(value: String): Boolean {
+        val trimmed = value.trim()
+        if (!BARE_IDENTIFIER.matches(trimmed)) return false
+        // Boolean/none literals and expression keywords (True, False, None,
+        // 1/0/yes/no/on/off, and/or/not/if/else/in) are literals, not references;
+        // a lower-case "false" override must stay a literal too.
+        if (trimmed.lowercase() in BOOLEAN_LITERALS) return false
+        return trimmed !in LITERAL_SPECIALS
     }
 
     private fun booleanValue(value: Any?): Boolean? = when (value) {
@@ -519,6 +550,10 @@ internal object CuraDefinitionResolver {
     )
     private val BOOLEAN_LITERALS = setOf("true", "false", "1", "0", "yes", "no", "on", "off")
     private val FORMULA_OPERATORS = charArrayOf('+', '-', '*', '/', '%', '=', '<', '>', '!')
+    private val BARE_IDENTIFIER = Regex("[a-zA-Z_][a-zA-Z0-9_]*")
+    private val LITERAL_SPECIALS = setOf(
+        "True", "False", "None", "and", "or", "not", "if", "else", "in",
+    )
     private const val MAX_PASSES = 64
     private const val MAX_REPORTED_UNRESOLVED = 12
 }

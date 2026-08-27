@@ -81,7 +81,10 @@ object CuraSettingsMapper {
             materialGuid = values["material_guid"] ?: base.materialGuid,
             enabledExtruderCount = number("extruders_enabled_count")?.toInt() ?: base.enabledExtruderCount,
             materialFlowPercent = number("material_flow") ?: base.materialFlowPercent,
-            fanSpeedPercent = number("cool_fan_speed") ?: base.fanSpeedPercent,
+            // CuraEngine reads the cooling fan from the Regular Fan Speed child
+            // (cool_fan_speed_min) rather than the bare cool_fan_speed parent,
+            // so prefer the child when an imported stack carries both.
+            fanSpeedPercent = number("cool_fan_speed_min") ?: number("cool_fan_speed") ?: base.fanSpeedPercent,
             initialFanSpeedPercent = number("cool_fan_speed_0") ?: base.initialFanSpeedPercent,
             fanFullAtLayer = number("cool_fan_full_layer")?.toInt() ?: base.fanFullAtLayer,
             supportsEnabled = bool("support_enable") ?: base.supportsEnabled,

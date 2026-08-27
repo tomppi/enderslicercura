@@ -84,6 +84,23 @@ internal object CuraSliceSettingsResolver {
             putAll(WaveOverhangEngineSettings.values(effectiveSettings))
             putAll(BrickWallEngineSettings.values(effectiveSettings))
             putAll(MasonryWallsEngineSettings.values(effectiveSettings))
+            // CuraEngine drives the cooling fan from the Regular/Maximum Fan
+            // Speed child keys (cool_fan_speed_min / cool_fan_speed_max) and
+            // never reads the bare cool_fan_speed parent. The definitions
+            // derive the children from the parent with a bare-reference
+            // formula this resolver intentionally does not evaluate, so an
+            // imported stack that carries only the parent would fall back to
+            // the children's 100% definition default. Cascade the resolved
+            // parent unless the stack set a child explicitly.
+            val fanParent = rawResolved.extruderValues["cool_fan_speed"]
+                ?: rawResolved.globalValues["cool_fan_speed"]
+            if (fanParent?.toDoubleOrNull() != null) {
+                for (child in listOf("cool_fan_speed_min", "cool_fan_speed_max")) {
+                    if (child !in canonical.global && child !in canonical.extruder) {
+                        put(child, fanParent)
+                    }
+                }
+            }
         }
 
         CuraSettingDelta.requireResolvedMatch(
