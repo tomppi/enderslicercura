@@ -978,7 +978,9 @@ class OctoPrintRepository(
     ) {
         if (!isCurrent(requestGeneration) || error is CancellationException) return
         val http = error as? OctoPrintClient.OctoPrintHttpException
-        if (http?.statusCode == 401 || (forbiddenMeansInvalidKey && http?.statusCode == 403)) {
+        val forbiddenIsInvalidKey = http?.statusCode == 403 && forbiddenMeansInvalidKey &&
+            http.message?.contains("api key", ignoreCase = true) == true
+        if (http?.statusCode == 401 || forbiddenIsInvalidKey) {
             invalidateAuthorization(error.message ?: "OctoPrint authorization is no longer valid")
         } else {
             setError(error)

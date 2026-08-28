@@ -21,6 +21,16 @@ class OctoPrintClient(
     private val base: URI
     private val activeConnections = Collections.synchronizedSet(mutableSetOf<HttpURLConnection>())
 
+    // OctoPrint 1.8.3+/2.0 double-submit CSRF protection: state-changing
+    // requests must carry both the csrf_token cookie (name is per-port,
+    // e.g. csrf_token_P5000, and gains an _R<root> suffix behind a path
+    // prefix) and an X-CSRF-Token header with the same value. The token
+    // pair is obtained from the anonymous server root response.
+    private val csrfMutex = Any()
+    @Volatile private var csrfCookieName: String? = null
+    @Volatile private var csrfTokenValue: String? = null
+    @Volatile private var csrfProbedAtMillis = 0L
+
     init {
         base = normalizeBaseUrl(baseUrl)
         normalizedBaseUrl = base.toString().removeSuffix("/")
@@ -512,39 +522,50 @@ class OctoPrintClient(
         }.toByteArray(Charsets.UTF_8)
         val fileLength = file?.length() ?: 0L
         val totalLength = prefix.size.toLong() + fileLength + suffix.size.toLong()
-        val connection = openConnection(
-            url = url,
-            method = "POST",
-            authenticated = true,
-            contentType = "multipart/form-data; boundary=$boundary",
-            contentLength = totalLength,
-            readTimeoutMillis = UPLOAD_TIMEOUT_MILLIS,
-        )
-        return try {
-            connection.outputStream.buffered().use { output ->
-                output.write(prefix)
-                if (file != null) {
-                    var sent = 0L
-                    file.inputStream().buffered().use { input ->
-                        val buffer = ByteArray(128 * 1024)
-                        while (true) {
-                            val count = input.read(buffer)
-                            if (count < 0) break
-                            output.write(buffer, 0, count)
-                            sent += count
-                            onProgress(sent, fileLength)
+        var csrfRetried = false
+        while (true) {
+            val connection = openConnection(
+                url = url,
+                method = "POST",
+                authenticated = true,
+                contentType = "multipart/form-data; boundary=$boundary",
+                contentLength = totalLength,
+                readTimeoutMillis = UPLOAD_TIMEOUT_MILLIS,
+            )
+            try {
+                connection.outputStream.buffered().use { output ->
+                    output.write(prefix)
+                    if (file != null) {
+                        var sent = 0L
+                        file.inputStream().buffered().use { input ->
+                            val buffer = ByteArray(128 * 1024)
+                            while (true) {
+                                val count = input.read(buffer)
+                                if (count < 0) break
+                                output.write(buffer, 0, count)
+                                sent += count
+                                onProgress(sent, fileLength)
+                            }
                         }
                     }
+                    output.write(suffix)
                 }
-                output.write(suffix)
+                val code = connection.responseCode
+                if (code !in 200..299) {
+                    val error = httpError(connection, code)
+                    if (!csrfRetried && isCsrfRejection(error)) {
+                        csrfRetried = true
+                        invalidateCsrfToken()
+                        continue
+                    }
+                    throw error
+                }
+                val bytes = readBody(connection, success = true, MAX_JSON_BODY_BYTES)
+                val text = bytes.toString(Charsets.UTF_8)
+                return if (text.isBlank()) JSONObject() else JSONObject(text)
+            } finally {
+                closeConnection(connection)
             }
-            val code = connection.responseCode
-            if (code !in 200..299) throw httpError(connection, code)
-            val bytes = readBody(connection, success = true, MAX_JSON_BODY_BYTES)
-            val text = bytes.toString(Charsets.UTF_8)
-            if (text.isBlank()) JSONObject() else JSONObject(text)
-        } finally {
-            closeConnection(connection)
         }
     }
 
@@ -556,25 +577,36 @@ class OctoPrintClient(
         authenticated: Boolean = true,
         allowedCodes: Set<Int>? = null,
     ): HttpResponse {
-        val connection = openConnection(
-            url = url,
-            method = method,
-            authenticated = authenticated,
-            contentType = contentType,
-            contentLength = body?.size?.toLong(),
-        )
-        return try {
-            if (body != null) connection.outputStream.buffered().use { it.write(body) }
-            val code = connection.responseCode
-            val allowed = allowedCodes?.let { code in it } ?: (code in 200..299)
-            if (!allowed) throw httpError(connection, code)
-            HttpResponse(
-                code = code,
-                body = readBody(connection, success = true, MAX_JSON_BODY_BYTES),
-                location = connection.getHeaderField("Location"),
+        var csrfRetried = false
+        while (true) {
+            val connection = openConnection(
+                url = url,
+                method = method,
+                authenticated = authenticated,
+                contentType = contentType,
+                contentLength = body?.size?.toLong(),
             )
-        } finally {
-            closeConnection(connection)
+            try {
+                if (body != null) connection.outputStream.buffered().use { it.write(body) }
+                val code = connection.responseCode
+                val allowed = allowedCodes?.let { code in it } ?: (code in 200..299)
+                if (!allowed) {
+                    val error = httpError(connection, code)
+                    if (!csrfRetried && isCsrfRejection(error)) {
+                        csrfRetried = true
+                        invalidateCsrfToken()
+                        continue
+                    }
+                    throw error
+                }
+                return HttpResponse(
+                    code = code,
+                    body = readBody(connection, success = true, MAX_JSON_BODY_BYTES),
+                    location = connection.getHeaderField("Location"),
+                )
+            } finally {
+                closeConnection(connection)
+            }
         }
     }
 
@@ -599,8 +631,14 @@ class OctoPrintClient(
             doInput = true
             setRequestProperty("Accept", accept)
             setRequestProperty("User-Agent", "$OCTOPRINT_APP_NAME Android")
+            // OctoPrint's 2.0 RC tornado/WSGI stack stalls on the second state-
+            // changing request of a kept-alive connection; one request per socket.
+            setRequestProperty("Connection", "close")
             if (authenticated && isSameOrigin(url)) {
                 apiKey?.takeIf(String::isNotBlank)?.let { setRequestProperty("X-Api-Key", it) }
+            }
+            if (method != "GET" && method != "HEAD" && method != "OPTIONS" && isSameOrigin(url)) {
+                applyCsrfToken(this)
             }
             contentType?.let { setRequestProperty("Content-Type", it) }
             if (contentLength != null) {
@@ -611,6 +649,76 @@ class OctoPrintClient(
         activeConnections += connection
         return connection
     }
+
+    /**
+     * OctoPrint 1.8.3+/2.0 double-submit CSRF: state-changing API requests must
+     * send the csrf_token cookie and an X-CSRF-Token header with the same value.
+     * The pair is obtained anonymously from the server root; if the probe fails
+     * (server unreachable, no cookie issued) the request proceeds without the
+     * pair so servers without CSRF protection keep working.
+     */
+    private fun applyCsrfToken(connection: HttpURLConnection) {
+        val name = csrfCookieName
+        val value = csrfTokenValue
+        if (name != null && value != null) {
+            applyCsrfHeaders(connection, name, value)
+            return
+        }
+        if (System.currentTimeMillis() - csrfProbedAtMillis < CSRF_PROBE_INTERVAL_MILLIS && csrfProbedAtMillis > 0L) return
+        synchronized(csrfMutex) {
+            val lockedName = csrfCookieName
+            val lockedValue = csrfTokenValue
+            if (lockedName != null && lockedValue != null) {
+                applyCsrfHeaders(connection, lockedName, lockedValue)
+                return
+            }
+            csrfProbedAtMillis = System.currentTimeMillis()
+            val pair = runCatching { fetchCsrfCookie() }.getOrNull()
+            if (pair != null) {
+                csrfCookieName = pair.first
+                csrfTokenValue = pair.second
+                applyCsrfHeaders(connection, pair.first, pair.second)
+            }
+        }
+    }
+
+    private fun applyCsrfHeaders(connection: HttpURLConnection, name: String, value: String) {
+        connection.setRequestProperty("Cookie", "$name=$value")
+        connection.setRequestProperty("X-CSRF-Token", value)
+    }
+
+    private fun fetchCsrfCookie(): Pair<String, String>? {
+        val connection = openConnection(base, "GET", authenticated = false)
+        return try {
+            connection.responseCode
+            // Consume (and cap) the body; the cookie is what we are after.
+            readBody(connection, success = true, MAX_CSRF_PROBE_BYTES)
+            parseCsrfCookie(setCookieHeaders(connection))
+        } finally {
+            closeConnection(connection)
+        }
+    }
+
+    private fun invalidateCsrfToken() {
+        synchronized(csrfMutex) {
+            csrfCookieName = null
+            csrfTokenValue = null
+            csrfProbedAtMillis = 0L
+        }
+    }
+
+    private fun setCookieHeaders(connection: HttpURLConnection): List<String> {
+        val values = mutableListOf<String>()
+        connection.headerFields.forEach { (name, headers) ->
+            if (name != null && name.equals("set-cookie", ignoreCase = true) && headers != null) {
+                values += headers
+            }
+        }
+        return values
+    }
+
+    private fun isCsrfRejection(error: OctoPrintHttpException): Boolean =
+        error.statusCode == 400 && error.message?.contains("csrf", ignoreCase = true) == true
 
     private fun closeConnection(connection: HttpURLConnection) {
         activeConnections -= connection
@@ -699,6 +807,8 @@ class OctoPrintClient(
         private const val CONNECT_TIMEOUT_MILLIS = 12_000
         private const val READ_TIMEOUT_MILLIS = 30_000
         private const val UPLOAD_TIMEOUT_MILLIS = 15 * 60 * 1_000
+        private const val CSRF_PROBE_INTERVAL_MILLIS = 10L * 60L * 1_000L
+        private const val MAX_CSRF_PROBE_BYTES = 64L * 1024L
         private const val MAX_SNAPSHOT_REDIRECTS = 3
         private const val MAX_SNAPSHOT_BYTES = 10L * 1024L * 1024L
         private const val MAX_JSON_BODY_BYTES = 8L * 1024L * 1024L
@@ -768,4 +878,26 @@ class OctoPrintClient(
             .replace("\r", "_")
             .replace("\n", "_")
     }
+}
+
+/**
+ * Extracts the double-submit CSRF cookie from the raw Set-Cookie headers
+ * issued by OctoPrint (1.8.3+). OctoPrint names the cookie per listening
+ * port (csrf_token_P5000) and adds an _R<root> suffix when the server is
+ * mounted below a path prefix; the plain csrf_token name is also accepted.
+ * Returns the cookie name and value, or null when no usable pair is present.
+ */
+internal fun parseCsrfCookie(setCookies: List<String>): Pair<String, String>? {
+    for (raw in setCookies) {
+        if (raw.isBlank()) continue
+        val cookie = raw.substringBefore(';').trim()
+        val separator = cookie.indexOf('=')
+        if (separator <= 0) continue
+        val name = cookie.substring(0, separator).trim()
+        val value = cookie.substring(separator + 1).trim()
+        if (name.startsWith("csrf_token", ignoreCase = true) && value.isNotBlank()) {
+            return name to value
+        }
+    }
+    return null
 }

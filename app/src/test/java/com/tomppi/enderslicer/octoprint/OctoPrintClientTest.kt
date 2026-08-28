@@ -332,4 +332,58 @@ class OctoPrintClientTest {
         assertFalse(client.looksLikeImage("{".toByteArray()))
         assertFalse(client.looksLikeImage(byteArrayOf(0, 0, 0, 0)))
     }
+
+    @Test
+    fun parsesPortSuffixedCsrfCookie() {
+        val pair = parseCsrfCookie(
+            listOf("session_P5000=abc123; HttpOnly; Path=/", "csrf_token_P5000=IjJ0b2tlbg; Path=/"),
+        )
+        assertEquals("csrf_token_P5000", pair?.first)
+        assertEquals("IjJ0b2tlbg", pair?.second)
+    }
+
+    @Test
+    fun parsesPathPrefixedCsrfCookie() {
+        val pair = parseCsrfCookie(
+            listOf("csrf_token_P5000_Roctoprint=IjJ0b2tlbg; path=/octoprint; HttpOnly"),
+        )
+        assertEquals("csrf_token_P5000_Roctoprint", pair?.first)
+        assertEquals("IjJ0b2tlbg", pair?.second)
+    }
+
+    @Test
+    fun parsesPlainCsrfCookie() {
+        val pair = parseCsrfCookie(listOf("csrf_token=IjJ0b2tlbg"))
+        assertEquals("csrf_token", pair?.first)
+        assertEquals("IjJ0b2tlbg", pair?.second)
+    }
+
+    @Test
+    fun ignoresNonCsrfAndMalformedSetCookies() {
+        assertNull(parseCsrfCookie(listOf("session_P5000=abc; Path=/")))
+        assertNull(parseCsrfCookie(listOf("")))
+        assertNull(parseCsrfCookie(listOf("=value")))
+        assertNull(parseCsrfCookie(emptyList()))
+        assertNull(parseCsrfCookie(listOf("csrf_token=")));
+    }
+
+    @Test
+    fun derivesAdminFromGroupsAndPermissions() {
+        val version = JSONObject("{\"api\":\"0.1\",\"server\":\"2.0.0rc4\",\"text\":\"OctoPrint 2.0.0rc4\"}")
+
+        val viaGroup = JSONObject("{\"name\":\"tester\",\"groups\":[\"users\",\"admins\"],\"permissions\":[\"STATUS\"]}")
+        assertTrue(OctoPrintJson.parseServerInfo(version, viaGroup).userIsAdmin)
+
+        val viaPermission = JSONObject("{\"name\":\"tester\",\"groups\":[\"users\"],\"permissions\":[\"STATUS\",\"ADMIN\"]}")
+        assertTrue(OctoPrintJson.parseServerInfo(version, viaPermission).userIsAdmin)
+
+        val legacyAdmin = JSONObject("{\"name\":\"tester\",\"admin\":true,\"permissions\":[]}")
+        assertTrue(OctoPrintJson.parseServerInfo(version, legacyAdmin).userIsAdmin)
+
+        val plainUser = JSONObject("{\"name\":\"tester\",\"groups\":[\"users\"],\"permissions\":[\"STATUS\"]}")
+        assertFalse(OctoPrintJson.parseServerInfo(version, plainUser).userIsAdmin)
+
+        val modern = JSONObject("{\"name\":\"tester\",\"groups\":[\"users\"],\"permissions\":[\"STATUS\",\"CONNECTION\"]}")
+        assertFalse(OctoPrintJson.parseServerInfo(version, modern).userIsAdmin)
+    }
 }

@@ -73,6 +73,19 @@ The app reads the snapshot URL and orientation settings from OctoPrint. A manual
 
 Only bounded still images are fetched. The app does not keep an MJPEG stream open in the background; snapshot polling begins while the OctoPrint panel is visible and stops when it is closed.
 
+## OctoPrint 1.8.3+/2.0 CSRF protection
+
+Since 1.8.3 (and enforced as `devel.enableCsrfProtection` in 2.0), OctoPrint
+defends non-GET API requests with a double-submit CSRF token. When the
+protection is active on a 2.0 server, API-key requests without an existing
+login session are rejected with a `400 CSRF validation failed` unless they
+carry both the `csrf_token_P<port>` cookie (the cookiename gains an
+`_R<root>` suffix behind a path prefix) and an `X-CSRF-Token` header with the
+same value. The client obtains the pair from the anonymous server root once
+per session, attaches it to every same-origin state-changing request and
+transparently refreshes and retries on a CSRF rejection, so configured
+servers keep working whether or not the flag is enabled.
+
 ## Local HTTP security
 
 Android normally blocks cleartext networking for modern target SDKs. This app explicitly permits it because many local OctoPrint installations are reachable only through `http://octopi.local` or a private IP address.

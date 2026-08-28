@@ -141,18 +141,24 @@ data class OctoPrintUiState(
 
 internal object OctoPrintJson {
     fun parseServerInfo(version: JSONObject, user: JSONObject?): OctoPrintServerInfo {
-        val permissions = buildSet {
-            val array = user?.optJSONArray("permissions") ?: JSONArray()
+        fun stringArray(json: JSONObject?, name: String): Set<String> = buildSet {
+            val array = json?.optJSONArray(name) ?: JSONArray()
             for (index in 0 until array.length()) {
                 array.optString(index).takeIf(String::isNotBlank)?.let(::add)
             }
         }
+        val permissions = stringArray(user, "permissions")
+        val groups = stringArray(user, "groups")
         return OctoPrintServerInfo(
             apiVersion = version.optString("api").takeIf(String::isNotBlank),
             serverVersion = version.optString("server").takeIf(String::isNotBlank),
             displayText = version.optString("text").takeIf(String::isNotBlank),
             userName = user?.optString("name")?.takeIf(String::isNotBlank),
-            userIsAdmin = user?.optBoolean("admin", false) == true,
+            // The `admin` field was dropped from /api/currentuser in modern
+            // OctoPrint; groups/permissions are the authoritative signal.
+            userIsAdmin = (user?.optBoolean("admin", false) == true) ||
+                "admins" in groups ||
+                "ADMIN" in permissions,
             permissions = permissions,
         )
     }
