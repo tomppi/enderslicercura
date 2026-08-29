@@ -778,8 +778,12 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         // since the side faces are vertical).
         private const val RIBBON_LIGHT_X = 0.63f
         private const val RIBBON_LIGHT_Y = 0.78f
-        private const val RIBBON_SIDE_BASE = 0.30f
-        private const val RIBBON_SIDE_RANGE = 0.60f
+        // Gentle side shading: a wide range (0.30-0.90) reads beautifully up
+        // close but turns the part into harsh corduroy stripes when zoomed
+        // out, because thin bright tops alternate with near-black far sides.
+        // The compressed range keeps the directional read without the moire.
+        private const val RIBBON_SIDE_BASE = 0.58f
+        private const val RIBBON_SIDE_RANGE = 0.24f
         // Odd layers render a touch darker so layers separate visually.
         private const val RIBBON_LAYER_TINT = 0.96f
         // Eye sits at (0, -distance, 0.58*distance); true eye distance is distance * sqrt(1 + 0.58^2).

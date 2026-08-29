@@ -41,7 +41,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Nozzle-path beads are shaded with a fixed directional light per side
   face (in the bead's own hue) plus a subtle odd-layer tint, so layers
   separate visually and angled segment joints blend instead of showing
-  flat dark triangles.
+  flat dark triangles. The side shading range is compressed (0.58-0.82)
+  so zoomed-out views stay smooth instead of developing corduroy stripes
+  from near-black far sides.
 - The nozzle-path camera now uses the model viewer's turntable controls:
   rotation/zoom/pan orbit around the printed-part centre instead of a
   touch-dependent orbit pivot, with the same sensitivity constants,
