@@ -3,12 +3,18 @@ package com.tomppi.enderslicer.ui
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -42,17 +48,25 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.tomppi.enderslicer.octoprint.OctoPrintFileEntry
 import com.tomppi.enderslicer.octoprint.OctoPrintUiState
 import com.tomppi.enderslicer.octoprint.OctoPrintUploadAction
 import com.tomppi.enderslicer.octoprint.OctoPrintViewModel
 import java.util.Locale
+import kotlin.math.min
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -438,6 +452,7 @@ private fun HardenedWebcamCard(state: OctoPrintUiState) {
             decodeFinished = true
         }
     }
+    var fullscreen by remember { mutableStateOf(false) }
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
             Text("Webcam", style = MaterialTheme.typography.titleMedium)
@@ -476,12 +491,143 @@ private fun HardenedWebcamCard(state: OctoPrintUiState) {
                             scaleX = if (state.webcam.flipHorizontal) -1f else 1f,
                             scaleY = if (state.webcam.flipVertical) -1f else 1f,
                             rotationZ = if (state.webcam.rotate90) 90f else 0f,
-                        ),
+                        )
+                        .clickable { fullscreen = true },
                 )
             }
         }
     }
+    if (fullscreen) {
+        WebcamFullscreenDialog(
+            bitmap = bitmap,
+            webcam = state.webcam,
+            onClose = { fullscreen = false },
+        )
+    }
 }
+/**
+ * Fullscreen webcam viewer: pinch to zoom (1x to 6x), drag to pan and
+ * double-tap to toggle between 1x and 2.5x. Live snapshots keep flowing
+ * while the STATUS page (and thus the polling) stays active; flip and
+ * rotation settings from OctoPrint are applied to the rendered image.
+ */
+@Composable
+private fun WebcamFullscreenDialog(
+    bitmap: Bitmap?,
+    webcam: com.tomppi.enderslicer.octoprint.OctoPrintWebcamConfig,
+    onClose: () -> Unit,
+) {
+    Dialog(
+        onDismissRequest = onClose,
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false,
+        ),
+    ) {
+        var zoom by remember { mutableStateOf(1f) }
+        var pan by remember { mutableStateOf(Offset.Zero) }
+        var viewport by remember { mutableStateOf(IntSize.Zero) }
+
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black)
+                .onSizeChanged { viewport = it }
+                .pointerInput(Unit) {
+                    detectTransformGestures { centroid, panChange, zoomChange, _ ->
+                        val newZoom = (zoom * zoomChange).coerceIn(1f, 6f)
+                        if (newZoom != zoom) {
+                            pan = (pan - centroid) * (newZoom / zoom) + centroid
+                            zoom = newZoom
+                        } else {
+                            pan += panChange
+                        }
+                        pan = clampWebcamPan(
+                            pan, zoom, viewport,
+                            bitmap?.width ?: 0, bitmap?.height ?: 0,
+                            webcam.rotate90,
+                        )
+                    }
+                }
+                .pointerInput(Unit) {
+                    detectTapGestures(
+                        onDoubleTap = {
+                            if (zoom > 1.5f) {
+                                zoom = 1f
+                                pan = Offset.Zero
+                            } else {
+                                zoom = 2.5f
+                                pan = Offset.Zero
+                            }
+                        },
+                    )
+                },
+        ) {
+            if (bitmap != null) {
+                Image(
+                    bitmap = bitmap.asImageBitmap(),
+                    contentDescription = "OctoPrint webcam (fullscreen)",
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            scaleX = zoom * (if (webcam.flipHorizontal) -1f else 1f)
+                            scaleY = zoom * (if (webcam.flipVertical) -1f else 1f)
+                            rotationZ = if (webcam.rotate90) 90f else 0f
+                            translationX = pan.x
+                            translationY = pan.y
+                        },
+                )
+            } else {
+                Text(
+                    "Waiting for a webcam snapshot...",
+                    color = Color.White,
+                    modifier = Modifier.align(Alignment.Center),
+                )
+            }
+            TextButton(
+                onClick = onClose,
+                modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
+            ) {
+                Text("Close", color = Color.White)
+            }
+            Text(
+                "Pinch to zoom - drag to pan - double-tap to reset",
+                color = Color.White.copy(alpha = 0.7f),
+                style = MaterialTheme.typography.labelSmall,
+                modifier = Modifier.align(Alignment.BottomCenter).padding(12.dp),
+            )
+        }
+    }
+}
+
+/**
+ * Keeps the zoomed image inside the viewport: the pan is clamped to the
+ * overflow on each axis for the image's fitted size (ContentScale.Fit),
+ * accounting for a 90-degree rotation.
+ */
+private fun clampWebcamPan(
+    pan: Offset,
+    zoom: Float,
+    viewport: IntSize,
+    bitmapWidth: Int,
+    bitmapHeight: Int,
+    rotate90: Boolean,
+): Offset {
+    if (viewport.width <= 0 || viewport.height <= 0 || bitmapWidth <= 0 || bitmapHeight <= 0) {
+        return Offset.Zero
+    }
+    val (drawnWidth, drawnHeight) = if (rotate90) {
+        bitmapHeight.toFloat() to bitmapWidth.toFloat()
+    } else {
+        bitmapWidth.toFloat() to bitmapHeight.toFloat()
+    }
+    val fitScale = min(viewport.width / drawnWidth, viewport.height / drawnHeight)
+    val maxX = ((zoom * drawnWidth * fitScale - viewport.width) / 2f).coerceAtLeast(0f)
+    val maxY = ((zoom * drawnHeight * fitScale - viewport.height) / 2f).coerceAtLeast(0f)
+    return Offset(pan.x.coerceIn(-maxX, maxX), pan.y.coerceIn(-maxY, maxY))
+}
+
 
 @Composable
 private fun HardenedFilesPage(

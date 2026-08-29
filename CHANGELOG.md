@@ -21,6 +21,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (relief-field flatten for CurviSlicer, cone warp around the model centre for
   conical slicing) so CuraEngine generates supports against the warped solid
   and the G-code transform restores both together.
+- The OctoPrint webcam card opens the snapshot in a fullscreen viewer with
+  pinch zoom (1x-6x), drag-to-pan and a double-tap reset; OctoPrint flip and
+  rotation settings are preserved and the view stays live while open.
 
 ### Simplified
 
