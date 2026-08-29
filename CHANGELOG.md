@@ -38,6 +38,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   slicing at 0.12 mm vs 0.20 mm visibly changes the geometry. The palette
   is desaturated with shadowed side walls instead of the glowing outline,
   and the parser now captures per-move flow and layer height for this.
+- Nozzle-path extrusion moves are emitted as one connected polyline
+  stroke: consecutive moves on the same plane are welded with miter
+  corners and closed end caps, so corners read as melted plastic instead
+  of wedge gaps between separate quads.
 - Nozzle-path beads are shaded with a fixed directional light per side
   face (in the bead's own hue) plus a subtle odd-layer tint, so layers
   separate visually and angled segment joints blend instead of showing

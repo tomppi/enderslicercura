@@ -381,6 +381,16 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         val ribbonColor = ArrayList<Float>((value.moveCount / stride) * 72)
         val travelVertex = ArrayList<Float>((value.moveCount / stride) * 8)
         val travelColor = ArrayList<Float>((value.moveCount / stride) * 8)
+        // Stroke records for the connected ribbon pass: consecutive extrusion
+        // moves that share an endpoint and plane are joined with miter corners.
+        val strokeSx = ArrayList<Float>(); val strokeSy = ArrayList<Float>(); val strokeSz = ArrayList<Float>()
+        val strokeEx = ArrayList<Float>(); val strokeEy = ArrayList<Float>(); val strokeEz = ArrayList<Float>()
+        val strokeDx = ArrayList<Float>(); val strokeDy = ArrayList<Float>()
+        val strokeW = ArrayList<Float>(); val strokeH = ArrayList<Float>()
+        val strokeCr = ArrayList<Float>(); val strokeCg = ArrayList<Float>(); val strokeCb = ArrayList<Float>()
+        val strokeConn = ArrayList<Float>()
+        var lastSx = 0f; var lastSy = 0f; var lastEx = 0f; var lastEy = 0f; var lastEz = 0f
+        var lastDx = 0f; var lastDy = 0f; var strokeValid = false
         // Full-range extrusion points for the camera fit (percentile-trimmed
         // later), independent of the ribbon stride sampling.
         val boundsVertex = ArrayList<Float>(value.moveCount * 6)
@@ -428,13 +438,35 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
                     hsv(extrusionHue(zRatio, speedRatio, colorBySpeed), RIBBON_SATURATION, RIBBON_VALUE, 1f)
                 } else floatArrayOf(0.50f, 0.54f, 0.64f, 0.20f)
                 if (extrusion) {
-                    addRibbonMove(
-                        ribbonVertex, ribbonColor,
-                        sx, sy, sz, ex, ey, ez,
-                        source[offset + GcodeNozzlePath.DELTA_E],
-                        source[offset + GcodeNozzlePath.LAYER_HEIGHT],
-                        color,
-                    )
+                    val segDx = ex - sx
+                    val segDy = ey - sy
+                    val segLen = sqrt(segDx * segDx + segDy * segDy)
+                    val dirX = if (segLen > 1e-5f) segDx / segLen else 0f
+                    val dirY = if (segLen > 1e-5f) segDy / segLen else 1f
+                    val deltaE = source[offset + GcodeNozzlePath.DELTA_E]
+                    val parsedHeight = source[offset + GcodeNozzlePath.LAYER_HEIGHT]
+                    val height = if (parsedHeight > 0.02f && parsedHeight <= 2.0f) parsedHeight else beadHeight
+                    val rawWidth = if (segLen > 1e-4f && deltaE > 0f) {
+                        (deltaE * filamentArea / segLen) / height
+                    } else {
+                        beadLineWidth
+                    }
+                    val width = rawWidth.coerceIn(beadLineWidth * 0.4f, beadLineWidth * 4f)
+                    val dot = lastDx * dirX + lastDy * dirY
+                    val connects = strokeValid &&
+                        kotlin.math.abs(lastEz - sz) <= 0.02f &&
+                        (lastEx - sx) * (lastEx - sx) + (lastEy - sy) * (lastEy - sy) <= 0.05f * 0.05f &&
+                        dot > -0.85f
+                    strokeSx += sx; strokeSy += sy; strokeSz += sz
+                    strokeEx += ex; strokeEy += ey; strokeEz += ez
+                    strokeDx += dirX; strokeDy += dirY
+                    strokeW += width; strokeH += height
+                    strokeCr += color[0]; strokeCg += color[1]; strokeCb += color[2]
+                    strokeConn += if (connects) 1f else 0f
+                    strokeValid = true
+                    lastSx = sx; lastSy = sy
+                    lastEx = ex; lastEy = ey; lastEz = ez
+                    lastDx = dirX; lastDy = dirY
                     extrusionMoves++
                 } else {
                     travelVertex += sx; travelVertex += sy; travelVertex += sz
@@ -444,6 +476,25 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
                 }
             }
             offset += GcodeNozzlePath.VALUES_PER_MOVE
+        }
+        // Connected bead emission: mitered joins between consecutive moves,
+        // square caps at chain ends - the plastic reads as one continuous
+        // extrusion instead of separate quads.
+        for (stroke in strokeSx.indices) {
+            val hasPrev = stroke > 0 && strokeConn[stroke] > 0.5f
+            val hasNext = stroke < strokeSx.size - 1 && strokeConn[stroke + 1] > 0.5f
+            addRibbonMove(
+                ribbonVertex, ribbonColor,
+                strokeSx[stroke], strokeSy[stroke], strokeSz[stroke],
+                strokeEx[stroke], strokeEy[stroke], strokeEz[stroke],
+                strokeDx[stroke], strokeDy[stroke],
+                if (hasPrev) strokeDx[stroke - 1] else 0f,
+                if (hasPrev) strokeDy[stroke - 1] else 0f,
+                if (hasNext) strokeDx[stroke + 1] else 0f,
+                if (hasNext) strokeDy[stroke + 1] else 0f,
+                strokeW[stroke], strokeH[stroke],
+                floatArrayOf(strokeCr[stroke], strokeCg[stroke], strokeCb[stroke], 1f),
+            )
         }
         ribbonPositions = bufferOf(ribbonVertex)
         ribbonColors = bufferOf(ribbonColor)
@@ -476,56 +527,65 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         colors: ArrayList<Float>,
         sx: Float, sy: Float, sz: Float,
         ex: Float, ey: Float, ez: Float,
-        deltaE: Float,
-        parsedLayerHeight: Float,
+        dirX: Float, dirY: Float,
+        prevDirX: Float, prevDirY: Float,
+        nextDirX: Float, nextDirY: Float,
+        width: Float,
+        height: Float,
         color: FloatArray,
     ) {
-        val dx = ex - sx
-        val dy = ey - sy
-        val length = sqrt(dx * dx + dy * dy)
-        val height = if (parsedLayerHeight > 0.02f && parsedLayerHeight <= 2.0f) parsedLayerHeight else beadHeight
-        val rawWidth = if (length > 1e-4f && deltaE > 0f) {
-            val crossArea = deltaE * filamentArea / length
-            crossArea / height
-        } else {
-            beadLineWidth
-        }
-        val width = rawWidth.coerceIn(beadLineWidth * 0.4f, beadLineWidth * 4f)
         val half = width * 0.5f
-        val px = if (length > 1e-4f) -dy / length * half else 0f
-        val py = if (length > 1e-4f) dx / length * half else 0f
+        // Miter corner offsets: where the previous/next segment connects on
+        // the same plane, the cross-section widens to the miter point so the
+        // beads fuse at corners instead of leaving wedge gaps.
+        fun miterOffset(prevX: Float, prevY: Float, nextX: Float, nextY: Float): FloatArray {
+            val mx = prevX + nextX
+            val my = prevY + nextY
+            val mlen = sqrt(mx * mx + my * my)
+            if (mlen < 1e-4f) {
+                return floatArrayOf(0f, 0f)
+            }
+            val nx = mx / mlen
+            val ny = my / mlen
+            val cosHalf = nx * nextX + ny * nextY
+            val scale = half / max(cosHalf, RIBBON_MIN_MITER_COS)
+            return floatArrayOf(nx * scale, ny * scale)
+        }
+        val startMiter = if (prevDirX != 0f || prevDirY != 0f) {
+            miterOffset(prevDirX, prevDirY, dirX, dirY)
+        } else {
+            floatArrayOf(-dirY * half, dirX * half)
+        }
+        val endMiter = if (nextDirX != 0f || nextDirY != 0f) {
+            miterOffset(dirX, dirY, nextDirX, nextDirY)
+        } else {
+            floatArrayOf(-dirY * half, dirX * half)
+        }
+        // Cross-section corners: a/b start, c/d end (a and d on one side).
+        val ax = sx - startMiter[0]; val ay = sy - startMiter[1]
+        val bx = sx + startMiter[0]; val by = sy + startMiter[1]
+        val cx = ex + endMiter[0]; val cy = ey + endMiter[1]
+        val dxd = ex - endMiter[0]; val dyd = ey - endMiter[1]
         // Subtle per-layer tint: odd layers are a touch darker so stacked
         // beads read as separate layers (the hue still follows speed/z).
         val level = if (height > 0f) (ez / height).roundToInt() else 0
         val parity = if (level and 1 == 0) 1f else RIBBON_LAYER_TINT
-        // Simple directional light on the side walls (fixed world direction):
-        // each side face shades by its outward normal, so segments meeting at
-        // an angle soften into continuous facets instead of flat dark patches.
-        val sideLit = if (length > 1e-4f) {
-            val aNx = dy / length
-            val aNy = -dx / length
-            val bNx = -dy / length
-            val bNy = dx / length
-            val litA = RIBBON_SIDE_BASE + RIBBON_SIDE_RANGE *
-                max(0f, aNx * RIBBON_LIGHT_X + aNy * RIBBON_LIGHT_Y)
-            val litB = RIBBON_SIDE_BASE + RIBBON_SIDE_RANGE *
-                max(0f, bNx * RIBBON_LIGHT_X + bNy * RIBBON_LIGHT_Y)
-            litA to litB
-        } else {
-            RIBBON_SIDE_BASE to RIBBON_SIDE_BASE
-        }
+        // Fixed directional light on the vertical faces: each side shades by
+        // its outward normal, so angled joints read as continuous plastic.
+        val aNx = dirY; val aNy = -dirX
+        val bNx = -dirY; val bNy = dirX
+        val litA = RIBBON_SIDE_BASE + RIBBON_SIDE_RANGE *
+            max(0f, aNx * RIBBON_LIGHT_X + aNy * RIBBON_LIGHT_Y)
+        val litB = RIBBON_SIDE_BASE + RIBBON_SIDE_RANGE *
+            max(0f, bNx * RIBBON_LIGHT_X + bNy * RIBBON_LIGHT_Y)
+        val capLit = RIBBON_SIDE_BASE + RIBBON_SIDE_RANGE *
+            max(0f, (-dirX) * RIBBON_LIGHT_X + (-dirY) * RIBBON_LIGHT_Y)
         fun emitColor(factor: Float) {
             colors += color[0] * factor
             colors += color[1] * factor
             colors += color[2] * factor
-            colors += color[3]
+            colors += 1f
         }
-        // Quad corners: a/b on the start segment, c/d on the end segment,
-        // left face = a->d, right face = b->c (top face at + height).
-        val ax = sx - px; val ay = sy - py
-        val bx = sx + px; val by = sy + py
-        val cx = ex + px; val cy = ey + py
-        val dxd = ex - px; val dyd = ey - py
         // Top face (z + height), two triangles.
         vertex += ax; vertex += ay; vertex += sz + height
         vertex += bx; vertex += by; vertex += sz + height
@@ -534,22 +594,41 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         vertex += cx; vertex += cy; vertex += ez + height
         vertex += dxd; vertex += dyd; vertex += ez + height
         repeat(6) { emitColor(parity) }
-        // Left side face (shaded by its outward normal): a(z) -> d(z) -> d(top).
+        // Side face on the a/d side (z -> top).
         vertex += ax; vertex += ay; vertex += sz
         vertex += dxd; vertex += dyd; vertex += ez
         vertex += dxd; vertex += dyd; vertex += ez + height
         vertex += ax; vertex += ay; vertex += sz
         vertex += dxd; vertex += dyd; vertex += ez + height
         vertex += ax; vertex += ay; vertex += sz + height
-        repeat(6) { emitColor(parity * sideLit.first) }
-        // Right side face: b(z) -> c(z) -> c(top) / b(top).
+        repeat(6) { emitColor(parity * litA) }
+        // Side face on the b/c side.
         vertex += bx; vertex += by; vertex += sz
         vertex += cx; vertex += cy; vertex += ez
         vertex += cx; vertex += cy; vertex += ez + height
         vertex += bx; vertex += by; vertex += sz
         vertex += cx; vertex += cy; vertex += ez + height
         vertex += bx; vertex += by; vertex += sz + height
-        repeat(6) { emitColor(parity * sideLit.second) }
+        repeat(6) { emitColor(parity * litB) }
+        // End caps where the chain starts/ends, so bead ends are closed.
+        if (prevDirX == 0f && prevDirY == 0f) {
+            vertex += ax; vertex += ay; vertex += sz
+            vertex += bx; vertex += by; vertex += sz
+            vertex += bx; vertex += by; vertex += sz + height
+            vertex += ax; vertex += ay; vertex += sz
+            vertex += bx; vertex += by; vertex += sz + height
+            vertex += ax; vertex += ay; vertex += sz + height
+            repeat(6) { emitColor(parity * capLit) }
+        }
+        if (nextDirX == 0f && nextDirY == 0f) {
+            vertex += cx; vertex += cy; vertex += ez
+            vertex += dxd; vertex += dyd; vertex += ez
+            vertex += dxd; vertex += dyd; vertex += ez + height
+            vertex += cx; vertex += cy; vertex += ez
+            vertex += dxd; vertex += dyd; vertex += ez + height
+            vertex += cx; vertex += cy; vertex += ez + height
+            repeat(6) { emitColor(parity * capLit) }
+        }
     }
 
     private fun bufferOf(values: List<Float>): FloatBuffer? {
@@ -782,6 +861,7 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         private const val RIBBON_SIDE_RANGE = 0.60f
         // Odd layers render a touch darker so layers separate visually.
         private const val RIBBON_LAYER_TINT = 0.96f
+        private const val RIBBON_MIN_MITER_COS = 0.35f
         // Eye sits at (0, -distance, 0.58*distance); true eye distance is distance * sqrt(1 + 0.58^2).
         private const val CAMERA_EYE_DISTANCE_SCALE = 1.1561f
 
