@@ -490,7 +490,12 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         } else {
             beadLineWidth
         }
-        val width = rawWidth.coerceIn(beadLineWidth * 0.4f, beadLineWidth * 4f)
+        // Micro-segments (sub-0.05 mm bits on curves and joints) emit with
+        // zero width: their side walls otherwise render as tiny dark specks
+        // scattered across the surface at every zoom level.
+        val width = if (length < RIBBON_MIN_SEGMENT_MM) 0f else {
+            rawWidth.coerceIn(beadLineWidth * 0.4f, beadLineWidth * 4f)
+        }
         val half = width * 0.5f
         val px = if (length > 1e-4f) -dy / length * half else 0f
         val py = if (length > 1e-4f) dx / length * half else 0f
@@ -770,7 +775,8 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         // Flat side tint: only 15 percent darker than the top, so bead rows
         // read as fine grooves at every zoom instead of corduroy stripes
         // (directional lambert variation caused moire when zoomed out).
-        private const val RIBBON_SIDE_BRIGHTNESS = 0.85f
+        private const val RIBBON_SIDE_BRIGHTNESS = 0.90f
+        private const val RIBBON_MIN_SEGMENT_MM = 0.05f
         // Odd layers render a touch darker so layers separate visually.
         private const val RIBBON_LAYER_TINT = 0.96f
         // Eye sits at (0, -distance, 0.58*distance); true eye distance is distance * sqrt(1 + 0.58^2).

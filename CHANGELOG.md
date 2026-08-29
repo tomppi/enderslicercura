@@ -44,7 +44,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   flat dark triangles. Side walls now use a flat, 15% darker tint of the
   bead colour instead of directional lambert variation - the directional
   range made bead rows crawl into corduroy stripes and chevrons when
-  zoomed out, the flat tint keeps every zoom clean.
+  zoomed out, the flat tint keeps every zoom clean. Sub-0.05 mm micro
+  segments emit with zero width (their side walls painted tiny dark
+  specks) and the side tint is 0.90x.
 - The nozzle-path camera now uses the model viewer's turntable controls:
   rotation/zoom/pan orbit around the printed-part centre instead of a
   touch-dependent orbit pivot, with the same sensitivity constants,
