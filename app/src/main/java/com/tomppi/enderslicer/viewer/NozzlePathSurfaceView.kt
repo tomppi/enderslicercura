@@ -14,6 +14,7 @@ import java.nio.FloatBuffer
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 import kotlin.math.floor
+import kotlin.math.roundToInt
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sqrt
@@ -185,9 +186,8 @@ class NozzlePathSurfaceView(context: Context) : GLSurfaceView(context) {
 private class NozzlePathRenderer : GLSurfaceView.Renderer {
     private var path: GcodeNozzlePath? = null
     private var selectedMoveIndex = 0
-    private var ribbonTopPositions: FloatBuffer? = null
-    private var ribbonTopColors: FloatBuffer? = null
-    private var ribbonSidePositions: FloatBuffer? = null
+    private var ribbonPositions: FloatBuffer? = null
+    private var ribbonColors: FloatBuffer? = null
     private var travelPositions: FloatBuffer? = null
     private var travelColors: FloatBuffer? = null
     // Physical bead parameters from the current slice settings (fallbacks
@@ -359,16 +359,13 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         drawSolidLines(gridPositions, gridVertexCount, 1f, 0.24f, 0.30f, 0.40f, 0.48f)
         val upTo = (selectedMoveIndex + 1).coerceAtMost(extrusionPrefix.size - 1)
         val ribbonMoveCount = extrusionPrefix[upTo]
-        // Physical beads: shaded side walls first, colored top surface on top.
-        drawSolidTriangles(
-            ribbonSidePositions,
-            ribbonMoveCount * SIDE_VERTICES_PER_MOVE,
-            RIBBON_SHADOW_RED, RIBBON_SHADOW_GREEN, RIBBON_SHADOW_BLUE, 1f,
-        )
+        // Physical beads in one colored pass: the top surface plus side walls
+        // shaded by a fixed directional light (hue matches the top, so angled
+        // joints blend into continuous facets).
         drawColoredTriangles(
-            ribbonTopPositions,
-            ribbonTopColors,
-            ribbonMoveCount * TOP_VERTICES_PER_MOVE,
+            ribbonPositions,
+            ribbonColors,
+            ribbonMoveCount * RIBBON_VERTICES_PER_MOVE,
         )
         if (showTravels) {
             drawColoredLines(travelPositions, travelColors, travelPrefix[upTo] * 2, TRAVEL_WIDTH)
@@ -380,9 +377,8 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
     private fun buildPathBuffers(value: GcodeNozzlePath) {
         val source = value.moves
         val stride = max(1, (value.extrusionMoveCount + RIBBON_MAX_MOVES - 1) / RIBBON_MAX_MOVES)
-        val ribbonTopVertex = ArrayList<Float>((value.moveCount / stride) * 20)
-        val ribbonTopColor = ArrayList<Float>((value.moveCount / stride) * 24)
-        val ribbonSideVertex = ArrayList<Float>((value.moveCount / stride) * 40)
+        val ribbonVertex = ArrayList<Float>((value.moveCount / stride) * 54)
+        val ribbonColor = ArrayList<Float>((value.moveCount / stride) * 72)
         val travelVertex = ArrayList<Float>((value.moveCount / stride) * 8)
         val travelColor = ArrayList<Float>((value.moveCount / stride) * 8)
         // Full-range extrusion points for the camera fit (percentile-trimmed
@@ -433,7 +429,7 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
                 } else floatArrayOf(0.50f, 0.54f, 0.64f, 0.20f)
                 if (extrusion) {
                     addRibbonMove(
-                        ribbonTopVertex, ribbonTopColor, ribbonSideVertex,
+                        ribbonVertex, ribbonColor,
                         sx, sy, sz, ex, ey, ez,
                         source[offset + GcodeNozzlePath.DELTA_E],
                         source[offset + GcodeNozzlePath.LAYER_HEIGHT],
@@ -449,9 +445,8 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
             }
             offset += GcodeNozzlePath.VALUES_PER_MOVE
         }
-        ribbonTopPositions = bufferOf(ribbonTopVertex)
-        ribbonTopColors = bufferOf(ribbonTopColor)
-        ribbonSidePositions = bufferOf(ribbonSideVertex)
+        ribbonPositions = bufferOf(ribbonVertex)
+        ribbonColors = bufferOf(ribbonColor)
         travelPositions = bufferOf(travelVertex)
         travelColors = bufferOf(travelColor)
 
@@ -477,9 +472,8 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
      * the sliced settings (layer height, line width, flow).
      */
     private fun addRibbonMove(
-        top: ArrayList<Float>,
-        topColors: ArrayList<Float>,
-        sides: ArrayList<Float>,
+        vertex: ArrayList<Float>,
+        colors: ArrayList<Float>,
         sx: Float, sy: Float, sz: Float,
         ex: Float, ey: Float, ez: Float,
         deltaE: Float,
@@ -500,34 +494,62 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         val half = width * 0.5f
         val px = if (length > 1e-4f) -dy / length * half else 0f
         val py = if (length > 1e-4f) dx / length * half else 0f
+        // Subtle per-layer tint: odd layers are a touch darker so stacked
+        // beads read as separate layers (the hue still follows speed/z).
+        val level = if (height > 0f) (ez / height).roundToInt() else 0
+        val parity = if (level and 1 == 0) 1f else RIBBON_LAYER_TINT
+        // Simple directional light on the side walls (fixed world direction):
+        // each side face shades by its outward normal, so segments meeting at
+        // an angle soften into continuous facets instead of flat dark patches.
+        val sideLit = if (length > 1e-4f) {
+            val aNx = dy / length
+            val aNy = -dx / length
+            val bNx = -dy / length
+            val bNy = dx / length
+            val litA = RIBBON_SIDE_BASE + RIBBON_SIDE_RANGE *
+                max(0f, aNx * RIBBON_LIGHT_X + aNy * RIBBON_LIGHT_Y)
+            val litB = RIBBON_SIDE_BASE + RIBBON_SIDE_RANGE *
+                max(0f, bNx * RIBBON_LIGHT_X + bNy * RIBBON_LIGHT_Y)
+            litA to litB
+        } else {
+            RIBBON_SIDE_BASE to RIBBON_SIDE_BASE
+        }
+        fun emitColor(factor: Float) {
+            colors += color[0] * factor
+            colors += color[1] * factor
+            colors += color[2] * factor
+            colors += color[3]
+        }
         // Quad corners: a/b on the start segment, c/d on the end segment,
-        // left = a->d, right = b->c (top face at + height).
-        val ax = sx - px; val ay = sy - py + 0f
+        // left face = a->d, right face = b->c (top face at + height).
+        val ax = sx - px; val ay = sy - py
         val bx = sx + px; val by = sy + py
         val cx = ex + px; val cy = ey + py
         val dxd = ex - px; val dyd = ey - py
         // Top face (z + height), two triangles.
-        top += ax; top += ay; top += sz + height
-        top += bx; top += by; top += sz + height
-        top += cx; top += cy; top += ez + height
-        top += ax; top += ay; top += sz + height
-        top += cx; top += cy; top += ez + height
-        top += dxd; top += dyd; top += ez + height
-        // Left side face (shadowed): a(z) -> d(z) -> d(top) / a(top).
-        sides += ax; sides += ay; sides += sz
-        sides += dxd; sides += dyd; sides += ez
-        sides += dxd; sides += dyd; sides += ez + height
-        sides += ax; sides += ay; sides += sz
-        sides += dxd; sides += dyd; sides += ez + height
-        sides += ax; sides += ay; sides += sz + height
+        vertex += ax; vertex += ay; vertex += sz + height
+        vertex += bx; vertex += by; vertex += sz + height
+        vertex += cx; vertex += cy; vertex += ez + height
+        vertex += ax; vertex += ay; vertex += sz + height
+        vertex += cx; vertex += cy; vertex += ez + height
+        vertex += dxd; vertex += dyd; vertex += ez + height
+        repeat(6) { emitColor(parity) }
+        // Left side face (shaded by its outward normal): a(z) -> d(z) -> d(top).
+        vertex += ax; vertex += ay; vertex += sz
+        vertex += dxd; vertex += dyd; vertex += ez
+        vertex += dxd; vertex += dyd; vertex += ez + height
+        vertex += ax; vertex += ay; vertex += sz
+        vertex += dxd; vertex += dyd; vertex += ez + height
+        vertex += ax; vertex += ay; vertex += sz + height
+        repeat(6) { emitColor(parity * sideLit.first) }
         // Right side face: b(z) -> c(z) -> c(top) / b(top).
-        sides += bx; sides += by; sides += sz
-        sides += cx; sides += cy; sides += ez
-        sides += cx; sides += cy; sides += ez + height
-        sides += bx; sides += by; sides += sz
-        sides += cx; sides += cy; sides += ez + height
-        sides += bx; sides += by; sides += sz + height
-        repeat(6) { color.forEach(topColors::add) }
+        vertex += bx; vertex += by; vertex += sz
+        vertex += cx; vertex += cy; vertex += ez
+        vertex += cx; vertex += cy; vertex += ez + height
+        vertex += bx; vertex += by; vertex += sz
+        vertex += cx; vertex += cy; vertex += ez + height
+        vertex += bx; vertex += by; vertex += sz + height
+        repeat(6) { emitColor(parity * sideLit.second) }
     }
 
     private fun bufferOf(values: List<Float>): FloatBuffer? {
@@ -617,28 +639,6 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         GLES20.glLineWidth(1f)
         GLES20.glDisableVertexAttribArray(position)
         GLES20.glDisableVertexAttribArray(color)
-    }
-
-    private fun drawSolidTriangles(
-        buffer: FloatBuffer?,
-        vertexCount: Int,
-        red: Float,
-        green: Float,
-        blue: Float,
-        alpha: Float,
-    ) {
-        if (buffer == null || vertexCount <= 0) return
-        GLES20.glUseProgram(solidProgram)
-        val position = GLES20.glGetAttribLocation(solidProgram, "aPosition")
-        val matrix = GLES20.glGetUniformLocation(solidProgram, "uMvpMatrix")
-        val color = GLES20.glGetUniformLocation(solidProgram, "uColor")
-        buffer.position(0)
-        GLES20.glEnableVertexAttribArray(position)
-        GLES20.glVertexAttribPointer(position, 3, GLES20.GL_FLOAT, false, 12, buffer)
-        GLES20.glUniformMatrix4fv(matrix, 1, false, mvp, 0)
-        GLES20.glUniform4f(color, red, green, blue, alpha)
-        GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, vertexCount)
-        GLES20.glDisableVertexAttribArray(position)
     }
 
     private fun drawColoredTriangles(
@@ -771,13 +771,17 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         private const val PATH_WIDTH = 6f
         private const val TRAVEL_WIDTH = 1.5f
         private const val RIBBON_MAX_MOVES = 160_000
-        private const val TOP_VERTICES_PER_MOVE = 6
-        private const val SIDE_VERTICES_PER_MOVE = 12
+        private const val RIBBON_VERTICES_PER_MOVE = 18
         private const val RIBBON_SATURATION = 0.62f
         private const val RIBBON_VALUE = 0.92f
-        private const val RIBBON_SHADOW_RED = 0.14f
-        private const val RIBBON_SHADOW_GREEN = 0.16f
-        private const val RIBBON_SHADOW_BLUE = 0.20f
+        // Fixed world-direction light for side shading (X/Y components only,
+        // since the side faces are vertical).
+        private const val RIBBON_LIGHT_X = 0.63f
+        private const val RIBBON_LIGHT_Y = 0.78f
+        private const val RIBBON_SIDE_BASE = 0.30f
+        private const val RIBBON_SIDE_RANGE = 0.60f
+        // Odd layers render a touch darker so layers separate visually.
+        private const val RIBBON_LAYER_TINT = 0.96f
         // Eye sits at (0, -distance, 0.58*distance); true eye distance is distance * sqrt(1 + 0.58^2).
         private const val CAMERA_EYE_DISTANCE_SCALE = 1.1561f
 

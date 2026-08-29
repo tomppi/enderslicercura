@@ -38,6 +38,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   slicing at 0.12 mm vs 0.20 mm visibly changes the geometry. The palette
   is desaturated with shadowed side walls instead of the glowing outline,
   and the parser now captures per-move flow and layer height for this.
+- Nozzle-path beads are shaded with a fixed directional light per side
+  face (in the bead's own hue) plus a subtle odd-layer tint, so layers
+  separate visually and angled segment joints blend instead of showing
+  flat dark triangles.
 - The nozzle-path camera now uses the model viewer's turntable controls:
   rotation/zoom/pan orbit around the printed-part centre instead of a
   touch-dependent orbit pivot, with the same sensitivity constants,
