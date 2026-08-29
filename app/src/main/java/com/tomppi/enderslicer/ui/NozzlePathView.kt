@@ -75,7 +75,13 @@ private sealed interface NozzlePathLoadState {
 }
 
 @Composable
-internal fun NozzlePathView(gcodePath: String, modifier: Modifier = Modifier) {
+internal fun NozzlePathView(
+    gcodePath: String,
+    beadHeightMm: Double,
+    beadLineWidthMm: Double,
+    filamentDiameterMm: Double,
+    modifier: Modifier = Modifier,
+) {
     val loadState by produceState<NozzlePathLoadState>(NozzlePathLoadState.Loading, gcodePath) {
         value = NozzlePathLoadState.Loading
         value = try {
@@ -96,7 +102,14 @@ internal fun NozzlePathView(gcodePath: String, modifier: Modifier = Modifier) {
         is NozzlePathLoadState.Failed -> Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text(current.message, modifier = Modifier.padding(24.dp))
         }
-        is NozzlePathLoadState.Ready -> NozzlePathPlayer(current.path, gcodePath, modifier)
+        is NozzlePathLoadState.Ready -> NozzlePathPlayer(
+            current.path,
+            gcodePath,
+            beadHeightMm,
+            beadLineWidthMm,
+            filamentDiameterMm,
+            modifier,
+        )
     }
 }
 
@@ -149,7 +162,14 @@ private fun HoldRepeatButton(
 }
 
 @Composable
-private fun NozzlePathPlayer(path: GcodeNozzlePath, artifactKey: String, modifier: Modifier) {
+private fun NozzlePathPlayer(
+    path: GcodeNozzlePath,
+    artifactKey: String,
+    beadHeightMm: Double,
+    beadLineWidthMm: Double,
+    filamentDiameterMm: Double,
+    modifier: Modifier,
+) {
     var moveIndex by rememberSaveable(artifactKey) { mutableIntStateOf(0) }
     var playing by rememberSaveable(artifactKey) { mutableStateOf(false) }
     val safeIndex = moveIndex.coerceIn(0, max(path.moveCount - 1, 0))
@@ -223,7 +243,13 @@ private fun NozzlePathPlayer(path: GcodeNozzlePath, artifactKey: String, modifie
                         NozzlePathSurfaceView(context).also { surfaceView = it }
                     },
                     update = { view ->
-                        view.setPath(path, safeIndex)
+                        view.setPath(
+                            path,
+                            safeIndex,
+                            beadHeightMm.toFloat(),
+                            beadLineWidthMm.toFloat(),
+                            filamentDiameterMm.toFloat(),
+                        )
                         view.onOrientationChanged = { orientation = it }
                         view.showTravels = showTravels
                         view.colorBySpeed = colorBySpeed

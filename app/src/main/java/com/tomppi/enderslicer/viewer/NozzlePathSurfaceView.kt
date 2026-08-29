@@ -46,9 +46,15 @@ class NozzlePathSurfaceView(context: Context) : GLSurfaceView(context) {
         isClickable = true
     }
 
-    fun setPath(path: GcodeNozzlePath, selectedMoveIndex: Int) {
+    fun setPath(
+        path: GcodeNozzlePath,
+        selectedMoveIndex: Int,
+        beadHeightMm: Float,
+        beadLineWidthMm: Float,
+        filamentDiameterMm: Float,
+    ) {
         queueEvent {
-            pathRenderer.setPath(path)
+            pathRenderer.setPath(path, beadHeightMm, beadLineWidthMm, filamentDiameterMm)
             pathRenderer.setSelectedMove(selectedMoveIndex)
         }
         // setPath resets the camera on the GL thread.
@@ -167,11 +173,17 @@ class NozzlePathSurfaceView(context: Context) : GLSurfaceView(context) {
 private class NozzlePathRenderer : GLSurfaceView.Renderer {
     private var path: GcodeNozzlePath? = null
     private var selectedMoveIndex = 0
-    private var extrusionPositions: FloatBuffer? = null
-    private var extrusionColors: FloatBuffer? = null
+    private var ribbonTopPositions: FloatBuffer? = null
+    private var ribbonTopColors: FloatBuffer? = null
+    private var ribbonSidePositions: FloatBuffer? = null
     private var travelPositions: FloatBuffer? = null
     private var travelColors: FloatBuffer? = null
-    // extrusionPrefix[m] = extrusion moves stored with index < m (same for travel).
+    // Physical bead parameters from the current slice settings (fallbacks
+    // when the parsed per-move flow cannot be trusted).
+    private var beadHeight = 0.20f
+    private var beadLineWidth = 0.40f
+    private var filamentArea = Math.PI.toFloat() * 0.875f * 0.875f
+    // extensionPrefix[m] = extrusion moves stored with index < m (same for travel).
     private var extrusionPrefix = IntArray(1)
     private var travelPrefix = IntArray(1)
     @Volatile private var showTravels = true
@@ -214,9 +226,17 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
     private val modelView = FloatArray(16)
     private val mvp = FloatArray(16)
 
-    fun setPath(value: GcodeNozzlePath) {
-        if (path === value) return
+    fun setPath(
+        value: GcodeNozzlePath,
+        beadHeightMm: Float,
+        beadLineWidthMm: Float,
+        filamentDiameterMm: Float,
+    ) {
+        if (path === value && beadHeight == beadHeightMm) return
         path = value
+        beadHeight = beadHeightMm.coerceIn(0.02f, 2.0f)
+        beadLineWidth = beadLineWidthMm.coerceIn(0.10f, 2.0f)
+        filamentArea = (Math.PI.toFloat() * (filamentDiameterMm.coerceIn(0.5f, 4.0f) / 2f).let { it * it })
         selectedMoveIndex = if (value.moveCount <= 0) 0 else selectedMoveIndex.coerceIn(0, value.moveCount - 1)
         buildPathBuffers(value)
         buildGrid(value)
@@ -340,31 +360,36 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
 
         drawSolidLines(gridPositions, gridVertexCount, 1f, 0.24f, 0.30f, 0.40f, 0.48f)
         val upTo = (selectedMoveIndex + 1).coerceAtMost(extrusionPrefix.size - 1)
-        val extrusionVertexCount = extrusionPrefix[upTo] * 2
-        // Black outline under the extrusion: the coloured bead stays readable
-        // against overlapping travels, the grid and the marker glow.
-        drawSolidLines(extrusionPositions, extrusionVertexCount, PATH_WIDTH + OUTLINE_EXTRA_WIDTH, 0f, 0f, 0f, 1f)
-        drawColoredLines(extrusionPositions, extrusionColors, extrusionVertexCount, PATH_WIDTH)
+        val ribbonMoveCount = extrusionPrefix[upTo]
+        // Physical beads: shaded side walls first, colored top surface on top.
+        drawSolidTriangles(
+            ribbonSidePositions,
+            ribbonMoveCount * SIDE_VERTICES_PER_MOVE,
+            RIBBON_SHADOW_RED, RIBBON_SHADOW_GREEN, RIBBON_SHADOW_BLUE, 1f,
+        )
+        drawColoredTriangles(
+            ribbonTopPositions,
+            ribbonTopColors,
+            ribbonMoveCount * TOP_VERTICES_PER_MOVE,
+        )
         if (showTravels) {
             drawColoredLines(travelPositions, travelColors, travelPrefix[upTo] * 2, TRAVEL_WIDTH)
         }
-        drawSolidLines(markerGlowPositions, markerGlowVertexCount, 12f, 1f, 0.55f, 0.05f, 0.55f)
-        drawSolidLines(markerPositions, markerVertexCount, 6f, 1f, 1f, 1f, 1f)
+        drawSolidLines(markerGlowPositions, markerGlowVertexCount, 8f, 0.85f, 0.55f, 0.30f, 0.20f)
+        drawSolidLines(markerPositions, markerVertexCount, 4.5f, 1f, 1f, 1f, 1f)
     }
 
     private fun buildPathBuffers(value: GcodeNozzlePath) {
-        val extrusionVertex = ArrayList<Float>(value.moveCount * 6)
-        val extrusionColor = ArrayList<Float>(value.moveCount * 8)
-        val travelVertex = ArrayList<Float>()
-        val travelColor = ArrayList<Float>()
         val source = value.moves
-        var offset = 0
-        var extrusionMoves = 0
-        var travelMoves = 0
-        extrusionPrefix = IntArray(value.moveCount + 1)
-        travelPrefix = IntArray(value.moveCount + 1)
-        // Print-speed range across extrusion moves backs the speed colouring
-        // mode; the light pre-pass keeps the per-move loop simple.
+        val stride = max(1, (value.extrusionMoveCount + RIBBON_MAX_MOVES - 1) / RIBBON_MAX_MOVES)
+        val ribbonTopVertex = ArrayList<Float>((value.moveCount / stride) * 20)
+        val ribbonTopColor = ArrayList<Float>((value.moveCount / stride) * 24)
+        val ribbonSideVertex = ArrayList<Float>((value.moveCount / stride) * 40)
+        val travelVertex = ArrayList<Float>((value.moveCount / stride) * 8)
+        val travelColor = ArrayList<Float>((value.moveCount / stride) * 8)
+        // Full-range extrusion points for the camera fit (percentile-trimmed
+        // later), independent of the ribbon stride sampling.
+        val boundsVertex = ArrayList<Float>(value.moveCount * 6)
         var minSpeed = Float.POSITIVE_INFINITY
         var maxSpeed = Float.NEGATIVE_INFINITY
         if (colorBySpeed) {
@@ -378,33 +403,57 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
             }
         }
         val speedSpan = maxSpeed - minSpeed
-        repeat(value.moveCount) { moveIndex ->
-            val zRatio = if (value.maxZ > value.minZ) {
-                ((source[offset + GcodeNozzlePath.Z2] - value.minZ) / (value.maxZ - value.minZ)).coerceIn(0f, 1f)
-            } else 0f
+        var offset = 0
+        var extrusionMoves = 0
+        var travelMoves = 0
+        extrusionPrefix = IntArray(value.moveCount + 1)
+        travelPrefix = IntArray(value.moveCount + 1)
+        for (moveIndex in 0 until value.moveCount) {
             val extrusion = source[offset + GcodeNozzlePath.KIND] == GcodeNozzlePath.Kind.EXTRUSION.code
-            val vertices = if (extrusion) extrusionVertex else travelVertex
-            val colors = if (extrusion) extrusionColor else travelColor
-            val speedRatio = if (extrusion && speedSpan > 0f) {
-                ((source[offset + GcodeNozzlePath.SPEED] - minSpeed) / speedSpan).coerceIn(0f, 1f)
-            } else 0f
-            val color = if (extrusion) {
-                hsv(extrusionHue(zRatio, speedRatio, colorBySpeed), 0.95f, 1f, 1f)
-            } else floatArrayOf(0.50f, 0.54f, 0.64f, 0.20f)
-            vertices += source[offset + GcodeNozzlePath.X1]
-            vertices += source[offset + GcodeNozzlePath.Y1]
-            vertices += source[offset + GcodeNozzlePath.Z1]
-            vertices += source[offset + GcodeNozzlePath.X2]
-            vertices += source[offset + GcodeNozzlePath.Y2]
-            vertices += source[offset + GcodeNozzlePath.Z2]
-            repeat(2) { color.forEach(colors::add) }
-            if (extrusion) extrusionMoves++ else travelMoves++
+            val sx = source[offset + GcodeNozzlePath.X1]
+            val sy = source[offset + GcodeNozzlePath.Y1]
+            val sz = source[offset + GcodeNozzlePath.Z1]
+            val ex = source[offset + GcodeNozzlePath.X2]
+            val ey = source[offset + GcodeNozzlePath.Y2]
+            val ez = source[offset + GcodeNozzlePath.Z2]
+            if (extrusion) {
+                boundsVertex += sx; boundsVertex += sy; boundsVertex += sz
+                boundsVertex += ex; boundsVertex += ey; boundsVertex += ez
+            }
             extrusionPrefix[moveIndex + 1] = extrusionMoves
             travelPrefix[moveIndex + 1] = travelMoves
+            val sampled = moveIndex % stride == 0
+            if (sampled) {
+                val speedRatio = if (extrusion && speedSpan > 0f) {
+                    ((source[offset + GcodeNozzlePath.SPEED] - minSpeed) / speedSpan).coerceIn(0f, 1f)
+                } else 0f
+                val zRatio = if (value.maxZ > value.minZ) {
+                    ((ez - value.minZ) / (value.maxZ - value.minZ)).coerceIn(0f, 1f)
+                } else 0f
+                val color = if (extrusion) {
+                    hsv(extrusionHue(zRatio, speedRatio, colorBySpeed), RIBBON_SATURATION, RIBBON_VALUE, 1f)
+                } else floatArrayOf(0.50f, 0.54f, 0.64f, 0.20f)
+                if (extrusion) {
+                    addRibbonMove(
+                        ribbonTopVertex, ribbonTopColor, ribbonSideVertex,
+                        sx, sy, sz, ex, ey, ez,
+                        source[offset + GcodeNozzlePath.DELTA_E],
+                        source[offset + GcodeNozzlePath.LAYER_HEIGHT],
+                        color,
+                    )
+                    extrusionMoves++
+                } else {
+                    travelVertex += sx; travelVertex += sy; travelVertex += sz
+                    travelVertex += ex; travelVertex += ey; travelVertex += ez
+                    repeat(2) { color.forEach(travelColor::add) }
+                    travelMoves++
+                }
+            }
             offset += GcodeNozzlePath.VALUES_PER_MOVE
         }
-        extrusionPositions = bufferOf(extrusionVertex)
-        extrusionColors = bufferOf(extrusionColor)
+        ribbonTopPositions = bufferOf(ribbonTopVertex)
+        ribbonTopColors = bufferOf(ribbonTopColor)
+        ribbonSidePositions = bufferOf(ribbonSideVertex)
         travelPositions = bufferOf(travelVertex)
         travelColors = bufferOf(travelColor)
 
@@ -412,7 +461,7 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         // (purge line at the plate corner, distant skirt loops) are trimmed
         // with per-axis percentiles so the orbit pivots on the model, not the
         // plate; the fallback keeps the view valid for travel-only paths.
-        val bounds = NozzlePathBounds.printedBounds(extrusionVertex.toFloatArray())
+        val bounds = NozzlePathBounds.printedBounds(boundsVertex.toFloatArray())
         if (bounds != null) {
             modelMinX = bounds[0]; modelMinY = bounds[1]; modelMinZ = bounds[2]
             modelMaxX = bounds[3]; modelMaxY = bounds[4]; modelMaxZ = bounds[5]
@@ -420,6 +469,67 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
             modelMinX = value.minX; modelMinY = value.minY; modelMinZ = value.minZ
             modelMaxX = value.maxX; modelMaxY = value.maxY; modelMaxZ = value.maxZ
         }
+    }
+
+    /**
+     * Emits the physical bead for one extrusion move: a colored top face at
+     * z + layer height plus shaded left/right side faces from z to z + height.
+     * The width comes from the actual flow (deltaE * filament area / length /
+     * layer height) bounded by the settings line width, so the geometry follows
+     * the sliced settings (layer height, line width, flow).
+     */
+    private fun addRibbonMove(
+        top: ArrayList<Float>,
+        topColors: ArrayList<Float>,
+        sides: ArrayList<Float>,
+        sx: Float, sy: Float, sz: Float,
+        ex: Float, ey: Float, ez: Float,
+        deltaE: Float,
+        parsedLayerHeight: Float,
+        color: FloatArray,
+    ) {
+        val dx = ex - sx
+        val dy = ey - sy
+        val length = sqrt(dx * dx + dy * dy)
+        val height = if (parsedLayerHeight > 0.02f && parsedLayerHeight <= 2.0f) parsedLayerHeight else beadHeight
+        val rawWidth = if (length > 1e-4f && deltaE > 0f) {
+            val crossArea = deltaE * filamentArea / length
+            crossArea / height
+        } else {
+            beadLineWidth
+        }
+        val width = rawWidth.coerceIn(beadLineWidth * 0.4f, beadLineWidth * 4f)
+        val half = width * 0.5f
+        val px = if (length > 1e-4f) -dy / length * half else 0f
+        val py = if (length > 1e-4f) dx / length * half else 0f
+        // Quad corners: a/b on the start segment, c/d on the end segment,
+        // left = a->d, right = b->c (top face at + height).
+        val ax = sx - px; val ay = sy - py + 0f
+        val bx = sx + px; val by = sy + py
+        val cx = ex + px; val cy = ey + py
+        val dxd = ex - px; val dyd = ey - py
+        // Top face (z + height), two triangles.
+        top += ax; top += ay; top += sz + height
+        top += bx; top += by; top += sz + height
+        top += cx; top += cy; top += ez + height
+        top += ax; top += ay; top += sz + height
+        top += cx; top += cy; top += ez + height
+        top += dxd; top += dyd; top += ez + height
+        // Left side face (shadowed): a(z) -> d(z) -> d(top) / a(top).
+        sides += ax; sides += ay; sides += sz
+        sides += dxd; sides += dyd; sides += ez
+        sides += dxd; sides += dyd; sides += ez + height
+        sides += ax; sides += ay; sides += sz
+        sides += dxd; sides += dyd; sides += ez + height
+        sides += ax; sides += ay; sides += sz + height
+        // Right side face: b(z) -> c(z) -> c(top) / b(top).
+        sides += bx; sides += by; sides += sz
+        sides += cx; sides += cy; sides += ez
+        sides += cx; sides += cy; sides += ez + height
+        sides += bx; sides += by; sides += sz
+        sides += cx; sides += cy; sides += ez + height
+        sides += bx; sides += by; sides += sz + height
+        repeat(6) { color.forEach(topColors::add) }
     }
 
     private fun bufferOf(values: List<Float>): FloatBuffer? {
@@ -507,6 +617,50 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         lineWidth(width)
         GLES20.glDrawArrays(GLES20.GL_LINES, 0, vertexCount)
         GLES20.glLineWidth(1f)
+        GLES20.glDisableVertexAttribArray(position)
+        GLES20.glDisableVertexAttribArray(color)
+    }
+
+    private fun drawSolidTriangles(
+        buffer: FloatBuffer?,
+        vertexCount: Int,
+        red: Float,
+        green: Float,
+        blue: Float,
+        alpha: Float,
+    ) {
+        if (buffer == null || vertexCount <= 0) return
+        GLES20.glUseProgram(solidProgram)
+        val position = GLES20.glGetAttribLocation(solidProgram, "aPosition")
+        val matrix = GLES20.glGetUniformLocation(solidProgram, "uMvpMatrix")
+        val color = GLES20.glGetUniformLocation(solidProgram, "uColor")
+        buffer.position(0)
+        GLES20.glEnableVertexAttribArray(position)
+        GLES20.glVertexAttribPointer(position, 3, GLES20.GL_FLOAT, false, 12, buffer)
+        GLES20.glUniformMatrix4fv(matrix, 1, false, mvp, 0)
+        GLES20.glUniform4f(color, red, green, blue, alpha)
+        GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, vertexCount)
+        GLES20.glDisableVertexAttribArray(position)
+    }
+
+    private fun drawColoredTriangles(
+        positions: FloatBuffer?,
+        colors: FloatBuffer?,
+        vertexCount: Int,
+    ) {
+        if (positions == null || colors == null || vertexCount <= 0) return
+        GLES20.glUseProgram(colorProgram)
+        val position = GLES20.glGetAttribLocation(colorProgram, "aPosition")
+        val color = GLES20.glGetAttribLocation(colorProgram, "aColor")
+        val matrix = GLES20.glGetUniformLocation(colorProgram, "uMvpMatrix")
+        positions.position(0)
+        colors.position(0)
+        GLES20.glEnableVertexAttribArray(position)
+        GLES20.glEnableVertexAttribArray(color)
+        GLES20.glVertexAttribPointer(position, 3, GLES20.GL_FLOAT, false, 12, positions)
+        GLES20.glVertexAttribPointer(color, 4, GLES20.GL_FLOAT, false, 16, colors)
+        GLES20.glUniformMatrix4fv(matrix, 1, false, mvp, 0)
+        GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, vertexCount)
         GLES20.glDisableVertexAttribArray(position)
         GLES20.glDisableVertexAttribArray(color)
     }
@@ -669,8 +823,15 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         private const val MIN_ZOOM = 0.25f
         private const val MAX_ZOOM = 60f
         private const val PATH_WIDTH = 6f
-        private const val OUTLINE_EXTRA_WIDTH = 2f
         private const val TRAVEL_WIDTH = 1.5f
+        private const val RIBBON_MAX_MOVES = 160_000
+        private const val TOP_VERTICES_PER_MOVE = 6
+        private const val SIDE_VERTICES_PER_MOVE = 12
+        private const val RIBBON_SATURATION = 0.62f
+        private const val RIBBON_VALUE = 0.92f
+        private const val RIBBON_SHADOW_RED = 0.14f
+        private const val RIBBON_SHADOW_GREEN = 0.16f
+        private const val RIBBON_SHADOW_BLUE = 0.20f
         // Eye sits at (0, -distance, 0.58*distance); true eye distance is distance * sqrt(1 + 0.58^2).
         private const val CAMERA_EYE_DISTANCE_SCALE = 1.1561f
 

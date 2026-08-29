@@ -706,6 +706,9 @@ private fun ViewerPanel(
             )
             viewerMode == ViewerMode.NOZZLE_PATH && gcodeAvailable -> NozzlePathView(
                 gcodePath = requireNotNull(state.gcodePath),
+                beadHeightMm = state.settings.layerHeightMm,
+                beadLineWidthMm = state.settings.lineWidthMm,
+                filamentDiameterMm = state.settings.filamentDiameterMm,
                 modifier = Modifier.fillMaxSize(),
             )
             else -> key(effectivePrinter) {

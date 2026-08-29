@@ -32,6 +32,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   labels its fine step row; Start is only offered on an operational printer;
   disabled export explains itself; shared spacing tokens and a style guide
   (docs/ui-style-guide.md) standardize new work.
+- The nozzle-path view is now physically based: each move is rendered as a
+  3D bead whose width follows the sliced flow (deltaE x filament area /
+  length / layer height) and whose height follows the layer height, so
+  slicing at 0.12 mm vs 0.20 mm visibly changes the geometry. The palette
+  is desaturated with shadowed side walls instead of the glowing outline,
+  and the parser now captures per-move flow and layer height for this.
 
 ### Simplified
 

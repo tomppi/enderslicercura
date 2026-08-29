@@ -30,7 +30,7 @@ data class GcodeNozzlePath(
     }
 
     companion object {
-        const val VALUES_PER_MOVE = 8
+        const val VALUES_PER_MOVE = 10
         const val X1 = 0
         const val Y1 = 1
         const val Z1 = 2
@@ -39,12 +39,16 @@ data class GcodeNozzlePath(
         const val Z2 = 5
         const val SPEED = 6
         const val KIND = 7
+        const val DELTA_E = 8
+        const val LAYER_HEIGHT = 9
     }
 }
 
 object GcodeNozzlePathParser {
     private const val DEFAULT_MAX_MOVES = 1_000_000
     private const val MOTION_EPSILON = 1e-7
+    private const val LAYER_HEIGHT_MIN_MM = 0.010
+    private const val LAYER_HEIGHT_MAX_MM = 0.500
     private const val EXTRUSION_EPSILON = 1e-7
     private const val CANCELLATION_INTERVAL = 2_048
 
@@ -69,6 +73,9 @@ object GcodeNozzlePathParser {
         var sourceIndex = 0
         var extrusionMoves = 0
         var travelMoves = 0
+        var retainedPreviousZ = 0.0
+        var currentLayerHeight = 0.0
+        var hasRetainedZ = false
         var minX = Float.POSITIVE_INFINITY
         var minY = Float.POSITIVE_INFINITY
         var minZ = Float.POSITIVE_INFINITY
@@ -140,10 +147,26 @@ object GcodeNozzlePathParser {
                             travelMoves++
                             GcodeNozzlePath.Kind.TRAVEL
                         }
+                        // Layer height for this move: the z rise of the current
+                        // layer (captures adaptive layer heights), guarded against
+                        // z-hop travel spikes. 0 means unknown until the first rise.
+                        val rise = nextZ - retainedPreviousZ
+                        val moveLayerHeight = when {
+                            !hasRetainedZ -> currentLayerHeight
+                            rise > LAYER_HEIGHT_MIN_MM && rise <= LAYER_HEIGHT_MAX_MM -> {
+                                currentLayerHeight = rise
+                                rise
+                            }
+                            else -> currentLayerHeight
+                        }
+                        retainedPreviousZ = nextZ
+                        hasRetainedZ = true
                         accumulator.add(
                             sx, sy, sz, ex, ey, ez,
                             (feedRateMmPerMinute / 60.0 * speedFactor).coerceAtLeast(0.0).toFloat(),
                             kind.code,
+                            deltaE.toFloat(),
+                            moveLayerHeight.toFloat(),
                         )
                         sourceIndices.add(retainedSourceIndex)
                     }
