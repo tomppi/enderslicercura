@@ -38,6 +38,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   slicing at 0.12 mm vs 0.20 mm visibly changes the geometry. The palette
   is desaturated with shadowed side walls instead of the glowing outline,
   and the parser now captures per-move flow and layer height for this.
+- The nozzle-path camera now uses the model viewer's turntable controls:
+  rotation/zoom/pan orbit around the printed-part centre instead of a
+  touch-dependent orbit pivot, with the same sensitivity constants,
+  camera fit and a double-tap reset.
 - Pinch zoom in the nozzle-path view is now anchored at the point between
   both fingers instead of the first finger's touch point: the world point
   under the pinch focus stays pinned while zooming (pan compensation on

@@ -4,6 +4,7 @@ import android.content.Context
 import android.opengl.GLES20
 import android.opengl.GLSurfaceView
 import android.opengl.Matrix
+import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import com.tomppi.enderslicer.engine.GcodeNozzlePath
@@ -32,6 +33,7 @@ internal fun extrusionHue(zRatio: Float, speedRatio: Float, colorBySpeed: Boolea
 class NozzlePathSurfaceView(context: Context) : GLSurfaceView(context) {
     private val pathRenderer = NozzlePathRenderer()
     private val scaleDetector = ScaleGestureDetector(context, ScaleListener())
+    private val gestureDetector = GestureDetector(context, GestureListener())
     private var previousX = 0f
     private var previousY = 0f
     private var previousFocusX = 0f
@@ -91,14 +93,13 @@ class NozzlePathSurfaceView(context: Context) : GLSurfaceView(context) {
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        gestureDetector.onTouchEvent(event)
         scaleDetector.onTouchEvent(event)
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 previousX = event.x
                 previousY = event.y
                 panning = false
-                pathRenderer.setOrbitPivotAt(event.x, event.y)
-                requestRender()
             }
             MotionEvent.ACTION_POINTER_DOWN -> {
                 if (event.pointerCount >= 2) {
@@ -156,9 +157,18 @@ class NozzlePathSurfaceView(context: Context) : GLSurfaceView(context) {
 
     private inner class ScaleListener : ScaleGestureDetector.SimpleOnScaleGestureListener() {
         override fun onScale(detector: ScaleGestureDetector): Boolean {
-            // Anchor the zoom at the pinch centroid (the point between both
-            // fingers), not at the camera centre/orbit pivot of the first finger.
-            pathRenderer.requestZoomAt(detector.scaleFactor, detector.focusX, detector.focusY)
+            pathRenderer.zoom(detector.scaleFactor)
+            requestRender()
+            return true
+        }
+    }
+
+    private inner class GestureListener : GestureDetector.SimpleOnGestureListener() {
+        override fun onDown(event: MotionEvent): Boolean = true
+
+        override fun onDoubleTap(event: MotionEvent): Boolean {
+            pathRenderer.resetCamera()
+            notifyOrientation()
             requestRender()
             return true
         }
@@ -211,19 +221,11 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
     private var modelMaxX = 0f
     private var modelMaxY = 0f
     private var modelMaxZ = 0f
-    // World-space orbit pivot: the printed-part centre by default, and the
-    // point under the finger on touch-down so rotation follows the touch.
-    private var orbitPivot = FloatArray(3)
-    @Volatile private var pendingPivotX = Float.NaN
-    @Volatile private var pendingPivotY = Float.NaN
     @Volatile private var yaw = DEFAULT_YAW
     @Volatile private var pitch = DEFAULT_PITCH
     @Volatile private var zoom = DEFAULT_ZOOM
     @Volatile private var panX = 0f
     @Volatile private var panY = 0f
-    @Volatile private var pendingZoomFactor = Float.NaN
-    @Volatile private var pendingZoomFocusX = Float.NaN
-    @Volatile private var pendingZoomFocusY = Float.NaN
 
     private val projection = FloatArray(16)
     private val view = FloatArray(16)
@@ -275,15 +277,12 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
 
     fun rotate(deltaYaw: Float, deltaPitch: Float) {
         yaw = wrapDegrees(yaw + deltaYaw)
-        pitch = (pitch + deltaPitch).coerceIn(-85f, 85f)
+        pitch = wrapDegrees(pitch + deltaPitch)
     }
 
-    /** Requests a zoom anchored at the given screen point (pinch centroid). */
-    fun requestZoomAt(scaleFactor: Float, focusX: Float, focusY: Float) {
+    fun zoom(scaleFactor: Float) {
         if (!scaleFactor.isFinite() || scaleFactor <= 0f) return
-        pendingZoomFactor = scaleFactor
-        pendingZoomFocusX = focusX
-        pendingZoomFocusY = focusY
+        zoom = (zoom * scaleFactor).coerceIn(MIN_ZOOM, MAX_ZOOM)
     }
 
     fun panPixels(deltaX: Float, deltaY: Float) {
@@ -300,17 +299,6 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         zoom = DEFAULT_ZOOM
         panX = 0f
         panY = 0f
-        orbitPivot[0] = (modelMinX + modelMaxX) * 0.5f
-        orbitPivot[1] = (modelMinY + modelMaxY) * 0.5f
-        orbitPivot[2] = (modelMinZ + modelMaxZ) * 0.5f
-        pendingPivotX = Float.NaN
-        pendingPivotY = Float.NaN
-    }
-
-    /** Records a touch point; the orbit pivot is moved there on the next frame. */
-    fun setOrbitPivotAt(x: Float, y: Float) {
-        pendingPivotX = x
-        pendingPivotY = y
     }
 
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
@@ -345,12 +333,28 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
     override fun onDrawFrame(gl: GL10?) {
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
         val current = path ?: return
-        computeCameraMatrices(current)
-        updateOrbitPivot()
-        if (applyPendingZoom()) {
-            // Pan/zoom changed: rebuild the matrices for the drawing pass.
-            computeCameraMatrices(current)
-        }
+        val distance = cameraDistance()
+        val aspect = viewportWidth.toFloat() / viewportHeight
+        val radius = sceneRadius(current)
+        val nearPlane = max(0.1f, distance - radius * 1.6f)
+        val farPlane = max(nearPlane + 100f, distance + radius * 2.8f + 100f)
+
+        Matrix.perspectiveM(projection, 0, FIELD_OF_VIEW, aspect, nearPlane, farPlane)
+        Matrix.setLookAtM(view, 0, 0f, -distance, distance * 0.62f, 0f, 0f, 0f, 0f, 0f, 1f)
+        Matrix.translateM(view, 0, panX, panY, 0f)
+        // Turntable around the printed-part centre, exactly like the model
+        // viewer: rotate first, then bring the part centre to the origin.
+        Matrix.setIdentityM(scene, 0)
+        Matrix.rotateM(scene, 0, pitch, 1f, 0f, 0f)
+        Matrix.rotateM(scene, 0, yaw, 0f, 0f, 1f)
+        Matrix.translateM(
+            scene, 0,
+            -(modelMinX + modelMaxX) * 0.5f,
+            -(modelMinY + modelMaxY) * 0.5f,
+            -(modelMinZ + modelMaxZ) * 0.5f,
+        )
+        Matrix.multiplyMM(modelView, 0, view, 0, scene, 0)
+        Matrix.multiplyMM(mvp, 0, projection, 0, modelView, 0)
 
         drawSolidLines(gridPositions, gridVertexCount, 1f, 0.24f, 0.30f, 0.40f, 0.48f)
         val upTo = (selectedMoveIndex + 1).coerceAtMost(extrusionPrefix.size - 1)
@@ -595,100 +599,6 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         markerGlowVertexCount = 6
     }
 
-    private fun computeCameraMatrices(current: GcodeNozzlePath) {
-        val distance = cameraDistance()
-        val aspect = viewportWidth.toFloat() / viewportHeight
-        val radius = sceneRadius(current)
-        val nearPlane = max(0.1f, distance - radius * 1.6f)
-        val farPlane = max(nearPlane + 100f, distance + radius * 2.8f + 100f)
-
-        Matrix.perspectiveM(projection, 0, FIELD_OF_VIEW, aspect, nearPlane, farPlane)
-        Matrix.setLookAtM(view, 0, 0f, -distance, distance * 0.58f, 0f, 0f, 0f, 0f, 0f, 1f)
-        Matrix.translateM(view, 0, panX, panY, 0f)
-        // Rotate first, then bring the orbit pivot to the origin: the camera
-        // looks at the origin, so the pivot (the point under the finger, or
-        // the printed-part centre) stays centred on screen while the scene
-        // rotates around it.
-        Matrix.setIdentityM(scene, 0)
-        Matrix.rotateM(scene, 0, pitch, 1f, 0f, 0f)
-        Matrix.rotateM(scene, 0, yaw, 0f, 0f, 1f)
-        Matrix.translateM(scene, 0, -orbitPivot[0], -orbitPivot[1], -orbitPivot[2])
-        Matrix.multiplyMM(modelView, 0, view, 0, scene, 0)
-        Matrix.multiplyMM(mvp, 0, projection, 0, modelView, 0)
-    }
-
-    /**
-     * Applies a pending pinch zoom anchored at the gesture focus (the point
-     * between both fingers). The world point under the focus is pinned: zoom
-     * scales around the camera centre, so the pan compensates the pixel gap
-     * the zoom would introduce at the focus. Runner on the GL thread, where
-     * the projection matrices are valid.
-     */
-    private fun applyPendingZoom(): Boolean {
-        val factor = pendingZoomFactor
-        if (!factor.isFinite() || factor <= 0f) return false
-        pendingZoomFactor = Float.NaN
-        val newZoom = (zoom * factor).coerceIn(MIN_ZOOM, MAX_ZOOM)
-        val k = newZoom / zoom
-        if (k <= 1.0005f && k >= 0.9995f) {
-            zoom = newZoom
-            return false
-        }
-        val focusX = pendingZoomFocusX
-        val focusY = pendingZoomFocusY
-        pendingZoomFocusX = Float.NaN
-        pendingZoomFocusY = Float.NaN
-        if (!focusX.isFinite() || !focusY.isFinite()) {
-            zoom = newZoom
-            return false
-        }
-        val invMvp = FloatArray(16)
-        if (!Matrix.invertM(invMvp, 0, mvp, 0)) {
-            zoom = newZoom
-            return false
-        }
-        val ndcX = 2f * focusX / max(viewportWidth, 1) - 1f
-        val ndcY = 1f - 2f * focusY / max(viewportHeight, 1)
-        val near = unproject(invMvp, ndcX, ndcY, -1f)
-        val far = unproject(invMvp, ndcX, ndcY, 1f)
-        var dx = far[0] - near[0]
-        var dy = far[1] - near[1]
-        var dz = far[2] - near[2]
-        val length = sqrt(dx * dx + dy * dy + dz * dz)
-        if (length < 1e-5f) {
-            zoom = newZoom
-            return false
-        }
-        dx /= length; dy /= length; dz /= length
-        // Anchor on the plane through the orbit pivot that faces the camera,
-        // matching how the orbit pivot itself is picked.
-        val t = (orbitPivot[0] - near[0]) * dx + (orbitPivot[1] - near[1]) * dy + (orbitPivot[2] - near[2]) * dz
-        val ax = near[0] + dx * t
-        val ay = near[1] + dy * t
-        val az = near[2] + dz * t
-        // Screen position of the anchor before the zoom (pixels, y-down).
-        val w4 = mvp[3] * ax + mvp[7] * ay + mvp[11] * az + mvp[15]
-        val sx = if (w4 != 0f) {
-            (mvp[0] * ax + mvp[4] * ay + mvp[8] * az + mvp[12]) / w4 * 0.5f + 0.5f
-        } else {
-            focusX
-        }
-        val sy = if (w4 != 0f) {
-            (0.5f - (mvp[1] * ax + mvp[5] * ay + mvp[9] * az + mvp[13]) / w4 * 0.5f)
-        } else {
-            focusY
-        }
-        zoom = newZoom
-        val visibleHeight = 2f * cameraDistance() * CAMERA_EYE_DISTANCE_SCALE *
-            tan(Math.toRadians(FIELD_OF_VIEW / 2.0)).toFloat()
-        val worldPerPixel = visibleHeight / max(viewportHeight, 1)
-        // Same sign conventions as panPixels: pushing the pan by the pixel gap
-        // keeps the world point at the fingerprint of the focus.
-        panX += (sx - viewportWidth * 0.5f) * (1f - k) * worldPerPixel
-        panY -= (sy - viewportHeight * 0.5f) * (1f - k) * worldPerPixel
-        return true
-    }
-
     private fun drawColoredLines(positions: FloatBuffer?, colors: FloatBuffer?, vertexCount: Int, width: Float) {
         if (positions == null || colors == null || vertexCount <= 0) return
         GLES20.glUseProgram(colorProgram)
@@ -779,58 +689,6 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
     }
 
     /** Moves the orbit pivot to the pending touch point (ray-plane intersection). */
-    private fun updateOrbitPivot() {
-        if (!pendingPivotX.isFinite() || !pendingPivotY.isFinite()) return
-        val invMvp = FloatArray(16)
-        if (!Matrix.invertM(invMvp, 0, mvp, 0)) {
-            pendingPivotX = Float.NaN
-            pendingPivotY = Float.NaN
-            return
-        }
-        val ndcX = 2f * pendingPivotX / max(viewportWidth, 1) - 1f
-        val ndcY = 1f - 2f * pendingPivotY / max(viewportHeight, 1)
-        val near = unproject(invMvp, ndcX, ndcY, -1f)
-        val far = unproject(invMvp, ndcX, ndcY, 1f)
-        pendingPivotX = Float.NaN
-        pendingPivotY = Float.NaN
-        var dx = far[0] - near[0]
-        var dy = far[1] - near[1]
-        var dz = far[2] - near[2]
-        val length = sqrt(dx * dx + dy * dy + dz * dz)
-        if (length < 1e-5f) return
-        dx /= length
-        dy /= length
-        dz /= length
-        // Intersect the view ray with the plane through the current pivot that
-        // faces the camera, then keep the result only while it stays close to
-        // the printed part (touching empty space keeps the previous pivot).
-        val t = (orbitPivot[0] - near[0]) * dx + (orbitPivot[1] - near[1]) * dy + (orbitPivot[2] - near[2]) * dz
-        val tx = near[0] + dx * t
-        val ty = near[1] + dy * t
-        val tz = near[2] + dz * t
-        val marginX = max((modelMaxX - modelMinX) * 0.25f, 1f)
-        val marginY = max((modelMaxY - modelMinY) * 0.25f, 1f)
-        val marginZ = max((modelMaxZ - modelMinZ) * 0.25f, 1f)
-        if (tx < modelMinX - marginX || tx > modelMaxX + marginX ||
-            ty < modelMinY - marginY || ty > modelMaxY + marginY ||
-            tz < modelMinZ - marginZ || tz > modelMaxZ + marginZ
-        ) {
-            return
-        }
-        orbitPivot[0] = tx
-        orbitPivot[1] = ty
-        orbitPivot[2] = tz
-    }
-
-    private fun unproject(invMvp: FloatArray, ndcX: Float, ndcY: Float, ndcZ: Float): FloatArray {
-        val w = invMvp[3] * ndcX + invMvp[7] * ndcY + invMvp[11] * ndcZ + invMvp[15]
-        if (w == 0f) return floatArrayOf(0f, 0f, 0f)
-        val x = invMvp[0] * ndcX + invMvp[4] * ndcY + invMvp[8] * ndcZ + invMvp[12]
-        val y = invMvp[1] * ndcX + invMvp[5] * ndcY + invMvp[9] * ndcZ + invMvp[13]
-        val z = invMvp[2] * ndcX + invMvp[6] * ndcY + invMvp[10] * ndcZ + invMvp[14]
-        return floatArrayOf(x / w, y / w, z / w)
-    }
-
     private fun cameraDistance(): Float {
         val current = path ?: return 300f
         return max(sceneRadius(current) * 3.4f / zoom, 2f)
