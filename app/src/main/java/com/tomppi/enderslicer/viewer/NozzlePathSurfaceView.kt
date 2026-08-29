@@ -498,22 +498,11 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         // beads read as separate layers (the hue still follows speed/z).
         val level = if (height > 0f) (ez / height).roundToInt() else 0
         val parity = if (level and 1 == 0) 1f else RIBBON_LAYER_TINT
-        // Simple directional light on the side walls (fixed world direction):
-        // each side face shades by its outward normal, so segments meeting at
-        // an angle soften into continuous facets instead of flat dark patches.
-        val sideLit = if (length > 1e-4f) {
-            val aNx = dy / length
-            val aNy = -dx / length
-            val bNx = -dy / length
-            val bNy = dx / length
-            val litA = RIBBON_SIDE_BASE + RIBBON_SIDE_RANGE *
-                max(0f, aNx * RIBBON_LIGHT_X + aNy * RIBBON_LIGHT_Y)
-            val litB = RIBBON_SIDE_BASE + RIBBON_SIDE_RANGE *
-                max(0f, bNx * RIBBON_LIGHT_X + bNy * RIBBON_LIGHT_Y)
-            litA to litB
-        } else {
-            RIBBON_SIDE_BASE to RIBBON_SIDE_BASE
-        }
+        // Side walls use a flat, barely-darker tint of the bead colour.
+        // Directional (lambert) variation makes grooves and chevrons between
+        // bead rows crawl when zoomed out; a constant factor keeps the row
+        // structure readable at every zoom without the moire effect. The
+        // per-layer parity tint still separates stacked layers.
         fun emitColor(factor: Float) {
             colors += color[0] * factor
             colors += color[1] * factor
@@ -541,7 +530,7 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         vertex += ax; vertex += ay; vertex += sz
         vertex += dxd; vertex += dyd; vertex += ez + height
         vertex += ax; vertex += ay; vertex += sz + height
-        repeat(6) { emitColor(parity * sideLit.first) }
+        repeat(6) { emitColor(parity * RIBBON_SIDE_BRIGHTNESS) }
         // Right side face: b(z) -> c(z) -> c(top) / b(top).
         vertex += bx; vertex += by; vertex += sz
         vertex += cx; vertex += cy; vertex += ez
@@ -549,7 +538,7 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         vertex += bx; vertex += by; vertex += sz
         vertex += cx; vertex += cy; vertex += ez + height
         vertex += bx; vertex += by; vertex += sz + height
-        repeat(6) { emitColor(parity * sideLit.second) }
+        repeat(6) { emitColor(parity * RIBBON_SIDE_BRIGHTNESS) }
     }
 
     private fun bufferOf(values: List<Float>): FloatBuffer? {
@@ -778,12 +767,10 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         // since the side faces are vertical).
         private const val RIBBON_LIGHT_X = 0.63f
         private const val RIBBON_LIGHT_Y = 0.78f
-        // Gentle side shading: a wide range (0.30-0.90) reads beautifully up
-        // close but turns the part into harsh corduroy stripes when zoomed
-        // out, because thin bright tops alternate with near-black far sides.
-        // The compressed range keeps the directional read without the moire.
-        private const val RIBBON_SIDE_BASE = 0.58f
-        private const val RIBBON_SIDE_RANGE = 0.24f
+        // Flat side tint: only 15 percent darker than the top, so bead rows
+        // read as fine grooves at every zoom instead of corduroy stripes
+        // (directional lambert variation caused moire when zoomed out).
+        private const val RIBBON_SIDE_BRIGHTNESS = 0.85f
         // Odd layers render a touch darker so layers separate visually.
         private const val RIBBON_LAYER_TINT = 0.96f
         // Eye sits at (0, -distance, 0.58*distance); true eye distance is distance * sqrt(1 + 0.58^2).
