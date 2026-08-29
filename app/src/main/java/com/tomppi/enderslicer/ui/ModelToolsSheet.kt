@@ -3,6 +3,7 @@ package com.tomppi.enderslicer.ui
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
@@ -127,12 +128,15 @@ fun ModelToolsSheet(
                     }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    Text("Fine", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 12.dp))
                     listOf(-1.0, 1.0).forEach { amount ->
                         OutlinedButton(
                             onClick = { onRotate(axis, amount) },
                             modifier = Modifier.weight(1f),
                         ) { Text("${if (amount > 0) "+" else ""}${amount.toInt()}°") }
                     }
+                    Spacer(modifier = Modifier.weight(1f))
+                    Spacer(modifier = Modifier.weight(1f))
                 }
             }
         }
@@ -264,4 +268,9 @@ private fun PositionField(
     )
 }
 
-private fun Double.formatPosition(): String = "%.3f".format(this).trimEnd('0').trimEnd('.')
+private fun Double.formatPosition(): String =
+    java.text.NumberFormat.getNumberInstance().apply {
+        minimumFractionDigits = 0
+        maximumFractionDigits = 3
+        isGroupingUsed = false
+    }.format(this)

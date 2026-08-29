@@ -390,7 +390,7 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
             } else 0f
             val color = if (extrusion) {
                 hsv(extrusionHue(zRatio, speedRatio, colorBySpeed), 0.95f, 1f, 1f)
-            } else floatArrayOf(0.50f, 0.54f, 0.64f, 0.32f)
+            } else floatArrayOf(0.50f, 0.54f, 0.64f, 0.20f)
             vertices += source[offset + GcodeNozzlePath.X1]
             vertices += source[offset + GcodeNozzlePath.Y1]
             vertices += source[offset + GcodeNozzlePath.Z1]
@@ -670,7 +670,7 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         private const val MAX_ZOOM = 60f
         private const val PATH_WIDTH = 6f
         private const val OUTLINE_EXTRA_WIDTH = 2f
-        private const val TRAVEL_WIDTH = 2f
+        private const val TRAVEL_WIDTH = 1.5f
         // Eye sits at (0, -distance, 0.58*distance); true eye distance is distance * sqrt(1 + 0.58^2).
         private const val CAMERA_EYE_DISTANCE_SCALE = 1.1561f
 

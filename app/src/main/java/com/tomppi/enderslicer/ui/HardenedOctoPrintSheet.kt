@@ -359,7 +359,7 @@ private fun HardenedStatusPage(
                         state.isPaused -> Button(onClick = viewModel::resumeJob, modifier = Modifier.weight(1f)) {
                             Text("Resume")
                         }
-                        state.job.fileName != null && !state.hasActiveJob -> Button(
+                        state.job.fileName != null && !state.hasActiveJob && state.printer.operational -> Button(
                             onClick = onConfirmStart,
                             modifier = Modifier.weight(1f),
                         ) {
@@ -376,6 +376,13 @@ private fun HardenedStatusPage(
                             Text("Restart")
                         }
                     }
+                }
+                if (state.job.fileName != null && !state.hasActiveJob && !state.printer.operational) {
+                    Text(
+                        "Connect the printer before starting the file.",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelSmall,
+                    )
                 }
             }
         }

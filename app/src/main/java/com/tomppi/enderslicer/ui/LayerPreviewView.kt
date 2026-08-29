@@ -9,6 +9,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -33,6 +36,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -187,10 +191,7 @@ internal fun LayerPreviewView(
                     }
                 }
                 SpeedLegend(preview.minSpeedMmPerSecond, preview.maxSpeedMmPerSecond)
-                Text(
-                    "The selected layer is rendered as thick ribbons with a black outline. Violet is a Multiplex arc overhang, cyan is support, magenta is support interface, and orange is adhesion.",
-                    style = MaterialTheme.typography.labelSmall,
-                )
+                LayerFeatureLegend()
                 if (preview.minLayerHeightMm > 0f) {
                     Text(
                         "Layer-height range %.3f–%.3f mm".format(preview.minLayerHeightMm, preview.maxLayerHeightMm),
@@ -198,6 +199,36 @@ internal fun LayerPreviewView(
                     )
                 }
                 }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun LayerFeatureLegend() {
+    val features = listOf(
+        Color(0xFF9C6ADE) to "Multiplex arc",
+        Color(0xFF40C8FF) to "Support",
+        Color(0xFFFF4FD8) to "Support interface",
+        Color(0xFFFFA040) to "Adhesion",
+    )
+    FlowRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        features.forEach { (color, label) ->
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(
+                    Modifier
+                        .size(10.dp)
+                        .background(color, CircleShape),
+                )
+                Text(label, style = MaterialTheme.typography.labelSmall)
             }
         }
     }
@@ -218,7 +249,7 @@ private fun LayerTimeline(
     Canvas(
         modifier = Modifier
             .fillMaxWidth()
-            .height(30.dp)
+            .height(36.dp)
             .background(trackColor, RoundedCornerShape(8.dp))
             .pointerInput(layerCount) {
                 detectTapGestures { point ->
@@ -228,17 +259,17 @@ private fun LayerTimeline(
             },
     ) {
         val centerY = size.height * 0.5f
-        drawLine(trackColor.copy(alpha = 0.8f), Offset(8f, centerY), Offset(size.width - 8f, centerY), strokeWidth = 8f)
+        drawLine(trackColor.copy(alpha = 0.8f), Offset(8f, centerY), Offset(size.width - 8f, centerY), strokeWidth = 10f)
         val selectedX = if (layerCount <= 1) size.width * 0.5f else 8f + (size.width - 16f) * selectedIndex / (layerCount - 1f)
-        drawLine(selectedColor, Offset(8f, centerY), Offset(selectedX, centerY), strokeWidth = 8f)
+        drawLine(selectedColor, Offset(8f, centerY), Offset(selectedX, centerY), strokeWidth = 10f)
         events.forEach { event ->
             val index = layerIndexByNumber[event.layerNumber] ?: return@forEach
             val x = if (layerCount <= 1) size.width * 0.5f else 8f + (size.width - 16f) * index / (layerCount - 1f)
-            drawCircle(eventColor, radius = 5.5f, center = Offset(x, centerY))
-            drawCircle(Color.White, radius = 2f, center = Offset(x, centerY))
+            drawCircle(eventColor, radius = 6.5f, center = Offset(x, centerY))
+            drawCircle(Color.White, radius = 2.4f, center = Offset(x, centerY))
         }
-        drawCircle(Color.White, radius = 7f, center = Offset(selectedX, centerY))
-        drawCircle(selectedColor, radius = 5f, center = Offset(selectedX, centerY))
+        drawCircle(Color.White, radius = 9f, center = Offset(selectedX, centerY))
+        drawCircle(selectedColor, radius = 6.5f, center = Offset(selectedX, centerY))
     }
 }
 

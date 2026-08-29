@@ -6,6 +6,7 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -691,6 +692,7 @@ private fun ViewerPanel(
     val effectivePrinter = state.printer.withSettings(state.settings)
     val gcodeAvailable = state.hasCurrentGcode()
     var modelOrientation by remember(effectivePrinter) { mutableStateOf<ViewerOrientation?>(null) }
+    var modelHintsDismissed by rememberSaveable { mutableStateOf(false) }
     Box(modifier = modifier) {
         val preview = state.layerPreview.takeIf { gcodeAvailable }
         when {
@@ -772,7 +774,10 @@ private fun ViewerPanel(
             Card(
                 modifier = Modifier.widthIn(max = 390.dp),
             ) {
-            Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp)) {
+            Column(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
                 Text(effectivePrinter.name, style = MaterialTheme.typography.titleSmall)
                 Text(
                     "%.0f × %.0f × %.0f mm · %.2f mm nozzle".format(
@@ -782,7 +787,11 @@ private fun ViewerPanel(
                         effectivePrinter.nozzleSizeMm,
                     ),
                     style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                if (nonPlanarEnabled || conicalEnabled) {
+                    HorizontalDivider()
+                }
                 if (nonPlanarEnabled) {
                     Text(
                         "Non-planar printing enabled",
@@ -801,32 +810,40 @@ private fun ViewerPanel(
                 if (mesh == null) {
                     Text("Import an STL from Menu", style = MaterialTheme.typography.bodySmall)
                 } else {
-                    Text("${mesh.displayName} · ${mesh.triangleCount} triangles", style = MaterialTheme.typography.bodySmall)
-                    Text(
+                    HorizontalDivider()
+                    SummaryRow("Model", mesh.displayName)
+                    SummaryRow("Triangles", "${mesh.triangleCount}")
+                    SummaryRow(
+                        "Size",
                         "%.1f × %.1f × %.1f mm".format(
                             mesh.bounds.width,
                             mesh.bounds.depth,
                             mesh.bounds.height,
                         ),
-                        style = MaterialTheme.typography.bodySmall,
                     )
                     state.modelPlacement?.let { placement ->
-                        Text(
-                            "Center %.2f, %.2f · base Z %.2f mm".format(
+                        SummaryRow(
+                            "Center",
+                            "%.2f, %.2f · Z %.2f mm".format(
                                 placement.centerXmm,
                                 placement.centerYmm,
                                 placement.baseZmm,
                             ),
-                            style = MaterialTheme.typography.bodySmall,
                         )
-                        Text(placement.source, style = MaterialTheme.typography.labelSmall)
+                        SummaryRow("Placement", placement.source)
                     }
                 }
                 state.estimatedPrintSeconds?.takeIf { gcodeAvailable }?.let { seconds ->
-                    Text("Estimated print: ${formatPrintTime(seconds)}", style = MaterialTheme.typography.bodySmall)
+                    HorizontalDivider()
+                    SummaryRow("Estimated print", formatPrintTime(seconds))
                 }
                 if (state.warnings.isNotEmpty()) {
-                    Text("Cura compatibility warnings: ${state.warnings.size}", style = MaterialTheme.typography.labelSmall)
+                    Text(
+                        "Cura compatibility warnings: ${state.warnings.size}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(top = 3.dp),
+                    )
                 }
             }
             }
@@ -867,15 +884,58 @@ private fun ViewerPanel(
                     .padding(12.dp)
                     .widthIn(max = 520.dp),
             ) {
-                Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(5.dp),
+                ) {
                     Text(state.statusMessage, style = MaterialTheme.typography.bodySmall)
-                    Text(
-                        "Drag orbit · Pinch zoom · Two-finger pan · Double-tap reset",
-                        style = MaterialTheme.typography.labelSmall,
-                    )
+                    if (!modelHintsDismissed) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                "Drag orbit · Pinch zoom · Two-finger pan · Double-tap reset",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Text(
+                                "Dismiss",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier
+                                    .padding(start = 8.dp)
+                                    .clickable { modelHintsDismissed = true },
+                            )
+                        }
+                    }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun SummaryRow(label: String, value: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            value,
+            style = MaterialTheme.typography.bodySmall,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(start = 12.dp),
+        )
     }
 }
 
@@ -950,6 +1010,14 @@ private fun ActionBar(
                     Text("Export G-code")
                 }
             }
+            if (!gcodeAvailable) {
+                Text(
+                    "Slice a model first to export validated G-code",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.align(Alignment.CenterHorizontally),
+                )
+            }
         }
     }
 }
@@ -999,5 +1067,3 @@ private fun PaintModeButton(
         OutlinedButton(onClick = { onPaintMode(mode) }, modifier = modifier) { Text(label) }
     }
 }
-
-

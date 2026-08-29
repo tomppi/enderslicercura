@@ -24,6 +24,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The OctoPrint webcam card opens the snapshot in a fullscreen viewer with
   pinch zoom (1x-6x), drag-to-pan and a double-tap reset; OctoPrint flip and
   rotation settings are preserved and the view stays live while open.
+- UI polish pass: the model summary card uses label/value rows instead of a
+  text dump; gesture help is dismissible and separate from status; a swatch
+  legend replaces the view-mode explanation paragraph; the layer timeline
+  is easier to grab; travel moves are dimmer in the path view; position
+  numbers are locale-safe (no dangling decimal separator); the rotate sheet
+  labels its fine step row; Start is only offered on an operational printer;
+  disabled export explains itself; shared spacing tokens and a style guide
+  (docs/ui-style-guide.md) standardize new work.
 
 ### Simplified
 
