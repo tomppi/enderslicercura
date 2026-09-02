@@ -12,6 +12,8 @@ jobs:
   build-prusa:
     runs-on: ubuntu-24.04
     timeout-minutes: 240
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -23,7 +25,7 @@ jobs:
           yes | sdkmanager --licenses >/dev/null
           sdkmanager 'ndk;28.2.13676358'
           sudo apt-get update
-          sudo apt-get install -y ninja-build cmake curl tar qemu-user-static
+          sudo apt-get install -y ninja-build cmake curl tar
           echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
           echo "ANDROID_HOME=$ANDROID_HOME"
           cmake --version
