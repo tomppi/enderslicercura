@@ -127,7 +127,7 @@ EOF
 fetch libbgcode https://github.com/prusa3d/libbgcode/archive/6f4ad7ce6b0e638b760199d6611039a610a5a479.tar.gz
 cm libbgcode -DLibBGCode_BUILD_TESTS=OFF -DLibBGCode_BUILD_CMD_TOOL=OFF -DLibBGCode_BUILD_COMPONENT_Convert=ON -DLIBBGCODE_USE_ZLIB=OFF -DLIBBGCODE_USE_LZMA=OFF
 fetch nanosvg https://github.com/fltk/nanosvg/archive/abcd277ea45e9098bed752cf9c6875b533c0892f.tar.gz
-cp $WORK/nanosvg/*.h $PREFIX/include/nanosvg/
+cp $WORK/nanosvg/src/*.h $PREFIX/include/nanosvg/
 
 step "[6/6] version/config shims + PrusaSlicer configure + build"
 cat > $PREFIX/lib/cmake/opencascade/OpenCASCADEConfigVersion.cmake <<EOF
@@ -178,9 +178,11 @@ cmake -S $SRC -B $PWD/prusa-build/build -G Ninja \
   -DBOOST_ROOT=$PREFIX -DBoost_NO_SYSTEM_PATHS=ON \
   -DNLOPT_INCLUDE_DIR=$PREFIX/include -DNLOPT_NLOPT_LIBRARY=$PREFIX/lib/libnlopt.a
 
-# Build-time host tool: compile encoding-check with the host g++, keep bundled scripts fresh.
+# Build-time host tool: compile encoding-check with the host g++ and pre-touch the bundled
+# encoding-check stamp files (they are only build-time assertions; in a fresh cross build the
+# tool would otherwise be run through qemu and fail on the missing device linker).
 g++ -O2 -o $PWD/prusa-build/build/build-utils/encoding-check $SRC/build-utils/encoding-check.cpp
-find $PWD/prusa-build/build/bundled_deps -name '*.util' -exec touch {} \;
+grep -oE 'bundled_deps/[A-Za-z0-9/_.-]+\.util' $PWD/prusa-build/build/build.ninja | sort -u | while read -r u; do mkdir -p "$PWD/prusa-build/build/$(dirname "$u")"; touch "$PWD/prusa-build/build/$u"; done
 ninja -C $PWD/prusa-build/build prusa-slicer -j8
 
 mkdir -p $OUT/src $OUT/resources
