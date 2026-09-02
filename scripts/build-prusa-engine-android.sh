@@ -4,7 +4,7 @@
 set -euo pipefail
 
 # --- locate the NDK (the workflow sets ANDROID_NDK_HOME; fall back to SDK root) ---
-SDK="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
 NDK="${ANDROID_NDK_HOME:-$SDK/ndk/28.2.13676358}"
 TC=$NDK/build/cmake/android.toolchain.cmake
 [ -f "$TC" ] || { echo "FATAL: NDK toolchain missing at $TC"; env | grep -iE 'android|ndk' || true; exit 1; }
@@ -25,7 +25,13 @@ step () { echo; echo "===== $* ====="; }
 fetch () {
   d=$1; u=$2
   if [ ! -d $WORK/$d ]; then
-    ( cd $WORK; curl -sL --retry 3 -o /tmp/t.tgz $u; mkdir -p $d; tar -xzf /tmp/t.tgz -C $d --strip-components=1; rm -f /tmp/t.tgz )
+    rm -rf $WORK/.x-$d
+    ( cd $WORK
+      curl -fsL --retry 5 --retry-all-errors -m 600 -o /tmp/t-$d.tgz $u
+      mkdir -p .x-$d
+      tar -xf /tmp/t-$d.tgz -C .x-$d --strip-components=1
+      rm -f /tmp/t-$d.tgz
+      mv .x-$d $d )
   fi
 }
 
@@ -84,7 +90,7 @@ fetch nlohmann https://github.com/nlohmann/json/archive/refs/tags/v3.11.3.tar.gz
 
 step "[4/6] gmp mpfr cgal"
 ( export CC=$CT CXX=$CXXT AR=$AR;
-  fetch gmp https://gmplib.org/download/gmp/gmp-6.3.0.tar.xz; cd $WORK/gmp;
+  fetch gmp https://ftp.gnu.org/gnu/gmp/gmp-6.3.0.tar.xz; cd $WORK/gmp;
   [ -f Makefile ] || ./configure --host=aarch64-linux-android --prefix=$PREFIX --enable-static --disable-shared --disable-assembly --enable-cxx
   make -j8 && make install;
   fetch mpfr https://ftp.gnu.org/gnu/mpfr/mpfr-4.2.1.tar.xz; cd $WORK/mpfr;
@@ -154,10 +160,12 @@ add_library(cereal::cereal INTERFACE IMPORTED)
 set_target_properties(cereal::cereal PROPERTIES INTERFACE_INCLUDE_DIRECTORIES "$PREFIX/include")
 EOF
 if [ ! -d $PREFIX/include/cereal ]; then
-  ( cd $WORK; curl -sL --retry 3 -o /tmp/c.tgz https://github.com/USCiLab/cereal/archive/refs/tags/v1.3.2.tar.gz; mkdir -p cereal-x; tar -xzf /tmp/c.tgz -C cereal-x --strip-components=1; cp -r cereal-x/include/cereal $PREFIX/include/; rm -rf cereal-x /tmp/c.tgz )
+  ( cd $WORK; curl -fsL --retry 5 --retry-all-errors -m 600 -o /tmp/c.tgz https://github.com/USCiLab/cereal/archive/refs/tags/v1.3.2.tar.gz; rm -rf cereal-x; mkdir -p cereal-x; tar -xf /tmp/c.tgz -C cereal-x --strip-components=1; cp -r cereal-x/include/cereal $PREFIX/include/; rm -rf cereal-x /tmp/c.tgz )
 fi
 
-if [ ! -d $SRC ]; then git clone --depth 1 --branch version_2.9.6 https://github.com/prusa3d/PrusaSlicer.git $SRC; fi
+if [ ! -d $SRC ]; then
+  for i in 1 2 3; do git clone --depth 1 --branch version_2.9.6 https://github.com/prusa3d/PrusaSlicer.git $SRC && break; rm -rf $SRC; done
+fi
 cmake -S $SRC -B $PWD/prusa-build/build -G Ninja \
   -DCMAKE_TOOLCHAIN_FILE=$TC \
   -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-29 -DANDROID_STL=c++_shared \

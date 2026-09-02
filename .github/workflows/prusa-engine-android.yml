@@ -3,6 +3,9 @@ name: Build PrusaSlicer Android ARM64
 on:
   push:
     branches: [ 'feature/prusa-engine-android' ]
+    paths:
+      - '.github/workflows/prusa-engine-android.yml'
+      - 'scripts/build-prusa-engine-android.sh'
   workflow_dispatch:
 
 jobs:
@@ -42,3 +45,25 @@ jobs:
           path: |
             prusa-build/out/**
             prusa-android-build.log
+      - name: Save build log into repo on failure
+        if: failure()
+        run: |
+          [ -f prusa-android-build.log ] || { echo lost > prusa-android-build.log; }
+          python3 - <<'PY'
+          import base64, json, os, time, pathlib, urllib.request
+          p = pathlib.Path('prusa-android-build.log')
+          b64 = base64.b64encode(p.read_bytes()).decode()
+          name = '.build-artifacts/prusa-ci-log-%d.txt' % int(time.time())
+          payload = json.dumps({
+            'message': 'ci: snapshot of failed Prusa engine build log',
+            'content': b64,
+            'branch': 'feature/prusa-engine-android',
+          }).encode()
+          req = urllib.request.Request(
+            'https://api.github.com/repos/%s/contents/%s' % (os.environ['GITHUB_REPOSITORY'], name),
+            data=payload, method='PUT',
+            headers={'Authorization': 'Bearer ' + os.environ['GITHUB_TOKEN'],
+                     'Accept': 'application/vnd.github+json'})
+          with urllib.request.urlopen(req) as resp:
+              print(resp.status, name)
+          PY
