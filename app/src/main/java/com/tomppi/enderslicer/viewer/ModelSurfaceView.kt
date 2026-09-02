@@ -230,6 +230,12 @@ private class ModelRenderer(
     @Volatile private var mesh: StlMesh? = null
     private var meshBuffer: FloatBuffer? = null
     private var colorBuffer: FloatBuffer? = null
+    // GPU-side (VBO) copies of the mesh; the model renders from VRAM after a
+    // single upload, like a game, instead of re-reading CPU memory per frame.
+    private var meshVbo = 0
+    private var colorVbo = 0
+    private var uploadedMesh: StlMesh? = null
+    private var colorUploaded = false
     private var paintState: SupportPaintState = SupportPaintState()
     private var paintActive = false
     private var meshProgram = 0
@@ -260,6 +266,8 @@ private class ModelRenderer(
             mesh.interleavedVertices.directOrNull()
                 ?: mesh.interleavedVertices.arrayOrNull()?.let(::floatBuffer)
         }
+        uploadedMesh = null
+        colorUploaded = false
         rebuildColorBuffer()
         if (isNewModel) resetCamera()
     }
@@ -342,6 +350,11 @@ private class ModelRenderer(
         GLES20.glDisable(GLES20.GL_CULL_FACE)
         meshProgram = createProgram(MESH_VERTEX_SHADER, MESH_FRAGMENT_SHADER)
         lineProgram = createProgram(LINE_VERTEX_SHADER, LINE_FRAGMENT_SHADER)
+        // A new GL context invalidates old VBO ids.
+        meshVbo = 0
+        colorVbo = 0
+        uploadedMesh = null
+        colorUploaded = false
         buildGrid()
     }
 
@@ -371,6 +384,7 @@ private class ModelRenderer(
     }
 
     private fun rebuildColorBuffer() {
+        colorUploaded = false
         val currentMesh = mesh ?: run {
             colorBuffer = null
             return
@@ -431,6 +445,29 @@ private class ModelRenderer(
         GLES20.glDisableVertexAttribArray(position)
     }
 
+    /**
+     * Uploads the interleaved mesh to a vertex buffer object exactly once per
+     * model: afterwards the triangles live in GPU memory and every frame is a
+     * pure GPU draw (the same way a game renders a static mesh), instead of
+     * re-reading CPU memory through client-side pointers per frame.
+     */
+    private fun ensureMeshUpload(buffer: FloatBuffer) {
+        if (meshVbo != 0 && uploadedMesh === mesh) return
+        val ids = IntArray(1)
+        GLES20.glGenBuffers(1, ids, 0)
+        meshVbo = ids[0]
+        if (meshVbo == 0) return
+        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, meshVbo)
+        GLES20.glBufferData(
+            GLES20.GL_ARRAY_BUFFER,
+            buffer.capacity() * Float.SIZE_BYTES,
+            buffer,
+            GLES20.GL_STATIC_DRAW,
+        )
+        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, 0)
+        uploadedMesh = mesh
+    }
+
     private fun drawMesh() {
         val currentMesh = mesh ?: return
         val buffer = meshBuffer ?: return
@@ -451,17 +488,50 @@ private class ModelRenderer(
         val modelLocation = GLES20.glGetUniformLocation(meshProgram, "uModelMatrix")
 
         buffer.position(0)
-        GLES20.glEnableVertexAttribArray(position)
-        GLES20.glVertexAttribPointer(position, 3, GLES20.GL_FLOAT, false, 6 * 4, buffer)
-        buffer.position(3)
-        GLES20.glEnableVertexAttribArray(normal)
-        GLES20.glVertexAttribPointer(normal, 3, GLES20.GL_FLOAT, false, 6 * 4, buffer)
+        ensureMeshUpload(buffer)
+        val vbo = meshVbo
+        if (vbo != 0) {
+            GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, vbo)
+            GLES20.glEnableVertexAttribArray(position)
+            GLES20.glVertexAttribPointer(position, 3, GLES20.GL_FLOAT, false, 6 * 4, 0)
+            GLES20.glEnableVertexAttribArray(normal)
+            GLES20.glVertexAttribPointer(normal, 3, GLES20.GL_FLOAT, false, 6 * 4, 12)
+        } else {
+            GLES20.glEnableVertexAttribArray(position)
+            GLES20.glVertexAttribPointer(position, 3, GLES20.GL_FLOAT, false, 6 * 4, buffer)
+            buffer.position(3)
+            GLES20.glEnableVertexAttribArray(normal)
+            GLES20.glVertexAttribPointer(normal, 3, GLES20.GL_FLOAT, false, 6 * 4, buffer)
+        }
 
         val colors = colorBuffer
         if (colors != null) {
-            colors.position(0)
-            GLES20.glEnableVertexAttribArray(color)
-            GLES20.glVertexAttribPointer(color, 3, GLES20.GL_FLOAT, false, 3 * 4, colors)
+            if (colorVbo == 0) {
+                val ids = IntArray(1)
+                GLES20.glGenBuffers(1, ids, 0)
+                colorVbo = ids[0]
+            }
+            if (colorVbo != 0 && !colorUploaded) {
+                colors.position(0)
+                GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, colorVbo)
+                GLES20.glBufferData(
+                    GLES20.GL_ARRAY_BUFFER,
+                    colors.capacity() * Float.SIZE_BYTES,
+                    colors,
+                    GLES20.GL_STREAM_DRAW,
+                )
+                GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, 0)
+                colorUploaded = true
+            }
+            if (colorVbo != 0) {
+                GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, colorVbo)
+                GLES20.glEnableVertexAttribArray(color)
+                GLES20.glVertexAttribPointer(color, 3, GLES20.GL_FLOAT, false, 3 * 4, 0)
+            } else {
+                colors.position(0)
+                GLES20.glEnableVertexAttribArray(color)
+                GLES20.glVertexAttribPointer(color, 3, GLES20.GL_FLOAT, false, 3 * 4, colors)
+            }
         } else {
             GLES20.glDisableVertexAttribArray(color)
             GLES20.glVertexAttrib3f(color, BASE_COLOR[0], BASE_COLOR[1], BASE_COLOR[2])
@@ -470,6 +540,7 @@ private class ModelRenderer(
         GLES20.glUniformMatrix4fv(mvpLocation, 1, false, mvp, 0)
         GLES20.glUniformMatrix4fv(modelLocation, 1, false, modelMatrix, 0)
         GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, currentMesh.triangleCount * 3)
+        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, 0)
         GLES20.glDisableVertexAttribArray(position)
         GLES20.glDisableVertexAttribArray(normal)
         GLES20.glDisableVertexAttribArray(color)

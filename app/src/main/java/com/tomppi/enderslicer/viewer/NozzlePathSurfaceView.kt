@@ -36,6 +36,59 @@ internal fun extrusionHue(zRatio: Float, speedRatio: Float, colorBySpeed: Boolea
 internal const val RIBBON_MIN_SEGMENT_MM = 0.05f
 
 /**
+ * Growable direct FloatBuffer: nozzle-path geometry is built straight into
+ * native memory so a long print never OOMs the 512 MB Java heap (the original
+ * boxed ArrayList<Float> build did exactly that - see the GLThread
+ * OutOfMemoryError in buildPathBuffers/bufferOf).
+ */
+internal class DirectFloatSink(initialCapacity: Int = 4096) {
+    private var buffer: FloatBuffer = alloc(max(initialCapacity, 16))
+    private var count = 0
+
+    private fun alloc(capacity: Int): FloatBuffer =
+        ByteBuffer.allocateDirect(capacity * Float.SIZE_BYTES)
+            .order(ByteOrder.nativeOrder())
+            .asFloatBuffer()
+
+    operator fun plusAssign(value: Float) {
+        if (count >= buffer.capacity()) grow()
+        buffer.put(count, value)
+        count++
+    }
+
+    val size: Int get() = count
+
+    fun isEmpty(): Boolean = count == 0
+
+    fun toFloatBuffer(): FloatBuffer {
+        val result = alloc(max(count, 1))
+        buffer.position(0)
+        buffer.limit(count)
+        result.put(buffer)
+        result.position(0)
+        return result
+    }
+
+    fun toFloatArray(): FloatArray {
+        val result = FloatArray(count)
+        buffer.position(0)
+        buffer.limit(count)
+        buffer.get(result)
+        return result
+    }
+
+    private fun grow() {
+        val next = alloc(max(buffer.capacity() * 2, 16))
+        buffer.position(0)
+        buffer.limit(count)
+        next.put(buffer)
+        next.position(0)
+        buffer = next
+    }
+}
+
+
+/**
  * Resolves the physical bead width for one extrusion move, shared by the
  * renderer (geometry) and the UI (inspector readout) so they can never
  * disagree: width = deltaE x filament area / length / layer height, clamped
@@ -280,6 +333,12 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
     @Volatile var orthographic = false
     private var gridPositions: FloatBuffer? = null
     private var gridVertexCount = 0
+    // GPU-side (VBO) copies of the ribbon/travel geometry: uploaded once per
+    // path (and again when the color mode flips), so the path renders from
+    // GPU memory like a game renders static geometry.
+    private var pathVbos = IntArray(0)
+    private var uploadedPath: GcodeNozzlePath? = null
+    private var uploadedColorBySpeed = false
     private var markerPositions: FloatBuffer? = null
     private var markerVertexCount = 0
     private var markerGlowPositions: FloatBuffer? = null
@@ -412,6 +471,10 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         colorProgram = createProgram(COLOR_VERTEX_SHADER, COLOR_FRAGMENT_SHADER)
         solidProgram = createProgram(SOLID_VERTEX_SHADER, SOLID_FRAGMENT_SHADER)
         Log.i(TAG, "nozzle-path shaders compiled")
+        // A new GL context invalidates old VBO ids.
+        pathVbos = IntArray(0)
+        uploadedPath = null
+        uploadedColorBySpeed = false
         maxLineWidth = queryMaxLineWidth()
     }
 
@@ -486,15 +549,24 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         // fixed 3-light rig (key + fill + rim) so the bead facets read as a
         // solid printed part from every orbit angle without the zoomed-out
         // moire that interpolated normals caused.
-        drawLitTriangles(
-            ribbonPositions,
-            ribbonNormals,
-            ribbonColors,
-            ribbonAmbient,
-            ribbonMoveCount * RIBBON_VERTICES_PER_MOVE,
-        )
+        ensureUploads(current)
+        if (pathVbos.size == 6 && pathVbos[0] != 0) {
+            drawLitTrianglesVbo(ribbonMoveCount * RIBBON_VERTICES_PER_MOVE)
+        } else {
+            drawLitTriangles(
+                ribbonPositions,
+                ribbonNormals,
+                ribbonColors,
+                ribbonAmbient,
+                ribbonMoveCount * RIBBON_VERTICES_PER_MOVE,
+            )
+        }
         if (showTravels) {
-            drawColoredLines(travelPositions, travelColors, travelPrefix[upTo] * 2, TRAVEL_WIDTH)
+            if (pathVbos.size == 6 && pathVbos[4] != 0) {
+                drawColoredLinesVbo(travelPrefix[upTo] * 2, TRAVEL_WIDTH)
+            } else {
+                drawColoredLines(travelPositions, travelColors, travelPrefix[upTo] * 2, TRAVEL_WIDTH)
+            }
         }
         drawSolidLines(markerGlowPositions, markerGlowVertexCount, 8f, 0.85f, 0.55f, 0.30f, 0.20f)
         drawSolidLines(markerPositions, markerVertexCount, 4.5f, 1f, 1f, 1f, 1f)
@@ -503,15 +575,18 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         private fun buildPathBuffers(value: GcodeNozzlePath) {
         val source = value.moves
         val stride = max(1, (value.extrusionMoveCount + RIBBON_MAX_MOVES - 1) / RIBBON_MAX_MOVES)
-        val ribbonVertex = ArrayList<Float>((value.moveCount / stride) * 54)
-        val ribbonNormal = ArrayList<Float>((value.moveCount / stride) * 54)
-        val ribbonColor = ArrayList<Float>((value.moveCount / stride) * 72)
-        val ribbonAmbientValues = ArrayList<Float>((value.moveCount / stride) * 18)
-        val travelVertex = ArrayList<Float>((value.moveCount / stride) * 8)
-        val travelColor = ArrayList<Float>((value.moveCount / stride) * 8)
+        // Geometry is built into direct native buffers: the boxed-list build
+        // this replaced OOM'd the Java heap on long prints (boxed Float ~16 B
+        // vs 4 B in the final buffer, and 4 arrays per move with lighting).
+        val ribbonVertex = DirectFloatSink()
+        val ribbonNormal = DirectFloatSink()
+        val ribbonColor = DirectFloatSink()
+        val ribbonAmbientValues = DirectFloatSink()
+        val travelVertex = DirectFloatSink()
+        val travelColor = DirectFloatSink()
         // Full-range extrusion points for the camera fit (percentile-trimmed
         // later), independent of the ribbon stride sampling.
-        val boundsVertex = ArrayList<Float>(value.moveCount * 6)
+        val boundsVertex = DirectFloatSink()
         var minSpeed = Float.POSITIVE_INFINITY
         var maxSpeed = Float.NEGATIVE_INFINITY
         if (colorBySpeed) {
@@ -567,18 +642,18 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
                 } else {
                     travelVertex += sx; travelVertex += sy; travelVertex += sz
                     travelVertex += ex; travelVertex += ey; travelVertex += ez
-                    repeat(2) { color.forEach(travelColor::add) }
+                    repeat(2) { color.forEach { travelColor += it } }
                     travelMoves++
                 }
             }
             offset += GcodeNozzlePath.VALUES_PER_MOVE
         }
-        ribbonPositions = bufferOf(ribbonVertex)
-        ribbonNormals = bufferOf(ribbonNormal)
-        ribbonColors = bufferOf(ribbonColor)
-        ribbonAmbient = bufferOf(ribbonAmbientValues)
-        travelPositions = bufferOf(travelVertex)
-        travelColors = bufferOf(travelColor)
+        ribbonPositions = ribbonVertex.toFloatBuffer()
+        ribbonNormals = ribbonNormal.toFloatBuffer()
+        ribbonColors = ribbonColor.toFloatBuffer()
+        ribbonAmbient = ribbonAmbientValues.toFloatBuffer()
+        travelPositions = travelVertex.toFloatBuffer()
+        travelColors = travelColor.toFloatBuffer()
 
         // Camera bounds from the printed part only. Stray extrusion moves
         // (purge line at the plate corner, distant skirt loops) are trimmed
@@ -609,10 +684,10 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
      * toward the base (contact shadow) and odd layers keep the parity tint.
      */
     private fun addRibbonMove(
-        vertex: ArrayList<Float>,
-        normals: ArrayList<Float>,
-        colors: ArrayList<Float>,
-        ambient: ArrayList<Float>,
+        vertex: DirectFloatSink,
+        normals: DirectFloatSink,
+        colors: DirectFloatSink,
+        ambient: DirectFloatSink,
         sx: Float, sy: Float, sz: Float,
         ex: Float, ey: Float, ez: Float,
         deltaE: Float,
@@ -697,15 +772,6 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         repeat(3) { normals += ux; normals += uy; normals += 0f }
         push(3)
         ambient += leftBottomAmbient; ambient += leftTopAmbient; ambient += leftTopAmbient
-    }
-
-    private fun bufferOf(values: List<Float>): FloatBuffer? {
-        if (values.isEmpty()) return null
-        val array = FloatArray(values.size) { values[it] }
-        val buffer = allocate(array.size)
-        buffer.put(array)
-        buffer.position(0)
-        return buffer
     }
 
     private fun buildGrid(value: GcodeNozzlePath) {
@@ -841,6 +907,93 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         val dx = px - cx
         val dy = py - cy
         return dx * dx + dy * dy
+    }
+
+    /**
+     * Uploads the ribbon/travel geometry into vertex buffer objects (GPU
+     * memory) once per path; color-mode flips re-upload. Falls back silently
+     * to client-side pointers if the driver allocates no buffer ids.
+     */
+    private fun ensureUploads(current: GcodeNozzlePath) {
+        if (uploadedPath === current && uploadedColorBySpeed == colorBySpeed && pathVbos.size == 6) return
+        if (pathVbos.size != 6) {
+            val ids = IntArray(6)
+            GLES20.glGenBuffers(6, ids, 0)
+            pathVbos = ids
+        }
+        val buffers = listOf(ribbonPositions, ribbonNormals, ribbonColors, ribbonAmbient, travelPositions, travelColors)
+        for (index in buffers.indices) {
+            val data = buffers[index] ?: continue
+            data.position(0)
+            GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, pathVbos[index])
+            GLES20.glBufferData(
+                GLES20.GL_ARRAY_BUFFER,
+                data.capacity() * Float.SIZE_BYTES,
+                data,
+                GLES20.GL_STATIC_DRAW,
+            )
+        }
+        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, 0)
+        uploadedPath = current
+        uploadedColorBySpeed = colorBySpeed
+    }
+
+    private fun drawLitTrianglesVbo(vertexCount: Int) {
+        if (vertexCount <= 0) return
+        GLES20.glUseProgram(litProgram)
+        val position = GLES20.glGetAttribLocation(litProgram, "aPosition")
+        val normal = GLES20.glGetAttribLocation(litProgram, "aNormal")
+        val color = GLES20.glGetAttribLocation(litProgram, "aColor")
+        val ambientLoc = GLES20.glGetAttribLocation(litProgram, "aAmbient")
+        val matrix = GLES20.glGetUniformLocation(litProgram, "uMvpMatrix")
+        val sceneMatrix = GLES20.glGetUniformLocation(litProgram, "uSceneMatrix")
+        val keyDir = GLES20.glGetUniformLocation(litProgram, "uKeyDir")
+        val fillDir = GLES20.glGetUniformLocation(litProgram, "uFillDir")
+        val viewDir = GLES20.glGetUniformLocation(litProgram, "uViewDir")
+        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, pathVbos[0])
+        GLES20.glEnableVertexAttribArray(position)
+        GLES20.glVertexAttribPointer(position, 3, GLES20.GL_FLOAT, false, 12, 0)
+        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, pathVbos[1])
+        GLES20.glEnableVertexAttribArray(normal)
+        GLES20.glVertexAttribPointer(normal, 3, GLES20.GL_FLOAT, false, 12, 0)
+        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, pathVbos[2])
+        GLES20.glEnableVertexAttribArray(color)
+        GLES20.glVertexAttribPointer(color, 4, GLES20.GL_FLOAT, false, 16, 0)
+        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, pathVbos[3])
+        GLES20.glEnableVertexAttribArray(ambientLoc)
+        GLES20.glVertexAttribPointer(ambientLoc, 1, GLES20.GL_FLOAT, false, 4, 0)
+        GLES20.glUniformMatrix4fv(matrix, 1, false, mvp, 0)
+        GLES20.glUniformMatrix4fv(sceneMatrix, 1, false, scene, 0)
+        GLES20.glUniform3f(keyDir, KEY_LIGHT[0], KEY_LIGHT[1], KEY_LIGHT[2])
+        GLES20.glUniform3f(fillDir, FILL_LIGHT[0], FILL_LIGHT[1], FILL_LIGHT[2])
+        GLES20.glUniform3f(viewDir, 0f, -VIEW_EYE_Y, VIEW_EYE_Z)
+        GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, vertexCount)
+        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, 0)
+        GLES20.glDisableVertexAttribArray(position)
+        GLES20.glDisableVertexAttribArray(normal)
+        GLES20.glDisableVertexAttribArray(color)
+        GLES20.glDisableVertexAttribArray(ambientLoc)
+    }
+
+    private fun drawColoredLinesVbo(vertexCount: Int, width: Float) {
+        if (vertexCount <= 0) return
+        GLES20.glUseProgram(colorProgram)
+        val position = GLES20.glGetAttribLocation(colorProgram, "aPosition")
+        val color = GLES20.glGetAttribLocation(colorProgram, "aColor")
+        val matrix = GLES20.glGetUniformLocation(colorProgram, "uMvpMatrix")
+        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, pathVbos[4])
+        GLES20.glEnableVertexAttribArray(position)
+        GLES20.glVertexAttribPointer(position, 3, GLES20.GL_FLOAT, false, 12, 0)
+        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, pathVbos[5])
+        GLES20.glEnableVertexAttribArray(color)
+        GLES20.glVertexAttribPointer(color, 4, GLES20.GL_FLOAT, false, 16, 0)
+        GLES20.glUniformMatrix4fv(matrix, 1, false, mvp, 0)
+        lineWidth(width)
+        GLES20.glDrawArrays(GLES20.GL_LINES, 0, vertexCount)
+        GLES20.glLineWidth(1f)
+        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, 0)
+        GLES20.glDisableVertexAttribArray(position)
+        GLES20.glDisableVertexAttribArray(color)
     }
 
     private fun drawLitTriangles(

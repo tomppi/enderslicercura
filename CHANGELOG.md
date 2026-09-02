@@ -34,6 +34,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Slice/Export action bar is hidden - the session pane owns the actions - so
   the expanded layout no longer shows two Slice buttons; the slice-blocked
   reason is shown in the session pane instead.
+- Renderers now draw from GPU memory (VBO), like a game: the model mesh
+  uploads once per model (positions+normals interleaved, plus the paint
+  color buffer on change) and the nozzle-path geometry uploads once per
+  path/color-mode (positions, normals, colors, ambient, travel) into vertex
+  buffer objects; frames are pure GPU draws instead of client-side
+  re-reads of the CPU arrays, with silent fallback to client pointers if a
+  driver allocates no buffer ids. CPU-side native copies stay for mesh
+  picking, STL export and transforms.
 - Nozzle-path renderer and camera overhaul: beads shade per face with
   analytic normals under a fixed three-light rig (key + fill + rim) plus
   per-vertex ambient occlusion at the bead base, so the path reads as a solid
