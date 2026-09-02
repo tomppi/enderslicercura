@@ -9,27 +9,28 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -40,25 +41,31 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -70,15 +77,16 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.tomppi.enderslicer.conical.ConicalSettingsStore
 import com.tomppi.enderslicer.mesh.MeshTriangleLimits
+import com.tomppi.enderslicer.model.SlicerSettings
 import com.tomppi.enderslicer.model.withSettings
 import com.tomppi.enderslicer.nonplanar.NonPlanarSettingsStore
 import com.tomppi.enderslicer.supportpaint.SupportPaintMode
 import com.tomppi.enderslicer.texturizer.BumpMeshActivity
 import com.tomppi.enderslicer.viewer.MeshPicker
 import com.tomppi.enderslicer.viewer.ModelSurfaceView
+import com.tomppi.enderslicer.viewer.StlMeshWriter
 import com.tomppi.enderslicer.viewer.ViewerOrientation
 import com.tomppi.enderslicer.viewer.ViewerOrientationMath
-import com.tomppi.enderslicer.viewer.StlMeshWriter
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -86,22 +94,42 @@ import kotlinx.coroutines.withContext
 
 private enum class ViewerMode { MODEL, LAYERS, NOZZLE_PATH }
 
+private val ViewerOrientationSaver = listSaver<ViewerOrientation?, Float>(
+    save = { orientation ->
+        if (orientation == null) emptyList() else listOf(orientation.yawDegrees, orientation.pitchDegrees)
+    },
+    restore = { saved ->
+        if (saved.size < 2) null else ViewerOrientation(saved[0], saved[1])
+    },
+)
+
+/** The four persistent destinations. See docs/ux-redesign/DESIGN_PROPOSAL.md. */
+private enum class AppTab(val label: String, val subtitleFor: (MainUiState) -> String) {
+    PLATE("Plate", { state -> state.mesh?.displayName ?: "No model yet" }),
+    SETTINGS("Print settings", { "Apply immediately" }),
+    PRINT("Print", { "OctoPrint session" }),
+    MORE("More", { "Everything outside the plate" }),
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EnderSlicerApp(
     viewModel: MainViewModel = viewModel(),
-    topBarActions: @Composable () -> Unit = {},
-    advancedMenuItems: @Composable (() -> Unit) -> Unit = { _ -> },
     sliceBlockedReason: String? = null,
+    plateOverflowItems: @Composable (() -> Unit) -> Unit = { _ -> },
+    moreExtraItems: @Composable () -> Unit = {},
+    printTabContent: @Composable () -> Unit = {},
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var menuExpanded by rememberSaveable { mutableStateOf(false) }
-    var advancedSubmenuExpanded by rememberSaveable { mutableStateOf(false) }
-    var settingsOpen by rememberSaveable { mutableStateOf(false) }
+    var selectedTab by rememberSaveable { mutableStateOf(AppTab.PLATE) }
+    var importMenuExpanded by rememberSaveable { mutableStateOf(false) }
+    var plateOverflowExpanded by rememberSaveable { mutableStateOf(false) }
     var profilesOpen by rememberSaveable { mutableStateOf(false) }
-    var machineSettingsOpen by rememberSaveable { mutableStateOf(false) }
+    var printerScreenOpen by rememberSaveable { mutableStateOf(false) }
+    val printerChecklistStore = remember(context) { PrinterChecklistStore(context.applicationContext) }
+    var printerChecklistDone by remember(printerChecklistStore) { mutableStateOf(printerChecklistStore.load()) }
     var modelToolsOpen by rememberSaveable { mutableStateOf(false) }
     var supportPaintUiOpen by rememberSaveable { mutableStateOf(false) }
     var layerEventsOpen by rememberSaveable { mutableStateOf(false) }
@@ -110,6 +138,9 @@ fun EnderSlicerApp(
     var conicalOpen by rememberSaveable { mutableStateOf(false) }
     var viewerMode by rememberSaveable { mutableStateOf(ViewerMode.MODEL) }
     var selectedLayerIndex by rememberSaveable { mutableStateOf(0) }
+    var modelOrientation by rememberSaveable(stateSaver = ViewerOrientationSaver) {
+        mutableStateOf<ViewerOrientation?>(null)
+    }
     var lastAutoSelectedResultId by rememberSaveable { mutableStateOf<String?>(null) }
     val nonPlanarStore = remember(context) { NonPlanarSettingsStore(context.applicationContext) }
     var nonPlanarSettings by remember(nonPlanarStore) { mutableStateOf(nonPlanarStore.load()) }
@@ -166,225 +197,147 @@ fun EnderSlicerApp(
         uri?.let(viewModel::exportGcode)
     }
 
+    fun launchBumpMesh() {
+        val mesh = state.mesh
+        if (mesh == null || state.isBusy) {
+            Toast.makeText(context, "Import a model first", Toast.LENGTH_SHORT).show()
+            return
+        }
+        scope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    val source = File(
+                        context.cacheDir,
+                        "bumpmesh-source/current-displayed.stl",
+                    )
+                    StlMeshWriter.writeBinary(mesh, source)
+                    source
+                }
+            }.onSuccess { source ->
+                textureLauncher.launch(
+                    Intent(context, BumpMeshActivity::class.java)
+                        .putExtra(BumpMeshActivity.EXTRA_MODEL_PATH, source.absolutePath)
+                        .putExtra(BumpMeshActivity.EXTRA_MODEL_NAME, mesh.displayName),
+                )
+            }.onFailure { error ->
+                Toast.makeText(
+                    context,
+                    error.message ?: "Unable to prepare the model for BumpMesh",
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("enderslicercura", maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                actions = {
-                    topBarActions()
-                    Box {
-                        TopBarTextAction(
-                            label = "Menu",
-                            onClick = { menuExpanded = true },
+                navigationIcon = {
+                    if (printerScreenOpen) {
+                        androidx.compose.material3.IconButton(onClick = { printerScreenOpen = false }) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Back to More",
+                            )
+                        }
+                    }
+                },
+                title = {
+                    Column {
+                        Text(
+                            if (printerScreenOpen) "Printer" else selectedTab.label,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            style = MaterialTheme.typography.titleLarge,
                         )
-                        DropdownMenu(
-                            expanded = menuExpanded,
-                            onDismissRequest = { menuExpanded = false },
-                            modifier = Modifier.widthIn(min = 280.dp, max = 340.dp),
-                        ) {
-                            MenuSectionLabel("Files")
-                            DropdownMenuItem(
-                                text = { Text("Import STL") },
-                                leadingIcon = { Icon(Icons.Filled.Add, contentDescription = null) },
-                                onClick = {
-                                    menuExpanded = false
-                                    stlPicker.launch(arrayOf("*/*"))
-                                },
-                                enabled = !state.isBusy,
+                        Text(
+                            if (printerScreenOpen) "Machine profile & safety" else selectedTab.subtitleFor(state),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                },
+                actions = {
+                    if (selectedTab == AppTab.PLATE) {
+                        Box {
+                            TopBarTextAction(
+                                label = "Import",
+                                onClick = { importMenuExpanded = true },
                             )
-                            DropdownMenuItem(
-                                text = { Text("Import Cura project (.3mf)") },
-                                leadingIcon = { Icon(Icons.Filled.Add, contentDescription = null) },
-                                onClick = {
-                                    menuExpanded = false
-                                    projectPicker.launch(
-                                        arrayOf(
-                                            "model/3mf",
-                                            "application/vnd.ms-package.3dmanufacturing-3dmodel+xml",
-                                            "*/*",
-                                        ),
-                                    )
-                                },
-                                enabled = !state.isBusy,
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Import Cura profile") },
-                                leadingIcon = { Icon(Icons.Filled.Add, contentDescription = null) },
-                                onClick = {
-                                    menuExpanded = false
-                                    profilePicker.launch(arrayOf("*/*"))
-                                },
-                                enabled = !state.isBusy,
-                            )
-
-                            HorizontalDivider()
-                            MenuSectionLabel("Model")
-                            DropdownMenuItem(
-                                text = { Text("Position & rotation") },
-                                leadingIcon = { Icon(Icons.Filled.Edit, contentDescription = null) },
-                                trailingIcon = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null) },
-                                onClick = {
-                                    menuExpanded = false
-                                    modelToolsOpen = true
-                                },
-                                enabled = state.mesh != null && !state.isBusy,
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Mesh triangle limit") },
-                                leadingIcon = { Icon(Icons.Filled.Info, contentDescription = null) },
-                                trailingIcon = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null) },
-                                onClick = {
-                                    menuExpanded = false
-                                    meshLimitOpen = true
-                                },
-                                enabled = !state.isBusy,
-                            )
-
-                            HorizontalDivider()
-                            MenuSectionLabel("Configuration")
-                            DropdownMenuItem(
-                                text = { Text("Profiles & filament") },
-                                leadingIcon = { Icon(Icons.Filled.Star, contentDescription = null) },
-                                trailingIcon = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null) },
-                                onClick = {
-                                    menuExpanded = false
-                                    profilesOpen = true
-                                },
-                                enabled = !state.isBusy,
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Print settings") },
-                                leadingIcon = { Icon(Icons.Filled.Settings, contentDescription = null) },
-                                trailingIcon = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null) },
-                                onClick = {
-                                    menuExpanded = false
-                                    settingsOpen = true
-                                },
-                                enabled = !state.isBusy,
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Printer & G-code") },
-                                leadingIcon = { Icon(Icons.Filled.Build, contentDescription = null) },
-                                trailingIcon = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null) },
-                                onClick = {
-                                    menuExpanded = false
-                                    machineSettingsOpen = true
-                                },
-                                enabled = !state.isBusy,
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Export configuration snapshot") },
-                                leadingIcon = { Icon(Icons.Filled.Share, contentDescription = null) },
-                                onClick = {
-                                    menuExpanded = false
-                                    configExportPicker.launch("printer-config.json")
-                                },
-                                enabled = !state.isBusy,
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Import configuration snapshot") },
-                                leadingIcon = { Icon(Icons.Filled.Add, contentDescription = null) },
-                                onClick = {
-                                    menuExpanded = false
-                                    configImportPicker.launch(arrayOf("application/json", "*/*"))
-                                },
-                                enabled = !state.isBusy,
-                            )
-
-                            HorizontalDivider()
-                            MenuSectionLabel("Advanced")
-                            Box {
+                            DropdownMenu(
+                                expanded = importMenuExpanded,
+                                onDismissRequest = { importMenuExpanded = false },
+                                modifier = Modifier.widthIn(min = 280.dp, max = 340.dp),
+                            ) {
+                                MenuSectionLabel("Files")
                                 DropdownMenuItem(
-                                    text = { Text("Experimental tools") },
-                                    leadingIcon = { Icon(Icons.Filled.PlayArrow, contentDescription = null) },
-                                    trailingIcon = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null) },
-                                    onClick = { advancedSubmenuExpanded = true },
+                                    text = { Text("Import STL") },
+                                    leadingIcon = { Icon(Icons.Filled.Add, contentDescription = null) },
+                                    onClick = {
+                                        importMenuExpanded = false
+                                        stlPicker.launch(arrayOf("*/*"))
+                                    },
+                                    enabled = !state.isBusy,
                                 )
-                                DropdownMenu(
-                                    expanded = advancedSubmenuExpanded,
-                                    onDismissRequest = { advancedSubmenuExpanded = false },
-                                    modifier = Modifier.widthIn(min = 240.dp, max = 320.dp),
-                                ) {
-                                    MenuSectionLabel("Experimental")
-                                    DropdownMenuItem(
-                                        text = { Text("Texture model (BumpMesh)") },
-                                        leadingIcon = { Icon(Icons.Filled.Build, contentDescription = null) },
-                                        onClick = {
-                                            val mesh = state.mesh
-                                            advancedSubmenuExpanded = false
-                                            menuExpanded = false
-                                            if (mesh != null) {
-                                                scope.launch {
-                                                    runCatching {
-                                                        withContext(Dispatchers.IO) {
-                                                            val source = File(
-                                                                context.cacheDir,
-                                                                "bumpmesh-source/current-displayed.stl",
-                                                            )
-                                                            StlMeshWriter.writeBinary(mesh, source)
-                                                            source
-                                                        }
-                                                    }.onSuccess { source ->
-                                                        textureLauncher.launch(
-                                                            Intent(context, BumpMeshActivity::class.java)
-                                                                .putExtra(BumpMeshActivity.EXTRA_MODEL_PATH, source.absolutePath)
-                                                                .putExtra(BumpMeshActivity.EXTRA_MODEL_NAME, mesh.displayName),
-                                                        )
-                                                    }.onFailure { error ->
-                                                        Toast.makeText(
-                                                            context,
-                                                            error.message ?: "Unable to prepare the model for BumpMesh",
-                                                            Toast.LENGTH_LONG,
-                                                        ).show()
-                                                    }
-                                                }
-                                            }
-                                        },
-                                        enabled = state.mesh != null && !state.isBusy,
-                                    )
-                                    DropdownMenuItem(
-                                        text = {
-                                            Text(
-                                                if (nonPlanarSettings.enabled) {
-                                                    "Non Planar options · enabled"
-                                                } else {
-                                                    "Non Planar options"
-                                                },
-                                            )
-                                        },
-                                        leadingIcon = { Icon(Icons.Filled.PlayArrow, contentDescription = null) },
-                                        trailingIcon = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null) },
-                                        onClick = {
-                                            advancedSubmenuExpanded = false
-                                            menuExpanded = false
-                                            nonPlanarOpen = true
-                                        },
-                                        enabled = !state.isBusy,
-                                    )
-                                    DropdownMenuItem(
-                                        text = {
-                                            Text(
-                                                if (conicalSettings.enabled) {
-                                                    "Conical slicing options · enabled"
-                                                } else {
-                                                    "Conical slicing options"
-                                                },
-                                            )
-                                        },
-                                        leadingIcon = { Icon(Icons.Filled.PlayArrow, contentDescription = null) },
-                                        trailingIcon = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null) },
-                                        onClick = {
-                                            advancedSubmenuExpanded = false
-                                            menuExpanded = false
-                                            conicalOpen = true
-                                        },
-                                        enabled = !state.isBusy,
-                                    )
-                                    advancedMenuItems {
-                                        advancedSubmenuExpanded = false
-                                        menuExpanded = false
-                                    }
-                                }
+                                DropdownMenuItem(
+                                    text = { Text("Import Cura project (.3mf)") },
+                                    leadingIcon = { Icon(Icons.Filled.Add, contentDescription = null) },
+                                    onClick = {
+                                        importMenuExpanded = false
+                                        projectPicker.launch(
+                                            arrayOf(
+                                                "model/3mf",
+                                                "application/vnd.ms-package.3dmanufacturing-3dmodel+xml",
+                                                "*/*",
+                                            ),
+                                        )
+                                    },
+                                    enabled = !state.isBusy,
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Import Cura profile") },
+                                    leadingIcon = { Icon(Icons.Filled.Add, contentDescription = null) },
+                                    onClick = {
+                                        importMenuExpanded = false
+                                        profilePicker.launch(arrayOf("*/*"))
+                                    },
+                                    enabled = !state.isBusy,
+                                )
+                            }
+                        }
+                        Box {
+                            TopBarTextAction(
+                                label = "Plate",
+                                onClick = { plateOverflowExpanded = true },
+                            )
+                            DropdownMenu(
+                                expanded = plateOverflowExpanded,
+                                onDismissRequest = { plateOverflowExpanded = false },
+                                modifier = Modifier.widthIn(min = 280.dp, max = 340.dp),
+                            ) {
+                                MenuSectionLabel("Model")
+                                DropdownMenuItem(
+                                    text = { Text("Position & rotation") },
+                                    leadingIcon = { Icon(Icons.Filled.Edit, contentDescription = null) },
+                                    onClick = {
+                                        plateOverflowExpanded = false
+                                        modelToolsOpen = true
+                                    },
+                                    enabled = state.mesh != null && !state.isBusy,
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Mesh triangle limit") },
+                                    leadingIcon = { Icon(Icons.Filled.Info, contentDescription = null) },
+                                    onClick = {
+                                        plateOverflowExpanded = false
+                                        meshLimitOpen = true
+                                    },
+                                    enabled = !state.isBusy,
+                                )
+                                HorizontalDivider()
+                                plateOverflowItems { plateOverflowExpanded = false }
                             }
                         }
                     }
@@ -392,41 +345,143 @@ fun EnderSlicerApp(
             )
         },
         bottomBar = {
-            ActionBar(
+            Column {
+                if (selectedTab == AppTab.PLATE) {
+                    ActionBar(
+                        state = state,
+                        nonPlanarEnabled = nonPlanarSettings.enabled,
+                        conicalEnabled = conicalSettings.enabled,
+                        sliceBlockedReason = sliceBlockedReason
+                            ?: if (nonPlanarSettings.enabled && conicalSettings.enabled) {
+                                "Non-planar and conical slicing are mutually exclusive; disable one before slicing"
+                            } else {
+                                null
+                            },
+                        onSlice = viewModel::sliceModel,
+                        onExportGcode = { gcodeExportPicker.launch(GcodeExportName.suggest()) },
+                    )
+                }
+                AppTabBar(
+                    selected = selectedTab,
+                    onSelect = { selectedTab = it },
+                )
+            }
+        },
+    ) { padding ->
+        when (selectedTab) {
+            AppTab.PLATE -> BoxWithConstraints(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding),
+            ) {
+                val expandedLayout = maxWidth >= 600.dp
+                if (expandedLayout) {
+                    Row(modifier = Modifier.fillMaxSize()) {
+                        ViewerPanel(
+                            state = state,
+                            viewerMode = viewerMode,
+                            selectedLayerIndex = selectedLayerIndex,
+                            modelOrientation = modelOrientation,
+                            onOrientationChanged = { modelOrientation = it },
+                            nonPlanarEnabled = nonPlanarSettings.enabled,
+                            conicalEnabled = conicalSettings.enabled,
+                            supportPaintUiOpen = supportPaintUiOpen,
+                            onViewerMode = { viewerMode = it },
+                            onLayerSelected = { selectedLayerIndex = it },
+                            onEditLayerEvents = { layerEventsOpen = true },
+                            onPaintHit = viewModel::paintAt,
+                            onPaintMode = viewModel::setPaintMode,
+                            onCloseSupportPaintUi = {
+                                viewModel.setPaintMode(SupportPaintMode.NONE)
+                                supportPaintUiOpen = false
+                            },
+                            modifier = Modifier
+                                .weight(0.62f)
+                                .fillMaxHeight(),
+                        )
+                        SessionPanel(
+                            state = state,
+                            onOpenSettings = { selectedTab = AppTab.SETTINGS },
+                            onSettings = viewModel::updateSettings,
+                            onSlice = viewModel::sliceModel,
+                            onExportGcode = { gcodeExportPicker.launch(GcodeExportName.suggest()) },
+                            onTools = { modelToolsOpen = true },
+                            modifier = Modifier
+                                .weight(0.38f)
+                                .fillMaxHeight(),
+                        )
+                    }
+                } else {
+                    ViewerPanel(
+                        state = state,
+                        viewerMode = viewerMode,
+                        selectedLayerIndex = selectedLayerIndex,
+                        modelOrientation = modelOrientation,
+                        onOrientationChanged = { modelOrientation = it },
+                        nonPlanarEnabled = nonPlanarSettings.enabled,
+                        conicalEnabled = conicalSettings.enabled,
+                        supportPaintUiOpen = supportPaintUiOpen,
+                        onViewerMode = { viewerMode = it },
+                        onLayerSelected = { selectedLayerIndex = it },
+                        onEditLayerEvents = { layerEventsOpen = true },
+                        onPaintHit = viewModel::paintAt,
+                        onPaintMode = viewModel::setPaintMode,
+                        onCloseSupportPaintUi = {
+                            viewModel.setPaintMode(SupportPaintMode.NONE)
+                            supportPaintUiOpen = false
+                        },
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+            }
+            AppTab.SETTINGS -> CategorizedSettingsSheet(
+                state = state,
+                onSettings = viewModel::updateSettings,
+                onResetOverrides = viewModel::resetAllSettingOverrides,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding),
+            )
+            AppTab.PRINT -> Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding),
+            ) {
+                printTabContent()
+            }
+            AppTab.MORE -> if (printerScreenOpen) {
+                PrinterScreen(
+                    state = state,
+                    checklistDone = printerChecklistDone,
+                    onChecklistToggle = { id, checked ->
+                        val updated = if (checked) printerChecklistDone + id else printerChecklistDone - id
+                        printerChecklistDone = updated
+                        printerChecklistStore.save(updated)
+                    },
+                    onSettings = viewModel::updateSettings,
+                    onResetOverrides = viewModel::resetAllSettingOverrides,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(padding),
+                )
+            } else MoreScreen(
                 state = state,
                 nonPlanarEnabled = nonPlanarSettings.enabled,
                 conicalEnabled = conicalSettings.enabled,
-                sliceBlockedReason = sliceBlockedReason
-                    ?: if (nonPlanarSettings.enabled && conicalSettings.enabled) {
-                        "Non-planar and conical slicing are mutually exclusive; disable one before slicing"
-                    } else {
-                        null
-                    },
-                onSlice = viewModel::sliceModel,
-                onExportGcode = { gcodeExportPicker.launch(GcodeExportName.suggest()) },
+                onProfiles = { profilesOpen = true },
+                onMachineSettings = { printerScreenOpen = true },
+                onExportConfig = { configExportPicker.launch("printer-config.json") },
+                onImportConfig = { configImportPicker.launch(arrayOf("application/json", "*/*")) },
+                onBumpMesh = ::launchBumpMesh,
+                onNonPlanar = { nonPlanarOpen = true },
+                onConical = { conicalOpen = true },
+                onMeshLimit = { meshLimitOpen = true },
+                extraItems = moreExtraItems,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding),
             )
-        },
-    ) { padding ->
-        ViewerPanel(
-            state = state,
-            viewerMode = viewerMode,
-            selectedLayerIndex = selectedLayerIndex,
-            nonPlanarEnabled = nonPlanarSettings.enabled,
-            conicalEnabled = conicalSettings.enabled,
-            supportPaintUiOpen = supportPaintUiOpen,
-            onViewerMode = { viewerMode = it },
-            onLayerSelected = { selectedLayerIndex = it },
-            onEditLayerEvents = { layerEventsOpen = true },
-            onPaintHit = viewModel::paintAt,
-            onPaintMode = viewModel::setPaintMode,
-            onCloseSupportPaintUi = {
-                viewModel.setPaintMode(SupportPaintMode.NONE)
-                supportPaintUiOpen = false
-            },
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding),
-        )
+        }
     }
 
     if (profilesOpen) {
@@ -436,21 +491,6 @@ fun EnderSlicerApp(
             ProfileManagementSheet(
                 state = state,
                 viewModel = viewModel,
-                modifier = Modifier
-                    .fillMaxHeight(0.94f)
-                    .navigationBarsPadding(),
-            )
-        }
-    }
-
-    if (settingsOpen) {
-        AppBottomSheet(
-            onDismissRequest = { settingsOpen = false },
-        ) {
-            CategorizedSettingsSheet(
-                state = state,
-                onSettings = viewModel::updateSettings,
-                onResetOverrides = viewModel::resetAllSettingOverrides,
                 modifier = Modifier
                     .fillMaxHeight(0.94f)
                     .navigationBarsPadding(),
@@ -564,21 +604,6 @@ fun EnderSlicerApp(
         }
     }
 
-    if (machineSettingsOpen) {
-        AppBottomSheet(
-            onDismissRequest = { machineSettingsOpen = false },
-        ) {
-            MachineSettingsSheet(
-                state = state,
-                onSettings = viewModel::updateSettings,
-                onResetOverrides = viewModel::resetAllSettingOverrides,
-                modifier = Modifier
-                    .fillMaxHeight(0.94f)
-                    .navigationBarsPadding(),
-            )
-        }
-    }
-
     if (layerEventsOpen && state.layerPreview != null && state.hasCurrentGcode()) {
         val preview = requireNotNull(state.layerPreview)
         val layer = preview.layers[selectedLayerIndex.coerceIn(preview.layers.indices)]
@@ -626,6 +651,260 @@ fun EnderSlicerApp(
                     .navigationBarsPadding(),
             )
         }
+    }
+}
+
+/** Persistent bottom navigation: Plate · Settings · Print · More. */
+@Composable
+private fun AppTabBar(
+    selected: AppTab,
+    onSelect: (AppTab) -> Unit,
+) {
+    NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
+        NavigationBarItem(
+            selected = selected == AppTab.PLATE,
+            onClick = { onSelect(AppTab.PLATE) },
+            icon = { Icon(AppIcons.Plate, contentDescription = null) },
+            label = { Text("Plate") },
+            colors = NavigationBarItemDefaults.colors(
+                indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+            ),
+        )
+        NavigationBarItem(
+            selected = selected == AppTab.SETTINGS,
+            onClick = { onSelect(AppTab.SETTINGS) },
+            icon = { Icon(AppIcons.Settings, contentDescription = null) },
+            label = { Text("Settings") },
+            colors = NavigationBarItemDefaults.colors(
+                indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+            ),
+        )
+        NavigationBarItem(
+            selected = selected == AppTab.PRINT,
+            onClick = { onSelect(AppTab.PRINT) },
+            icon = { Icon(AppIcons.Print, contentDescription = null) },
+            label = { Text("Print") },
+            colors = NavigationBarItemDefaults.colors(
+                indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+            ),
+        )
+        NavigationBarItem(
+            selected = selected == AppTab.MORE,
+            onClick = { onSelect(AppTab.MORE) },
+            icon = { Icon(AppIcons.More, contentDescription = null) },
+            label = { Text("More") },
+            colors = NavigationBarItemDefaults.colors(
+                indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+            ),
+        )
+    }
+}
+
+/** More hub: grouped navigation to everything outside the plate. */
+@Composable
+private fun MoreScreen(
+    state: MainUiState,
+    nonPlanarEnabled: Boolean,
+    conicalEnabled: Boolean,
+    onProfiles: () -> Unit,
+    onMachineSettings: () -> Unit,
+    onExportConfig: () -> Unit,
+    onImportConfig: () -> Unit,
+    onBumpMesh: () -> Unit,
+    onNonPlanar: () -> Unit,
+    onConical: () -> Unit,
+    onMeshLimit: () -> Unit,
+    extraItems: @Composable () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier.verticalScroll(rememberScrollState()),
+    ) {
+        MoreSectionLabel("Configuration")
+        Card(modifier = Modifier.fillMaxWidth()) {
+            MoreRow(
+                icon = AppIcons.Star,
+                title = "Profiles & filament",
+                subtitle = "Manage profiles, materials and filaments",
+                enabled = !state.isBusy,
+                onClick = onProfiles,
+            )
+            MoreDivider()
+            MoreRow(
+                icon = AppIcons.Machine,
+                title = "Printer & G-code",
+                subtitle = "Machine profile, safety and start/end G-code",
+                enabled = !state.isBusy,
+                onClick = onMachineSettings,
+            )
+            MoreDivider()
+            MoreRow(
+                icon = AppIcons.Swap,
+                title = "Export configuration snapshot",
+                subtitle = "Save the full setup to a JSON file",
+                enabled = !state.isBusy,
+                onClick = onExportConfig,
+            )
+            MoreDivider()
+            MoreRow(
+                icon = AppIcons.Swap,
+                title = "Import configuration snapshot",
+                subtitle = "Restore a saved setup",
+                enabled = !state.isBusy,
+                onClick = onImportConfig,
+            )
+        }
+
+        MoreSectionLabel("Experimental")
+        Card(modifier = Modifier.fillMaxWidth()) {
+            MoreRow(
+                icon = AppIcons.Camera,
+                title = "BumpMesh texturizer",
+                subtitle = "Offline displacement texturing of the model",
+                enabled = state.mesh != null && !state.isBusy,
+                badge = "EXP",
+                onClick = onBumpMesh,
+            )
+            MoreDivider()
+            extraItems()
+            MoreRow(
+                icon = AppIcons.Layers,
+                title = "Non-planar slicing",
+                subtitle = if (nonPlanarEnabled) "CurviSlicer relief-field · enabled" else "CurviSlicer relief-field print",
+                enabled = !state.isBusy,
+                badge = if (nonPlanarEnabled) "ON" else "OFF",
+                onClick = onNonPlanar,
+            )
+            MoreDivider()
+            MoreRow(
+                icon = AppIcons.Bolt,
+                title = "Conical slicing",
+                subtitle = if (conicalEnabled) "Cone-warped geometry · enabled" else "Cone-warped geometry modifier",
+                enabled = !state.isBusy,
+                badge = if (conicalEnabled) "ON" else "OFF",
+                onClick = onConical,
+            )
+            MoreDivider()
+            MoreRow(
+                icon = AppIcons.Filter,
+                title = "Mesh triangle limit",
+                subtitle = "Max triangles for viewer and texturizer",
+                enabled = !state.isBusy,
+                onClick = onMeshLimit,
+            )
+        }
+
+        MoreSectionLabel("About")
+        Card(modifier = Modifier.fillMaxWidth()) {
+            MoreRow(
+                icon = AppIcons.Info,
+                title = "EnderSlicerCura",
+                subtitle = "Version 1.0.0 · AGPL-3.0-or-later",
+                onClick = {},
+            )
+            MoreDivider()
+            MoreRow(
+                icon = AppIcons.Shield,
+                title = "Safety notes",
+                subtitle = "Inspect every model, setting and generated G-code before printing",
+                onClick = {},
+            )
+        }
+        Spacer(modifier = Modifier.height(12.dp))
+    }
+}
+
+@Composable
+private fun MoreSectionLabel(label: String) {
+    Text(
+        text = label.uppercase(),
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 7.dp),
+    )
+}
+
+@Composable
+private fun MoreDivider() {
+    HorizontalDivider(
+        modifier = Modifier.padding(horizontal = 14.dp),
+        color = MaterialTheme.colorScheme.outlineVariant,
+    )
+}
+
+/** Standard row for the More hub. Also used by integrations (Smart Infill). */
+@Composable
+internal fun MoreRow(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    enabled: Boolean = true,
+    badge: String? = null,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Surface(
+            shape = MaterialTheme.shapes.small,
+            color = MaterialTheme.colorScheme.surfaceVariant,
+            modifier = Modifier.size(38.dp),
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    icon,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(19.dp),
+                )
+            }
+        }
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(1.dp),
+        ) {
+            Text(
+                title,
+                style = MaterialTheme.typography.bodyLarge,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        if (badge != null) {
+            Surface(
+                color = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                shape = MaterialTheme.shapes.extraSmall,
+                modifier = Modifier.height(20.dp),
+            ) {
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier.padding(horizontal = 6.dp),
+                ) {
+                    Text(badge, style = MaterialTheme.typography.labelSmall)
+                }
+            }
+        }
+        Icon(
+            Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.outline,
+            modifier = Modifier.size(20.dp),
+        )
     }
 }
 
@@ -678,6 +957,8 @@ private fun ViewerPanel(
     state: MainUiState,
     viewerMode: ViewerMode,
     selectedLayerIndex: Int,
+    modelOrientation: ViewerOrientation?,
+    onOrientationChanged: (ViewerOrientation) -> Unit,
     nonPlanarEnabled: Boolean,
     conicalEnabled: Boolean,
     supportPaintUiOpen: Boolean,
@@ -691,7 +972,6 @@ private fun ViewerPanel(
 ) {
     val effectivePrinter = state.printer.withSettings(state.settings)
     val gcodeAvailable = state.hasCurrentGcode()
-    var modelOrientation by remember(effectivePrinter) { mutableStateOf<ViewerOrientation?>(null) }
     var modelHintsDismissed by rememberSaveable { mutableStateOf(false) }
     Box(modifier = modifier) {
         val preview = state.layerPreview.takeIf { gcodeAvailable }
@@ -714,7 +994,12 @@ private fun ViewerPanel(
             else -> key(effectivePrinter) {
                 var modelView by remember(effectivePrinter) { mutableStateOf<ModelSurfaceView?>(null) }
                 LaunchedEffect(modelView) {
-                    modelView?.let { modelOrientation = it.currentOrientation() }
+                    modelView?.let { view ->
+                        // A recreated surface view starts at the default camera;
+                        // restore the last orbit when returning to the Plate tab.
+                        modelOrientation?.let { view.restoreOrientation(it) }
+                        onOrientationChanged(view.currentOrientation())
+                    }
                 }
                 val lifecycleOwner = LocalLifecycleOwner.current
                 DisposableEffect(lifecycleOwner, modelView) {
@@ -752,7 +1037,7 @@ private fun ViewerPanel(
                         view.paintMode = state.paintMode
                         view.setPaintState(state.supportPaint)
                         view.onPaintHit = onPaintHit
-                        view.onOrientationChanged = { modelOrientation = it }
+                        view.onOrientationChanged = onOrientationChanged
                     },
                 )
             }
@@ -811,7 +1096,7 @@ private fun ViewerPanel(
                 }
                 val mesh = state.mesh
                 if (mesh == null) {
-                    Text("Import an STL from Menu", style = MaterialTheme.typography.bodySmall)
+                    Text("Import an STL from the Import button", style = MaterialTheme.typography.bodySmall)
                 } else {
                     HorizontalDivider()
                     SummaryRow("Model", mesh.displayName)
@@ -915,6 +1200,180 @@ private fun ViewerPanel(
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+/**
+ * Right-hand session pane for the expanded (unfolded foldable / large
+ * screen) Plate layout: print summary, quick settings and actions next to
+ * the viewer instead of below it. See docs/ux-redesign/mockups/08-foldable.png.
+ */
+@Composable
+private fun SessionPanel(
+    state: MainUiState,
+    onOpenSettings: () -> Unit,
+    onSettings: (String, (SlicerSettings) -> SlicerSettings) -> Unit,
+    onSlice: () -> Unit,
+    onExportGcode: () -> Unit,
+    onTools: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val gcodeAvailable = state.hasCurrentGcode()
+    val settings = state.settings
+    Column(
+        modifier = modifier
+            .verticalScroll(rememberScrollState())
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text("Print session", style = MaterialTheme.typography.titleMedium)
+                    if (gcodeAvailable) {
+                        SessionChip("Ready", MaterialTheme.colorScheme.primary)
+                    } else {
+                        SessionChip("Not sliced", MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    state.layerPreview?.let { preview ->
+                        SessionChip(preview.layers.size.toString() + " layers")
+                    }
+                    state.estimatedPrintSeconds?.takeIf { gcodeAvailable }?.let { seconds ->
+                        SessionChip(formatPrintTime(seconds))
+                    }
+                    state.warnings.takeIf { it.isNotEmpty() }?.let { warnings ->
+                        SessionChip(warnings.size.toString() + " warnings", MaterialTheme.colorScheme.error)
+                    }
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    SessionStat("Layer", "%.2f".format(settings.layerHeightMm), "mm", Modifier.weight(1f))
+                    SessionStat("Infill", "%.0f%%".format(settings.infillDensityPercent), "grid", Modifier.weight(1f))
+                    SessionStat(
+                        "Supports",
+                        if (settings.supportsEnabled) "ON" else "OFF",
+                        settings.supportPlacement,
+                        Modifier.weight(1f),
+                    )
+                }
+            }
+        }
+
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text("Quick settings", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "Tap a value to edit it in the Settings tab",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                QuickSettingRow("Layer height", "%.2f".format(settings.layerHeightMm), "mm", onOpenSettings)
+                QuickSettingRow("Infill density", "%.0f%%".format(settings.infillDensityPercent), "grid", onOpenSettings)
+                QuickSettingRow("Adhesion", settings.adhesionType, "", onOpenSettings)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text("Supports", style = MaterialTheme.typography.bodyLarge)
+                    Switch(
+                        checked = settings.supportsEnabled,
+                        onCheckedChange = { checked ->
+                            onSettings(SlicerSettings.Keys.SUPPORTS_ENABLED) { current ->
+                                current.copy(supportsEnabled = checked)
+                            }
+                        },
+                    )
+                }
+            }
+        }
+
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Actions", style = MaterialTheme.typography.titleMedium)
+                Button(
+                    onClick = onSlice,
+                    enabled = state.engineAvailable && state.modelPath != null && !state.isBusy,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(if (gcodeAvailable) "Slice again" else "Slice")
+                }
+                OutlinedButton(
+                    onClick = onExportGcode,
+                    enabled = gcodeAvailable && !state.isBusy,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Export G-code")
+                }
+                OutlinedButton(
+                    onClick = onTools,
+                    enabled = state.mesh != null && !state.isBusy,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Model tools")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SessionChip(text: String, color: androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.onSurfaceVariant) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        contentColor = color,
+        shape = MaterialTheme.shapes.extraSmall,
+    ) {
+        Text(
+            text,
+            style = MaterialTheme.typography.labelSmall,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+        )
+    }
+}
+
+@Composable
+private fun SessionStat(label: String, value: String, sub: String, modifier: Modifier = Modifier) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        shape = MaterialTheme.shapes.small,
+        modifier = modifier,
+    ) {
+        Column(modifier = Modifier.padding(10.dp)) {
+            Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(value, style = MaterialTheme.typography.titleSmall)
+            if (sub.isNotEmpty()) {
+                Text(sub, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+}
+
+@Composable
+private fun QuickSettingRow(label: String, value: String, unit: String, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(label, style = MaterialTheme.typography.bodyLarge)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(value, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (unit.isNotEmpty()) {
+                Text(unit, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }

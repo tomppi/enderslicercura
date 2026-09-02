@@ -32,8 +32,13 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.tomppi.enderslicer.model.SlicerSettings
 
+/**
+ * Machine-profile content (identity, build volume, extruder, G-code).
+ * Used by the full-screen Printer destination; it does not scroll itself -
+ * the caller owns the scroll container.
+ */
 @Composable
-internal fun MachineSettingsSheet(
+internal fun MachineSettingsContent(
     state: MainUiState,
     onSettings: (String, (SlicerSettings) -> SlicerSettings) -> Unit,
     onResetOverrides: () -> Unit,
@@ -43,11 +48,9 @@ internal fun MachineSettingsSheet(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .verticalScroll(rememberScrollState())
             .padding(horizontal = 18.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("Printer & G-code", style = MaterialTheme.typography.headlineSmall)
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text("Machine profile", style = MaterialTheme.typography.titleMedium)
@@ -229,7 +232,7 @@ private fun Section(title: String, content: @Composable Column.() -> Unit) {
 }
 
 @Composable
-private fun StringField(
+internal fun StringField(
     label: String,
     value: String,
     source: String,

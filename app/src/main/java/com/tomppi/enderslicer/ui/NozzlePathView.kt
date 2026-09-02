@@ -51,6 +51,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.tomppi.enderslicer.engine.GcodeNozzlePath
 import com.tomppi.enderslicer.engine.GcodeNozzlePathParser
 import com.tomppi.enderslicer.viewer.NozzlePathSurfaceView
+import com.tomppi.enderslicer.viewer.resolveBeadWidthMm
 import com.tomppi.enderslicer.viewer.ViewerOrientation
 import com.tomppi.enderslicer.viewer.ViewerOrientationMath
 import java.io.File
@@ -61,6 +62,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.runInterruptible
 import kotlin.math.max
 import kotlin.math.roundToInt
+import kotlin.math.sqrt
 
 private const val PLAYBACK_TICK_MS = 16L
 private const val PLAYBACK_TOTAL_MS = 60_000L
@@ -161,6 +163,36 @@ private fun HoldRepeatButton(
     }
 }
 
+/**
+ * Resolves the displayed bead width for a move the same way the renderer
+ * does, so the inspector readout and the 3D geometry always agree: width =
+ * deltaE x filament area / length / layer height, clamped to the settings
+ * line width; micro segments collapse to zero.
+ */
+private fun moveBeadWidthMm(
+    path: GcodeNozzlePath,
+    moveIndex: Int,
+    beadHeightMm: Double,
+    beadLineWidthMm: Double,
+    filamentDiameterMm: Double,
+): Double {
+    val offset = moveIndex * GcodeNozzlePath.VALUES_PER_MOVE
+    val moves = path.moves
+    val dx = moves[offset + GcodeNozzlePath.X2] - moves[offset + GcodeNozzlePath.X1]
+    val dy = moves[offset + GcodeNozzlePath.Y2] - moves[offset + GcodeNozzlePath.Y1]
+    val length = sqrt(dx * dx + dy * dy).toDouble()
+    val radius = filamentDiameterMm / 2.0
+    val area = (Math.PI * radius * radius).toFloat()
+    return resolveBeadWidthMm(
+        lengthMm = length.toFloat(),
+        deltaE = moves[offset + GcodeNozzlePath.DELTA_E],
+        parsedLayerHeight = moves[offset + GcodeNozzlePath.LAYER_HEIGHT],
+        layerHeightFallback = beadHeightMm.toFloat(),
+        lineWidth = beadLineWidthMm.toFloat(),
+        filamentArea = area,
+    ).toDouble()
+}
+
 @Composable
 private fun NozzlePathPlayer(
     path: GcodeNozzlePath,
@@ -178,6 +210,8 @@ private fun NozzlePathPlayer(
     var orientation by remember(artifactKey) { mutableStateOf<ViewerOrientation?>(null) }
     var showTravels by rememberSaveable(artifactKey) { mutableStateOf(true) }
     var colorBySpeed by rememberSaveable(artifactKey) { mutableStateOf(false) }
+    var orthographic by rememberSaveable(artifactKey) { mutableStateOf(false) }
+    var zoomLevel by remember(artifactKey) { mutableStateOf(1f) }
 
     LaunchedEffect(surfaceView) {
         surfaceView?.let { orientation = it.currentOrientation() }
@@ -251,8 +285,14 @@ private fun NozzlePathPlayer(
                             filamentDiameterMm.toFloat(),
                         )
                         view.onOrientationChanged = { orientation = it }
+                        view.onZoomChanged = { zoomLevel = it }
+                        view.onMovePicked = { picked ->
+                            playing = false
+                            moveIndex = picked.coerceIn(0, path.moveCount - 1)
+                        }
                         view.showTravels = showTravels
                         view.colorBySpeed = colorBySpeed
+                        view.orthographic = orthographic
                     },
                     onRelease = { view ->
                         view.onPause()
@@ -334,7 +374,12 @@ private fun NozzlePathPlayer(
                             onClick = { surfaceView?.resetView() },
                             modifier = Modifier.height(32.dp),
                             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-                        ) { Text("Reset", style = MaterialTheme.typography.labelMedium) }
+                        ) { Text("Fit", style = MaterialTheme.typography.labelMedium) }
+                        OutlinedButton(
+                            onClick = { orthographic = !orthographic },
+                            modifier = Modifier.height(32.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                        ) { Text(if (orthographic) "Persp" else "Ortho", style = MaterialTheme.typography.labelMedium) }
                     }
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -355,9 +400,23 @@ private fun NozzlePathPlayer(
                         )
                         Spacer(modifier = Modifier.weight(1f))
                         Text(
-                            "$moveLabel · Z %.3f mm · %.1f mm/s".format(
+                            "%.1f×".format(zoomLevel),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        val bead = moveBeadWidthMm(path, safeIndex, beadHeightMm, beadLineWidthMm, filamentDiameterMm)
+                        val flow = bead / beadLineWidthMm
+                        Text(
+                            moveLabel + " · Z %.3f mm · %.1f mm/s · w %.2f mm · flow %.0f%%".format(
                                 path.moves[offset + GcodeNozzlePath.Z2],
                                 path.moves[offset + GcodeNozzlePath.SPEED],
+                                bead,
+                                flow * 100.0,
                             ),
                             style = MaterialTheme.typography.labelSmall,
                             maxLines = 1,

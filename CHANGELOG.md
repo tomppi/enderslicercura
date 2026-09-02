@@ -8,6 +8,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Removed
 
+
 - Bead-angle overhangs, wall-anchored infill and bead-chain overhangs were
   removed from the engine, the app and the settings UI; masonry-bonded walls
   remain (their generator keeps its home in BeadAngleOverhang for that).
@@ -15,6 +16,31 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   keys ignore them.
 
 ### Added
+
+- Printer & onboarding (P5) and foldable layout (P6): More > Printer is now
+  a full-screen destination with back navigation, a persistent safety
+  checklist (build volume, nozzle, hotend limit, G-code, remote printing;
+  PrinterChecklistStore) above the machine profile; a one-shot skippable
+  first-run onboarding sets the machine values before the first slice; the
+  Plate tab splits into viewer + session pane (summary chips, quick settings,
+  actions) at 600 dp+ widths, e.g. on an unfolded foldable.
+- Nozzle-path renderer and camera overhaul: beads shade per face with
+  analytic normals under a fixed three-light rig (key + fill + rim) plus
+  per-vertex ambient occlusion at the bead base, so the path reads as a solid
+  printed part from every orbit angle without the zoomed-out moire that
+  interpolated normals caused; 4x/2x multisampled EGL config with fallback;
+  an orthographic true-width camera mode, zoom level reporting, an explicit
+  Fit control, tap-to-inspect move picking, and a shared bead-width resolver
+  (renderer and inspector readout use the same flow math, now unit-tested in
+  NozzlePathBeadWidthTest).
+- UI/UX overhaul (round 1): pinned brand theme (amber engineering-cockpit
+  palette, light+dark) replacing wallpaper dynamic colors; persistent bottom
+  navigation with four destinations (Plate / Settings / Print / More) replacing
+  the menu-driven single screen; Print settings and OctoPrint moved from modal
+  sheets to full-screen tabs; new More hub grouping profiles, printer,
+  configuration snapshots and experimental tools; the model-viewer turntable
+  orbit is restored when the Plate surface view is recreated (see
+  docs/ui-style-guide.md and docs/ux-redesign/DESIGN_PROPOSAL.md).
 
 - Support painting now combines with both non-planar pipelines: painted
   enforcer/blocker prisms are warped with the same transform as the model

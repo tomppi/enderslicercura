@@ -11,12 +11,14 @@ import com.tomppi.enderslicer.engine.GcodeNozzlePath
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer
+import javax.microedition.khronos.egl.EGL10
 import javax.microedition.khronos.egl.EGLConfig
+import javax.microedition.khronos.egl.EGLDisplay
 import javax.microedition.khronos.opengles.GL10
 import kotlin.math.floor
-import kotlin.math.roundToInt
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.roundToInt
 import kotlin.math.sqrt
 import kotlin.math.tan
 
@@ -31,6 +33,86 @@ internal fun extrusionHue(zRatio: Float, speedRatio: Float, colorBySpeed: Boolea
     return if (colorBySpeed) 200f - 180f * clampedSpeed else 240f - 240f * clampedZ
 }
 
+/** Micro-segments (sub-0.05 mm) emit with zero width. */
+internal const val RIBBON_MIN_SEGMENT_MM = 0.05f
+
+/**
+ * Resolves the physical bead width for one extrusion move, shared by the
+ * renderer (geometry) and the UI (inspector readout) so they can never
+ * disagree: width = deltaE x filament area / length / layer height, clamped
+ * to [lineWidth] x [0.4, 4.0]; sub-0.05 mm segments collapse to zero width
+ * so micro-segments do not render as dark specks.
+ */
+internal fun resolveBeadWidthMm(
+    lengthMm: Float,
+    deltaE: Float,
+    parsedLayerHeight: Float,
+    layerHeightFallback: Float,
+    lineWidth: Float,
+    filamentArea: Float,
+): Float {
+    val height = if (parsedLayerHeight > 0.02f && parsedLayerHeight <= 2.0f) {
+        parsedLayerHeight
+    } else {
+        layerHeightFallback
+    }
+    val rawWidth = if (lengthMm > 1e-4f && deltaE > 0f) {
+        val crossArea = deltaE * filamentArea / lengthMm
+        crossArea / height
+    } else {
+        lineWidth
+    }
+    return if (lengthMm < RIBBON_MIN_SEGMENT_MM) 0f else {
+        rawWidth.coerceIn(lineWidth * 0.4f, lineWidth * 4f)
+    }
+}
+
+/**
+ * EGL config chooser that prefers multisampled buffers (4x, then 2x) and
+ * falls back to the plain config, so bead silhouettes stay crisp instead of
+ * aliased without breaking devices that have no MSAA support.
+ */
+private class SampleConfigChooser : GLSurfaceView.EGLConfigChooser {
+    override fun chooseConfig(egl: EGL10, display: EGLDisplay): EGLConfig {
+        val samplesToTry = intArrayOf(4, 2)
+        for (samples in samplesToTry) {
+            val attrib = intArrayOf(
+                EGL10.EGL_RED_SIZE, 8,
+                EGL10.EGL_GREEN_SIZE, 8,
+                EGL10.EGL_BLUE_SIZE, 8,
+                EGL10.EGL_ALPHA_SIZE, 8,
+                EGL10.EGL_DEPTH_SIZE, 16,
+                EGL10.EGL_STENCIL_SIZE, 0,
+                EGL10.EGL_SAMPLE_BUFFERS, 1,
+                EGL10.EGL_SAMPLES, samples,
+                EGL10.EGL_NONE,
+            )
+            val config = choose(egl, display, attrib)
+            if (config != null) return config
+        }
+        val fallback = intArrayOf(
+            EGL10.EGL_RED_SIZE, 8,
+            EGL10.EGL_GREEN_SIZE, 8,
+            EGL10.EGL_BLUE_SIZE, 8,
+            EGL10.EGL_ALPHA_SIZE, 8,
+            EGL10.EGL_DEPTH_SIZE, 16,
+            EGL10.EGL_STENCIL_SIZE, 0,
+            EGL10.EGL_NONE,
+        )
+        return choose(egl, display, fallback)
+            ?: error("No usable EGL config for the nozzle-path renderer")
+    }
+
+    private fun choose(egl: EGL10, display: EGLDisplay, attrib: IntArray): EGLConfig? {
+        val configs = arrayOfNulls<EGLConfig>(1)
+        val count = IntArray(1)
+        if (egl.eglChooseConfig(display, attrib, configs, 1, count) && count[0] >= 1) {
+            return configs[0]
+        }
+        return null
+    }
+}
+
 class NozzlePathSurfaceView(context: Context) : GLSurfaceView(context) {
     private val pathRenderer = NozzlePathRenderer()
     private val scaleDetector = ScaleGestureDetector(context, ScaleListener())
@@ -43,6 +125,7 @@ class NozzlePathSurfaceView(context: Context) : GLSurfaceView(context) {
 
     init {
         setEGLContextClientVersion(2)
+        setEGLConfigChooser(SampleConfigChooser())
         preserveEGLContextOnPause = true
         setRenderer(pathRenderer)
         renderMode = RENDERMODE_WHEN_DIRTY
@@ -83,14 +166,39 @@ class NozzlePathSurfaceView(context: Context) : GLSurfaceView(context) {
             requestRender()
         }
 
+    /**
+     * Orthographic (true-width) camera for measuring the path; perspective is
+     * the default for context. The orbit pivot, pan and fit are identical.
+     */
+    var orthographic: Boolean = false
+        set(value) {
+            if (field == value) return
+            field = value
+            queueEvent { pathRenderer.orthographic = value }
+            requestRender()
+        }
+
     /** Invoked on the main thread whenever the turntable yaw/pitch changes. */
     var onOrientationChanged: ((ViewerOrientation) -> Unit)? = null
 
+    /** Invoked on the main thread with the current zoom multiplier. */
+    var onZoomChanged: ((Float) -> Unit)? = null
+
+    /** Invoked on the main thread when the user taps a move to inspect it. */
+    var onMovePicked: ((Int) -> Unit)? = null
+
     fun currentOrientation(): ViewerOrientation = pathRenderer.orientation
+
+    fun currentZoom(): Float = pathRenderer.zoomLevel
 
     private fun notifyOrientation() {
         val listener = onOrientationChanged ?: return
         post { listener(pathRenderer.orientation) }
+    }
+
+    private fun notifyZoom() {
+        val listener = onZoomChanged ?: return
+        post { listener(pathRenderer.zoomLevel) }
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
@@ -159,6 +267,7 @@ class NozzlePathSurfaceView(context: Context) : GLSurfaceView(context) {
     private inner class ScaleListener : ScaleGestureDetector.SimpleOnScaleGestureListener() {
         override fun onScale(detector: ScaleGestureDetector): Boolean {
             pathRenderer.zoom(detector.scaleFactor)
+            notifyZoom()
             requestRender()
             return true
         }
@@ -167,9 +276,18 @@ class NozzlePathSurfaceView(context: Context) : GLSurfaceView(context) {
     private inner class GestureListener : GestureDetector.SimpleOnGestureListener() {
         override fun onDown(event: MotionEvent): Boolean = true
 
+        override fun onSingleTapConfirmed(event: MotionEvent): Boolean {
+            queueEvent {
+                val index = pathRenderer.pickNearestMove(event.x, event.y)
+                if (index >= 0) post { onMovePicked?.invoke(index) }
+            }
+            return true
+        }
+
         override fun onDoubleTap(event: MotionEvent): Boolean {
             pathRenderer.resetCamera()
             notifyOrientation()
+            notifyZoom()
             requestRender()
             return true
         }
@@ -179,6 +297,7 @@ class NozzlePathSurfaceView(context: Context) : GLSurfaceView(context) {
     fun resetView() {
         queueEvent { pathRenderer.resetCamera() }
         queueEvent { notifyOrientation() }
+        queueEvent { notifyZoom() }
         requestRender()
     }
 }
@@ -187,7 +306,9 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
     private var path: GcodeNozzlePath? = null
     private var selectedMoveIndex = 0
     private var ribbonPositions: FloatBuffer? = null
+    private var ribbonNormals: FloatBuffer? = null
     private var ribbonColors: FloatBuffer? = null
+    private var ribbonAmbient: FloatBuffer? = null
     private var travelPositions: FloatBuffer? = null
     private var travelColors: FloatBuffer? = null
     // Physical bead parameters from the current slice settings (fallbacks
@@ -200,6 +321,7 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
     private var travelPrefix = IntArray(1)
     @Volatile private var showTravels = true
     @Volatile private var colorBySpeed = false
+    @Volatile var orthographic = false
     private var gridPositions: FloatBuffer? = null
     private var gridVertexCount = 0
     private var markerPositions: FloatBuffer? = null
@@ -207,6 +329,7 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
     private var markerGlowPositions: FloatBuffer? = null
     private var markerGlowVertexCount = 0
 
+    private var litProgram = 0
     private var colorProgram = 0
     private var solidProgram = 0
     private var maxLineWidth = 1f
@@ -232,6 +355,9 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
     private val scene = FloatArray(16)
     private val modelView = FloatArray(16)
     private val mvp = FloatArray(16)
+    // Scratch for projection during picking.
+    private val pickIn = FloatArray(4)
+    private val pickOut = FloatArray(4)
 
     fun setPath(
         value: GcodeNozzlePath,
@@ -275,6 +401,9 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
     val orientation: ViewerOrientation
         get() = ViewerOrientation(yaw, pitch)
 
+    val zoomLevel: Float
+        get() = zoom
+
     fun rotate(deltaYaw: Float, deltaPitch: Float) {
         yaw = wrapDegrees(yaw + deltaYaw)
         pitch = wrapDegrees(pitch + deltaPitch)
@@ -309,6 +438,8 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         GLES20.glDisable(GLES20.GL_CULL_FACE)
         GLES20.glEnable(GLES20.GL_BLEND)
         GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA)
+        GLES20.glEnable(GL_MULTISAMPLE)
+        litProgram = createProgram(LIT_VERTEX_SHADER, LIT_FRAGMENT_SHADER)
         colorProgram = createProgram(COLOR_VERTEX_SHADER, COLOR_FRAGMENT_SHADER)
         solidProgram = createProgram(SOLID_VERTEX_SHADER, SOLID_FRAGMENT_SHADER)
         maxLineWidth = queryMaxLineWidth()
@@ -330,16 +461,21 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         GLES20.glViewport(0, 0, viewportWidth, viewportHeight)
     }
 
-    override fun onDrawFrame(gl: GL10?) {
-        GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
-        val current = path ?: return
+    private fun computeCamera(aspect: Float): Float {
         val distance = cameraDistance()
-        val aspect = viewportWidth.toFloat() / viewportHeight
-        val radius = sceneRadius(current)
-        val nearPlane = max(0.1f, distance - radius * 1.6f)
+        val radius = sceneRadius(requireNotNull(path))
+        val nearPlane = max(0.05f, distance - radius * 1.6f)
         val farPlane = max(nearPlane + 100f, distance + radius * 2.8f + 100f)
-
-        Matrix.perspectiveM(projection, 0, FIELD_OF_VIEW, aspect, nearPlane, farPlane)
+        if (orthographic) {
+            // True-width measurement mode: the projection is orthographic so
+            // bead widths on screen match the physical path regardless of
+            // perspective foreshortening.
+            val halfHeight = distance * tan(Math.toRadians((FIELD_OF_VIEW / 2.0f).toDouble())).toFloat()
+            val halfWidth = halfHeight * aspect
+            Matrix.orthoM(projection, 0, -halfWidth, halfWidth, -halfHeight, halfHeight, nearPlane, farPlane)
+        } else {
+            Matrix.perspectiveM(projection, 0, FIELD_OF_VIEW, aspect, nearPlane, farPlane)
+        }
         Matrix.setLookAtM(view, 0, 0f, -distance, distance * 0.62f, 0f, 0f, 0f, 0f, 0f, 1f)
         Matrix.translateM(view, 0, panX, panY, 0f)
         // Turntable around the printed-part centre, exactly like the model
@@ -355,16 +491,27 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         )
         Matrix.multiplyMM(modelView, 0, view, 0, scene, 0)
         Matrix.multiplyMM(mvp, 0, projection, 0, modelView, 0)
+        return distance
+    }
 
-        drawSolidLines(gridPositions, gridVertexCount, 1f, 0.24f, 0.30f, 0.40f, 0.48f)
+    override fun onDrawFrame(gl: GL10?) {
+        GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
+        val current = path ?: return
+        val aspect = viewportWidth.toFloat() / viewportHeight
+        computeCamera(aspect)
         val upTo = (selectedMoveIndex + 1).coerceAtMost(extrusionPrefix.size - 1)
         val ribbonMoveCount = extrusionPrefix[upTo]
-        // Physical beads in one colored pass: the top surface plus side walls
-        // shaded by a fixed directional light (hue matches the top, so angled
-        // joints blend into continuous facets).
-        drawColoredTriangles(
+
+        drawSolidLines(gridPositions, gridVertexCount, 1f, 0.24f, 0.30f, 0.40f, 0.48f)
+        // Physical beads in one lit pass: per-face analytic normals with a
+        // fixed 3-light rig (key + fill + rim) so the bead facets read as a
+        // solid printed part from every orbit angle without the zoomed-out
+        // moire that interpolated normals caused.
+        drawLitTriangles(
             ribbonPositions,
+            ribbonNormals,
             ribbonColors,
+            ribbonAmbient,
             ribbonMoveCount * RIBBON_VERTICES_PER_MOVE,
         )
         if (showTravels) {
@@ -374,11 +521,13 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         drawSolidLines(markerPositions, markerVertexCount, 4.5f, 1f, 1f, 1f, 1f)
     }
 
-    private fun buildPathBuffers(value: GcodeNozzlePath) {
+        private fun buildPathBuffers(value: GcodeNozzlePath) {
         val source = value.moves
         val stride = max(1, (value.extrusionMoveCount + RIBBON_MAX_MOVES - 1) / RIBBON_MAX_MOVES)
         val ribbonVertex = ArrayList<Float>((value.moveCount / stride) * 54)
+        val ribbonNormal = ArrayList<Float>((value.moveCount / stride) * 54)
         val ribbonColor = ArrayList<Float>((value.moveCount / stride) * 72)
+        val ribbonAmbientValues = ArrayList<Float>((value.moveCount / stride) * 18)
         val travelVertex = ArrayList<Float>((value.moveCount / stride) * 8)
         val travelColor = ArrayList<Float>((value.moveCount / stride) * 8)
         // Full-range extrusion points for the camera fit (percentile-trimmed
@@ -429,7 +578,7 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
                 } else floatArrayOf(0.50f, 0.54f, 0.64f, 0.20f)
                 if (extrusion) {
                     addRibbonMove(
-                        ribbonVertex, ribbonColor,
+                        ribbonVertex, ribbonNormal, ribbonColor, ribbonAmbientValues,
                         sx, sy, sz, ex, ey, ez,
                         source[offset + GcodeNozzlePath.DELTA_E],
                         source[offset + GcodeNozzlePath.LAYER_HEIGHT],
@@ -446,7 +595,9 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
             offset += GcodeNozzlePath.VALUES_PER_MOVE
         }
         ribbonPositions = bufferOf(ribbonVertex)
+        ribbonNormals = bufferOf(ribbonNormal)
         ribbonColors = bufferOf(ribbonColor)
+        ribbonAmbient = bufferOf(ribbonAmbientValues)
         travelPositions = bufferOf(travelVertex)
         travelColors = bufferOf(travelColor)
 
@@ -470,10 +621,19 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
      * The width comes from the actual flow (deltaE * filament area / length /
      * layer height) bounded by the settings line width, so the geometry follows
      * the sliced settings (layer height, line width, flow).
+     *
+     * Lighting: each face carries ONE analytic normal (top = +Z, sides = the
+     * perpendicular of the move direction). Constant normals per face mean a
+     * constant luminance per facet - no interpolated gradients, so the render
+     * stays crisp at every zoom and cannot produce corduroy moire. The
+     * [ambient] channel carries the occlusion term: side faces get darker
+     * toward the base (contact shadow) and odd layers keep the parity tint.
      */
     private fun addRibbonMove(
         vertex: ArrayList<Float>,
+        normals: ArrayList<Float>,
         colors: ArrayList<Float>,
+        ambient: ArrayList<Float>,
         sx: Float, sy: Float, sz: Float,
         ex: Float, ey: Float, ez: Float,
         deltaE: Float,
@@ -483,67 +643,75 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         val dx = ex - sx
         val dy = ey - sy
         val length = sqrt(dx * dx + dy * dy)
+        val width = resolveBeadWidthMm(
+            lengthMm = length,
+            deltaE = deltaE,
+            parsedLayerHeight = parsedLayerHeight,
+            layerHeightFallback = beadHeight,
+            lineWidth = beadLineWidth,
+            filamentArea = filamentArea,
+        )
         val height = if (parsedLayerHeight > 0.02f && parsedLayerHeight <= 2.0f) parsedLayerHeight else beadHeight
-        val rawWidth = if (length > 1e-4f && deltaE > 0f) {
-            val crossArea = deltaE * filamentArea / length
-            crossArea / height
-        } else {
-            beadLineWidth
-        }
-        // Micro-segments (sub-0.05 mm bits on curves and joints) emit with
-        // zero width: their side walls otherwise render as tiny dark specks
-        // scattered across the surface at every zoom level.
-        val width = if (length < RIBBON_MIN_SEGMENT_MM) 0f else {
-            rawWidth.coerceIn(beadLineWidth * 0.4f, beadLineWidth * 4f)
-        }
         val half = width * 0.5f
         val px = if (length > 1e-4f) -dy / length * half else 0f
         val py = if (length > 1e-4f) dx / length * half else 0f
+        // Unit perpendicular of the move direction (outward right face).
+        val ux = if (length > 1e-4f) -dy / length else 1f
+        val uy = if (length > 1e-4f) dx / length else 0f
         // Subtle per-layer tint: odd layers are a touch darker so stacked
         // beads read as separate layers (the hue still follows speed/z).
         val level = if (height > 0f) (ez / height).roundToInt() else 0
         val parity = if (level and 1 == 0) 1f else RIBBON_LAYER_TINT
-        // Side walls use a flat, barely-darker tint of the bead colour.
-        // Directional (lambert) variation makes grooves and chevrons between
-        // bead rows crawl when zoomed out; a constant factor keeps the row
-        // structure readable at every zoom without the moire effect. The
-        // per-layer parity tint still separates stacked layers.
-        fun emitColor(factor: Float) {
-            colors += color[0] * factor
-            colors += color[1] * factor
-            colors += color[2] * factor
-            colors += color[3]
-        }
         // Quad corners: a/b on the start segment, c/d on the end segment,
         // left face = a->d, right face = b->c (top face at + height).
         val ax = sx - px; val ay = sy - py
         val bx = sx + px; val by = sy + py
         val cx = ex + px; val cy = ey + py
         val dxd = ex - px; val dyd = ey - py
-        // Top face (z + height), two triangles.
+        fun emit(amb: Float) {
+            ambient += amb
+        }
+
+        // --- Top face (z + height), two triangles; normal +Z.
         vertex += ax; vertex += ay; vertex += sz + height
         vertex += bx; vertex += by; vertex += sz + height
         vertex += cx; vertex += cy; vertex += ez + height
         vertex += ax; vertex += ay; vertex += sz + height
         vertex += cx; vertex += cy; vertex += ez + height
         vertex += dxd; vertex += dyd; vertex += ez + height
-        repeat(6) { emitColor(parity) }
-        // Left side face (shaded by its outward normal): a(z) -> d(z) -> d(top).
+        repeat(6) { normals += 0f; normals += 0f; normals += 1f }
+        repeat(6) { color.forEach(colors::add) }
+        repeat(6) { emit(parity * TOP_AMBIENT) }
+
+        // --- Left side face (normal -u): base corners get contact occlusion.
+        val leftBottomAmbient = parity * SIDE_BASE_AMBIENT
+        val leftTopAmbient = parity * SIDE_TOP_AMBIENT
         vertex += ax; vertex += ay; vertex += sz
         vertex += dxd; vertex += dyd; vertex += ez
         vertex += dxd; vertex += dyd; vertex += ez + height
+        repeat(3) { normals += -ux; normals += -uy; normals += 0f }
+        repeat(3) { color.forEach(colors::add) }
+        ambient += leftBottomAmbient; ambient += leftBottomAmbient; ambient += leftTopAmbient
         vertex += ax; vertex += ay; vertex += sz
         vertex += dxd; vertex += dyd; vertex += ez + height
         vertex += ax; vertex += ay; vertex += sz + height
-        repeat(6) { emitColor(parity * RIBBON_SIDE_BRIGHTNESS) }
-        // Right side face: b(z) -> c(z) -> c(top) / b(top).
+        repeat(3) { normals += -ux; normals += -uy; normals += 0f }
+        repeat(3) { color.forEach(colors::add) }
+        ambient += leftBottomAmbient; ambient += leftTopAmbient; ambient += leftTopAmbient
+
+        // --- Right side face (normal +u).
         vertex += bx; vertex += by; vertex += sz
         vertex += cx; vertex += cy; vertex += ez
         vertex += cx; vertex += cy; vertex += ez + height
+        repeat(3) { normals += ux; normals += uy; normals += 0f }
+        repeat(3) { color.forEach(colors::add) }
+        ambient += leftBottomAmbient; ambient += leftBottomAmbient; ambient += leftTopAmbient
         vertex += bx; vertex += by; vertex += sz
         vertex += cx; vertex += cy; vertex += ez + height
         vertex += bx; vertex += by; vertex += sz + height
-        repeat(6) { emitColor(parity * RIBBON_SIDE_BRIGHTNESS) }
+        repeat(3) { normals += ux; normals += uy; normals += 0f }
+        repeat(3) { color.forEach(colors::add) }
+        ambient += leftBottomAmbient; ambient += leftTopAmbient; ambient += leftTopAmbient
     }
 
     private fun bufferOf(values: List<Float>): FloatBuffer? {
@@ -615,6 +783,114 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         markerGlowVertexCount = 6
     }
 
+    /** Returns the full-path move index nearest to a tap (screen px), or -1. */
+    fun pickNearestMove(screenX: Float, screenY: Float): Int {
+        val current = path ?: return -1
+        if (current.moveCount <= 0) return -1
+        val aspect = viewportWidth.toFloat() / max(viewportHeight, 1)
+        computeCamera(aspect)
+        val source = current.moves
+        var bestDistanceSq = Float.POSITIVE_INFINITY
+        var bestIndex = -1
+        var offset = 0
+        for (moveIndex in 0 until current.moveCount) {
+            project(source, offset + GcodeNozzlePath.X1, offset + GcodeNozzlePath.Y1, offset + GcodeNozzlePath.Z1)
+            val ax = pickOut[0] / pickOut[3]
+            val ay = pickOut[1] / pickOut[3]
+            project(source, offset + GcodeNozzlePath.X2, offset + GcodeNozzlePath.Y2, offset + GcodeNozzlePath.Z2)
+            val bx = pickOut[0] / pickOut[3]
+            val by = pickOut[1] / pickOut[3]
+            // NDC (y up) to screen pixels (y down).
+            val sx1 = (ax + 1f) * 0.5f * viewportWidth
+            val sy1 = (1f - ay) * 0.5f * viewportHeight
+            val sx2 = (bx + 1f) * 0.5f * viewportWidth
+            val sy2 = (1f - by) * 0.5f * viewportHeight
+            val distanceSq = segmentDistanceSq(screenX, screenY, sx1, sy1, sx2, sy2)
+            if (distanceSq < bestDistanceSq) {
+                // Ignore points behind the camera.
+                val behind = pickOut[3] <= 0f
+                if (!behind) {
+                    bestDistanceSq = distanceSq
+                    bestIndex = moveIndex
+                }
+            }
+            offset += GcodeNozzlePath.VALUES_PER_MOVE
+        }
+        return bestIndex
+    }
+
+    private fun project(source: FloatArray, xOffset: Int, yOffset: Int, zOffset: Int) {
+        pickIn[0] = source[xOffset]
+        pickIn[1] = source[yOffset]
+        pickIn[2] = source[zOffset]
+        pickIn[3] = 1f
+        Matrix.multiplyMV(pickOut, 0, mvp, 0, pickIn, 0)
+    }
+
+    private fun segmentDistanceSq(
+        px: Float, py: Float,
+        ax: Float, ay: Float,
+        bx: Float, by: Float,
+    ): Float {
+        val vx = bx - ax
+        val vy = by - ay
+        val denominator = vx * vx + vy * vy
+        if (denominator <= 1e-8f) {
+            val dx = px - ax
+            val dy = py - ay
+            return dx * dx + dy * dy
+        }
+        val t = ((px - ax) * vx + (py - ay) * vy) / denominator
+        val clamped = t.coerceIn(0f, 1f)
+        val cx = ax + vx * clamped
+        val cy = ay + vy * clamped
+        val dx = px - cx
+        val dy = py - cy
+        return dx * dx + dy * dy
+    }
+
+    private fun drawLitTriangles(
+        positions: FloatBuffer?,
+        normals: FloatBuffer?,
+        colors: FloatBuffer?,
+        ambient: FloatBuffer?,
+        vertexCount: Int,
+    ) {
+        if (positions == null || normals == null || colors == null || ambient == null || vertexCount <= 0) return
+        GLES20.glUseProgram(litProgram)
+        val position = GLES20.glGetAttribLocation(litProgram, "aPosition")
+        val normal = GLES20.glGetAttribLocation(litProgram, "aNormal")
+        val color = GLES20.glGetAttribLocation(litProgram, "aColor")
+        val ambientLoc = GLES20.glGetAttribLocation(litProgram, "aAmbient")
+        val matrix = GLES20.glGetUniformLocation(litProgram, "uMvpMatrix")
+        val sceneMatrix = GLES20.glGetUniformLocation(litProgram, "uSceneMatrix")
+        val keyDir = GLES20.glGetUniformLocation(litProgram, "uKeyDir")
+        val fillDir = GLES20.glGetUniformLocation(litProgram, "uFillDir")
+        val viewDir = GLES20.glGetUniformLocation(litProgram, "uViewDir")
+        positions.position(0)
+        normals.position(0)
+        colors.position(0)
+        ambient.position(0)
+        GLES20.glEnableVertexAttribArray(position)
+        GLES20.glEnableVertexAttribArray(normal)
+        GLES20.glEnableVertexAttribArray(color)
+        GLES20.glEnableVertexAttribArray(ambientLoc)
+        GLES20.glVertexAttribPointer(position, 3, GLES20.GL_FLOAT, false, 12, positions)
+        GLES20.glVertexAttribPointer(normal, 3, GLES20.GL_FLOAT, false, 12, normals)
+        GLES20.glVertexAttribPointer(color, 4, GLES20.GL_FLOAT, false, 16, colors)
+        GLES20.glVertexAttribPointer(ambientLoc, 1, GLES20.GL_FLOAT, false, 4, ambient)
+        GLES20.glUniformMatrix4fv(matrix, 1, false, mvp, 0)
+        GLES20.glUniformMatrix4fv(sceneMatrix, 1, false, scene, 0)
+        GLES20.glUniform3f(keyDir, KEY_LIGHT[0], KEY_LIGHT[1], KEY_LIGHT[2])
+        GLES20.glUniform3f(fillDir, FILL_LIGHT[0], FILL_LIGHT[1], FILL_LIGHT[2])
+        GLES20.glUniform3f(viewDir, 0f, -VIEW_EYE_Y, VIEW_EYE_Z)
+        GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, vertexCount)
+        GLES20.glDisableVertexAttribArray(position)
+        GLES20.glDisableVertexAttribArray(normal)
+        GLES20.glDisableVertexAttribArray(color)
+        GLES20.glDisableVertexAttribArray(ambientLoc)
+    }
+
     private fun drawColoredLines(positions: FloatBuffer?, colors: FloatBuffer?, vertexCount: Int, width: Float) {
         if (positions == null || colors == null || vertexCount <= 0) return
         GLES20.glUseProgram(colorProgram)
@@ -631,28 +907,6 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         lineWidth(width)
         GLES20.glDrawArrays(GLES20.GL_LINES, 0, vertexCount)
         GLES20.glLineWidth(1f)
-        GLES20.glDisableVertexAttribArray(position)
-        GLES20.glDisableVertexAttribArray(color)
-    }
-
-    private fun drawColoredTriangles(
-        positions: FloatBuffer?,
-        colors: FloatBuffer?,
-        vertexCount: Int,
-    ) {
-        if (positions == null || colors == null || vertexCount <= 0) return
-        GLES20.glUseProgram(colorProgram)
-        val position = GLES20.glGetAttribLocation(colorProgram, "aPosition")
-        val color = GLES20.glGetAttribLocation(colorProgram, "aColor")
-        val matrix = GLES20.glGetUniformLocation(colorProgram, "uMvpMatrix")
-        positions.position(0)
-        colors.position(0)
-        GLES20.glEnableVertexAttribArray(position)
-        GLES20.glEnableVertexAttribArray(color)
-        GLES20.glVertexAttribPointer(position, 3, GLES20.GL_FLOAT, false, 12, positions)
-        GLES20.glVertexAttribPointer(color, 4, GLES20.GL_FLOAT, false, 16, colors)
-        GLES20.glUniformMatrix4fv(matrix, 1, false, mvp, 0)
-        GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, vertexCount)
         GLES20.glDisableVertexAttribArray(position)
         GLES20.glDisableVertexAttribArray(color)
     }
@@ -768,20 +1022,71 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         private const val RIBBON_VERTICES_PER_MOVE = 18
         private const val RIBBON_SATURATION = 0.62f
         private const val RIBBON_VALUE = 0.92f
-        // Fixed world-direction light for side shading (X/Y components only,
-        // since the side faces are vertical).
-        private const val RIBBON_LIGHT_X = 0.63f
-        private const val RIBBON_LIGHT_Y = 0.78f
-        // Flat side tint: only 15 percent darker than the top, so bead rows
-        // read as fine grooves at every zoom instead of corduroy stripes
-        // (directional lambert variation caused moire when zoomed out).
-        private const val RIBBON_SIDE_BRIGHTNESS = 0.90f
-        private const val RIBBON_MIN_SEGMENT_MM = 0.05f
+        // Fixed WORLD-space studio rig: the bead path rotates under the lights
+        // while orbiting, so faces shade consistently from every angle. These
+        // are directions TOWARD the light.
+        private val KEY_LIGHT = normalize3(0.52f, -0.58f, 0.63f)
+        private val FILL_LIGHT = normalize3(-0.62f, 0.30f, 0.55f)
+        // Eye sits at (0, -distance, 0.62*distance) in view space.
+        private const val VIEW_EYE_Y = -0.85f
+        private const val VIEW_EYE_Z = 0.53f
+        // Ambient terms: the top face catches the key light head-on; side faces
+        // darken toward the base so beads look seated on the layer below, and
+        // odd layers keep a subtle tint so stacked layers separate.
+        private const val TOP_AMBIENT = 0.97f
+        private const val SIDE_TOP_AMBIENT = 0.92f
+        private const val SIDE_BASE_AMBIENT = 0.74f
         // Odd layers render a touch darker so layers separate visually.
         private const val RIBBON_LAYER_TINT = 0.96f
         // Eye sits at (0, -distance, 0.58*distance); true eye distance is distance * sqrt(1 + 0.58^2).
         private const val CAMERA_EYE_DISTANCE_SCALE = 1.1561f
+        private const val GL_MULTISAMPLE = 0x80D1
 
+        private fun normalize3(x: Float, y: Float, z: Float): FloatArray {
+            val length = sqrt(x * x + y * y + z * z)
+            return floatArrayOf(x / length, y / length, z / length)
+        }
+
+        private const val LIT_VERTEX_SHADER = """
+            uniform mat4 uMvpMatrix;
+            uniform mat4 uSceneMatrix;
+            attribute vec4 aPosition;
+            attribute vec3 aNormal;
+            attribute vec4 aColor;
+            attribute float aAmbient;
+            varying vec4 vColor;
+            varying vec3 vWorldNormal;
+            varying float vAmbient;
+            void main() {
+                gl_Position = uMvpMatrix * aPosition;
+                vColor = aColor;
+                vWorldNormal = normalize((uSceneMatrix * vec4(aNormal, 0.0)).xyz);
+                vAmbient = aAmbient;
+            }
+        """
+        private const val LIT_FRAGMENT_SHADER = """
+            precision mediump float;
+            varying vec4 vColor;
+            varying vec3 vWorldNormal;
+            varying float vAmbient;
+            uniform vec3 uKeyDir;
+            uniform vec3 uFillDir;
+            uniform vec3 uViewDir;
+            void main() {
+                vec3 n = normalize(vWorldNormal);
+                vec3 key = normalize(uKeyDir);
+                vec3 fill = normalize(uFillDir);
+                vec3 v = normalize(uViewDir);
+                float kd = max(dot(n, key), 0.0);
+                float fd = max(dot(n, fill), 0.0);
+                float rim = pow(1.0 - max(dot(n, v), 0.0), 2.0);
+                vec3 halfV = normalize(key + v);
+                float spec = pow(max(dot(n, halfV), 0.0), 32.0);
+                float light = vAmbient * (0.40 + 0.62 * kd + 0.26 * fd + 0.14 * rim);
+                vec3 lit = vColor.rgb * light + vec3(0.10 * spec);
+                gl_FragColor = vec4(lit, vColor.a);
+            }
+        """
         private const val COLOR_VERTEX_SHADER = """
             uniform mat4 uMvpMatrix;
             attribute vec4 aPosition;

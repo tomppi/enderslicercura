@@ -69,6 +69,16 @@ class ModelSurfaceView(
 
     fun currentOrientation(): ViewerOrientation = modelRenderer.orientation
 
+    /**
+     * Restores the turntable yaw/pitch after the surface view is recreated
+     * (for example when the app moves away from the Plate tab and back).
+     * Zoom and pan keep their defaults; only the orbit is restored.
+     */
+    fun restoreOrientation(orientation: ViewerOrientation) {
+        queueEvent { modelRenderer.setOrientation(orientation) }
+        requestRender()
+    }
+
     fun setPaintState(paint: SupportPaintState) {
         queueEvent { modelRenderer.setPaintState(paint) }
         requestRender()
@@ -312,6 +322,11 @@ private class ModelRenderer(
         zoom = DEFAULT_ZOOM
         panX = 0f
         panY = 0f
+    }
+
+    fun setOrientation(orientation: ViewerOrientation) {
+        yaw = wrapDegrees(orientation.yawDegrees)
+        pitch = wrapDegrees(orientation.pitchDegrees)
     }
 
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {

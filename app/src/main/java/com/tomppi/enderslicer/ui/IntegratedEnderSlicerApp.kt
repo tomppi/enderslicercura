@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -69,9 +70,7 @@ fun IntegratedEnderSlicerApp(
     val smartInfillLoadWarning = remember(smartInfillStore) { smartInfillStore.consumeLoadWarning() }
     var smartInfillImporting by remember { mutableStateOf(false) }
     var smartInfillValidating by remember { mutableStateOf(false) }
-    var octoPrintOpen by rememberSaveable { mutableStateOf(false) }
     var smartInfillOpen by rememberSaveable { mutableStateOf(false) }
-    var plateMenuExpanded by rememberSaveable { mutableStateOf(false) }
 
     fun deleteHandoff(uri: Uri) {
         runCatching { context.contentResolver.delete(uri, null, null) }
@@ -322,14 +321,6 @@ fun IntegratedEnderSlicerApp(
     } else {
         "Smart Infill ${smartSummary.baseDensityPercent.toInt()}→${smartSummary.modifierDensitiesPercent.maxOrNull() ?: smartSummary.baseDensityPercent.toInt()}%"
     }
-    val octoPrintMenuLabel = when {
-        octoPrintState.isPrinting -> "OctoPrint ${octoPrintState.job.completionPercent?.toInt() ?: 0}%"
-        octoPrintState.isPaused -> "OctoPrint paused"
-        octoPrintState.isTransitioning -> "OctoPrint busy"
-        octoPrintState.isReady -> "OctoPrint"
-        else -> "Set up OctoPrint"
-    }
-
     EnderSlicerApp(
         viewModel = slicerViewModel,
         sliceBlockedReason = when {
@@ -337,59 +328,41 @@ fun IntegratedEnderSlicerApp(
             smartInfillValidating -> "Smart Infill is being validated for the current model"
             else -> null
         },
-        topBarActions = {
-            Box {
-                TopBarTextAction(
-                    label = "Plate",
-                    onClick = { plateMenuExpanded = true },
-                    enabled = !smartInfillImporting,
-                )
-                DropdownMenu(
-                    expanded = plateMenuExpanded,
-                    onDismissRequest = { plateMenuExpanded = false },
-                    modifier = Modifier.widthIn(min = 240.dp, max = 320.dp),
-                ) {
-                    DropdownMenuItem(
-                        text = { Text("Clear plate") },
-                        onClick = {
-                            plateMenuExpanded = false
-                            clearBuildPlate()
-                        },
-                        enabled = !slicerState.isBusy && !smartInfillImporting && (
-                            slicerState.mesh != null ||
-                                slicerState.gcodePath != null ||
-                                smartInfillPackage != null
-                            ),
-                    )
-                }
-            }
-            TopBarTextAction(
-                label = octoPrintMenuLabel,
-                onClick = { octoPrintOpen = true },
-                enabled = !smartInfillImporting,
-            )
-        },
-        advancedMenuItems = { close ->
+        plateOverflowItems = { close ->
             DropdownMenuItem(
-                text = { Text(smartInfillMenuLabel) },
+                text = { Text("Clear plate") },
                 onClick = {
                     close()
+                    clearBuildPlate()
+                },
+                enabled = !slicerState.isBusy && !smartInfillImporting && (
+                    slicerState.mesh != null ||
+                        slicerState.gcodePath != null ||
+                        smartInfillPackage != null
+                    ),
+            )
+        },
+        moreExtraItems = {
+            MoreRow(
+                icon = AppIcons.Bolt,
+                title = smartInfillMenuLabel,
+                subtitle = if (smartSummary == null) {
+                    "Load-optimized density modifiers via filaSim"
+                } else {
+                    "Base " + smartSummary.baseDensityPercent.toInt() + "% · " + smartSummary.mode + " " + smartSummary.pattern
+                },
+                enabled = slicerState.mesh != null && !slicerState.isBusy && !smartInfillImporting,
+                badge = "EXP",
+                onClick = {
                     if (smartInfillPackage == null) {
                         launchSmartInfill()
                     } else {
                         smartInfillOpen = true
                     }
                 },
-                enabled = slicerState.mesh != null && !slicerState.isBusy && !smartInfillImporting,
             )
         },
-    )
-
-    if (octoPrintOpen) {
-        ModalBottomSheet(
-            onDismissRequest = { octoPrintOpen = false },
-            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        ) {
+        printTabContent = {
             HardenedOctoPrintSheet(
                 state = octoPrintState,
                 localGcodePath = slicerState.gcodePath.takeIf {
@@ -398,11 +371,11 @@ fun IntegratedEnderSlicerApp(
                 suggestedFileName = suggestedOctoPrintName(slicerState),
                 viewModel = octoPrintViewModel,
                 modifier = Modifier
-                    .fillMaxHeight(0.96f)
+                    .fillMaxSize()
                     .navigationBarsPadding(),
             )
-        }
-    }
+        },
+    )
 
     if (smartInfillOpen) {
         ModalBottomSheet(
