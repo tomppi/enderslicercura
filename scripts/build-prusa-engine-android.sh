@@ -174,14 +174,13 @@ cmake -S $SRC -B $PWD/prusa-build/build -G Ninja \
   -DCMAKE_MODULE_PATH=$PWD/prusa-build/cmake-shims \
   -DCMAKE_PREFIX_PATH=$PREFIX -DCMAKE_FIND_ROOT_PATH=$PREFIX \
   -DSLIC3R_GUI=OFF -DSLIC3R_STATIC=ON -DBUILD_TESTING=OFF -DSLIC3R_BUILD_TESTS=OFF \
+  -DSLIC3R_ENC_CHECK=OFF \
   -DBOOST_ROOT=$PREFIX -DBoost_NO_SYSTEM_PATHS=ON \
   -DNLOPT_INCLUDE_DIR=$PREFIX/include -DNLOPT_NLOPT_LIBRARY=$PREFIX/lib/libnlopt.a
 
-# Build-time host tool: compile encoding-check with the host g++ and pre-touch the bundled
-# encoding-check stamp files (they are only build-time assertions; in a fresh cross build the
-# tool would otherwise be run through qemu and fail on the missing device linker).
-g++ -O2 -o $PWD/prusa-build/build/build-utils/encoding-check $SRC/build-utils/encoding-check.cpp
-grep -oE 'bundled_deps/[A-Za-z0-9/_.-]+\.util' $PWD/prusa-build/build/build.ninja | sort -u | while read -r u; do mkdir -p "$PWD/prusa-build/build/$(dirname "$u")"; touch "$PWD/prusa-build/build/$u"; done
+# SLIC3R_ENC_CHECK is normally force-disabled on cross-compiles, but the NDK toolchain does
+# not set IS_CROSS_COMPILE, so the build-time encoding-check stamps would try to execute the
+# ARM-checking tool on the host (exec format error). We therefore disable it explicitly.
 ninja -C $PWD/prusa-build/build prusa-slicer -j8
 
 mkdir -p $OUT/src $OUT/resources
