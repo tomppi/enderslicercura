@@ -107,7 +107,7 @@ class StlParserHardeningTest {
         )
         val source = StlMesh(
             displayName = "roundtrip.stl",
-            interleavedVertices = vertices,
+            interleavedVertices = VertexData.fromArray(vertices),
             triangleCount = 1,
             bounds = MeshBounds(0f, 0f, 0f, 1f, 1f, 0f),
         )
@@ -131,7 +131,7 @@ class StlParserHardeningTest {
         )
         val source = StlMesh(
             displayName = "stale-normal.stl",
-            interleavedVertices = vertices,
+            interleavedVertices = VertexData.fromArray(vertices),
             triangleCount = 1,
             bounds = MeshBounds(0f, 0f, 0f, 1f, 1f, 0f),
         )

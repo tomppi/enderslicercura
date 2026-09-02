@@ -2,6 +2,7 @@ package com.tomppi.enderslicer.model
 
 import com.tomppi.enderslicer.viewer.MeshBounds
 import com.tomppi.enderslicer.viewer.StlMesh
+import com.tomppi.enderslicer.viewer.VertexData
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -114,7 +115,7 @@ class ModelPlacement3mfTest {
         val maxZ = maxOf(a[2], b[2], c[2])
         return StlMesh(
             displayName = "external.stl",
-            interleavedVertices = values,
+            interleavedVertices = VertexData.fromArray(values),
             triangleCount = 1,
             bounds = MeshBounds(minX, minY, minZ, maxX, maxY, maxZ),
         )

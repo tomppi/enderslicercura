@@ -1,5 +1,7 @@
 package com.tomppi.enderslicer.viewer
 
+import java.nio.FloatBuffer
+
 data class MeshBounds(
     val minX: Float,
     val minY: Float,
@@ -37,13 +39,56 @@ data class StlSliceTransform(
     }
 }
 
+/**
+ * Meshes with at least this many triangles keep their vertex data in a direct
+ * native FloatBuffer instead of the Java heap. 200k triangles is about 14 MB
+ * of vertex floats; smaller meshes keep the fast array path.
+ */
+internal const val OFF_HEAP_MIN_TRIANGLES = 200_000
+
+/**
+ * Vertex storage that keeps large meshes off the Java heap.
+ *
+ * Small meshes keep the original FloatArray (fast indexed access, identical
+ * behaviour); large meshes are parsed into a direct native FloatBuffer so a
+ * multi-million-triangle model no longer counts against the app Java heap
+ * cap. Both paths expose the same index/size API, so every consumer (viewer,
+ * mesh picker, transforms, STL writer, envelope checks) treats them alike.
+ */
+class VertexData private constructor(
+    private val array: FloatArray?,
+    private val direct: FloatBuffer?,
+) {
+    val size: Int
+        get() = array?.size ?: direct!!.capacity()
+
+    operator fun get(index: Int): Float = array?.get(index) ?: direct!!.get(index)
+
+    /** The heap-backed view when this instance is array-backed. */
+    fun arrayOrNull(): FloatArray? = array
+
+    /** The direct native buffer when this instance is off-heap. */
+    fun directOrNull(): FloatBuffer? = direct
+
+    /** Bytes held outside the Java heap (0 when array-backed). */
+    val nativeBytes: Long
+        get() = direct?.let { it.capacity().toLong() * Float.SIZE_BYTES } ?: 0L
+
+    fun toFloatArray(): FloatArray = array ?: FloatArray(direct!!.capacity()) { direct!!.get(it) }
+
+    companion object {
+        fun fromArray(values: FloatArray): VertexData = VertexData(values, null)
+        fun fromDirect(values: FloatBuffer): VertexData = VertexData(null, values)
+    }
+}
+
 data class StlMesh(
     val displayName: String,
-    val interleavedVertices: FloatArray,
+    val interleavedVertices: VertexData,
     val triangleCount: Int,
     val bounds: MeshBounds,
     /** Original untransformed STL vertices retained for precision slicing. */
-    val slicingSourceInterleavedVertices: FloatArray? = null,
+    val slicingSourceInterleavedVertices: VertexData? = null,
     /** Transform that maps the original vertices to the displayed placement. */
     val slicingTransform: StlSliceTransform? = null,
     /**

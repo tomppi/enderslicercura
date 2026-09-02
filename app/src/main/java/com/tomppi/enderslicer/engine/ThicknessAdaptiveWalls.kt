@@ -7,6 +7,7 @@ import com.tomppi.enderslicer.viewer.StlMesh
 import com.tomppi.enderslicer.viewer.StlMeshWriter
 import com.tomppi.enderslicer.viewer.StlParser
 import com.tomppi.enderslicer.viewer.StlSliceTransform
+import com.tomppi.enderslicer.viewer.VertexData
 import java.io.File
 import kotlin.math.hypot
 import kotlin.math.max
@@ -481,7 +482,7 @@ object ThicknessAdaptiveWalls {
         val bounds = MeshBounds(minX, minY, minZ, maxX, maxY, maxZ)
         val mesh = StlMesh(
             displayName = file.name,
-            interleavedVertices = interleaved,
+            interleavedVertices = VertexData.fromArray(interleaved),
             triangleCount = count,
             bounds = bounds,
         )

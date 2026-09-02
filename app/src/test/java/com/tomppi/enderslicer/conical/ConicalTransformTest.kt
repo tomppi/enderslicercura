@@ -2,6 +2,7 @@ package com.tomppi.enderslicer.conical
 
 import com.tomppi.enderslicer.viewer.MeshBounds
 import com.tomppi.enderslicer.viewer.StlMesh
+import com.tomppi.enderslicer.viewer.VertexData
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -119,7 +120,7 @@ class ConicalTransformTest {
         }
         return StlMesh(
             displayName = name,
-            interleavedVertices = interleaved,
+            interleavedVertices = VertexData.fromArray(interleaved),
             triangleCount = triangles.size,
             bounds = MeshBounds(minX, minY, minZ, maxX, maxY, maxZ),
         )

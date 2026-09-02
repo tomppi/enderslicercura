@@ -197,6 +197,13 @@ fun EnderSlicerApp(
         uri?.let(viewModel::exportGcode)
     }
 
+    val effectiveSliceBlockedReason = sliceBlockedReason
+        ?: if (nonPlanarSettings.enabled && conicalSettings.enabled) {
+            "Non-planar and conical slicing are mutually exclusive; disable one before slicing"
+        } else {
+            null
+        }
+
     fun launchBumpMesh() {
         val mesh = state.mesh
         if (mesh == null || state.isBusy) {
@@ -229,7 +236,9 @@ fun EnderSlicerApp(
         }
     }
 
-    Scaffold(
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val expandedLayout = maxWidth >= 600.dp
+        Scaffold(
         topBar = {
             TopAppBar(
                 navigationIcon = {
@@ -346,17 +355,14 @@ fun EnderSlicerApp(
         },
         bottomBar = {
             Column {
-                if (selectedTab == AppTab.PLATE) {
+                // The session pane owns Slice/Export on the expanded layout;
+                // the bottom action bar is for phone-sized windows only.
+                if (selectedTab == AppTab.PLATE && !expandedLayout) {
                     ActionBar(
                         state = state,
                         nonPlanarEnabled = nonPlanarSettings.enabled,
                         conicalEnabled = conicalSettings.enabled,
-                        sliceBlockedReason = sliceBlockedReason
-                            ?: if (nonPlanarSettings.enabled && conicalSettings.enabled) {
-                                "Non-planar and conical slicing are mutually exclusive; disable one before slicing"
-                            } else {
-                                null
-                            },
+                        sliceBlockedReason = effectiveSliceBlockedReason,
                         onSlice = viewModel::sliceModel,
                         onExportGcode = { gcodeExportPicker.launch(GcodeExportName.suggest()) },
                     )
@@ -401,6 +407,7 @@ fun EnderSlicerApp(
                         )
                         SessionPanel(
                             state = state,
+                            sliceBlockedReason = effectiveSliceBlockedReason,
                             onOpenSettings = { selectedTab = AppTab.SETTINGS },
                             onSettings = viewModel::updateSettings,
                             onSlice = viewModel::sliceModel,
@@ -482,6 +489,7 @@ fun EnderSlicerApp(
                     .padding(padding),
             )
         }
+    }
     }
 
     if (profilesOpen) {
@@ -1213,6 +1221,7 @@ private fun ViewerPanel(
 @Composable
 private fun SessionPanel(
     state: MainUiState,
+    sliceBlockedReason: String?,
     onOpenSettings: () -> Unit,
     onSettings: (String, (SlicerSettings) -> SlicerSettings) -> Unit,
     onSlice: () -> Unit,
@@ -1301,9 +1310,16 @@ private fun SessionPanel(
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Actions", style = MaterialTheme.typography.titleMedium)
+                sliceBlockedReason?.let { reason ->
+                    Text(
+                        reason,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
                 Button(
                     onClick = onSlice,
-                    enabled = state.engineAvailable && state.modelPath != null && !state.isBusy,
+                    enabled = state.engineAvailable && state.modelPath != null && !state.isBusy && sliceBlockedReason == null,
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Text(if (gcodeAvailable) "Slice again" else "Slice")

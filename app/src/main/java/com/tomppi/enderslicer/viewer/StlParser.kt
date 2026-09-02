@@ -49,7 +49,15 @@ object StlParser {
     }
 
     private fun parseBinary(name: String, file: File, triangleCount: Int): StlMesh {
-        val floats = FloatArray(Math.multiplyExact(triangleCount, FLOATS_PER_TRIANGLE))
+        // Large meshes are parsed straight into a direct native buffer: the
+        // vertex data stops counting against the app Java heap cap.
+        val floatCount = Math.multiplyExact(triangleCount, FLOATS_PER_TRIANGLE)
+        val direct = if (triangleCount >= OFF_HEAP_MIN_TRIANGLES) {
+            ByteBuffer.allocateDirect(Math.multiplyExact(floatCount, Float.SIZE_BYTES))
+                .order(ByteOrder.nativeOrder())
+                .asFloatBuffer()
+        } else null
+        val floats = if (direct == null) FloatArray(floatCount) else null
         val bounds = BoundsAccumulator()
         var out = 0
 
@@ -59,6 +67,14 @@ object StlParser {
                 .allocateDirect(BINARY_BLOCK_TRIANGLES * STL_TRIANGLE_BYTES.toInt())
                 .order(ByteOrder.LITTLE_ENDIAN)
             var remaining = triangleCount
+
+            fun emit(value: Float) {
+                if (direct != null) {
+                    direct.put(value)
+                } else {
+                    floats!![out++] = value
+                }
+            }
 
             while (remaining > 0) {
                 val records = minOf(remaining, BINARY_BLOCK_TRIANGLES)
@@ -115,12 +131,8 @@ object StlParser {
                     }
 
                     fun writeVertex(x: Float, y: Float, z: Float) {
-                        floats[out++] = x
-                        floats[out++] = y
-                        floats[out++] = z
-                        floats[out++] = nx
-                        floats[out++] = ny
-                        floats[out++] = nz
+                        emit(x); emit(y); emit(z)
+                        emit(nx); emit(ny); emit(nz)
                         bounds.include(x, y, z)
                     }
                     writeVertex(x0, y0, z0)
@@ -131,7 +143,13 @@ object StlParser {
             }
         }
 
-        return StlMesh(name, floats, triangleCount, bounds.finish())
+        val vertices = if (direct != null) {
+            direct.position(0)
+            VertexData.fromDirect(direct)
+        } else {
+            VertexData.fromArray(requireNotNull(floats))
+        }
+        return StlMesh(name, vertices, triangleCount, bounds.finish())
     }
 
     private fun parseAscii(name: String, file: File, maxTriangles: Int): StlMesh {
@@ -208,7 +226,7 @@ object StlParser {
         }
         return StlMesh(
             displayName = name,
-            interleavedVertices = floats,
+            interleavedVertices = VertexData.fromArray(floats),
             triangleCount = source.triangleCount,
             bounds = bounds.finish(),
             sourceOriginXmm = source.originX,

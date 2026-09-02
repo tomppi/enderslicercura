@@ -3,6 +3,7 @@ package com.tomppi.enderslicer.supportpaint
 import com.tomppi.enderslicer.viewer.MeshBounds
 import com.tomppi.enderslicer.viewer.StlMesh
 import com.tomppi.enderslicer.viewer.StlMeshWriter
+import com.tomppi.enderslicer.viewer.VertexData
 import com.tomppi.enderslicer.viewer.StlSliceTransform
 import java.io.File
 import kotlin.math.sqrt
@@ -173,7 +174,7 @@ object SupportPaintModifiers {
         require(out.isNotEmpty()) { "Support-paint region contains no triangles" }
         val paintedMesh = StlMesh(
             displayName = file.name,
-            interleavedVertices = out.toFloatArray(),
+            interleavedVertices = VertexData.fromArray(out.toFloatArray()),
             triangleCount = out.size / 18,
             bounds = MeshBounds(minX, minY, minZ, maxX, maxY, maxZ),
         )

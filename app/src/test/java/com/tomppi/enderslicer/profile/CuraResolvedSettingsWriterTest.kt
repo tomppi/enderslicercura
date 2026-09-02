@@ -4,6 +4,7 @@ import com.tomppi.enderslicer.viewer.MeshBounds
 import com.tomppi.enderslicer.viewer.StlMesh
 import com.tomppi.enderslicer.viewer.StlMeshWriter
 import com.tomppi.enderslicer.viewer.StlSliceTransform
+import com.tomppi.enderslicer.viewer.VertexData
 import org.json.JSONObject
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
@@ -98,10 +99,10 @@ class CuraResolvedSettingsWriterTest {
             StlMeshWriter.writeBinary(
                 StlMesh(
                     displayName = "test.stl",
-                    interleavedVertices = displayedVertices,
+                    interleavedVertices = VertexData.fromArray(displayedVertices),
                     triangleCount = 1,
                     bounds = MeshBounds(100f, 110f, 0f, 101f, 111f, 1f),
-                    slicingSourceInterleavedVertices = sourceVertices,
+                    slicingSourceInterleavedVertices = VertexData.fromArray(sourceVertices),
                     slicingTransform = transform,
                 ),
                 displayedFile,

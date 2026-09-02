@@ -6,6 +6,7 @@ import com.tomppi.enderslicer.viewer.MeshBounds
 import com.tomppi.enderslicer.viewer.StlMesh
 import com.tomppi.enderslicer.viewer.StlMeshWriter
 import com.tomppi.enderslicer.viewer.StlParser
+import com.tomppi.enderslicer.viewer.VertexData
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -130,7 +131,7 @@ class ThicknessAdaptiveWallsTest {
         StlMeshWriter.writeBinary(
             StlMesh(
                 displayName = file.name,
-                interleavedVertices = interleaved,
+                interleavedVertices = VertexData.fromArray(interleaved),
                 triangleCount = triangles.size / 9,
                 bounds = MeshBounds(x0, y0, z0, x1, y1, z1),
             ),

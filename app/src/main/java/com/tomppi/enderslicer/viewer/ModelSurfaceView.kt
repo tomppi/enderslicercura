@@ -256,7 +256,10 @@ private class ModelRenderer(
         if (mesh === value) return
         val isNewModel = value?.displayName != mesh?.displayName
         mesh = value
-        meshBuffer = value?.interleavedVertices?.let(::floatBuffer)
+        meshBuffer = value?.let { mesh ->
+            mesh.interleavedVertices.directOrNull()
+                ?: mesh.interleavedVertices.arrayOrNull()?.let(::floatBuffer)
+        }
         rebuildColorBuffer()
         if (isNewModel) resetCamera()
     }

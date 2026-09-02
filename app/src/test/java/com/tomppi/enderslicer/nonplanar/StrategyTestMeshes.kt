@@ -2,6 +2,7 @@ package com.tomppi.enderslicer.nonplanar
 
 import com.tomppi.enderslicer.viewer.MeshBounds
 import com.tomppi.enderslicer.viewer.StlMesh
+import com.tomppi.enderslicer.viewer.VertexData
 
 internal fun testMesh(
     vararg triangles: FloatArray,
@@ -42,7 +43,7 @@ internal fun testMesh(
     }
     return StlMesh(
         displayName = name,
-        interleavedVertices = interleaved,
+        interleavedVertices = VertexData.fromArray(interleaved),
         triangleCount = triangles.size,
         bounds = MeshBounds(minX, minY, minZ, maxX, maxY, maxZ),
     )

@@ -68,7 +68,7 @@ object StlMeshWriter {
         return ResolvedSliceSource(sourceFile, transform)
     }
 
-    private fun writeBinaryVertices(vertices: FloatArray, triangleCount: Int, destination: File) {
+    private fun writeBinaryVertices(vertices: VertexData, triangleCount: Int, destination: File) {
         destination.parentFile?.mkdirs()
         FileOutputStream(destination).channel.use { channel ->
             val buffer = ByteBuffer.allocateDirect(WRITE_BUFFER_BYTES).order(ByteOrder.LITTLE_ENDIAN)
@@ -117,12 +117,14 @@ object StlMeshWriter {
         }
     }
 
-    private fun validateVertices(vertices: FloatArray, triangleCount: Int) {
+    private fun validateVertices(vertices: VertexData, triangleCount: Int) {
         require(triangleCount > 0) { "Cannot write an empty STL mesh" }
         require(vertices.size == Math.multiplyExact(triangleCount, 18)) {
             "STL mesh vertex data does not match its triangle count"
         }
-        require(vertices.all(Float::isFinite)) { "STL mesh contains a non-finite value" }
+        for (index in 0 until vertices.size) {
+            require(vertices[index].isFinite()) { "STL mesh contains a non-finite value" }
+        }
     }
 
     private fun sourceFileFor(destination: File): File = File(

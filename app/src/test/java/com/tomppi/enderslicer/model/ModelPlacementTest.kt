@@ -2,6 +2,7 @@ package com.tomppi.enderslicer.model
 
 import com.tomppi.enderslicer.viewer.MeshBounds
 import com.tomppi.enderslicer.viewer.StlMesh
+import com.tomppi.enderslicer.viewer.VertexData
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -196,7 +197,7 @@ class ModelPlacementTest {
         val zs = listOf(positions[2], positions[5], positions[8])
         return StlMesh(
             displayName = "test.stl",
-            interleavedVertices = interleaved,
+            interleavedVertices = VertexData.fromArray(interleaved),
             triangleCount = 1,
             bounds = MeshBounds(
                 xs.min(), ys.min(), zs.min(),

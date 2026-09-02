@@ -6,6 +6,7 @@ import com.tomppi.enderslicer.viewer.MeshBounds
 import com.tomppi.enderslicer.viewer.StlMesh
 import com.tomppi.enderslicer.viewer.StlMeshWriter
 import com.tomppi.enderslicer.viewer.StlParser
+import com.tomppi.enderslicer.viewer.VertexData
 import java.io.File
 import kotlin.io.path.createTempDirectory
 import org.junit.Assert.assertArrayEquals
@@ -194,11 +195,11 @@ class ConicalPipelineTest {
         val spatial = output.filter { it.opcode == "G1" && it.has('X') && it.has('E') }
         val restoredX = spatial.mapNotNull { it.value('X') }.toSet()
         val restoredY = spatial.mapNotNull { it.value('Y') }.toSet()
-        val originalX = source.interleavedVertices
+        val originalX = source.interleavedVertices.toFloatArray()
             .filterIndexed { i, _ -> i % 6 == 0 }
             .map { it.toDouble() }
             .toSet()
-        val originalY = source.interleavedVertices
+        val originalY = source.interleavedVertices.toFloatArray()
             .filterIndexed { i, _ -> i % 6 == 1 }
             .map { it.toDouble() }
             .toSet()
@@ -232,7 +233,7 @@ class ConicalPipelineTest {
         }
         return StlMesh(
             displayName = "support-enforcer.stl",
-            interleavedVertices = interleaved,
+            interleavedVertices = VertexData.fromArray(interleaved),
             triangleCount = triangles.size,
             bounds = MeshBounds(109f, 109f, 1f, 111f, 111f, 1f),
         )
@@ -260,7 +261,7 @@ class ConicalPipelineTest {
         }
         return StlMesh(
             displayName = "square.stl",
-            interleavedVertices = interleaved,
+            interleavedVertices = VertexData.fromArray(interleaved),
             triangleCount = triangles.size,
             bounds = MeshBounds(60f, 60f, 0f, 160f, 160f, 0f),
         )

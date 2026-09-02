@@ -24,6 +24,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   first-run onboarding sets the machine values before the first slice; the
   Plate tab splits into viewer + session pane (summary chips, quick settings,
   actions) at 600 dp+ widths, e.g. on an unfolded foldable.
+- Model storage off-heap and expanded-layout cleanup: STL meshes at or above
+  200k triangles are parsed straight into a direct native FloatBuffer
+  (VertexData), so the vertex data of a multi-million-triangle model no
+  longer counts against the 512 MB app Java heap; every consumer (viewer,
+  mesh picker, transforms, STL writer, envelope checks) keeps the same
+  index/size API, and the parser thresholds are unit-tested
+  (VertexDataOffHeapTest). On unfolded/foldable widths (>= 600 dp) the bottom
+  Slice/Export action bar is hidden - the session pane owns the actions - so
+  the expanded layout no longer shows two Slice buttons; the slice-blocked
+  reason is shown in the session pane instead.
 - Nozzle-path renderer and camera overhaul: beads shade per face with
   analytic normals under a fixed three-light rig (key + fill + rim) plus
   per-vertex ambient occlusion at the bead base, so the path reads as a solid

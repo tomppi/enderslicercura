@@ -2,6 +2,7 @@ package com.tomppi.enderslicer.model
 
 import com.tomppi.enderslicer.viewer.MeshBounds
 import com.tomppi.enderslicer.viewer.StlMesh
+import com.tomppi.enderslicer.viewer.VertexData
 import com.tomppi.enderslicer.viewer.StlParser
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -129,7 +130,7 @@ class ModelGeometryHardeningTest {
         }
         return StlMesh(
             displayName = "geometry.stl",
-            interleavedVertices = vertices,
+            interleavedVertices = VertexData.fromArray(vertices),
             triangleCount = vertices.size / 18,
             bounds = MeshBounds(minX, minY, minZ, maxX, maxY, maxZ),
         )

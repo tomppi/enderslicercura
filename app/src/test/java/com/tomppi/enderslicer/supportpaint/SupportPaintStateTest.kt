@@ -2,6 +2,7 @@ package com.tomppi.enderslicer.supportpaint
 
 import com.tomppi.enderslicer.viewer.MeshBounds
 import com.tomppi.enderslicer.viewer.StlMesh
+import com.tomppi.enderslicer.viewer.VertexData
 import java.io.File
 import java.nio.file.Files
 import org.junit.Assert.assertEquals
@@ -59,7 +60,7 @@ class SupportPaintStateTest {
             )
             val mesh = StlMesh(
                 displayName = "dummy.stl",
-                interleavedVertices = FloatArray(0),
+                interleavedVertices = VertexData.fromArray(FloatArray(0)),
                 triangleCount = 0,
                 bounds = MeshBounds(0f, 0f, 0f, 1f, 1f, 1f),
             )

@@ -3,6 +3,7 @@ package com.tomppi.enderslicer.conical
 import com.tomppi.enderslicer.engine.checkCancellation
 import com.tomppi.enderslicer.viewer.MeshBounds
 import com.tomppi.enderslicer.viewer.StlMesh
+import com.tomppi.enderslicer.viewer.VertexData
 import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
@@ -101,7 +102,7 @@ internal object ConicalTransform {
         }
         return StlMesh(
             displayName = mesh.displayName,
-            interleavedVertices = output,
+            interleavedVertices = VertexData.fromArray(output),
             triangleCount = Math.multiplyExact(mesh.triangleCount, 4),
             bounds = bounds.finish(),
         )
@@ -136,7 +137,7 @@ internal object ConicalTransform {
         }
         return StlMesh(
             displayName = mesh.displayName,
-            interleavedVertices = output,
+            interleavedVertices = VertexData.fromArray(output),
             triangleCount = mesh.triangleCount,
             bounds = bounds.finish(),
         )

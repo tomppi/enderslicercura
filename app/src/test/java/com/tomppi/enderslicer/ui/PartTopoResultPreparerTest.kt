@@ -3,6 +3,7 @@ package com.tomppi.enderslicer.ui
 import com.tomppi.enderslicer.model.ModelPlacement
 import com.tomppi.enderslicer.viewer.MeshBounds
 import com.tomppi.enderslicer.viewer.StlMesh
+import com.tomppi.enderslicer.viewer.VertexData
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -54,7 +55,7 @@ class PartTopoResultPreparerTest {
         }
         return StlMesh(
             displayName = name,
-            interleavedVertices = interleaved,
+            interleavedVertices = VertexData.fromArray(interleaved),
             triangleCount = 1,
             bounds = bounds,
         )

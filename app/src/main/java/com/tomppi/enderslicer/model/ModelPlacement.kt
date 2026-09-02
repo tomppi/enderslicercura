@@ -3,6 +3,7 @@ package com.tomppi.enderslicer.model
 import com.tomppi.enderslicer.viewer.MeshBounds
 import com.tomppi.enderslicer.viewer.StlMesh
 import com.tomppi.enderslicer.viewer.StlSliceTransform
+import com.tomppi.enderslicer.viewer.VertexData
 import kotlin.math.abs
 import kotlin.math.acos
 import kotlin.math.cos
@@ -113,7 +114,7 @@ data class ModelPlacement(
 
         return StlMesh(
             displayName = mesh.displayName,
-            interleavedVertices = output,
+            interleavedVertices = VertexData.fromArray(output),
             triangleCount = mesh.triangleCount,
             bounds = outputBounds.finish(),
             slicingSourceInterleavedVertices = mesh.interleavedVertices,

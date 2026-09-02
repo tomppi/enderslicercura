@@ -212,6 +212,15 @@ Model-viewer orbit restore across tab switches was added as part of P2
 (\ModelSurfaceView.restoreOrientation\), as the tab shell disposes and
 recreates the GL surface view.
 
+### Round 4 diff summary
+
+- \`StlMesh.kt\` - VertexData: meshes >= 200k triangles parsed into direct
+  native buffers (off the Java heap); array path unchanged for small meshes.
+- \`StlParser.kt\` - binary STL parse writes into the direct buffer directly.
+- \`StlMeshWriter.kt\`, \`ModelSurfaceView.kt\`, transforms/tests adapted to VertexData.
+- \`EnderSlicerApp.kt\` - bottom Slice bar hidden at >= 600 dp (session pane owns
+  actions) - no more duplicate Slice buttons on foldable/tablet widths.
+
 ### Round 3 diff summary
 
 - \`PrinterScreen.kt\` (new) - safety checklist (persistent store) + MachineSettingsContent.
