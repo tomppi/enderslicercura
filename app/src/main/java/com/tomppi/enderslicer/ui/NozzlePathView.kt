@@ -1,5 +1,6 @@
 package com.tomppi.enderslicer.ui
 
+import android.util.Log
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
@@ -87,12 +88,13 @@ internal fun NozzlePathView(
     val loadState by produceState<NozzlePathLoadState>(NozzlePathLoadState.Loading, gcodePath) {
         value = NozzlePathLoadState.Loading
         value = try {
-            NozzlePathLoadState.Ready(
-                runInterruptible(Dispatchers.IO) { GcodeNozzlePathParser.parse(File(gcodePath)) },
-            )
+            val parsed = runInterruptible(Dispatchers.IO) { GcodeNozzlePathParser.parse(File(gcodePath)) }
+            Log.i("NozzlePathView", "parsed " + parsed.moveCount + " moves")
+            NozzlePathLoadState.Ready(parsed)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Throwable) {
+            Log.e("NozzlePathView", "nozzle-path parse failed", error)
             NozzlePathLoadState.Failed(error.message ?: "Unable to parse nozzle path")
         }
     }

@@ -12,9 +12,7 @@ import com.tomppi.enderslicer.engine.GcodeNozzlePath
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer
-import javax.microedition.khronos.egl.EGL10
 import javax.microedition.khronos.egl.EGLConfig
-import javax.microedition.khronos.egl.EGLDisplay
 import javax.microedition.khronos.opengles.GL10
 import kotlin.math.floor
 import kotlin.math.max
@@ -68,69 +66,6 @@ internal fun resolveBeadWidthMm(
     }
 }
 
-/**
- * EGL config chooser that prefers multisampled buffers (4x, then 2x) and
- * falls back to the plain config, so bead silhouettes stay crisp instead of
- * aliased without breaking devices that have no MSAA support.
- */
-private class SampleConfigChooser : GLSurfaceView.EGLConfigChooser {
-    override fun chooseConfig(egl: EGL10, display: EGLDisplay): EGLConfig {
-        // Preference ladder, most demanding first. On each failure the next
-        // entry is tried; the final step asks the driver for its default
-        // config (null attributes), which is what the device always has.
-        // Never throw based on a strict attribute list alone: a missing
-        // 8-bit-alpha or sample-buffer config is NOT a reason to take the
-        // whole app down (that was the crash: model view has an internal
-        // ladder, the previous nozzle-path chooser did not).
-        val rungs = listOf(
-            intArrayOf(
-                EGL10.EGL_RED_SIZE, 8, EGL10.EGL_GREEN_SIZE, 8,
-                EGL10.EGL_BLUE_SIZE, 8, EGL10.EGL_ALPHA_SIZE, 8,
-                EGL10.EGL_DEPTH_SIZE, 16, EGL10.EGL_STENCIL_SIZE, 0,
-                EGL10.EGL_SAMPLE_BUFFERS, 1, EGL10.EGL_SAMPLES, 4,
-                EGL10.EGL_NONE,
-            ),
-            intArrayOf(
-                EGL10.EGL_RED_SIZE, 8, EGL10.EGL_GREEN_SIZE, 8,
-                EGL10.EGL_BLUE_SIZE, 8, EGL10.EGL_ALPHA_SIZE, 8,
-                EGL10.EGL_DEPTH_SIZE, 16, EGL10.EGL_STENCIL_SIZE, 0,
-                EGL10.EGL_SAMPLE_BUFFERS, 1, EGL10.EGL_SAMPLES, 2,
-                EGL10.EGL_NONE,
-            ),
-            intArrayOf(
-                EGL10.EGL_RED_SIZE, 8, EGL10.EGL_GREEN_SIZE, 8,
-                EGL10.EGL_BLUE_SIZE, 8, EGL10.EGL_ALPHA_SIZE, 8,
-                EGL10.EGL_DEPTH_SIZE, 16, EGL10.EGL_STENCIL_SIZE, 0,
-                EGL10.EGL_NONE,
-            ),
-            intArrayOf(
-                EGL10.EGL_RED_SIZE, 5, EGL10.EGL_GREEN_SIZE, 6,
-                EGL10.EGL_BLUE_SIZE, 5, EGL10.EGL_ALPHA_SIZE, 0,
-                EGL10.EGL_DEPTH_SIZE, 16, EGL10.EGL_STENCIL_SIZE, 0,
-                EGL10.EGL_NONE,
-            ),
-        )
-        for (attrib in rungs) {
-            choose(egl, display, attrib)?.let { return it }
-        }
-        // Last resort: whatever the driver gives us by default.
-        choose(egl, display, null)?.let { return it }
-        Log.e("NozzlePathView", "EGL offered no usable config at all")
-        error("No usable EGL config for the nozzle-path renderer")
-    }
-
-    private fun choose(egl: EGL10, display: EGLDisplay, attrib: IntArray?): EGLConfig? {
-        val configs = arrayOfNulls<EGLConfig>(1)
-        val count = IntArray(1)
-        val ok = if (attrib == null) {
-            egl.eglChooseConfig(display, null, configs, 1, count)
-        } else {
-            egl.eglChooseConfig(display, attrib, configs, 1, count)
-        }
-        return if (ok && count[0] >= 1) configs[0] else null
-    }
-}
-
 class NozzlePathSurfaceView(context: Context) : GLSurfaceView(context) {
     private val pathRenderer = NozzlePathRenderer()
     private val scaleDetector = ScaleGestureDetector(context, ScaleListener())
@@ -143,7 +78,10 @@ class NozzlePathSurfaceView(context: Context) : GLSurfaceView(context) {
 
     init {
         setEGLContextClientVersion(2)
-        setEGLConfigChooser(SampleConfigChooser())
+        // Same proven EGL config as the model viewer. The custom MSAA chooser
+        // was removed: it is the prime suspect for device-specific crashes
+        // right after the path loads (GL init on the render thread).
+        setEGLConfigChooser(8, 8, 8, 8, 24, 0)
         preserveEGLContextOnPause = true
         setRenderer(pathRenderer)
         renderMode = RENDERMODE_WHEN_DIRTY
@@ -389,9 +327,22 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         beadLineWidth = beadLineWidthMm.coerceIn(0.10f, 2.0f)
         filamentArea = (Math.PI.toFloat() * (filamentDiameterMm.coerceIn(0.5f, 4.0f) / 2f).let { it * it })
         selectedMoveIndex = if (value.moveCount <= 0) 0 else selectedMoveIndex.coerceIn(0, value.moveCount - 1)
-        buildPathBuffers(value)
-        buildGrid(value)
-        buildMarker()
+        try {
+            buildPathBuffers(value)
+            buildGrid(value)
+            buildMarker()
+            Log.i(TAG, "nozzle-path geometry built: " + value.moveCount + " moves")
+        } catch (error: Throwable) {
+            // Keep the render thread alive and surface the cause in logcat
+            // instead of taking the app down.
+            Log.e(TAG, "Unable to build nozzle-path buffers", error)
+            ribbonPositions = null
+            ribbonNormals = null
+            ribbonColors = null
+            ribbonAmbient = null
+            travelPositions = null
+            travelColors = null
+        }
         resetCamera()
     }
 
@@ -456,10 +407,11 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         GLES20.glDisable(GLES20.GL_CULL_FACE)
         GLES20.glEnable(GLES20.GL_BLEND)
         GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA)
-        GLES20.glEnable(GL_MULTISAMPLE)
+        Log.i(TAG, "nozzle-path GL surface created; compiling shaders")
         litProgram = createProgram(LIT_VERTEX_SHADER, LIT_FRAGMENT_SHADER)
         colorProgram = createProgram(COLOR_VERTEX_SHADER, COLOR_FRAGMENT_SHADER)
         solidProgram = createProgram(SOLID_VERTEX_SHADER, SOLID_FRAGMENT_SHADER)
+        Log.i(TAG, "nozzle-path shaders compiled")
         maxLineWidth = queryMaxLineWidth()
     }
 
@@ -513,6 +465,15 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
     }
 
     override fun onDrawFrame(gl: GL10?) {
+        try {
+            drawFrame()
+        } catch (error: Throwable) {
+            // Render-thread failures must not take the app down.
+            Log.e(TAG, "Nozzle-path frame failed", error)
+        }
+    }
+
+    private fun drawFrame() {
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
         val current = path ?: return
         val aspect = viewportWidth.toFloat() / viewportHeight
@@ -686,8 +647,14 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         val bx = sx + px; val by = sy + py
         val cx = ex + px; val cy = ey + py
         val dxd = ex - px; val dyd = ey - py
-        fun emit(amb: Float) {
-            ambient += amb
+        // Flat hue per face; the 3-light rig shades top vs sides.
+        fun push(vertexCount: Int) {
+            repeat(vertexCount) {
+                colors += color[0]
+                colors += color[1]
+                colors += color[2]
+                colors += color[3]
+            }
         }
 
         // --- Top face (z + height), two triangles; normal +Z.
@@ -698,8 +665,8 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         vertex += cx; vertex += cy; vertex += ez + height
         vertex += dxd; vertex += dyd; vertex += ez + height
         repeat(6) { normals += 0f; normals += 0f; normals += 1f }
-        repeat(6) { color.forEach(colors::add) }
-        repeat(6) { emit(parity * TOP_AMBIENT) }
+        push(6)
+        repeat(6) { ambient += parity * TOP_AMBIENT }
 
         // --- Left side face (normal -u): base corners get contact occlusion.
         val leftBottomAmbient = parity * SIDE_BASE_AMBIENT
@@ -708,13 +675,13 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         vertex += dxd; vertex += dyd; vertex += ez
         vertex += dxd; vertex += dyd; vertex += ez + height
         repeat(3) { normals += -ux; normals += -uy; normals += 0f }
-        repeat(3) { color.forEach(colors::add) }
+        push(3)
         ambient += leftBottomAmbient; ambient += leftBottomAmbient; ambient += leftTopAmbient
         vertex += ax; vertex += ay; vertex += sz
         vertex += dxd; vertex += dyd; vertex += ez + height
         vertex += ax; vertex += ay; vertex += sz + height
         repeat(3) { normals += -ux; normals += -uy; normals += 0f }
-        repeat(3) { color.forEach(colors::add) }
+        push(3)
         ambient += leftBottomAmbient; ambient += leftTopAmbient; ambient += leftTopAmbient
 
         // --- Right side face (normal +u).
@@ -722,13 +689,13 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         vertex += cx; vertex += cy; vertex += ez
         vertex += cx; vertex += cy; vertex += ez + height
         repeat(3) { normals += ux; normals += uy; normals += 0f }
-        repeat(3) { color.forEach(colors::add) }
+        push(3)
         ambient += leftBottomAmbient; ambient += leftBottomAmbient; ambient += leftTopAmbient
         vertex += bx; vertex += by; vertex += sz
         vertex += cx; vertex += cy; vertex += ez + height
         vertex += bx; vertex += by; vertex += sz + height
         repeat(3) { normals += ux; normals += uy; normals += 0f }
-        repeat(3) { color.forEach(colors::add) }
+        push(3)
         ambient += leftBottomAmbient; ambient += leftTopAmbient; ambient += leftTopAmbient
     }
 
@@ -803,6 +770,15 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
 
     /** Returns the full-path move index nearest to a tap (screen px), or -1. */
     fun pickNearestMove(screenX: Float, screenY: Float): Int {
+        try {
+            return pickNearestMoveUnsafe(screenX, screenY)
+        } catch (error: Throwable) {
+            Log.e(TAG, "Nozzle-path pick failed", error)
+            return -1
+        }
+    }
+
+    private fun pickNearestMoveUnsafe(screenX: Float, screenY: Float): Int {
         val current = path ?: return -1
         if (current.moveCount <= 0) return -1
         val aspect = viewportWidth.toFloat() / max(viewportHeight, 1)
@@ -1028,6 +1004,7 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
     }
 
     companion object {
+        private const val TAG = "NozzlePathView"
         private const val FIELD_OF_VIEW = 42f
         private const val DEFAULT_YAW = -32f
         private const val DEFAULT_PITCH = 58f
@@ -1058,7 +1035,6 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         private const val RIBBON_LAYER_TINT = 0.96f
         // Eye sits at (0, -distance, 0.58*distance); true eye distance is distance * sqrt(1 + 0.58^2).
         private const val CAMERA_EYE_DISTANCE_SCALE = 1.1561f
-        private const val GL_MULTISAMPLE = 0x80D1
 
         private fun normalize3(x: Float, y: Float, z: Float): FloatArray {
             val length = sqrt(x * x + y * y + z * z)
