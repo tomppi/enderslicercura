@@ -60,6 +60,8 @@ import kotlinx.coroutines.withContext
 fun IntegratedEnderSlicerApp(
     slicerViewModel: MainViewModel,
     octoPrintViewModel: OctoPrintViewModel,
+    engine: SlicerEngine,
+    onEngineChange: (SlicerEngine) -> Unit,
 ) {
     val slicerState by slicerViewModel.uiState.collectAsStateWithLifecycle()
     val octoPrintState by octoPrintViewModel.state.collectAsStateWithLifecycle()
@@ -323,6 +325,8 @@ fun IntegratedEnderSlicerApp(
     }
     EnderSlicerApp(
         viewModel = slicerViewModel,
+        engine = engine,
+        onEngineChange = onEngineChange,
         sliceBlockedReason = when {
             smartInfillImporting -> "Smart Infill import is still being committed"
             smartInfillValidating -> "Smart Infill is being validated for the current model"

@@ -212,6 +212,13 @@ Model-viewer orbit restore across tab switches was added as part of P2
 (\ModelSurfaceView.restoreOrientation\), as the tab shell disposes and
 recreates the GL surface view.
 
+### Round 5 diff summary
+
+- Engine selection replaces "profile combining" as the product decision:
+  the user picks Cura or PrusaSlicer (Settings > Slicing engine), each with
+  its own theme accent (Cura blue / PrusaSlicer orange), its own profile
+  formats, G-code dialect and binary. Never merge profiles across engines.
+
 ### Round 4 diff summary
 
 - \`StlMesh.kt\` - VertexData: meshes >= 200k triangles parsed into direct

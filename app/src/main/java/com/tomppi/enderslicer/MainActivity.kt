@@ -17,6 +17,7 @@ import com.tomppi.enderslicer.ui.IntegratedEnderSlicerApp
 import com.tomppi.enderslicer.ui.MainViewModel
 import com.tomppi.enderslicer.ui.OnboardingScreen
 import com.tomppi.enderslicer.ui.OnboardingStore
+import com.tomppi.enderslicer.ui.SlicerEngineStore
 
 class MainActivity : ComponentActivity() {
     private val slicerViewModel by viewModels<MainViewModel>()
@@ -27,7 +28,9 @@ class MainActivity : ComponentActivity() {
         MeshTriangleLimits.initialize(this)
         enableEdgeToEdge()
         setContent {
-            EnderSlicerTheme {
+            val engineStore = remember { SlicerEngineStore(applicationContext) }
+            var engine by remember { mutableStateOf(engineStore.load()) }
+            EnderSlicerTheme(engine = engine) {
                 val state by slicerViewModel.uiState.collectAsStateWithLifecycle()
                 // First-run onboarding (skippable, one-shot): sets the machine
                 // values that drive the engine and the build-plate viewer.
@@ -44,7 +47,15 @@ class MainActivity : ComponentActivity() {
                         },
                     )
                 } else {
-                    IntegratedEnderSlicerApp(slicerViewModel, octoPrintViewModel)
+                    IntegratedEnderSlicerApp(
+                        slicerViewModel = slicerViewModel,
+                        octoPrintViewModel = octoPrintViewModel,
+                        engine = engine,
+                        onEngineChange = {
+                            engineStore.save(it)
+                            engine = it
+                        },
+                    )
                 }
             }
         }

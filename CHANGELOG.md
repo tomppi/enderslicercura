@@ -42,6 +42,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   re-reads of the CPU arrays, with silent fallback to client pointers if a
   driver allocates no buffer ids. CPU-side native copies stay for mesh
   picking, STL export and transforms.
+- Engine switcher with per-engine identity: the user picks the slicer
+  engine (Settings > Slicing engine): Cura (blue theme) or PrusaSlicer
+  (orange theme) - the entire app recolors instantly and profiles stay
+  strictly per-engine (never merged). Persisted via SlicerEngineStore;
+  the per-engine palettes live in EnderSlicerTheme.
 - Nozzle-path renderer and camera overhaul: beads shade per face with
   analytic normals under a fixed three-light rig (key + fill + rim) plus
   per-vertex ambient occlusion at the bead base, so the path reads as a solid

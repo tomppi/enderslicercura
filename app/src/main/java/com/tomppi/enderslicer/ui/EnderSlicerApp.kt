@@ -6,6 +6,8 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -23,6 +25,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -65,6 +68,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
@@ -115,6 +120,8 @@ private enum class AppTab(val label: String, val subtitleFor: (MainUiState) -> S
 @Composable
 fun EnderSlicerApp(
     viewModel: MainViewModel = viewModel(),
+    engine: SlicerEngine = SlicerEngine.CURA,
+    onEngineChange: (SlicerEngine) -> Unit = {},
     sliceBlockedReason: String? = null,
     plateOverflowItems: @Composable (() -> Unit) -> Unit = { _ -> },
     moreExtraItems: @Composable () -> Unit = {},
@@ -441,14 +448,25 @@ fun EnderSlicerApp(
                     )
                 }
             }
-            AppTab.SETTINGS -> CategorizedSettingsSheet(
-                state = state,
-                onSettings = viewModel::updateSettings,
-                onResetOverrides = viewModel::resetAllSettingOverrides,
+            AppTab.SETTINGS -> Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(padding),
-            )
+            ) {
+                EngineSelectorCard(
+                    engine = engine,
+                    onEngineChange = onEngineChange,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                CategorizedSettingsSheet(
+                    state = state,
+                    onSettings = viewModel::updateSettings,
+                    onResetOverrides = viewModel::resetAllSettingOverrides,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                )
+            }
             AppTab.PRINT -> Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -657,6 +675,97 @@ fun EnderSlicerApp(
                 modifier = Modifier
                     .fillMaxHeight(0.5f)
                     .navigationBarsPadding(),
+            )
+        }
+    }
+}
+
+/**
+ * Prominent engine switcher: Cura (blue) or PrusaSlicer (orange). Each
+ * engine is a whole Product mode - theme accent, profile formats, G-code
+ * dialect and engine binary; profiles are never merged across engines.
+ */
+@Composable
+internal fun EngineSelectorCard(
+    engine: SlicerEngine,
+    onEngineChange: (SlicerEngine) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Card(
+        modifier = modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+    ) {
+        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Slicing engine", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Profiles stay separate: pick the slicer you want, the app becomes that product.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                EngineOption(
+                    label = "Cura",
+                    tagline = "Blue",
+                    accent = EngineAccent.CURA,
+                    selected = engine == SlicerEngine.CURA,
+                    onClick = { onEngineChange(SlicerEngine.CURA) },
+                    modifier = Modifier.weight(1f),
+                )
+                EngineOption(
+                    label = "PrusaSlicer",
+                    tagline = "Orange",
+                    accent = EngineAccent.PRUSA,
+                    selected = engine == SlicerEngine.PRUSA,
+                    onClick = { onEngineChange(SlicerEngine.PRUSA) },
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+    }
+}
+
+private enum class EngineAccent { CURA, PRUSA }
+
+@Composable
+private fun EngineOption(
+    label: String,
+    tagline: String,
+    accent: EngineAccent,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val accentColor = when (accent) {
+        EngineAccent.CURA -> Color(0xFF3B99FF)
+        EngineAccent.PRUSA -> Color(0xFFFF8A2A)
+    }
+    Surface(
+        onClick = onClick,
+        shape = MaterialTheme.shapes.medium,
+        color = if (selected) MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface,
+        border = if (selected) {
+            BorderStroke(2.dp, accentColor)
+        } else {
+            BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+        },
+        modifier = modifier.height(76.dp),
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(
+                    modifier = Modifier
+                        .size(14.dp)
+                        .clip(CircleShape)
+                        .background(accentColor),
+                )
+                Text(label, style = MaterialTheme.typography.titleSmall)
+            }
+            Text(
+                tagline,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }

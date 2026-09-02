@@ -31,9 +31,14 @@ read that document before starting a new screen.
 
 ## Theme
 
-- Use EnderSlicerTheme's pinned palette (amber accent, cool neutrals)
-  from EnderSlicerTheme.kt. Do not switch to wallpaper dynamic color:
-  the brand identity is part of the product.
+- Use EnderSlicerTheme's per-engine palettes from EnderSlicerTheme.kt:
+  Cura = blue accent, PrusaSlicer = orange accent ("Cura is blue,
+  PrusaSlicer is orange" is a product rule). Do not switch to wallpaper
+  dynamic color: the engine identity is part of the product.
+- The selected engine (SlicerEngineStore) drives theme accent, profile
+  formats, G-code dialect and engine binary; profiles are NEVER merged
+  across engines. The switcher lives at the top of the Settings tab
+  (EngineSelectorCard) and changes the whole app instantly.
 - Semantic colors come from MaterialTheme.colorScheme:
   primary (actions/active), error (danger), outlineVariant (hairline
   dividers), surfaceVariant (icons/shortcuts).
