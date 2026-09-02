@@ -2,6 +2,7 @@ package com.tomppi.enderslicer.viewer
 
 import android.content.Context
 import android.opengl.GLES20
+import android.util.Log
 import android.opengl.GLSurfaceView
 import android.opengl.Matrix
 import android.view.GestureDetector
@@ -74,42 +75,59 @@ internal fun resolveBeadWidthMm(
  */
 private class SampleConfigChooser : GLSurfaceView.EGLConfigChooser {
     override fun chooseConfig(egl: EGL10, display: EGLDisplay): EGLConfig {
-        val samplesToTry = intArrayOf(4, 2)
-        for (samples in samplesToTry) {
-            val attrib = intArrayOf(
-                EGL10.EGL_RED_SIZE, 8,
-                EGL10.EGL_GREEN_SIZE, 8,
-                EGL10.EGL_BLUE_SIZE, 8,
-                EGL10.EGL_ALPHA_SIZE, 8,
-                EGL10.EGL_DEPTH_SIZE, 16,
-                EGL10.EGL_STENCIL_SIZE, 0,
-                EGL10.EGL_SAMPLE_BUFFERS, 1,
-                EGL10.EGL_SAMPLES, samples,
+        // Preference ladder, most demanding first. On each failure the next
+        // entry is tried; the final step asks the driver for its default
+        // config (null attributes), which is what the device always has.
+        // Never throw based on a strict attribute list alone: a missing
+        // 8-bit-alpha or sample-buffer config is NOT a reason to take the
+        // whole app down (that was the crash: model view has an internal
+        // ladder, the previous nozzle-path chooser did not).
+        val rungs = listOf(
+            intArrayOf(
+                EGL10.EGL_RED_SIZE, 8, EGL10.EGL_GREEN_SIZE, 8,
+                EGL10.EGL_BLUE_SIZE, 8, EGL10.EGL_ALPHA_SIZE, 8,
+                EGL10.EGL_DEPTH_SIZE, 16, EGL10.EGL_STENCIL_SIZE, 0,
+                EGL10.EGL_SAMPLE_BUFFERS, 1, EGL10.EGL_SAMPLES, 4,
                 EGL10.EGL_NONE,
-            )
-            val config = choose(egl, display, attrib)
-            if (config != null) return config
-        }
-        val fallback = intArrayOf(
-            EGL10.EGL_RED_SIZE, 8,
-            EGL10.EGL_GREEN_SIZE, 8,
-            EGL10.EGL_BLUE_SIZE, 8,
-            EGL10.EGL_ALPHA_SIZE, 8,
-            EGL10.EGL_DEPTH_SIZE, 16,
-            EGL10.EGL_STENCIL_SIZE, 0,
-            EGL10.EGL_NONE,
+            ),
+            intArrayOf(
+                EGL10.EGL_RED_SIZE, 8, EGL10.EGL_GREEN_SIZE, 8,
+                EGL10.EGL_BLUE_SIZE, 8, EGL10.EGL_ALPHA_SIZE, 8,
+                EGL10.EGL_DEPTH_SIZE, 16, EGL10.EGL_STENCIL_SIZE, 0,
+                EGL10.EGL_SAMPLE_BUFFERS, 1, EGL10.EGL_SAMPLES, 2,
+                EGL10.EGL_NONE,
+            ),
+            intArrayOf(
+                EGL10.EGL_RED_SIZE, 8, EGL10.EGL_GREEN_SIZE, 8,
+                EGL10.EGL_BLUE_SIZE, 8, EGL10.EGL_ALPHA_SIZE, 8,
+                EGL10.EGL_DEPTH_SIZE, 16, EGL10.EGL_STENCIL_SIZE, 0,
+                EGL10.EGL_NONE,
+            ),
+            intArrayOf(
+                EGL10.EGL_RED_SIZE, 5, EGL10.EGL_GREEN_SIZE, 6,
+                EGL10.EGL_BLUE_SIZE, 5, EGL10.EGL_ALPHA_SIZE, 0,
+                EGL10.EGL_DEPTH_SIZE, 16, EGL10.EGL_STENCIL_SIZE, 0,
+                EGL10.EGL_NONE,
+            ),
         )
-        return choose(egl, display, fallback)
-            ?: error("No usable EGL config for the nozzle-path renderer")
+        for (attrib in rungs) {
+            choose(egl, display, attrib)?.let { return it }
+        }
+        // Last resort: whatever the driver gives us by default.
+        choose(egl, display, null)?.let { return it }
+        Log.e("NozzlePathView", "EGL offered no usable config at all")
+        error("No usable EGL config for the nozzle-path renderer")
     }
 
-    private fun choose(egl: EGL10, display: EGLDisplay, attrib: IntArray): EGLConfig? {
+    private fun choose(egl: EGL10, display: EGLDisplay, attrib: IntArray?): EGLConfig? {
         val configs = arrayOfNulls<EGLConfig>(1)
         val count = IntArray(1)
-        if (egl.eglChooseConfig(display, attrib, configs, 1, count) && count[0] >= 1) {
-            return configs[0]
+        val ok = if (attrib == null) {
+            egl.eglChooseConfig(display, null, configs, 1, count)
+        } else {
+            egl.eglChooseConfig(display, attrib, configs, 1, count)
         }
-        return null
+        return if (ok && count[0] >= 1) configs[0] else null
     }
 }
 
