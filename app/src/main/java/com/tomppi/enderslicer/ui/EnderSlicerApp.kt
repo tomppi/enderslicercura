@@ -1194,9 +1194,23 @@ private fun ViewerPanel(
             viewerMode == ViewerMode.NOZZLE_PATH && gcodeAvailable -> NozzlePathView(
                 gcodePath = requireNotNull(state.gcodePath),
                 dialect = if (state.sliceEngine == SlicerEngine.PRUSA) GcodeDialect.PRUSA else GcodeDialect.CURA,
-                beadHeightMm = state.settings.layerHeightMm,
-                beadLineWidthMm = state.settings.lineWidthMm,
-                filamentDiameterMm = state.settings.filamentDiameterMm,
+                beadHeightMm = if (state.sliceEngine == SlicerEngine.PRUSA) {
+                    state.prusaSettings.layerHeightMm
+                } else {
+                    state.settings.layerHeightMm
+                },
+                beadLineWidthMm = if (state.sliceEngine == SlicerEngine.PRUSA) {
+                    state.prusaSettings.perimeterExtrusionWidthMm
+                        ?: state.prusaSettings.firstLayerExtrusionWidthMm
+                        ?: state.settings.lineWidthMm
+                } else {
+                    state.settings.lineWidthMm
+                },
+                filamentDiameterMm = if (state.sliceEngine == SlicerEngine.PRUSA) {
+                    state.settings.filamentDiameterMm
+                } else {
+                    state.settings.filamentDiameterMm
+                },
                 modifier = Modifier.fillMaxSize(),
             )
             else -> key(effectivePrinter) {
