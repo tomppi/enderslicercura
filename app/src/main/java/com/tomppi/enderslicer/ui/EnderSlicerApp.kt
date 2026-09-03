@@ -441,7 +441,7 @@ fun EnderSlicerApp(
                                 onTools = { modelToolsOpen = true },
                                 onCollapse = { modelUiCollapsed = true },
                                 modifier = Modifier
-                                    .align(Alignment.CenterEnd)
+                                    .align(Alignment.TopEnd)
                                     .padding(8.dp)
                                     .widthIn(min = 270.dp, max = 420.dp),
                             )
@@ -1467,7 +1467,7 @@ private fun SessionPanel(
 
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text("Quick settings", style = MaterialTheme.typography.titleMedium)
+                Text("Quick settings", style = MaterialTheme.typography.titleSmall)
                 Text(
                     "Tap a value to edit it in the Settings tab",
                     style = MaterialTheme.typography.labelSmall,
@@ -1481,7 +1481,7 @@ private fun SessionPanel(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
-                    Text("Supports", style = MaterialTheme.typography.bodyLarge)
+                    Text("Supports", style = MaterialTheme.typography.bodyMedium)
                     Switch(
                         checked = settings.supportsEnabled,
                         onCheckedChange = { checked ->
@@ -1495,8 +1495,8 @@ private fun SessionPanel(
         }
 
         Card(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Actions", style = MaterialTheme.typography.titleMedium)
+            Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("Actions", style = MaterialTheme.typography.titleSmall)
                 sliceBlockedReason?.let { reason ->
                     Text(
                         reason,
@@ -1511,19 +1511,21 @@ private fun SessionPanel(
                 ) {
                     Text(if (gcodeAvailable) "Slice again" else "Slice")
                 }
-                OutlinedButton(
-                    onClick = onExportGcode,
-                    enabled = gcodeAvailable && !state.isBusy,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text("Export G-code")
-                }
-                OutlinedButton(
-                    onClick = onTools,
-                    enabled = state.mesh != null && !state.isBusy,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text("Model tools")
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    OutlinedButton(
+                        onClick = onExportGcode,
+                        enabled = gcodeAvailable && !state.isBusy,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text("Export")
+                    }
+                    OutlinedButton(
+                        onClick = onTools,
+                        enabled = state.mesh != null && !state.isBusy,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text("Model tools")
+                    }
                 }
             }
         }
@@ -1552,9 +1554,9 @@ private fun SessionStat(label: String, value: String, sub: String, modifier: Mod
         shape = MaterialTheme.shapes.small,
         modifier = modifier,
     ) {
-        Column(modifier = Modifier.padding(10.dp)) {
+        Column(modifier = Modifier.padding(6.dp)) {
             Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(value, style = MaterialTheme.typography.titleSmall)
+            Text(value, style = MaterialTheme.typography.labelLarge)
             if (sub.isNotEmpty()) {
                 Text(sub, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
@@ -1568,13 +1570,13 @@ private fun QuickSettingRow(label: String, value: String, unit: String, onClick:
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(vertical = 10.dp),
+            .padding(vertical = 3.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
-        Text(label, style = MaterialTheme.typography.bodyLarge)
+        Text(label, style = MaterialTheme.typography.bodyMedium)
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(value, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(value, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (unit.isNotEmpty()) {
                 Text(unit, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
