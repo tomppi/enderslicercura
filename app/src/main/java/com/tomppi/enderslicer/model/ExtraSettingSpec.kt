@@ -8,7 +8,8 @@ data class ExtraSettingSpec(
     val key: String,
     val label: String,
     val description: String = "",
-)
+    val defaultValue: String? = null,
+) { val display: String get() = defaultValue?.let { "$key (default: $it)" } ?: key }
 
 /**
  * Catalogs of every engine setting that can be added into the normal settings UI.
@@ -29,6 +30,7 @@ object AllSettingsCatalogs {
                         key = item.getString("key"),
                         label = item.getString("key"),
                         description = item.optString("desc", ""),
+                        defaultValue = item.optString("default", "").ifBlank { null },
                     ),
                 )
             }
@@ -50,23 +52,41 @@ object AllSettingsCatalogs {
     }.getOrDefault(emptyList())
 
     private fun collectCuraSettings(node: JSONObject, out: MutableMap<String, ExtraSettingSpec>) {
-        val settings = node.optJSONObject("settings") ?: return
-        val keys = settings.keys()
+        collectCuraMap(node.optJSONObject("settings"), out)
+        collectCuraMap(node.optJSONObject("children"), out)
+    }
+
+    private fun collectCuraMap(map: JSONObject?, out: MutableMap<String, ExtraSettingSpec>) {
+        if (map == null) return
+        val keys = map.keys()
         while (keys.hasNext()) {
             val key = keys.next()
-            val spec = settings.optJSONObject(key) ?: continue
+            val spec = map.optJSONObject(key) ?: continue
             val type = spec.optString("type", "")
-            if (type == "category") continue
-            val label = spec.optString("label", key).ifBlank { key }
+            if (type == "category") {
+                // Category containers nested inside settings/children.
+                collectCuraSettings(spec, out)
+                continue
+            }
+            if (spec.has("settings") || spec.has("children")) {
+                collectCuraSettings(spec, out)
+                continue
+            }
             if (key !in out) {
-                out[key] = ExtraSettingSpec(key, label, spec.optString("description", ""))
+                out[key] = ExtraSettingSpec(
+                    key,
+                    spec.optString("label", key).ifBlank { key },
+                    spec.optString("description", ""),
+                )
             }
         }
-        val children = node.optJSONObject("children") ?: return
-        val childKeys = children.keys()
-        while (childKeys.hasNext()) {
-            val child = children.optJSONObject(childKeys.next()) ?: continue
-            collectCuraSettings(child, out)
-        }
+    }
+
+    /** Recursively collects settings from a definition root (testable without Android). */
+    internal fun curaFromJson(root: JSONObject): List<ExtraSettingSpec> {
+        val out = linkedMapOf<String, ExtraSettingSpec>()
+        // The root exposes its categories inside "settings" itself.
+        collectCuraSettings(root, out)
+        return out.values.toList()
     }
 }

@@ -108,7 +108,7 @@ internal fun AllSettingsSheet(
                         },
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Text(spec.label + (added[spec.key]?.let { " = $it" } ?: ""))
+                        Text(spec.display + (added[spec.key]?.let { " = $it" } ?: ""))
                     }
                 }
             }

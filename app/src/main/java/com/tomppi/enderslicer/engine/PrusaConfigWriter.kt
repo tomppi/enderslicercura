@@ -13,6 +13,23 @@ import java.io.File
  * G-code and every slice option the user edited, with PrusaSlicer key names.
  */
 object PrusaConfigWriter {
+    /** Keys the app always writes; extras conflicting with these override them (last wins). */
+    val MANAGED_KEYS: Set<String> = setOf(
+        "layer_height", "first_layer_height", "perimeters", "top_solid_layers", "bottom_solid_layers",
+        "thin_walls", "external_perimeters_first", "fill_density", "fill_pattern", "skirts",
+        "skirt_height", "skirt_distance", "brim_width", "overhangs",
+        "first_layer_extrusion_width", "perimeter_extrusion_width", "external_perimeter_extrusion_width",
+        "infill_extrusion_width", "solid_infill_extrusion_width", "top_infill_extrusion_width",
+        "support_material", "support_material_threshold_angle", "support_material_pattern",
+        "support_material_interface", "support_material_interface_layers",
+        "print_speed", "external_perimeter_speed", "infill_speed", "first_layer_speed", "travel_speed",
+        "gcode_flavor", "start_gcode", "end_gcode", "filament_settings_id", "filament_diameter",
+        "filament_type", "temperature", "first_layer_temperature", "bed_temperature",
+        "first_layer_bed_temperature", "fan_speed", "extrusion_multiplier",
+        "printer_settings_id", "printer_model", "bed_shape", "nozzle_diameter", "extruder_count",
+        "use_firmware_retraction", "retraction_length", "retraction_speed",
+        "retraction_min_travel", "retract_lift",
+    )
 
     private fun iniEscape(value: String): String =
         value.replace("\\", "\\\\").replace("\n", "\\n").replace("\r", "")

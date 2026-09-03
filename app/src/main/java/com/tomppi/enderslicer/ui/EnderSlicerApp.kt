@@ -144,6 +144,7 @@ fun EnderSlicerApp(
     var meshLimitOpen by rememberSaveable { mutableStateOf(false) }
     var nonPlanarOpen by rememberSaveable { mutableStateOf(false) }
     var allSettingsOpen by rememberSaveable { mutableStateOf(false) }
+    var modelUiCollapsed by rememberSaveable { mutableStateOf(false) }
     var conicalOpen by rememberSaveable { mutableStateOf(false) }
     var viewerMode by rememberSaveable { mutableStateOf(ViewerMode.MODEL) }
     var selectedLayerIndex by rememberSaveable { mutableStateOf(0) }
@@ -393,8 +394,68 @@ fun EnderSlicerApp(
                     .padding(padding),
             ) {
                 val expandedLayout = maxWidth >= 600.dp
-                if (expandedLayout) {
-                    Row(modifier = Modifier.fillMaxSize()) {
+                Box(modifier = Modifier.fillMaxSize()) {
+                    if (expandedLayout) {
+                        if (!modelUiCollapsed) {
+                            Row(modifier = Modifier.fillMaxSize()) {
+                                ViewerPanel(
+                                    state = state,
+                                    viewerMode = viewerMode,
+                                    selectedLayerIndex = selectedLayerIndex,
+                                    modelOrientation = modelOrientation,
+                                    onOrientationChanged = { modelOrientation = it },
+                                    nonPlanarEnabled = nonPlanarSettings.enabled,
+                                    conicalEnabled = conicalSettings.enabled,
+                                    supportPaintUiOpen = supportPaintUiOpen,
+                                    onViewerMode = { viewerMode = it },
+                                    onLayerSelected = { selectedLayerIndex = it },
+                                    onEditLayerEvents = { layerEventsOpen = true },
+                                    onPaintHit = viewModel::paintAt,
+                                    onPaintMode = viewModel::setPaintMode,
+                                    onCloseSupportPaintUi = {
+                                        viewModel.setPaintMode(SupportPaintMode.NONE)
+                                        supportPaintUiOpen = false
+                                    },
+                                    modifier = Modifier
+                                        .weight(0.62f)
+                                        .fillMaxHeight(),
+                                )
+                                SessionPanel(
+                                    state = state,
+                                    sliceBlockedReason = effectiveSliceBlockedReason,
+                                    onOpenSettings = { selectedTab = AppTab.SETTINGS },
+                                    onSettings = viewModel::updateSettings,
+                                    onSlice = viewModel::sliceModel,
+                                    onExportGcode = { gcodeExportPicker.launch(GcodeExportName.suggest()) },
+                                    onTools = { modelToolsOpen = true },
+                                    modifier = Modifier
+                                        .weight(0.38f)
+                                        .fillMaxHeight(),
+                                )
+                            }
+                        } else {
+                            ViewerPanel(
+                                state = state,
+                                viewerMode = viewerMode,
+                                selectedLayerIndex = selectedLayerIndex,
+                                modelOrientation = modelOrientation,
+                                onOrientationChanged = { modelOrientation = it },
+                                nonPlanarEnabled = nonPlanarSettings.enabled,
+                                conicalEnabled = conicalSettings.enabled,
+                                supportPaintUiOpen = supportPaintUiOpen,
+                                onViewerMode = { viewerMode = it },
+                                onLayerSelected = { selectedLayerIndex = it },
+                                onEditLayerEvents = { layerEventsOpen = true },
+                                onPaintHit = viewModel::paintAt,
+                                onPaintMode = viewModel::setPaintMode,
+                                onCloseSupportPaintUi = {
+                                    viewModel.setPaintMode(SupportPaintMode.NONE)
+                                    supportPaintUiOpen = false
+                                },
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        }
+                    } else {
                         ViewerPanel(
                             state = state,
                             viewerMode = viewerMode,
@@ -413,44 +474,19 @@ fun EnderSlicerApp(
                                 viewModel.setPaintMode(SupportPaintMode.NONE)
                                 supportPaintUiOpen = false
                             },
-                            modifier = Modifier
-                                .weight(0.62f)
-                                .fillMaxHeight(),
-                        )
-                        SessionPanel(
-                            state = state,
-                            sliceBlockedReason = effectiveSliceBlockedReason,
-                            onOpenSettings = { selectedTab = AppTab.SETTINGS },
-                            onSettings = viewModel::updateSettings,
-                            onSlice = viewModel::sliceModel,
-                            onExportGcode = { gcodeExportPicker.launch(GcodeExportName.suggest()) },
-                            onTools = { modelToolsOpen = true },
-                            modifier = Modifier
-                                .weight(0.38f)
-                                .fillMaxHeight(),
+                            modifier = Modifier.fillMaxSize(),
                         )
                     }
-                } else {
-                    ViewerPanel(
-                        state = state,
-                        viewerMode = viewerMode,
-                        selectedLayerIndex = selectedLayerIndex,
-                        modelOrientation = modelOrientation,
-                        onOrientationChanged = { modelOrientation = it },
-                        nonPlanarEnabled = nonPlanarSettings.enabled,
-                        conicalEnabled = conicalSettings.enabled,
-                        supportPaintUiOpen = supportPaintUiOpen,
-                        onViewerMode = { viewerMode = it },
-                        onLayerSelected = { selectedLayerIndex = it },
-                        onEditLayerEvents = { layerEventsOpen = true },
-                        onPaintHit = viewModel::paintAt,
-                        onPaintMode = viewModel::setPaintMode,
-                        onCloseSupportPaintUi = {
-                            viewModel.setPaintMode(SupportPaintMode.NONE)
-                            supportPaintUiOpen = false
-                        },
-                        modifier = Modifier.fillMaxSize(),
-                    )
+                    if (expandedLayout) {
+                        OutlinedButton(
+                            onClick = { modelUiCollapsed = !modelUiCollapsed },
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(12.dp),
+                        ) {
+                            Text(if (modelUiCollapsed) "Show control panel" else "Hide control panel")
+                        }
+                    }
                 }
             }
             AppTab.SETTINGS -> if (allSettingsOpen) {
