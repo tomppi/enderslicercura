@@ -28,6 +28,13 @@ data class PrusaSliceSettings(
     val brimWidthMm: Double = 0.0,
     // Overhang control
     val overhangs: Boolean = true,
+    // Extrusion widths (null = PrusaSlicer automatic). Imported from PC profiles.
+    val firstLayerExtrusionWidthMm: Double? = null,
+    val perimeterExtrusionWidthMm: Double? = null,
+    val externalPerimeterExtrusionWidthMm: Double? = null,
+    val infillExtrusionWidthMm: Double? = null,
+    val solidInfillExtrusionWidthMm: Double? = null,
+    val topInfillExtrusionWidthMm: Double? = null,
     // Support material
     val supportMaterial: Boolean = false,
     val supportThresholdAngleDegrees: Double = 55.0,
@@ -68,6 +75,12 @@ data class PrusaSliceSettings(
         const val SKIRT_HEIGHT_LAYERS = "skirtHeightLayers"
         const val SKIRT_DISTANCE = "skirtDistanceMm"
         const val OVERHANGS = "overhangs"
+        const val FIRST_LAYER_EXTRUSION_WIDTH = "firstLayerExtrusionWidthMm"
+        const val PERIMETER_EXTRUSION_WIDTH = "perimeterExtrusionWidthMm"
+        const val EXTERNAL_PERIMETER_EXTRUSION_WIDTH = "externalPerimeterExtrusionWidthMm"
+        const val INFILL_EXTRUSION_WIDTH = "infillExtrusionWidthMm"
+        const val SOLID_INFILL_EXTRUSION_WIDTH = "solidInfillExtrusionWidthMm"
+        const val TOP_INFILL_EXTRUSION_WIDTH = "topInfillExtrusionWidthMm"
         const val BRIM_WIDTH = "brimWidthMm"
         const val SUPPORT_MATERIAL = "supportMaterial"
         const val SUPPORT_THRESHOLD_ANGLE = "supportThresholdAngleDegrees"

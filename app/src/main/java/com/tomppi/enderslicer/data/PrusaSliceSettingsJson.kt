@@ -22,6 +22,12 @@ object PrusaSliceSettingsJson {
             .put("skirtDistanceMm", settings.skirtDistanceMm)
             .put("brimWidthMm", settings.brimWidthMm)
             .put("overhangs", settings.overhangs)
+            .put("firstLayerExtrusionWidthMm", settings.firstLayerExtrusionWidthMm)
+            .put("perimeterExtrusionWidthMm", settings.perimeterExtrusionWidthMm)
+            .put("externalPerimeterExtrusionWidthMm", settings.externalPerimeterExtrusionWidthMm)
+            .put("infillExtrusionWidthMm", settings.infillExtrusionWidthMm)
+            .put("solidInfillExtrusionWidthMm", settings.solidInfillExtrusionWidthMm)
+            .put("topInfillExtrusionWidthMm", settings.topInfillExtrusionWidthMm)
             .put("supportMaterial", settings.supportMaterial)
             .put("supportThresholdAngleDegrees", settings.supportThresholdAngleDegrees)
             .put("supportPattern", settings.supportPattern)
@@ -63,6 +69,12 @@ object PrusaSliceSettingsJson {
             skirtDistanceMm = json.optDouble("skirtDistanceMm", base.skirtDistanceMm),
             brimWidthMm = json.optDouble("brimWidthMm", base.brimWidthMm),
             overhangs = json.optBoolean("overhangs", base.overhangs),
+            firstLayerExtrusionWidthMm = optNullable(json, "firstLayerExtrusionWidthMm"),
+            perimeterExtrusionWidthMm = optNullable(json, "perimeterExtrusionWidthMm"),
+            externalPerimeterExtrusionWidthMm = optNullable(json, "externalPerimeterExtrusionWidthMm"),
+            infillExtrusionWidthMm = optNullable(json, "infillExtrusionWidthMm"),
+            solidInfillExtrusionWidthMm = optNullable(json, "solidInfillExtrusionWidthMm"),
+            topInfillExtrusionWidthMm = optNullable(json, "topInfillExtrusionWidthMm"),
             supportMaterial = json.optBoolean("supportMaterial", base.supportMaterial),
             supportThresholdAngleDegrees = json.optDouble("supportThresholdAngleDegrees", base.supportThresholdAngleDegrees),
             supportPattern = json.optString("supportPattern", base.supportPattern),
@@ -86,4 +98,7 @@ object PrusaSliceSettingsJson {
             extrusionMultiplierPercent = json.optDouble("extrusionMultiplierPercent", base.extrusionMultiplierPercent),
         )
     }.getOrNull()
+
+    private fun optNullable(json: JSONObject, key: String): Double? =
+        if (json.has(key) && !json.isNull(key)) json.optDouble(key, Double.NaN).takeIf { it.isFinite() } else null
 }

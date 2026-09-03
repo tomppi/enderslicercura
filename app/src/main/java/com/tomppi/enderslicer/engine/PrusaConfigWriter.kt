@@ -55,6 +55,12 @@ object PrusaConfigWriter {
         out.appendLine(line("skirt_height", settings.skirtHeightLayers.toString()))
         out.appendLine(line("skirt_distance", settings.skirtDistanceMm.prusaNumber()))
         out.appendLine(line("overhangs", settings.overhangs.prusaBool()))
+        settings.firstLayerExtrusionWidthMm?.let { out.appendLine(line("first_layer_extrusion_width", it.prusaNumber())) }
+        settings.perimeterExtrusionWidthMm?.let { out.appendLine(line("perimeter_extrusion_width", it.prusaNumber())) }
+        settings.externalPerimeterExtrusionWidthMm?.let { out.appendLine(line("external_perimeter_extrusion_width", it.prusaNumber())) }
+        settings.infillExtrusionWidthMm?.let { out.appendLine(line("infill_extrusion_width", it.prusaNumber())) }
+        settings.solidInfillExtrusionWidthMm?.let { out.appendLine(line("solid_infill_extrusion_width", it.prusaNumber())) }
+        settings.topInfillExtrusionWidthMm?.let { out.appendLine(line("top_infill_extrusion_width", it.prusaNumber())) }
         out.appendLine(line("brim_width", settings.brimWidthMm.prusaNumber()))
         out.appendLine(line("support_material", settings.supportMaterial.prusaBool()))
         out.appendLine(line("support_material_threshold_angle", settings.supportThresholdAngleDegrees.prusaNumber()))
