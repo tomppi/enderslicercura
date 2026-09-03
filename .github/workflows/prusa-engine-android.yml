@@ -74,3 +74,33 @@ jobs:
               print('SNAPSHOT-FAILED:', type(exc).__name__, str(exc)[:300])
               raise
           PY
+      - name: Publish stripped engine into the repo
+        run: |
+          set -euo pipefail
+          PREFIX_DIR="prusa-build"
+          BIN="$PREFIX_DIR/prusa-build/build/src/prusa-slicer"
+          test -s "$BIN"
+          mkdir -p .build-artifacts/prusa-engine
+          STRIP="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip"
+          "$STRIP" -s "$BIN" -o .build-artifacts/prusa-engine/prusa-slicer
+          ( cd "$PREFIX_DIR/prusa-build/PrusaSlicer" && zip -qr "$OLDPWD/.build-artifacts/prusa-engine/resources.zip" resources )
+          python3 - <<'PY'
+          import base64, json, os, urllib.request
+          for name in ('prusa-slicer', 'resources.zip'):
+              path = '.build-artifacts/prusa-engine/' + name
+              data = open(path, 'rb').read()
+              print(name, len(data), 'bytes')
+              payload = json.dumps({
+                'message': 'ci: prusa engine artifact refresh (' + name + ')',
+                'content': base64.b64encode(data).decode(),
+                'branch': 'feature/prusa-engine-android',
+              }).encode()
+              req = urllib.request.Request(
+                'https://api.github.com/repos/%s/contents/%s' % (os.environ['GITHUB_REPOSITORY'], path),
+                data=payload, method='PUT',
+                headers={'Authorization': 'Bearer ' + os.environ['GITHUB_TOKEN'],
+                         'Accept': 'application/vnd.github+json',
+                         'Content-Type': 'application/json'})
+              with urllib.request.urlopen(req) as resp:
+                  print(resp.status, path)
+          PY
