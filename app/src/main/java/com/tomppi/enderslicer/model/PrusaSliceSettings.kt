@@ -35,6 +35,8 @@ data class PrusaSliceSettings(
     val infillExtrusionWidthMm: Double? = null,
     val solidInfillExtrusionWidthMm: Double? = null,
     val topInfillExtrusionWidthMm: Double? = null,
+    /** Extra PrusaSlicer keys added from the all-settings catalog; written verbatim. */
+    val extraKeys: Map<String, String> = emptyMap(),
     // Support material
     val supportMaterial: Boolean = false,
     val supportThresholdAngleDegrees: Double = 55.0,

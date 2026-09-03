@@ -82,6 +82,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.tomppi.enderslicer.conical.ConicalSettingsStore
 import com.tomppi.enderslicer.mesh.MeshTriangleLimits
+import com.tomppi.enderslicer.model.AllSettingsCatalogs
 import com.tomppi.enderslicer.model.SlicerSettings
 import com.tomppi.enderslicer.model.withSettings
 import com.tomppi.enderslicer.nonplanar.NonPlanarSettingsStore
@@ -142,6 +143,7 @@ fun EnderSlicerApp(
     var layerEventsOpen by rememberSaveable { mutableStateOf(false) }
     var meshLimitOpen by rememberSaveable { mutableStateOf(false) }
     var nonPlanarOpen by rememberSaveable { mutableStateOf(false) }
+    var allSettingsOpen by rememberSaveable { mutableStateOf(false) }
     var conicalOpen by rememberSaveable { mutableStateOf(false) }
     var viewerMode by rememberSaveable { mutableStateOf(ViewerMode.MODEL) }
     var selectedLayerIndex by rememberSaveable { mutableStateOf(0) }
@@ -451,7 +453,37 @@ fun EnderSlicerApp(
                     )
                 }
             }
-            AppTab.SETTINGS -> Column(
+            AppTab.SETTINGS -> if (allSettingsOpen) {
+                val catalogSpecs = remember(engine) {
+                    if (engine == SlicerEngine.PRUSA) {
+                        AllSettingsCatalogs.prusa(context.assets)
+                    } else {
+                        AllSettingsCatalogs.cura(context.assets)
+                    }
+                }
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(padding),
+                ) {
+                    AllSettingsSheet(
+                        engineLabel = engine.label,
+                        specs = catalogSpecs,
+                        added = if (engine == SlicerEngine.PRUSA) state.extraPrusaSettings else state.extraCuraSettings,
+                        onAdd = { key, value -> viewModel.setExtraSetting(engine, key, value) },
+                        onRemove = { key -> viewModel.removeExtraSetting(engine, key) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                    )
+                    OutlinedButton(
+                        onClick = { allSettingsOpen = false },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Back to settings")
+                    }
+                }
+            } else Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(padding),
@@ -466,6 +498,7 @@ fun EnderSlicerApp(
                         state = state,
                         onSettings = viewModel::updatePrusaSettings,
                         onImportConfig = { prusaConfigImportPicker.launch(arrayOf("text/plain", "application/octet-stream", "*/*")) },
+                        onOpenAllSettings = { allSettingsOpen = true },
                         modifier = Modifier
                             .fillMaxWidth()
                             .weight(1f),
@@ -475,6 +508,7 @@ fun EnderSlicerApp(
                         state = state,
                         onSettings = viewModel::updateSettings,
                         onResetOverrides = viewModel::resetAllSettingOverrides,
+                        onOpenAllSettings = { allSettingsOpen = true },
                         modifier = Modifier
                             .fillMaxWidth()
                             .weight(1f),

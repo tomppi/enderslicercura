@@ -93,6 +93,7 @@ class CuraEngineRunner(private val context: Context) {
         profile: CuraEngineProfile? = null,
         layerEvents: List<LayerEvent> = emptyList(),
         supportPaint: SupportPaintState = SupportPaintState(),
+        extraSettings: Map<String, String> = emptyMap(),
     ): SliceResult = runInterruptible(Dispatchers.IO) {
         val smartInfillSnapshot = SmartInfillRuntime.snapshot()
         SmartInfillRuntime.withSnapshot(smartInfillSnapshot) {
@@ -106,6 +107,7 @@ class CuraEngineRunner(private val context: Context) {
                 layerEvents,
                 smartInfillSnapshot,
                 supportPaint,
+                extraSettings,
             )
         }
     }
@@ -120,6 +122,7 @@ class CuraEngineRunner(private val context: Context) {
         layerEvents: List<LayerEvent>,
         smartInfillSnapshot: SmartInfillSliceSnapshot?,
         supportPaint: SupportPaintState,
+        extraSettings: Map<String, String>,
     ): SliceResult {
         val nonPlanarRequestSnapshot = NonPlanarRuntime.snapshot()
         val conicalRequestSnapshot = ConicalRuntime.snapshot()
@@ -248,6 +251,7 @@ class CuraEngineRunner(private val context: Context) {
                     smartInfillModifiers = smartInfillModifiers,
                     adaptiveWallModifiers = adaptiveWallModifiers,
                     supportPaintModifiers = supportPaintModifiers,
+                    extraSettings = extraSettings,
                 )
             }
             appendCommandLog(log, definitions, resolved, workspace.resolvedSettings, command)

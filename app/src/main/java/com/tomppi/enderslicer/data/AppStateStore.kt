@@ -214,6 +214,36 @@ class AppStateStore(context: Context) {
         return PrusaSliceSettingsJson.deserialize(encoded) ?: PrusaSliceSettings()
     }
 
+    fun saveExtraCuraSettings(values: Map<String, String>): Boolean =
+        preferences.edit().putString(KEY_EXTRA_CURA, mapToJson(values)).commit()
+
+    fun restoreExtraCuraSettings(): Map<String, String> =
+        jsonToMap(preferences.getString(KEY_EXTRA_CURA, null))
+
+    fun saveExtraPrusaSettings(values: Map<String, String>): Boolean =
+        preferences.edit().putString(KEY_EXTRA_PRUSA, mapToJson(values)).commit()
+
+    fun restoreExtraPrusaSettings(): Map<String, String> =
+        jsonToMap(preferences.getString(KEY_EXTRA_PRUSA, null))
+
+    private fun mapToJson(values: Map<String, String>): String {
+        val json = JSONObject()
+        values.toSortedMap().forEach { (key, value) -> json.put(key, value) }
+        return json.toString()
+    }
+
+    private fun jsonToMap(encoded: String?): Map<String, String> {
+        if (encoded.isNullOrBlank()) return emptyMap()
+        val json = runCatching { JSONObject(encoded) }.getOrNull() ?: return emptyMap()
+        val result = linkedMapOf<String, String>()
+        val keys = json.keys()
+        while (keys.hasNext()) {
+            val key = keys.next()
+            result[key] = json.optString(key, "")
+        }
+        return result
+    }
+
     fun saveSettings(settings: SlicerSettings): Boolean {
         val values = SlicerSettingsJson.serialize(settings)
         val overrides = JSONArray()
@@ -292,6 +322,8 @@ class AppStateStore(context: Context) {
         private const val KEY_IMPORT_NAME = "import-name"
         private const val KEY_SETTINGS = "settings-json"
         private const val KEY_PRUSA_SETTINGS = "prusa-settings-json"
+        private const val KEY_EXTRA_CURA = "extra-cura-settings-json"
+        private const val KEY_EXTRA_PRUSA = "extra-prusa-settings-json"
         private const val KEY_SNAPSHOT_BASELINE = "snapshot-baseline-json"
         private const val KEY_OVERRIDES_JSON = "overrides"
         private const val MAX_CURA_IMPORT_BYTES = 128L * 1024L * 1024L

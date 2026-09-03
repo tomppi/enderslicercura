@@ -94,6 +94,11 @@ object PrusaConfigWriter {
         out.appendLine(line("retraction_speed", settings.retractionSpeedMmPerSecond.prusaNumber()))
         out.appendLine(line("retraction_min_travel", settings.retractionMinTravelMm.prusaNumber()))
         out.appendLine(line("retract_lift", settings.retractLiftMm.prusaNumber()))
+        settings.extraKeys.toSortedMap().forEach { (key, value) ->
+            if (key.matches(Regex("[a-z][a-z0-9_]*"))) {
+                out.appendLine(line(key, value))
+            }
+        }
 
         return out.toString()
     }

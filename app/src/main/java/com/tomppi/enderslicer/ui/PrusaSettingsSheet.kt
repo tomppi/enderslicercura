@@ -28,6 +28,7 @@ internal fun PrusaSettingsSheet(
     state: MainUiState,
     onSettings: (String, (PrusaSliceSettings) -> PrusaSliceSettings) -> Unit,
     onImportConfig: () -> Unit = {},
+    onOpenAllSettings: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val settings = state.prusaSettings
@@ -48,6 +49,12 @@ internal fun PrusaSettingsSheet(
             modifier = Modifier.fillMaxWidth(),
         ) {
             Text("Import settings from PrusaSlicer (.ini)")
+        }
+        OutlinedButton(
+            onClick = onOpenAllSettings,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("Add more settings (all settings)")
         }
         OutlinedButton(
             onClick = {

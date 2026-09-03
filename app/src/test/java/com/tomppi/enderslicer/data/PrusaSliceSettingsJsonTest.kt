@@ -52,6 +52,14 @@ class PrusaSliceSettingsJsonTest {
     }
 
     @Test
+    fun extraKeysRoundTrip() {
+        val settings = PrusaSliceSettings().copy(extraKeys = mapOf("seam_position" to "nearest", "top_solid_infill_flow_ratio" to "0.9"))
+        val restored = PrusaSliceSettingsJson.deserialize(PrusaSliceSettingsJson.serialize(settings))
+        assertNotNull(restored)
+        assertEquals(settings.extraKeys, restored!!.extraKeys)
+    }
+
+    @Test
     fun unknownKeysFallBackToDefaults() {
         val restored = PrusaSliceSettingsJson.deserialize("""{"perimeters": 5}""")
         assertNotNull(restored)

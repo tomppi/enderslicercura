@@ -150,6 +150,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             engineStatus = activeEngineStatus(),
             engineAvailable = activeEngineAvailable(),
             prusaSettings = stateStore.restorePrusaSettings(),
+            extraPrusaSettings = stateStore.restoreExtraPrusaSettings(),
+            extraCuraSettings = stateStore.restoreExtraCuraSettings(),
             statusMessage = "Restoring saved configuration…",
             isBusy = true,
         ),
@@ -460,6 +462,41 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun setExtraSetting(engine: SlicerEngine, key: String, value: String) {
+        val normalized = key.trim()
+        if (normalized !in listOf("cura", "prusa")) return
+        if (normalized.isEmpty() || !normalized.matches(Regex("[a-zA-Z][a-zA-Z0-9_]*"))) return
+        _uiState.update { state ->
+            if (engine == SlicerEngine.PRUSA) {
+                state.copy(extraPrusaSettings = state.extraPrusaSettings + (normalized to value))
+            } else {
+                state.copy(extraCuraSettings = state.extraCuraSettings + (normalized to value))
+            }
+        }
+        persistExtraSettings(engine)
+    }
+
+    fun removeExtraSetting(engine: SlicerEngine, key: String) {
+        _uiState.update { state ->
+            if (engine == SlicerEngine.PRUSA) {
+                state.copy(extraPrusaSettings = state.extraPrusaSettings - key)
+            } else {
+                state.copy(extraCuraSettings = state.extraCuraSettings - key)
+            }
+        }
+        persistExtraSettings(engine)
+    }
+
+    private fun persistExtraSettings(engine: SlicerEngine) {
+        viewModelScope.launch(Dispatchers.IO) {
+            if (engine == SlicerEngine.PRUSA) {
+                stateStore.saveExtraPrusaSettings(_uiState.value.extraPrusaSettings)
+            } else {
+                stateStore.saveExtraCuraSettings(_uiState.value.extraCuraSettings)
+            }
+        }
+    }
+
     fun updatePrusaSettings(
         key: String,
         transform: (PrusaSliceSettings) -> PrusaSliceSettings,
@@ -719,7 +756,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             val prusaResult = prusaEngine.slice(
                                 modelFile = transformedFile,
                                 printer = snapshot.printer,
-                                settings = snapshot.prusaSettings,
+                                settings = snapshot.prusaSettings.copy(extraKeys = snapshot.extraPrusaSettings),
                                 machineSettings = snapshot.settings,
                                 startGcode = snapshot.startGcode,
                                 endGcode = snapshot.endGcode,
@@ -759,6 +796,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 profile = snapshot.engineProfile,
                                 layerEvents = snapshot.layerEvents.filter { it.source == LayerEventSource.USER },
                                 supportPaint = snapshot.supportPaint,
+                                extraSettings = snapshot.extraCuraSettings,
                             )
                             EngineSliceOutcome(
                                 artifactId = curaResult.artifactId,

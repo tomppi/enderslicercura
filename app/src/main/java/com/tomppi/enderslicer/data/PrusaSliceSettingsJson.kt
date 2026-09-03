@@ -28,6 +28,7 @@ object PrusaSliceSettingsJson {
             .put("infillExtrusionWidthMm", settings.infillExtrusionWidthMm)
             .put("solidInfillExtrusionWidthMm", settings.solidInfillExtrusionWidthMm)
             .put("topInfillExtrusionWidthMm", settings.topInfillExtrusionWidthMm)
+            .put("extraKeys", JSONObject(settings.extraKeys))
             .put("supportMaterial", settings.supportMaterial)
             .put("supportThresholdAngleDegrees", settings.supportThresholdAngleDegrees)
             .put("supportPattern", settings.supportPattern)
@@ -75,6 +76,7 @@ object PrusaSliceSettingsJson {
             infillExtrusionWidthMm = optNullable(json, "infillExtrusionWidthMm"),
             solidInfillExtrusionWidthMm = optNullable(json, "solidInfillExtrusionWidthMm"),
             topInfillExtrusionWidthMm = optNullable(json, "topInfillExtrusionWidthMm"),
+            extraKeys = parseExtraKeys(json.optJSONObject("extraKeys")),
             supportMaterial = json.optBoolean("supportMaterial", base.supportMaterial),
             supportThresholdAngleDegrees = json.optDouble("supportThresholdAngleDegrees", base.supportThresholdAngleDegrees),
             supportPattern = json.optString("supportPattern", base.supportPattern),
@@ -101,4 +103,15 @@ object PrusaSliceSettingsJson {
 
     private fun optNullable(json: JSONObject, key: String): Double? =
         if (json.has(key) && !json.isNull(key)) json.optDouble(key, Double.NaN).takeIf { it.isFinite() } else null
+
+    private fun parseExtraKeys(json: JSONObject?): Map<String, String> {
+        if (json == null) return emptyMap()
+        val result = linkedMapOf<String, String>()
+        val keys = json.keys()
+        while (keys.hasNext()) {
+            val key = keys.next()
+            result[key] = json.optString(key, "")
+        }
+        return result
+    }
 }

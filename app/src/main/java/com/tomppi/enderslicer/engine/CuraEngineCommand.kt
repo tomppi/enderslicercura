@@ -54,6 +54,7 @@ object CuraEngineCommand {
         smartInfillModifiers: List<SmartInfillModifier> = emptyList(),
         adaptiveWallModifiers: List<AdaptiveWallModifier> = emptyList(),
         supportPaintModifiers: List<SupportPaintModifier> = emptyList(),
+        extraSettings: Map<String, String> = emptyMap(),
         threadCount: Int = recommendedThreadCount(),
     ): List<String> {
         require(profile == null) {
@@ -165,6 +166,7 @@ object CuraEngineCommand {
                 setting("bridge_settings_enabled", true)
             }
             applySmartInfillWidths()
+            extraSettings.toSortedMap().forEach { (key, value) -> setting(key, value) }
         }
 
         fun applySmartInfillRegion(densityPercent: Double, curaPattern: String) {

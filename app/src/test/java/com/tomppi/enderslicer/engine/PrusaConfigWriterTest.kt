@@ -117,6 +117,14 @@ class PrusaConfigWriterTest {
     }
 
     @Test
+    fun writesExtraKeysFromAllSettingsCatalog() {
+        val withExtras = settings.copy(extraKeys = mapOf("top_solid_infill_flow_ratio" to "0.9", "seam_position" to "nearest"))
+        val config = PrusaConfigWriter.render(withExtras, printer, "G28", "M84")
+        assertEquals("0.9", PrusaConfigWriter.valueOf(config, "top_solid_infill_flow_ratio"))
+        assertEquals("nearest", PrusaConfigWriter.valueOf(config, "seam_position"))
+    }
+
+    @Test
     fun originCenteredPrinterUsesCenteredBedShape() {
         val centered = printer.copy(originAtCenter = true)
         val config = PrusaConfigWriter.render(settings, centered, "G28", "M84")

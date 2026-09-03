@@ -37,6 +37,7 @@ internal fun CategorizedSettingsSheet(
     state: MainUiState,
     onSettings: (String, (SlicerSettings) -> SlicerSettings) -> Unit,
     onResetOverrides: () -> Unit,
+    onOpenAllSettings: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val settings = state.settings
@@ -48,6 +49,12 @@ internal fun CategorizedSettingsSheet(
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Text("Print settings", style = MaterialTheme.typography.headlineSmall)
+        OutlinedButton(
+            onClick = onOpenAllSettings,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("Add more settings (all settings)")
+        }
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(state.profileName, style = MaterialTheme.typography.titleMedium)

@@ -17,6 +17,8 @@ data class MainUiState(
     val printer: PrinterDefinition,
     val settings: SlicerSettings = SlicerSettings(),
     val prusaSettings: PrusaSliceSettings = PrusaSliceSettings(),
+    val extraCuraSettings: Map<String, String> = emptyMap(),
+    val extraPrusaSettings: Map<String, String> = emptyMap(),
     val mesh: StlMesh? = null,
     val modelPath: String? = null,
     val modelPlacement: ModelPlacement? = null,
