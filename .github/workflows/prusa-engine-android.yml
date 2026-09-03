@@ -65,7 +65,12 @@ jobs:
             'https://api.github.com/repos/%s/contents/%s' % (os.environ['GITHUB_REPOSITORY'], name),
             data=payload, method='PUT',
             headers={'Authorization': 'Bearer ' + os.environ['GITHUB_TOKEN'],
-                     'Accept': 'application/vnd.github+json'})
-          with urllib.request.urlopen(req) as resp:
-              print(resp.status, name)
+                     'Accept': 'application/vnd.github+json',
+                     'Content-Type': 'application/json'})
+          try:
+              with urllib.request.urlopen(req) as resp:
+                  print(resp.status, name)
+          except Exception as exc:
+              print('SNAPSHOT-FAILED:', type(exc).__name__, str(exc)[:300])
+              raise
           PY
