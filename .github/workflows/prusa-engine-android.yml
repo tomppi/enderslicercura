@@ -92,9 +92,9 @@ jobs:
           mkdir -p "$DEST"
           STRIP=""
           for CAND in \
-            "${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip" \
-            "${ANDROID_SDK_ROOT}/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip" \
-            "${ANDROID_HOME}/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip"; do
+            "${ANDROID_NDK_HOME:-}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip" \
+            "${ANDROID_SDK_ROOT:-}/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip" \
+            "${ANDROID_HOME:-}/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip"; do
             if [ -n "$CAND" ] && [ -x "$CAND" ]; then STRIP="$CAND"; break; fi
           done
           [ -x "$STRIP" ] || { echo "llvm-strip not found for the engine binary"; exit 1; }
