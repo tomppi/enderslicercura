@@ -84,13 +84,15 @@ jobs:
       - name: Publish stripped engine into the repo
         run: |
           set -euo pipefail
-          PREFIX_DIR="prusa-build"
-          BIN="$PREFIX_DIR/prusa-build/build/src/prusa-slicer"
+          DEST="${GITHUB_WORKSPACE}/.build-artifacts/prusa-engine"
+          BIN="${GITHUB_WORKSPACE}/prusa-build/out/prusa-slicer"
+          RESDIR="${GITHUB_WORKSPACE}/prusa-build/out/resources"
           test -s "$BIN"
-          mkdir -p .build-artifacts/prusa-engine
-          STRIP="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip"
-          "$STRIP" -s "$BIN" -o .build-artifacts/prusa-engine/prusa-slicer
-          ( cd "$PREFIX_DIR/prusa-build/PrusaSlicer" && zip -qr "$OLDPWD/.build-artifacts/prusa-engine/resources.zip" resources )
+          test -f "$RESDIR/profiles/Anker.ini"
+          mkdir -p "$DEST"
+          STRIP="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip"
+          "$STRIP" -s "$BIN" -o "$DEST/prusa-slicer"
+          ( cd "${GITHUB_WORKSPACE}/prusa-build/out" && zip -qr "$DEST/resources.zip" resources )
           python3 - <<'PY'
           import base64, json, os, urllib.request
           for name in ('prusa-slicer', 'resources.zip'):
