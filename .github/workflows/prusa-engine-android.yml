@@ -47,6 +47,13 @@ jobs:
           path: |
             prusa-build/out/**
             prusa-android-build.log
+      - name: Upload PrusaSlicer build log only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prusa-build-log
+          if-no-files-found: ignore
+          path: prusa-android-build.log
       - name: Save build log into repo on failure
         if: failure()
         run: |

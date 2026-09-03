@@ -194,6 +194,8 @@ BIN=$PWD/prusa-build/build/build.ninja
 sed -i 's/ -lstdc++ /  /g' $BIN
 sed -i 's/ -lz / -Wl,-Bstatic -lz -Wl,-Bdynamic /g' $BIN
 sed -i "s#${PWD}/prusa-build/prefix/lib/libz.so##g" $BIN
+# Ninja considers the link output up to date even though the link rule changed; force a relink.
+rm -f $PWD/prusa-build/build/src/prusa-slicer
 ninja -C $PWD/prusa-build/build prusa-slicer -j8
 
 mkdir -p $OUT/src $OUT/resources
@@ -201,6 +203,10 @@ cp $PWD/prusa-build/build/src/prusa-slicer $OUT/
 cp -rL $SRC/resources $OUT/resources
 echo "== dynamic dependency verification =="
 readelf -d $OUT/prusa-slicer | grep NEEDED | tee $OUT/needed.txt || echo "no dynamic dependencies beyond the interpreter"
-! grep -qE 'libc\+\+_shared|libz\.so|libz3\.so|libTK' $OUT/needed.txt || { echo "FATAL: engine binary needs a library that will not exist on Android"; exit 1; }
+if grep -qE 'libc\+\+_shared|libz\.so|libz3\.so|libTK' $OUT/needed.txt; then
+  echo "FATAL: engine binary needs a library that will not exist on Android:"
+  cat $OUT/needed.txt
+  exit 1
+fi
 echo PRUSA-ENGINE-READY
 file $OUT/prusa-slicer | head -1
