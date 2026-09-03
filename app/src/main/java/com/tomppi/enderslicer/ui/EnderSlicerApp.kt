@@ -395,50 +395,52 @@ fun EnderSlicerApp(
             ) {
                 val expandedLayout = maxWidth >= 600.dp
                 if (expandedLayout) {
-                    Column(modifier = Modifier.fillMaxSize()) {
-                        // Collapsible control bar: sits ABOVE the full-screen model view.
+                    // Full-screen model view with the original session panel as a
+                    // transparent overlay on the right; the panel can be hidden.
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        ViewerPanel(
+                            state = state,
+                            viewerMode = viewerMode,
+                            selectedLayerIndex = selectedLayerIndex,
+                            modelOrientation = modelOrientation,
+                            onOrientationChanged = { modelOrientation = it },
+                            nonPlanarEnabled = nonPlanarSettings.enabled,
+                            conicalEnabled = conicalSettings.enabled,
+                            supportPaintUiOpen = supportPaintUiOpen,
+                            onViewerMode = { viewerMode = it },
+                            onLayerSelected = { selectedLayerIndex = it },
+                            onEditLayerEvents = { layerEventsOpen = true },
+                            onPaintHit = viewModel::paintAt,
+                            onPaintMode = viewModel::setPaintMode,
+                            onCloseSupportPaintUi = {
+                                viewModel.setPaintMode(SupportPaintMode.NONE)
+                                supportPaintUiOpen = false
+                            },
+                            modifier = Modifier.fillMaxSize(),
+                        )
                         if (!modelUiCollapsed) {
-                            ControlBar(
+                            SessionPanel(
                                 state = state,
                                 sliceBlockedReason = effectiveSliceBlockedReason,
+                                onOpenSettings = { selectedTab = AppTab.SETTINGS },
+                                onSettings = viewModel::updateSettings,
                                 onSlice = viewModel::sliceModel,
                                 onExportGcode = { gcodeExportPicker.launch(GcodeExportName.suggest()) },
                                 onTools = { modelToolsOpen = true },
-                                onSettings = { selectedTab = AppTab.SETTINGS },
                                 onCollapse = { modelUiCollapsed = true },
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier
+                                    .align(Alignment.CenterEnd)
+                                    .fillMaxHeight()
+                                    .widthIn(min = 300.dp, max = 460.dp),
                             )
-                        }
-                        Box(modifier = Modifier.fillMaxSize().weight(1f)) {
-                            ViewerPanel(
-                                state = state,
-                                viewerMode = viewerMode,
-                                selectedLayerIndex = selectedLayerIndex,
-                                modelOrientation = modelOrientation,
-                                onOrientationChanged = { modelOrientation = it },
-                                nonPlanarEnabled = nonPlanarSettings.enabled,
-                                conicalEnabled = conicalSettings.enabled,
-                                supportPaintUiOpen = supportPaintUiOpen,
-                                onViewerMode = { viewerMode = it },
-                                onLayerSelected = { selectedLayerIndex = it },
-                                onEditLayerEvents = { layerEventsOpen = true },
-                                onPaintHit = viewModel::paintAt,
-                                onPaintMode = viewModel::setPaintMode,
-                                onCloseSupportPaintUi = {
-                                    viewModel.setPaintMode(SupportPaintMode.NONE)
-                                    supportPaintUiOpen = false
-                                },
-                                modifier = Modifier.fillMaxSize(),
-                            )
-                            if (modelUiCollapsed) {
-                                OutlinedButton(
-                                    onClick = { modelUiCollapsed = false },
-                                    modifier = Modifier
-                                        .align(Alignment.BottomEnd)
-                                        .padding(12.dp),
-                                ) {
-                                    Text("Show controls")
-                                }
+                        } else {
+                            OutlinedButton(
+                                onClick = { modelUiCollapsed = false },
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .padding(12.dp),
+                            ) {
+                                Text("Menu")
                             }
                         }
                     }
@@ -1388,44 +1390,6 @@ private fun ViewerPanel(
  * the viewer instead of below it. See docs/ux-redesign/mockups/08-foldable.png.
  */
 @Composable
-private fun ControlBar(
-    state: MainUiState,
-    sliceBlockedReason: String?,
-    onSlice: () -> Unit,
-    onExportGcode: () -> Unit,
-    onTools: () -> Unit,
-    onSettings: () -> Unit,
-    onCollapse: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Card(modifier = modifier) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text("Print session", style = MaterialTheme.typography.titleMedium)
-            state.layerPreview?.let { preview ->
-                SessionChip(preview.layers.size.toString() + " layers")
-            }
-            state.estimatedPrintSeconds?.takeIf { state.hasCurrentGcode() }?.let { seconds ->
-                SessionChip(formatPrintTime(seconds))
-            }
-            sliceBlockedReason?.let { reason ->
-                Text(reason, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-            }
-            OutlinedButton(onClick = onSettings) { Text("Settings") }
-            OutlinedButton(onClick = onTools) { Text("Tools") }
-            OutlinedButton(onClick = onExportGcode) { Text("Export") }
-            OutlinedButton(onClick = onSlice, enabled = sliceBlockedReason == null) { Text("Slice") }
-            OutlinedButton(onClick = onCollapse) { Text("Hide controls") }
-        }
-    }
-}
-
-@Composable
 private fun SessionPanel(
     state: MainUiState,
     sliceBlockedReason: String?,
@@ -1434,6 +1398,7 @@ private fun SessionPanel(
     onSlice: () -> Unit,
     onExportGcode: () -> Unit,
     onTools: () -> Unit,
+    onCollapse: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val gcodeAvailable = state.hasCurrentGcode()
@@ -1441,7 +1406,7 @@ private fun SessionPanel(
     Column(
         modifier = modifier
             .verticalScroll(rememberScrollState())
-            .padding(12.dp),
+            .padding(vertical = 12.dp, horizontal = 4.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Card(modifier = Modifier.fillMaxWidth()) {
@@ -1452,10 +1417,13 @@ private fun SessionPanel(
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
                     Text("Print session", style = MaterialTheme.typography.titleMedium)
-                    if (gcodeAvailable) {
-                        SessionChip("Ready", MaterialTheme.colorScheme.primary)
-                    } else {
-                        SessionChip("Not sliced", MaterialTheme.colorScheme.onSurfaceVariant)
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        if (gcodeAvailable) {
+                            SessionChip("Ready", MaterialTheme.colorScheme.primary)
+                        } else {
+                            SessionChip("Not sliced", MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        OutlinedButton(onClick = onCollapse) { Text("Hide") }
                     }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
