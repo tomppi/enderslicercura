@@ -32,6 +32,8 @@ data class MainUiState(
     val sliceResultId: String? = null,
     val gcodePath: String? = null,
     val baseGcodePath: String? = null,
+    /** Engine that produced the current slice result; gates engine-specific features. */
+    val sliceEngine: SlicerEngine? = null,
     val layerPreview: GcodeLayerPreview? = null,
     val layerEvents: List<LayerEvent> = emptyList(),
     val estimatedPrintSeconds: Int? = null,

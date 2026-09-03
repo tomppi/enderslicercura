@@ -224,6 +224,7 @@ data class SlicerSettings(
         const val GCODE_FLAVOR = "gcodeFlavor"
         const val NOZZLE_SIZE = "nozzleSizeMm"
         const val FILAMENT_DIAMETER = "filamentDiameterMm"
+        const val ENABLED_EXTRUDER_COUNT = "enabledExtruderCount"
         const val PRINTHEAD_X_MIN = "printheadXMinMm"
         const val PRINTHEAD_Y_MIN = "printheadYMinMm"
         const val PRINTHEAD_X_MAX = "printheadXMaxMm"

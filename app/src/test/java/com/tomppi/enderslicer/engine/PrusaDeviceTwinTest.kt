@@ -3,6 +3,7 @@ package com.tomppi.enderslicer.engine
 import com.tomppi.enderslicer.model.PrinterDefinition
 import com.tomppi.enderslicer.model.PrusaSliceSettings
 import java.io.File
+import org.junit.Assume.assumeTrue
 import org.junit.Test
 
 /** Builds the PC-twin config from the uploaded device gcode using the app writer. */
@@ -10,6 +11,7 @@ class PrusaDeviceTwinTest {
     @Test
     fun buildDeviceTwin() {
         val deviceGcode = File("C:/Users/FREDRIK/Documents/PrintShare/print_20260903_180857_770.gcode")
+        assumeTrue("device gcode not present on this machine", deviceGcode.isFile)
         val lines = deviceGcode.readLines().map { it.trimEnd() }
         val firstLayer = lines.indexOfFirst { it == ";LAYER_CHANGE" }
         val lastCustom = lines.indexOfLast { it == ";TYPE:Custom" }

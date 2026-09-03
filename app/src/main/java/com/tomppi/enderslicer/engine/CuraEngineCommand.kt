@@ -166,7 +166,6 @@ object CuraEngineCommand {
                 setting("bridge_settings_enabled", true)
             }
             applySmartInfillWidths()
-            extraSettings.toSortedMap().forEach { (key, value) -> setting(key, value) }
         }
 
         fun applySmartInfillRegion(densityPercent: Double, curaPattern: String) {
@@ -329,6 +328,9 @@ object CuraEngineCommand {
         }
 
         command += listOf("-o", outputPath)
+        // User-added extras are applied strictly after every app-controlled setting
+        // so they win over defaults and app values alike (last wins).
+        extraSettings.toSortedMap().forEach { (key, value) -> setting(key, sanitizeExtraValue(value)) }
         return command
     }
 
@@ -342,4 +344,8 @@ object CuraEngineCommand {
     private fun requireSafeArgument(value: String) {
         require('\u0000' !in value) { "CuraEngine argument contains a NUL character" }
     }
+
+    /** Extra values are single-line UI text; strip control characters and cap length. */
+    private fun sanitizeExtraValue(value: String): String =
+        value.replace("\r", "").replace("\n", " ").replace("\t", " ").take(500)
 }

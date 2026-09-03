@@ -32,6 +32,8 @@ internal fun AllSettingsSheet(
     engineLabel: String,
     specs: List<ExtraSettingSpec>,
     added: Map<String, String>,
+    managedKeys: Set<String>,
+    blockedKeys: Set<String>,
     onAdd: (String, String) -> Unit,
     onRemove: (String) -> Unit,
     modifier: Modifier = Modifier,
@@ -106,9 +108,15 @@ internal fun AllSettingsSheet(
                             editingKey = spec.key
                             editingValue = added[spec.key] ?: ""
                         },
+                        enabled = spec.key !in blockedKeys,
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Text(spec.display + (added[spec.key]?.let { " = $it" } ?: ""))
+                        val tag = when {
+                            spec.key in blockedKeys -> " (blocked: app-managed, cannot add)"
+                            spec.key in managedKeys -> " (managed by the app)"
+                            else -> ""
+                        }
+                        Text(spec.display + tag + (added[spec.key]?.let { " = $it" } ?: ""))
                     }
                 }
             }

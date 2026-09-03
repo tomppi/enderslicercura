@@ -26,6 +26,7 @@ object GcodeSanitizer {
         file: File,
         settingsTransport: String = "auto",
         printerEnvelope: PrinterEnvelope? = null,
+        dialect: GcodeDialect = GcodeDialect.CURA,
     ): Summary {
         require('\n' !in settingsTransport && '\r' !in settingsTransport) {
             "Settings transport marker contains a line break"
@@ -37,7 +38,15 @@ object GcodeSanitizer {
             else -> "fallback-command"
         }
 
-        var layerCount = 0
+        // PrusaSlicer does not write ;LAYER_COUNT:; count ;LAYER_CHANGE markers upfront
+        // so the final-layer detection can distinguish the real end-gcode block.
+        var layerCount = if (dialect == GcodeDialect.PRUSA) {
+            file.bufferedReader().useLines { counter ->
+                counter.count { it.trimStart().startsWith(";LAYER_CHANGE") }
+            }
+        } else {
+            0
+        }
         var currentLayer: Int? = null
         var lastLayerSeen: Int? = null
         var lastElapsed: Double? = null
@@ -69,6 +78,19 @@ object GcodeSanitizer {
                 lineNumber++
                 val line = rawLine.trimStart()
                 when {
+                    dialect == GcodeDialect.PRUSA && line.startsWith(";LAYER_CHANGE") -> {
+                        currentLayer = (currentLayer ?: -1) + 1
+                        lastLayerSeen = currentLayer
+                    }
+                    dialect == GcodeDialect.PRUSA && line.startsWith("; estimated printing time (normal mode)") -> {
+                        parseElapsedClock(line)?.let { lastElapsed = it }
+                    }
+                    dialect == GcodeDialect.PRUSA && line.startsWith("; filament used [mm]") -> {
+                        line.substringAfter('=').trim().toDoubleOrNull()?.let { filamentMm ->
+                            totalFilament = filamentMm
+                            modelFilament = filamentMm
+                        }
+                    }
                     line.startsWith(";LAYER_COUNT:") -> {
                         line.substringAfter(':').trim().toIntOrNull()?.let { layerCount = it }
                     }
@@ -225,8 +247,9 @@ object GcodeSanitizer {
                         originalLine.startsWith(";ENDERSLICER_VERSION:") ||
                             originalLine.startsWith(";ENDERSLICER_COORDINATE_TRANSPORT:") ||
                             originalLine.startsWith(";ENDERSLICER_SETTINGS_TRANSPORT:") -> return@forEach
-                        originalLine.startsWith(";TIME:") && estimatedSeconds != null -> ";TIME:$estimatedSeconds"
-                        originalLine.startsWith(";Filament used:") -> ";Filament used: ${formatDecimal(totalFilament / 1000.0, 5)}m"
+                        dialect == GcodeDialect.CURA && originalLine.startsWith(";TIME:") && estimatedSeconds != null -> ";TIME:$estimatedSeconds"
+                        dialect == GcodeDialect.CURA && originalLine.startsWith(";Filament used:") ->
+                            ";Filament used: ${formatDecimal(totalFilament / 1000.0, 5)}m"
                         originalLine.startsWith(";MINX:") && minX != null -> ";MINX:${formatDecimal(requireNotNull(minX), 5)}"
                         originalLine.startsWith(";MINY:") && minY != null -> ";MINY:${formatDecimal(requireNotNull(minY), 5)}"
                         originalLine.startsWith(";MINZ:") && minZ != null -> ";MINZ:${formatDecimal(requireNotNull(minZ), 5)}"
@@ -277,6 +300,20 @@ object GcodeSanitizer {
         )
     }
 
+    /** Parses "; estimated printing time (normal mode) = 1h 23m 37s" into seconds. */
+    private fun parseElapsedClock(line: String): Double? {
+        val value = line.substringAfter('=').trim()
+        val match = PRUSA_ELAPSED.find(value) ?: return null
+        if (match.groupValues.drop(1).all { it.isEmpty() }) return null
+        val hours = match.groupValues[1].ifEmpty { "0" }.toInt()
+        val minutes = match.groupValues[2].ifEmpty { "0" }.toInt()
+        val seconds = match.groupValues[3].ifEmpty { "0" }.toInt()
+        return (hours * 3600 + minutes * 60 + seconds).toDouble()
+    }
+
+    private val PRUSA_ELAPSED = Regex(
+        """(?:([0-9]+)h)?\s*(?:([0-9]+)m)?\s*(?:([0-9]+)s)?$""",
+    )
     private const val MINIMUM_ACTIVE_NOZZLE_C = 150.0
     private const val PRINTER_LINE_ENDING = "\r\n"
 }

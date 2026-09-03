@@ -34,6 +34,10 @@ object PrusaConfigWriter {
     private fun iniEscape(value: String): String =
         value.replace("\\", "\\\\").replace("\n", "\\n").replace("\r", "")
 
+    /** Extra values are single-line UI text; strip control characters and cap length. */
+    private fun sanitizeExtraValue(value: String): String =
+        value.replace("\r", "").replace("\n", " ").replace("\t", " ").take(500)
+
     private fun line(key: String, value: String): String = "$key = $value"
 
     /**
@@ -113,7 +117,7 @@ object PrusaConfigWriter {
         out.appendLine(line("retract_lift", settings.retractLiftMm.prusaNumber()))
         settings.extraKeys.toSortedMap().forEach { (key, value) ->
             if (key.matches(Regex("[a-z][a-z0-9_]*"))) {
-                out.appendLine(line(key, value))
+                out.appendLine(line(key, sanitizeExtraValue(value)))
             }
         }
 

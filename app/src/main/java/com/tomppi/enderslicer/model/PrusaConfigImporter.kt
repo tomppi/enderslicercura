@@ -24,11 +24,12 @@ object PrusaConfigImporter {
         val unusedKeyCount: Int,
     )
 
-    private data class IniValue(val isPrinter: Boolean, val isFilament: Boolean, val value: String)
+    /** Duplicate keys across sections: machine settings must win over print/filament ones. */
+    private val SECTION_PRIORITY = listOf("printer", "filament", "print", "flat")
 
     fun parse(text: String): Result {
-        var section = "print"
-        val values = linkedMapOf<String, IniValue>()
+        var section = "flat"
+        val values = linkedMapOf<String, Pair<String, String>>()
         for (rawLine in text.lineSequence()) {
             val line = rawLine.trim()
             if (line.isEmpty() || line.startsWith("#") || line.startsWith(";")) continue
@@ -41,11 +42,14 @@ object PrusaConfigImporter {
             val key = line.substring(0, index).trim()
             val value = unquote(line.substring(index + 1).trim())
             if (key.isNotEmpty() && !key.contains(' ')) {
-                values[key] = IniValue(section == "printer", section == "filament", value)
+                val previous = values[key]
+                if (previous == null || sectionWins(section, previous.first)) {
+                    values[key] = section to value
+                }
             }
         }
 
-        fun value(key: String): String? = values[key]?.value
+        fun value(key: String): String? = values[key]?.second
         fun double(key: String): Double? = value(key)?.replace(",", ".")?.trimEnd('%')?.toDoubleOrNull()
         fun int(key: String): Int? = value(key)?.toIntOrNull()
         fun bool(key: String): Boolean? = value(key)?.let { it == "1" || it.equals("true", true) }
@@ -114,6 +118,12 @@ object PrusaConfigImporter {
             unusedKeyCount = values.size,
         )
     }
+
+    /** True when [section] outranks [other] for an already-stored duplicate key. */
+    private fun sectionWins(section: String, other: String): Boolean =
+        SECTION_PRIORITY.indexOf(section).let { index ->
+            index >= 0 && index < SECTION_PRIORITY.indexOf(other)
+        }
 
     private fun parseBedShape(bedShape: String?): Triple<Double?, Double?, Boolean> {
         if (bedShape.isNullOrBlank()) return Triple(null, null, false)

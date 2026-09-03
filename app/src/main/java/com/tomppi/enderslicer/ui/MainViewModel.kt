@@ -11,6 +11,7 @@ import com.tomppi.enderslicer.data.BuiltInGcode
 import com.tomppi.enderslicer.data.PendingDocumentExportStore
 import com.tomppi.enderslicer.data.PrinterDefinitionLoader
 import com.tomppi.enderslicer.data.SlicerSettingsJson
+import com.tomppi.enderslicer.data.PrusaSliceSettingsJson
 import com.tomppi.enderslicer.data.WorkspaceStateStore
 import com.tomppi.enderslicer.engine.CuraEngineRunner
 import com.tomppi.enderslicer.engine.GcodeLayerPreview
@@ -25,6 +26,7 @@ import com.tomppi.enderslicer.mesh.MeshTriangleLimits
 import com.tomppi.enderslicer.model.ModelPlacement
 import com.tomppi.enderslicer.model.PrusaConfigImporter
 import com.tomppi.enderslicer.model.PrusaSliceSettings
+import com.tomppi.enderslicer.model.AllSettingsCatalogs
 import com.tomppi.enderslicer.model.SlicerSettings
 import com.tomppi.enderslicer.model.withSettings
 import com.tomppi.enderslicer.nonplanar.NonPlanarRuntime
@@ -62,6 +64,7 @@ import java.util.concurrent.atomic.AtomicLong
 private const val CONFIG_SNAPSHOT_FORMAT = "enderslicer-config-snapshot"
 private const val CONFIG_SNAPSHOT_VERSION = 1
 private const val PAINT_PERSIST_DEBOUNCE_MILLIS = 400L
+private const val EXTRAS_PERSIST_DEBOUNCE_MILLIS = 250L
 
 /** Engine-agnostic slice result shared by the Cura and Prusa runners. */
 private data class EngineSliceOutcome(
@@ -91,8 +94,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val startGcode: String,
         val endGcode: String,
         val sourceName: String,
+        val prusaSettings: PrusaSliceSettings?,
+        val prusaStartGcode: String?,
+        val prusaEndGcode: String?,
+        val extraPrusaSettings: Map<String, String>?,
+        val extraCuraSettings: Map<String, String>?,
     )
-
     private data class RestoredImport(
         val config: ImportedCuraConfig?,
         val settings: SlicerSettings,
@@ -137,6 +144,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var importedScene: CuraProjectScene? = null
     private var settingsPersistenceJob: Job? = null
     private var paintPersistenceJob: Job? = null
+    private var extraSettingsPersistenceJob: Job? = null
     private val workspaceMutationGeneration = AtomicLong(0L)
     private val layerEventSequence = AtomicLong(0L)
     private val deferredRestoreActions = ArrayDeque<() -> Unit>()
@@ -430,16 +438,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }.onSuccess { imported ->
                 _uiState.update { state ->
                     val machine = state.settings
+                    val mappedFlavor = mapPrusaFlavorToApp(imported.gcodeFlavor)
+                    val machineKeySet = buildSet {
+                        if (imported.widthMm != null) { add(SlicerSettings.Keys.MACHINE_WIDTH); add(SlicerSettings.Keys.MACHINE_DEPTH) }
+                        if (imported.nozzleSizeMm != null) add(SlicerSettings.Keys.NOZZLE_SIZE)
+                        if (imported.filamentDiameterMm != null) add(SlicerSettings.Keys.FILAMENT_DIAMETER)
+                        if (imported.extruders != null) add(SlicerSettings.Keys.ENABLED_EXTRUDER_COUNT)
+                        if (mappedFlavor != null) add(SlicerSettings.Keys.GCODE_FLAVOR)
+                    }
                     state.copy(
                         prusaSettings = imported.settings,
                         settings = machine.copy(
                             machineWidthMm = imported.widthMm ?: machine.machineWidthMm,
                             machineDepthMm = imported.depthMm ?: machine.machineDepthMm,
-                            originAtCenter = imported.originAtCenter,
+                            originAtCenter = imported.originAtCenter.takeIf { imported.widthMm != null }
+                                ?: machine.originAtCenter,
                             nozzleSizeMm = imported.nozzleSizeMm ?: machine.nozzleSizeMm,
                             filamentDiameterMm = imported.filamentDiameterMm ?: machine.filamentDiameterMm,
                             enabledExtruderCount = imported.extruders ?: machine.enabledExtruderCount,
-                            gcodeFlavor = imported.gcodeFlavor ?: machine.gcodeFlavor,
+                            gcodeFlavor = mappedFlavor ?: machine.gcodeFlavor,
+                            overriddenSettingKeys = machine.overriddenSettingKeys + machineKeySet,
                         ),
                         prusaStartGcode = imported.startGcode,
                         prusaEndGcode = imported.endGcode,
@@ -466,9 +484,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun setExtraSetting(engine: SlicerEngine, key: String, value: String) {
-        val normalized = key.trim()
-        if (normalized !in listOf("cura", "prusa")) return
-        if (normalized.isEmpty() || !normalized.matches(Regex("[a-zA-Z][a-zA-Z0-9_]*"))) return
+        val normalized = key.trim().lowercase()
+        if (engine != SlicerEngine.CURA && engine != SlicerEngine.PRUSA) return
+        if (normalized.isEmpty() || !normalized.matches(Regex("[a-z][a-z0-9_]*"))) return
+        if (normalized in blockedExtraKeys(engine)) return
         _uiState.update { state ->
             if (engine == SlicerEngine.PRUSA) {
                 state.copy(extraPrusaSettings = state.extraPrusaSettings + (normalized to value))
@@ -478,6 +497,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         persistExtraSettings(engine)
     }
+
+    /** Keys with dedicated editors or machine-envelope semantics must not be shadowed. */
+    private fun blockedExtraKeys(engine: SlicerEngine): Set<String> =
+        if (engine == SlicerEngine.PRUSA) AllSettingsCatalogs.PRUSA_BLOCKED_KEYS else AllSettingsCatalogs.CURA_BLOCKED_KEYS
 
     fun removeExtraSetting(engine: SlicerEngine, key: String) {
         _uiState.update { state ->
@@ -490,12 +513,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         persistExtraSettings(engine)
     }
 
+    /** Prusa flavors into the app's Cura-side vocabulary (inverse of PrusaConfigWriter). */
+    private fun mapPrusaFlavorToApp(flavor: String?): String? = when (flavor?.trim()?.lowercase()) {
+        "marlin", "marlin2" -> "Marlin"
+        "klipper" -> "Klipper"
+        "reprap" -> "RepRap"
+        "repetier" -> "Repetier"
+        else -> null
+    }
+
     private fun persistExtraSettings(engine: SlicerEngine) {
-        viewModelScope.launch(Dispatchers.IO) {
+        extraSettingsPersistenceJob?.cancel()
+        extraSettingsPersistenceJob = viewModelScope.launch(Dispatchers.IO) {
+            delay(EXTRAS_PERSIST_DEBOUNCE_MILLIS)
+            val snapshot = _uiState.value
             if (engine == SlicerEngine.PRUSA) {
-                stateStore.saveExtraPrusaSettings(_uiState.value.extraPrusaSettings)
+                stateStore.saveExtraPrusaSettings(snapshot.extraPrusaSettings)
             } else {
-                stateStore.saveExtraCuraSettings(_uiState.value.extraCuraSettings)
+                stateStore.saveExtraCuraSettings(snapshot.extraCuraSettings)
             }
         }
     }
@@ -761,8 +796,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 printer = snapshot.printer,
                                 settings = snapshot.prusaSettings.copy(extraKeys = snapshot.extraPrusaSettings),
                                 machineSettings = snapshot.settings,
-                                startGcode = snapshot.prusaStartGcode.ifBlank { snapshot.startGcode },
-                                endGcode = snapshot.prusaEndGcode.ifBlank { snapshot.endGcode },
+                                startGcode = snapshot.prusaStartGcode.ifBlank { initialStartGcode },
+                                endGcode = snapshot.prusaEndGcode.ifBlank { initialEndGcode },
                                 onProgress = { percent ->
                                     _uiState.update {
                                         it.copy(statusMessage = "PrusaSlicer is slicing… $percent%")
@@ -826,6 +861,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         sliceResultId = result.artifactId,
                         gcodePath = result.gcodeFile.absolutePath,
                         baseGcodePath = result.baseGcodeFile.absolutePath,
+                        sliceEngine = sliceEngine,
                         layerPreview = result.layerPreview,
                         layerEvents = result.layerEvents,
                         estimatedPrintSeconds = result.estimatedPrintSeconds,
@@ -901,9 +937,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun reapplyLayerEvents(events: List<LayerEvent>, message: String) {
-        val basePath = _uiState.value.baseGcodePath
+        val current = _uiState.value
+        val basePath = current.baseGcodePath
         if (basePath == null) {
             showEventFailure(IllegalStateException("Slice the model before editing layer events"))
+            return
+        }
+        if (current.sliceEngine == SlicerEngine.PRUSA) {
+            showEventFailure(
+                IllegalStateException(
+                    "Layer events are a Cura feature; switch to the Cura engine and re-slice before editing them",
+                ),
+            )
             return
         }
         if (!beginOperation("Applying layer events…")) return
@@ -1022,7 +1067,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         .copy(overriddenSettingKeys = emptySet())
                     val startGcode = root.optString("startGcode", initialStartGcode)
                     val endGcode = root.optString("endGcode", initialEndGcode)
-                    SnapshotImport(snapshot, startGcode, endGcode, sourceName)
+                    // Prusa fields are absent from older snapshots; null keeps the
+                    // currently stored Prusa state untouched in that case.
+                    val prusaSettings = root.optString("prusaSettings", "")
+                        .takeIf { it.isNotBlank() }
+                        ?.let(PrusaSliceSettingsJson::deserialize)
+                    val hasPrusaGcode = root.has("prusaStartGcode") || root.has("prusaEndGcode")
+                    val prusaStartGcode = root.optString("prusaStartGcode", "").takeIf { hasPrusaGcode }
+                    val prusaEndGcode = root.optString("prusaEndGcode", "").takeIf { hasPrusaGcode }
+                    val extraPrusaSettings = root.optJSONObject("extraPrusaSettings")
+                        ?.let { parseStringMap(it).takeIf { map -> map.isNotEmpty() } }
+                    val extraCuraSettings = root.optJSONObject("extraCuraSettings")
+                        ?.let { parseStringMap(it).takeIf { map -> map.isNotEmpty() } }
+                    SnapshotImport(
+                        snapshot,
+                        startGcode,
+                        endGcode,
+                        sourceName,
+                        prusaSettings,
+                        prusaStartGcode,
+                        prusaEndGcode,
+                        extraPrusaSettings,
+                        extraCuraSettings,
+                    )
                 }
             }.onSuccess { pending -> commitSnapshotImport(pending) }
                 .onFailure(::showOperationFailure)
@@ -1052,13 +1119,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         importedSettingsBaseline = pending.settings
         importedScene = null
+        val prusaSnapshot = pending.prusaSettings != null || pending.prusaStartGcode != null
+        if (pending.prusaSettings != null) stateStore.savePrusaSettings(pending.prusaSettings!!)
+        if (pending.prusaStartGcode != null && pending.prusaEndGcode != null) {
+            stateStore.savePrusaGcode(pending.prusaStartGcode!!, pending.prusaEndGcode!!)
+        }
+        if (pending.extraPrusaSettings != null) stateStore.saveExtraPrusaSettings(pending.extraPrusaSettings!!)
+        if (pending.extraCuraSettings != null) stateStore.saveExtraCuraSettings(pending.extraCuraSettings!!)
         _uiState.update { current ->
             current.copy(
                 settings = pending.settings,
                 startGcode = pending.startGcode,
                 endGcode = pending.endGcode,
-                profileName = pending.sourceName,
-                profileSource = "Configuration snapshot",
+                prusaSettings = pending.prusaSettings ?: current.prusaSettings,
+                prusaStartGcode = pending.prusaStartGcode ?: current.prusaStartGcode,
+                prusaEndGcode = pending.prusaEndGcode ?: current.prusaEndGcode,
+                extraPrusaSettings = pending.extraPrusaSettings ?: current.extraPrusaSettings,
+                extraCuraSettings = pending.extraCuraSettings ?: current.extraCuraSettings,
                 importedRawSettingCount = SlicerSettingsJson.allKeys.size,
                 curaVersion = null,
                 settingVersion = "27",
@@ -1074,7 +1151,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 sliceLogPath = null,
                 sliceDurationMilliseconds = null,
                 isBusy = false,
-                statusMessage = "Imported ${pending.sourceName}; settings and custom G-code are active until overridden",
+                statusMessage = "Imported ${pending.sourceName}; settings and custom G-code are active until overridden" + if (prusaSnapshot) "; Prusa state restored" else "",
             )
         }
     }
@@ -1555,7 +1632,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun showOperationFailure(error: Throwable) {
-        if (error is CancellationException) throw error
+        if (error is CancellationException) {
+            _uiState.update { it.copy(isBusy = false, statusMessage = "Operation cancelled") }
+            throw error
+        }
         _uiState.update { current ->
             current.copy(
                 isBusy = false,
@@ -1563,9 +1643,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             )
         }
     }
-
     private fun showSliceFailure(error: Throwable) {
-        if (error is CancellationException) throw error
+        if (error is CancellationException) {
+            _uiState.update { it.copy(isBusy = false, statusMessage = "Slice cancelled") }
+            throw error
+        }
         _uiState.update { current ->
             current.copy(
                 isBusy = false,
@@ -1650,5 +1732,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             .put("settings", SlicerSettingsJson.serialize(settings))
             .put("startGcode", state.startGcode)
             .put("endGcode", state.endGcode)
+            .put("prusaSettings", PrusaSliceSettingsJson.serialize(state.prusaSettings))
+            .put("prusaStartGcode", state.prusaStartGcode)
+            .put("prusaEndGcode", state.prusaEndGcode)
+            .put("extraPrusaSettings", JSONObject(state.extraPrusaSettings))
+            .put("extraCuraSettings", JSONObject(state.extraCuraSettings))
+    }
+
+    private fun parseStringMap(json: JSONObject?): Map<String, String> {
+        if (json == null) return emptyMap()
+        val result = linkedMapOf<String, String>()
+        val keys = json.keys()
+        while (keys.hasNext()) {
+            val key = keys.next()
+            result[key] = json.optString(key, "")
+        }
+        return result
     }
 }

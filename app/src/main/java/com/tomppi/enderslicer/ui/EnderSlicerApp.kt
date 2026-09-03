@@ -149,6 +149,10 @@ fun EnderSlicerApp(
     var conicalOpen by rememberSaveable { mutableStateOf(false) }
 
     // Android-style back navigation: back closes any open layer instead of exiting.
+    // The menu-unfold handler is composed FIRST so it has the LOWEST priority (the
+    // last registered enabled BackHandler wins in Compose), letting any open sheet
+    // or dialog consume the back event before the menu is expanded again.
+    BackHandler(enabled = modelUiCollapsed && selectedTab == AppTab.PLATE) { modelUiCollapsed = false }
     BackHandler(enabled = allSettingsOpen) { allSettingsOpen = false }
     BackHandler(enabled = printerScreenOpen) { printerScreenOpen = false }
     BackHandler(enabled = modelToolsOpen) { modelToolsOpen = false }
@@ -157,7 +161,6 @@ fun EnderSlicerApp(
     BackHandler(enabled = meshLimitOpen) { meshLimitOpen = false }
     BackHandler(enabled = profilesOpen) { profilesOpen = false }
     BackHandler(enabled = layerEventsOpen) { layerEventsOpen = false }
-    BackHandler(enabled = modelUiCollapsed && selectedTab == AppTab.PLATE) { modelUiCollapsed = false }
     var viewerMode by rememberSaveable { mutableStateOf(ViewerMode.MODEL) }
     var selectedLayerIndex by rememberSaveable { mutableStateOf(0) }
     var modelOrientation by rememberSaveable(stateSaver = ViewerOrientationSaver) {
@@ -443,6 +446,7 @@ fun EnderSlicerApp(
                                 modifier = Modifier
                                     .align(Alignment.TopEnd)
                                     .padding(8.dp)
+                                    .padding(top = 56.dp)
                                     .widthIn(min = 270.dp, max = 420.dp),
                             )
                         } else {
@@ -496,6 +500,16 @@ fun EnderSlicerApp(
                         engineLabel = engine.label,
                         specs = catalogSpecs,
                         added = if (engine == SlicerEngine.PRUSA) state.extraPrusaSettings else state.extraCuraSettings,
+                        managedKeys = if (engine == SlicerEngine.PRUSA) {
+                            AllSettingsCatalogs.PRUSA_MANAGED_KEYS
+                        } else {
+                            AllSettingsCatalogs.CURA_MANAGED_KEYS
+                        },
+                        blockedKeys = if (engine == SlicerEngine.PRUSA) {
+                            AllSettingsCatalogs.PRUSA_BLOCKED_KEYS
+                        } else {
+                            AllSettingsCatalogs.CURA_BLOCKED_KEYS
+                        },
                         onAdd = { key, value -> viewModel.setExtraSetting(engine, key, value) },
                         onRemove = { key -> viewModel.removeExtraSetting(engine, key) },
                         modifier = Modifier
@@ -1415,10 +1429,10 @@ private fun SessionPanel(
 ) {
     val gcodeAvailable = state.hasCurrentGcode()
     val settings = state.settings
-    // Content-sized overlay: no scroll container, no height fill - touches
-    // outside the cards reach the model underneath.
+    // Content-sized overlay: touches outside the cards reach the model
+    // underneath; if the content outgrows the window it scrolls.
     Column(
-        modifier = modifier,
+        modifier = modifier.verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Card(modifier = Modifier.fillMaxWidth()) {

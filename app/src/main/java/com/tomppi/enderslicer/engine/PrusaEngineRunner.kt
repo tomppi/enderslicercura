@@ -156,6 +156,7 @@ class PrusaEngineRunner(private val context: Context) {
                 file = workspace.output,
                 settingsTransport = transport,
                 printerEnvelope = printerEnvelope,
+                dialect = GcodeDialect.PRUSA,
             )
             val prusaEstimateSeconds = parsePrusaEstimateSeconds(workspace.output) ?: summary.estimatedSeconds
             val preview = runCatching {
@@ -232,6 +233,13 @@ class PrusaEngineRunner(private val context: Context) {
                 throw InterruptedException("PrusaSlicer timed out after $SLICE_TIMEOUT_MINUTES minutes")
             }
             process.exitValue()
+        } catch (error: InterruptedException) {
+            // Always reap the child on cancellation too (mirrors OwnedProcessRunner).
+            process.destroy()
+            if (!process.waitFor(SHUTDOWN_GRACE_MILLIS, TimeUnit.MILLISECONDS)) {
+                process.destroyForcibly()
+            }
+            throw error
         } finally {
             readerThread.join(2000L)
         }
@@ -243,7 +251,7 @@ class PrusaEngineRunner(private val context: Context) {
             for (line in lines) {
                 if (!line.startsWith("; estimated printing time")) continue
                 val value = line.substringAfter('=').trim()
-                val pattern = Regex("""(?:(d+)h)?s*(?:(d+)m)?s*(?:(d+)s)?""")
+                val pattern = Regex("""(?:(\d+)h)?\s*(?:(\d+)m)?\s*(?:(\d+)s)?""")
                 val match = pattern.find(value) ?: return 0
                 val hours = match.groupValues[1].ifEmpty { "0" }.toInt()
                 val minutes = match.groupValues[2].ifEmpty { "0" }.toInt()
