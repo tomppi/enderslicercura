@@ -151,6 +151,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             engineAvailable = activeEngineAvailable(),
             prusaSettings = stateStore.restorePrusaSettings(),
             extraPrusaSettings = stateStore.restoreExtraPrusaSettings(),
+            prusaStartGcode = stateStore.restorePrusaGcode().first,
+            prusaEndGcode = stateStore.restorePrusaGcode().second,
             extraCuraSettings = stateStore.restoreExtraCuraSettings(),
             statusMessage = "Restoring saved configuration…",
             isBusy = true,
@@ -439,8 +441,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             enabledExtruderCount = imported.extruders ?: machine.enabledExtruderCount,
                             gcodeFlavor = imported.gcodeFlavor ?: machine.gcodeFlavor,
                         ),
-                        startGcode = imported.startGcode.ifBlank { state.startGcode },
-                        endGcode = imported.endGcode.ifBlank { state.endGcode },
+                        prusaStartGcode = imported.startGcode,
+                        prusaEndGcode = imported.endGcode,
                         sliceResultId = null,
                         gcodePath = null,
                         baseGcodePath = null,
@@ -457,6 +459,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 }
                 persistPrusaSettings(imported.settings)
+                stateStore.savePrusaGcode(imported.startGcode, imported.endGcode)
                 persistSettings(_uiState.value.settings, workspaceMutationGeneration.incrementAndGet())
             }.onFailure(::showOperationFailure)
         }
@@ -758,8 +761,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 printer = snapshot.printer,
                                 settings = snapshot.prusaSettings.copy(extraKeys = snapshot.extraPrusaSettings),
                                 machineSettings = snapshot.settings,
-                                startGcode = snapshot.startGcode,
-                                endGcode = snapshot.endGcode,
+                                startGcode = snapshot.prusaStartGcode.ifBlank { snapshot.startGcode },
+                                endGcode = snapshot.prusaEndGcode.ifBlank { snapshot.endGcode },
                                 onProgress = { percent ->
                                     _uiState.update {
                                         it.copy(statusMessage = "PrusaSlicer is slicing… $percent%")

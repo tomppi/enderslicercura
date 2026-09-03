@@ -223,6 +223,12 @@ class AppStateStore(context: Context) {
     fun saveExtraPrusaSettings(values: Map<String, String>): Boolean =
         preferences.edit().putString(KEY_EXTRA_PRUSA, mapToJson(values)).commit()
 
+    fun savePrusaGcode(start: String, end: String): Boolean =
+        preferences.edit().putString(KEY_PRUSA_START, start).putString(KEY_PRUSA_END, end).commit()
+
+    fun restorePrusaGcode(): Pair<String, String> =
+        (preferences.getString(KEY_PRUSA_START, "") ?: "") to (preferences.getString(KEY_PRUSA_END, "") ?: "")
+
     fun restoreExtraPrusaSettings(): Map<String, String> =
         jsonToMap(preferences.getString(KEY_EXTRA_PRUSA, null))
 
@@ -324,6 +330,8 @@ class AppStateStore(context: Context) {
         private const val KEY_PRUSA_SETTINGS = "prusa-settings-json"
         private const val KEY_EXTRA_CURA = "extra-cura-settings-json"
         private const val KEY_EXTRA_PRUSA = "extra-prusa-settings-json"
+        private const val KEY_PRUSA_START = "prusa-start-gcode"
+        private const val KEY_PRUSA_END = "prusa-end-gcode"
         private const val KEY_SNAPSHOT_BASELINE = "snapshot-baseline-json"
         private const val KEY_OVERRIDES_JSON = "overrides"
         private const val MAX_CURA_IMPORT_BYTES = 128L * 1024L * 1024L

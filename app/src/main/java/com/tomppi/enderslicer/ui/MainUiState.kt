@@ -19,6 +19,9 @@ data class MainUiState(
     val prusaSettings: PrusaSliceSettings = PrusaSliceSettings(),
     val extraCuraSettings: Map<String, String> = emptyMap(),
     val extraPrusaSettings: Map<String, String> = emptyMap(),
+    /** Prusa-imported start/end gcode; the Cura path never sees them. */
+    val prusaStartGcode: String = "",
+    val prusaEndGcode: String = "",
     val mesh: StlMesh? = null,
     val modelPath: String? = null,
     val modelPlacement: ModelPlacement? = null,
