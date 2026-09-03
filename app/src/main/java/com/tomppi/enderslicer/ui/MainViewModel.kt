@@ -13,13 +13,17 @@ import com.tomppi.enderslicer.data.PrinterDefinitionLoader
 import com.tomppi.enderslicer.data.SlicerSettingsJson
 import com.tomppi.enderslicer.data.WorkspaceStateStore
 import com.tomppi.enderslicer.engine.CuraEngineRunner
+import com.tomppi.enderslicer.engine.GcodeLayerPreview
 import com.tomppi.enderslicer.engine.LayerEvent
+import com.tomppi.enderslicer.engine.PrusaEngineRunner
+import com.tomppi.enderslicer.nonplanar.NozzleCollisionAlert
 import com.tomppi.enderslicer.engine.LayerEventSource
 import com.tomppi.enderslicer.engine.LayerEventType
 import com.tomppi.enderslicer.engine.PrinterEnvelope
 import com.tomppi.enderslicer.engine.SliceArtifactPublisher
 import com.tomppi.enderslicer.mesh.MeshTriangleLimits
 import com.tomppi.enderslicer.model.ModelPlacement
+import com.tomppi.enderslicer.model.PrusaSliceSettings
 import com.tomppi.enderslicer.model.SlicerSettings
 import com.tomppi.enderslicer.model.withSettings
 import com.tomppi.enderslicer.nonplanar.NonPlanarRuntime
@@ -57,6 +61,20 @@ import java.util.concurrent.atomic.AtomicLong
 private const val CONFIG_SNAPSHOT_FORMAT = "enderslicer-config-snapshot"
 private const val CONFIG_SNAPSHOT_VERSION = 1
 private const val PAINT_PERSIST_DEBOUNCE_MILLIS = 400L
+
+/** Engine-agnostic slice result shared by the Cura and Prusa runners. */
+private data class EngineSliceOutcome(
+    val artifactId: String,
+    val gcodeFile: File,
+    val baseGcodeFile: File,
+    val logFile: File,
+    val elapsedMilliseconds: Long,
+    val estimatedPrintSeconds: Int?,
+    val layerPreview: GcodeLayerPreview?,
+    val layerEvents: List<LayerEvent>,
+    val nozzleCollisionAlert: NozzleCollisionAlert? = null,
+    val collisionSweepFailure: String? = null,
+)
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
     private data class PendingImport(
@@ -105,6 +123,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val app = application
     private val printer = PrinterDefinitionLoader.loadModifiedEnder3V2(app.assets)
     private val engine = CuraEngineRunner(app)
+    private val prusaEngine = PrusaEngineRunner(app)
+    private val engineStore = SlicerEngineStore(app)
+    private val activeEngine: SlicerEngine get() = engineStore.load()
     private val stateStore = AppStateStore(app)
     private val workspaceStore = WorkspaceStateStore(app)
     private val pendingExportStore = PendingDocumentExportStore(app)
@@ -125,13 +146,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             printer = printer,
             startGcode = initialStartGcode,
             endGcode = initialEndGcode,
-            engineStatus = engine.status(),
-            engineAvailable = engine.isAvailable(),
+            engineStatus = activeEngineStatus(),
+            engineAvailable = activeEngineAvailable(),
+            prusaSettings = stateStore.restorePrusaSettings(),
             statusMessage = "Restoring saved configuration…",
             isBusy = true,
         ),
     )
     val uiState: StateFlow<MainUiState> = _uiState.asStateFlow()
+
+    private fun activeEngineStatus(): String =
+        if (activeEngine == SlicerEngine.PRUSA) prusaEngine.status() else engine.status()
+
+    private fun activeEngineAvailable(): Boolean =
+        if (activeEngine == SlicerEngine.PRUSA) prusaEngine.isAvailable() else engine.isAvailable()
+
+    /** Called by the UI after the user switches the engine; refreshes the status text. */
+    fun onEngineChanged() {
+        _uiState.update {
+            it.copy(engineStatus = activeEngineStatus(), engineAvailable = activeEngineAvailable())
+        }
+    }
 
     init {
         restorePersistedState()
@@ -376,6 +411,36 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         persistSettings(changed, workspaceMutationGeneration.incrementAndGet())
     }
 
+    fun updatePrusaSettings(
+        key: String,
+        transform: (PrusaSliceSettings) -> PrusaSliceSettings,
+    ) {
+        val current = _uiState.value
+        if (current.isBusy) return
+        val changed = transform(current.prusaSettings)
+        _uiState.update { state ->
+            state.copy(
+                prusaSettings = changed,
+                sliceResultId = null,
+                gcodePath = null,
+                baseGcodePath = null,
+                layerPreview = null,
+                layerEvents = emptyList(),
+                estimatedPrintSeconds = null,
+                sliceLogPath = null,
+                sliceDurationMilliseconds = null,
+                statusMessage = "Settings changed; slice again to export G-code",
+            )
+        }
+        persistPrusaSettings(changed)
+    }
+
+    private fun persistPrusaSettings(settings: PrusaSliceSettings) {
+        viewModelScope.launch(Dispatchers.IO) {
+            stateStore.savePrusaSettings(settings)
+        }
+    }
+
     fun resetAllSettingOverrides() {
         if (_uiState.value.isBusy) return
         val baseline = importedSettingsBaseline ?: SlicerSettings()
@@ -565,7 +630,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             showOperationFailure(IllegalStateException(engine.status()))
             return
         }
-        if (!beginOperation("CuraEngine is slicing…")) return
+        val sliceEngine = activeEngine
+        if (!beginOperation(if (sliceEngine == SlicerEngine.PRUSA) "PrusaSlicer is slicing…" else "CuraEngine is slicing…")) return
         if (NonPlanarRuntime.snapshot() != null && ConicalRuntime.snapshot() != null) {
             _uiState.update {
                 it.copy(
@@ -594,24 +660,64 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     try {
                         val transformedFile = File(stagingDirectory, "transformed.stl")
                         StlMeshWriter.writeBinary(transformedMesh, transformedFile)
-                        val smartResolution = SmartOverhangStrategy.resolve(
-                            settings = snapshot.settings,
-                            nonPlanarSettings = NonPlanarRuntime.current(),
-                            mesh = transformedMesh,
-                            layerHeightMm = snapshot.settings.layerHeightMm,
-                            nozzleDiameterMm = snapshot.printer.withSettings(snapshot.settings).nozzleSizeMm,
-                        )
-                        strategyMessage = smartResolution.message
-                        engine.slice(
-                            modelFile = transformedFile,
-                            printer = snapshot.printer,
-                            settings = smartResolution.settings,
-                            startGcode = snapshot.startGcode,
-                            endGcode = snapshot.endGcode,
-                            profile = snapshot.engineProfile,
-                            layerEvents = snapshot.layerEvents.filter { it.source == LayerEventSource.USER },
-                            supportPaint = snapshot.supportPaint,
-                        )
+                        if (sliceEngine == SlicerEngine.PRUSA) {
+                            val prusaResult = prusaEngine.slice(
+                                modelFile = transformedFile,
+                                printer = snapshot.printer,
+                                settings = snapshot.prusaSettings,
+                                machineSettings = snapshot.settings,
+                                startGcode = snapshot.startGcode,
+                                endGcode = snapshot.endGcode,
+                                onProgress = { percent ->
+                                    _uiState.update {
+                                        it.copy(statusMessage = "PrusaSlicer is slicing… $percent%")
+                                    }
+                                },
+                            )
+                            EngineSliceOutcome(
+                                artifactId = prusaResult.artifactId,
+                                gcodeFile = prusaResult.gcodeFile,
+                                baseGcodeFile = prusaResult.baseGcodeFile,
+                                logFile = prusaResult.logFile,
+                                elapsedMilliseconds = prusaResult.elapsedMilliseconds,
+                                estimatedPrintSeconds = prusaResult.estimatedPrintSeconds,
+                                layerPreview = prusaResult.layerPreview,
+                                layerEvents = prusaResult.layerEvents,
+                                nozzleCollisionAlert = null,
+                                collisionSweepFailure = null,
+                            )
+                        } else {
+                            val smartResolution = SmartOverhangStrategy.resolve(
+                                settings = snapshot.settings,
+                                nonPlanarSettings = NonPlanarRuntime.current(),
+                                mesh = transformedMesh,
+                                layerHeightMm = snapshot.settings.layerHeightMm,
+                                nozzleDiameterMm = snapshot.printer.withSettings(snapshot.settings).nozzleSizeMm,
+                            )
+                            strategyMessage = smartResolution.message
+                            val curaResult = engine.slice(
+                                modelFile = transformedFile,
+                                printer = snapshot.printer,
+                                settings = smartResolution.settings,
+                                startGcode = snapshot.startGcode,
+                                endGcode = snapshot.endGcode,
+                                profile = snapshot.engineProfile,
+                                layerEvents = snapshot.layerEvents.filter { it.source == LayerEventSource.USER },
+                                supportPaint = snapshot.supportPaint,
+                            )
+                            EngineSliceOutcome(
+                                artifactId = curaResult.artifactId,
+                                gcodeFile = curaResult.gcodeFile,
+                                baseGcodeFile = curaResult.baseGcodeFile,
+                                logFile = curaResult.logFile,
+                                elapsedMilliseconds = curaResult.elapsedMilliseconds,
+                                estimatedPrintSeconds = curaResult.estimatedPrintSeconds,
+                                layerPreview = curaResult.layerPreview,
+                                layerEvents = curaResult.layerEvents,
+                                nozzleCollisionAlert = curaResult.nozzleCollisionAlert,
+                                collisionSweepFailure = curaResult.collisionSweepFailure,
+                            )
+                        }
                     } finally {
                         stagingDirectory.deleteRecursively()
                     }
@@ -665,7 +771,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 previousArtifactId
                     ?.takeIf { it != result.artifactId }
-                    ?.let(engine::releaseArtifact)
+                    ?.let { if (sliceEngine == SlicerEngine.PRUSA) prusaEngine.releaseArtifact(it) else engine.releaseArtifact(it) }
             }.onFailure(::showSliceFailure)
         }
     }
@@ -1373,7 +1479,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 layerPreview = null,
                 layerEvents = emptyList(),
                 estimatedPrintSeconds = null,
-                sliceLogPath = (error as? CuraEngineRunner.SliceException)?.logFile?.absolutePath ?: current.sliceLogPath,
+                sliceLogPath = (error as? CuraEngineRunner.SliceException)?.logFile?.absolutePath
+                    ?: (error as? PrusaEngineRunner.SliceException)?.logFile?.absolutePath
+                    ?: current.sliceLogPath,
                 statusMessage = error.message ?: error::class.java.simpleName,
             )
         }

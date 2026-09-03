@@ -918,7 +918,7 @@ internal fun CategorizedSettingsSheet(
 }
 
 @Composable
-private fun SettingsCategory(
+internal fun SettingsCategory(
     title: String,
     initiallyExpanded: Boolean = false,
     content: @Composable Column.() -> Unit,

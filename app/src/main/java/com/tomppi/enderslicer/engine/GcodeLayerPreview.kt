@@ -52,6 +52,15 @@ data class GcodeLayerPreview(
     }
 }
 
+/** G-code layer-marking dialect. */
+enum class GcodeDialect {
+    /** Cura: ;LAYER:N starts each layer. */
+    CURA,
+
+    /** PrusaSlicer: ;LAYER_CHANGE (followed by ;Z: and ;HEIGHT:) starts each layer. */
+    PRUSA,
+}
+
 object GcodeLayerPreviewParser {
     private const val MAX_SEGMENTS = 800_000
     private val RARE_FEATURE_PRIORITY = listOf(
@@ -62,13 +71,19 @@ object GcodeLayerPreviewParser {
         GcodeLayerPreview.Feature.ADHESION,
     )
 
-    fun parse(file: File): GcodeLayerPreview = parse(file, MAX_SEGMENTS)
+    fun parse(file: File): GcodeLayerPreview = parse(file, GcodeDialect.CURA, MAX_SEGMENTS)
 
-    internal fun parse(file: File, maxSegments: Int): GcodeLayerPreview {
+    fun parse(file: File, dialect: GcodeDialect): GcodeLayerPreview =
+        parse(file, dialect, MAX_SEGMENTS)
+
+    internal fun parse(file: File, maxSegments: Int): GcodeLayerPreview =
+        parse(file, GcodeDialect.CURA, maxSegments)
+
+    internal fun parse(file: File, dialect: GcodeDialect, maxSegments: Int): GcodeLayerPreview {
         require(file.isFile && file.length() > 0L) { "Generated G-code is not available for layer preview" }
         require(maxSegments > 0) { "Layer preview segment limit must be positive" }
 
-        val source = scanSource(file)
+        val source = scanSource(file, dialect)
         require(source.totalSegmentCount > 0) { "No printable layer paths were found in the G-code" }
         val reservedIndices = reserveRareFeatureSamples(source, maxSegments)
         val remainingLimit = (maxSegments - reservedIndices.size).coerceAtLeast(0)
@@ -77,6 +92,7 @@ object GcodeLayerPreviewParser {
         val layers = mutableListOf<GcodeLayerPreview.Layer>()
         var currentLayerNumber: Int? = null
         var currentLayerZ = 0f
+        var prusaLayerCount = 0
         var currentSegments = FloatAccumulator(6 * 2048)
         var currentSupportCount = 0
         var currentSupportInterfaceCount = 0
@@ -120,7 +136,19 @@ object GcodeLayerPreviewParser {
         file.bufferedReader().useLines { lines ->
             lines.forEach { rawLine ->
                 val line = rawLine.trimStart()
-                if (line.startsWith(";LAYER:")) {
+                if (dialect == GcodeDialect.PRUSA) {
+                    if (line.startsWith(";LAYER_CHANGE")) {
+                        finishLayer()
+                        prusaLayerCount++
+                        currentLayerNumber = prusaLayerCount
+                        feature = GcodeLayerPreview.Feature.OTHER
+                        return@forEach
+                    }
+                    if (line.startsWith(";Z:")) {
+                        line.substringAfter(':').trim().toFloatOrNull()?.let { currentLayerZ = it }
+                        return@forEach
+                    }
+                } else if (line.startsWith(";LAYER:")) {
                     finishLayer()
                     currentLayerNumber = line.substringAfter(':').trim().toIntOrNull()
                     currentLayerZ = z.toFloat()
@@ -164,7 +192,7 @@ object GcodeLayerPreviewParser {
                         if (startX == nextX && startY == nextY) return@forEach
 
                         val speed = max(feedRateMmPerMinute / 60.0 * speedFactor, 0.0).toFloat()
-                        currentLayerZ = nextZ.toFloat()
+                        if (dialect == GcodeDialect.CURA) currentLayerZ = nextZ.toFloat()
                         minX = minOf(minX, startX.toFloat(), nextX.toFloat())
                         minY = minOf(minY, startY.toFloat(), nextY.toFloat())
                         maxX = maxOf(maxX, startX.toFloat(), nextX.toFloat())
@@ -233,9 +261,10 @@ object GcodeLayerPreviewParser {
         )
     }
 
-    private fun scanSource(file: File): SourceScan {
+    private fun scanSource(file: File, dialect: GcodeDialect): SourceScan {
         var currentLayerNumber: Int? = null
         var feature = GcodeLayerPreview.Feature.OTHER
+        var prusaLayerCount = 0
         val modalState = GcodeModalState()
         var x = 0.0
         var y = 0.0
@@ -247,7 +276,17 @@ object GcodeLayerPreviewParser {
         file.bufferedReader().useLines { lines ->
             lines.forEach { rawLine ->
                 val line = rawLine.trimStart()
-                if (line.startsWith(";LAYER:")) {
+                if (dialect == GcodeDialect.PRUSA) {
+                    if (line.startsWith(";LAYER_CHANGE")) {
+                        prusaLayerCount++
+                        currentLayerNumber = prusaLayerCount
+                        feature = GcodeLayerPreview.Feature.OTHER
+                        return@forEach
+                    }
+                    if (line.startsWith(";Z:")) {
+                        return@forEach
+                    }
+                } else if (line.startsWith(";LAYER:")) {
                     currentLayerNumber = line.substringAfter(':').trim().toIntOrNull()
                     feature = GcodeLayerPreview.Feature.OTHER
                     return@forEach
@@ -319,11 +358,13 @@ object GcodeLayerPreviewParser {
         return when {
             value.contains("ARC-OVERHANG") || value.contains("ARC_OVERHANG") -> GcodeLayerPreview.Feature.ARC_OVERHANG
             value.contains("WAVE-OVERHANG") || value.contains("WAVE_OVERHANG") -> GcodeLayerPreview.Feature.WAVE_OVERHANG
+            value.contains("SUPPORT") && value.contains("INTERFACE") -> GcodeLayerPreview.Feature.SUPPORT_INTERFACE
             value.contains("SUPPORT-INTERFACE") || value.contains("SUPPORT_INTERFACE") -> GcodeLayerPreview.Feature.SUPPORT_INTERFACE
             value.contains("SUPPORT") -> GcodeLayerPreview.Feature.SUPPORT
             value.contains("SKIRT") || value.contains("BRIM") || value.contains("RAFT") -> GcodeLayerPreview.Feature.ADHESION
             value.contains("WALL") || value.contains("SKIN") || value.contains("FILL") ||
-                value.contains("INFILL") || value.contains("BRIDGE") -> GcodeLayerPreview.Feature.MODEL
+                value.contains("INFILL") || value.contains("BRIDGE") ||
+                value.contains("PERIMETER") || value.contains("SURFACE") -> GcodeLayerPreview.Feature.MODEL
             else -> GcodeLayerPreview.Feature.OTHER
         }
     }

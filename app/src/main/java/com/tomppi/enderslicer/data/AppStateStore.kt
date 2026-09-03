@@ -1,6 +1,7 @@
 package com.tomppi.enderslicer.data
 
 import android.content.Context
+import com.tomppi.enderslicer.model.PrusaSliceSettings
 import com.tomppi.enderslicer.model.SlicerSettings
 import org.json.JSONArray
 import org.json.JSONObject
@@ -205,6 +206,14 @@ class AppStateStore(context: Context) {
         preferences.edit().remove(KEY_SETTINGS).apply()
     }
 
+    fun savePrusaSettings(settings: PrusaSliceSettings): Boolean =
+        preferences.edit().putString(KEY_PRUSA_SETTINGS, PrusaSliceSettingsJson.serialize(settings)).commit()
+
+    fun restorePrusaSettings(): PrusaSliceSettings {
+        val encoded = preferences.getString(KEY_PRUSA_SETTINGS, null) ?: return PrusaSliceSettings()
+        return PrusaSliceSettingsJson.deserialize(encoded) ?: PrusaSliceSettings()
+    }
+
     fun saveSettings(settings: SlicerSettings): Boolean {
         val values = SlicerSettingsJson.serialize(settings)
         val overrides = JSONArray()
@@ -282,6 +291,7 @@ class AppStateStore(context: Context) {
         private const val KEY_IMPORT_KIND = "import-kind"
         private const val KEY_IMPORT_NAME = "import-name"
         private const val KEY_SETTINGS = "settings-json"
+        private const val KEY_PRUSA_SETTINGS = "prusa-settings-json"
         private const val KEY_SNAPSHOT_BASELINE = "snapshot-baseline-json"
         private const val KEY_OVERRIDES_JSON = "overrides"
         private const val MAX_CURA_IMPORT_BYTES = 128L * 1024L * 1024L

@@ -54,6 +54,7 @@ class MainActivity : ComponentActivity() {
                         onEngineChange = {
                             engineStore.save(it)
                             engine = it
+                            slicerViewModel.onEngineChanged()
                         },
                     )
                 }

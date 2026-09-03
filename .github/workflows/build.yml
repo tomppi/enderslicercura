@@ -195,6 +195,17 @@ jobs:
           readelf -d app/src/main/jniLibs/arm64-v8a/libcuraengine_exec.so | tee curaengine-needed.log
           ! grep -q 'libc++_shared.so' curaengine-needed.log
 
+      - name: Fetch and validate PrusaSlicer ARM64 engine
+        run: |
+          chmod +x scripts/fetch-prusa-engine-android.sh
+          set -o pipefail
+          scripts/fetch-prusa-engine-android.sh 2>&1 | tee prusa-engine-fetch.log
+          test -s app/src/main/jniLibs/arm64-v8a/libprusa_slicer_exec.so
+          file app/src/main/jniLibs/arm64-v8a/libprusa_slicer_exec.so
+          readelf -d app/src/main/jniLibs/arm64-v8a/libprusa_slicer_exec.so | tee prusa-needed.log
+          ! grep -qE 'libc\+\+_shared|libz\.so|libz3\.so|libstdc\+\+\.so|libTK' prusa-needed.log
+          test -s app/src/main/assets/prusa/resources/profiles/Anker.ini
+
       - name: Build pinned host CuraEngine fixture binary
         run: |
           chmod +x scripts/build-curaengine-host-tests.sh

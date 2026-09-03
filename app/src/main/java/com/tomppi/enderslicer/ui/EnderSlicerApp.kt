@@ -458,14 +458,24 @@ fun EnderSlicerApp(
                     onEngineChange = onEngineChange,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                CategorizedSettingsSheet(
-                    state = state,
-                    onSettings = viewModel::updateSettings,
-                    onResetOverrides = viewModel::resetAllSettingOverrides,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
-                )
+                if (engine == SlicerEngine.PRUSA) {
+                    PrusaSettingsSheet(
+                        state = state,
+                        onSettings = viewModel::updatePrusaSettings,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                    )
+                } else {
+                    CategorizedSettingsSheet(
+                        state = state,
+                        onSettings = viewModel::updateSettings,
+                        onResetOverrides = viewModel::resetAllSettingOverrides,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                    )
+                }
             }
             AppTab.PRINT -> Box(
                 modifier = Modifier

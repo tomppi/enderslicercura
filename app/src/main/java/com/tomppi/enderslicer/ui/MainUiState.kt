@@ -5,6 +5,7 @@ import com.tomppi.enderslicer.engine.LayerEvent
 import com.tomppi.enderslicer.engine.SliceArtifactPublisher
 import com.tomppi.enderslicer.model.ModelPlacement
 import com.tomppi.enderslicer.model.PrinterDefinition
+import com.tomppi.enderslicer.model.PrusaSliceSettings
 import com.tomppi.enderslicer.model.SlicerSettings
 import com.tomppi.enderslicer.profile.CuraEngineProfile
 import com.tomppi.enderslicer.supportpaint.SupportPaintMode
@@ -15,6 +16,7 @@ import java.io.File
 data class MainUiState(
     val printer: PrinterDefinition,
     val settings: SlicerSettings = SlicerSettings(),
+    val prusaSettings: PrusaSliceSettings = PrusaSliceSettings(),
     val mesh: StlMesh? = null,
     val modelPath: String? = null,
     val modelPlacement: ModelPlacement? = null,

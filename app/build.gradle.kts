@@ -86,6 +86,31 @@ val verifyCuraEngineExecutable by tasks.registering {
     }
 }
 
+val prusaEngineExecutable = layout.projectDirectory.file("src/main/jniLibs/arm64-v8a/libprusa_slicer_exec.so")
+
+val verifyPrusaEngineExecutable by tasks.registering {
+    group = "verification"
+    description = "Fails unless the packaged PrusaSlicer executable is a non-empty static ARM64 ELF"
+    outputs.upToDateWhen { false }
+
+    doLast {
+        val executable = prusaEngineExecutable.asFile
+        check(executable.isFile && executable.length() > 0L) {
+            "PrusaSlicer ARM64 is missing. Run scripts/fetch-prusa-engine-android.sh before Gradle assembly."
+        }
+        val header = executable.inputStream().use { input -> input.readNBytes(20) }
+        check(header.size >= 20) { "PrusaSlicer package is too small to be a valid ELF" }
+        check(header[0] == 0x7f.toByte() && header[1] == 'E'.code.toByte() && header[2] == 'L'.code.toByte() && header[3] == 'F'.code.toByte()) {
+            "PrusaSlicer package is not an ELF executable"
+        }
+        check(header[4] == 2.toByte() && header[5] == 1.toByte()) {
+            "PrusaSlicer package must be a 64-bit little-endian ELF"
+        }
+        val machine = (header[18].toInt() and 0xff) or ((header[19].toInt() and 0xff) shl 8)
+        check(machine == 183) { "PrusaSlicer package has ELF machine $machine; expected AArch64 (183)" }
+    }
+}
+
 val verifyDebugApkContents by tasks.registering {
     group = "verification"
     description = "Builds the debug APK and verifies that CuraEngine is packaged"
@@ -97,6 +122,29 @@ val verifyDebugApkContents by tasks.registering {
             val entry = zip.getEntry("lib/arm64-v8a/libcuraengine_exec.so")
             check(entry != null && entry.size > 0L) {
                 "Debug APK does not contain the ARM64 CuraEngine executable"
+            }
+        }
+    }
+}
+
+val verifyDebugApkPrusaContents by tasks.registering {
+    group = "verification"
+    description = "Builds the debug APK and verifies that PrusaSlicer and its resources are packaged"
+    dependsOn("verifyDebugApkContents")
+    doLast {
+        check(prusaEngineExecutable.asFile.isFile) {
+            "PrusaSlicer ARM64 is missing. Run scripts/fetch-prusa-engine-android.sh before assembly."
+        }
+        val apk = layout.buildDirectory.file("outputs/apk/debug/app-debug.apk").get().asFile
+        check(apk.isFile && apk.length() > 0L) { "Debug APK was not created" }
+        ZipFile(apk).use { zip ->
+            val entry = zip.getEntry("lib/arm64-v8a/libprusa_slicer_exec.so")
+            check(entry != null && entry.size > 0L) {
+                "Debug APK does not contain the ARM64 PrusaSlicer executable"
+            }
+            val resources = zip.getEntry("assets/prusa/resources/profiles/Anker.ini")
+            check(resources != null && resources.size > 0L) {
+                "Debug APK does not contain the PrusaSlicer resources"
             }
         }
     }
