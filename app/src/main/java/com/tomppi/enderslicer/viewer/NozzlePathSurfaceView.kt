@@ -810,8 +810,14 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         repeat(6) { ambient += parity * TOP_AMBIENT }
 
         // --- Left side face (normal -u): base corners get contact occlusion.
-        val leftBottomAmbient = parity * SIDE_BASE_AMBIENT
-        val leftTopAmbient = parity * SIDE_TOP_AMBIENT
+        // On fine layers the side/top contrast at micro-layer scale creates
+        // scalloped "teeth" along curved rims and radiating streaks on sloped
+        // faces; soften it so micro-beads read as one continuous surface.
+        val fine = height <= FINE_LAYER_HEIGHT_MM
+        val sideBase = if (fine) FINE_SIDE_BASE_AMBIENT else SIDE_BASE_AMBIENT
+        val sideTop = if (fine) FINE_SIDE_TOP_AMBIENT else SIDE_TOP_AMBIENT
+        val leftBottomAmbient = parity * sideBase
+        val leftTopAmbient = parity * sideTop
         vertex += ax; vertex += ay; vertex += sz
         vertex += dxd; vertex += dyd; vertex += ez
         vertex += dxd; vertex += dyd; vertex += ez + height
@@ -1256,6 +1262,8 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         private const val TOP_AMBIENT = 0.97f
         private const val SIDE_TOP_AMBIENT = 0.92f
         private const val SIDE_BASE_AMBIENT = 0.74f
+        private const val FINE_SIDE_BASE_AMBIENT = 0.88f
+        private const val FINE_SIDE_TOP_AMBIENT = 0.95f
         // Odd layers render a touch darker so layers separate visually.
         private const val RIBBON_LAYER_TINT = 0.96f
         // Eye sits at (0, -distance, 0.58*distance); true eye distance is distance * sqrt(1 + 0.58^2).
