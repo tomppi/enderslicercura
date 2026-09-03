@@ -620,11 +620,24 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
             val boundsY2 = source[windowOffset + GcodeNozzlePath.Y2]
             val boundsZ2 = source[windowOffset + GcodeNozzlePath.Z2]
             // Consecutive same-kind run starting at moveIndex (ends at first
-            // kind change), capped at the stride window size.
+            // kind change), capped at the stride window size, and split at
+            // sharp direction turns so a reversal inside a window never
+            // collapses the chord: summed-E over a near-zero chord inflates
+            // the bead width into huge disconnected slabs (visible as fat
+            // criss-cross infill on long prints).
             var runEnd = moveIndex + 1
+            var firstDx = boundsX2 - boundsX1
+            var firstDy = boundsY2 - boundsY1
+            val firstLen = sqrt(firstDx * firstDx + firstDy * firstDy)
+            if (firstLen > 1e-7f) { firstDx /= firstLen; firstDy /= firstLen }
             while (runEnd < value.moveCount &&
                 runEnd - moveIndex < stride &&
                 source[runEnd * GcodeNozzlePath.VALUES_PER_MOVE + GcodeNozzlePath.KIND] == kind) {
+                val ro = runEnd * GcodeNozzlePath.VALUES_PER_MOVE
+                var ndx = source[ro + GcodeNozzlePath.X2] - source[ro + GcodeNozzlePath.X1]
+                var ndy = source[ro + GcodeNozzlePath.Y2] - source[ro + GcodeNozzlePath.Y1]
+                val nlen = sqrt(ndx * ndx + ndy * ndy)
+                if (nlen > 1e-7f && firstDx * ndx / nlen + firstDy * ndy / nlen < TURN_SPLIT_DOT) break
                 runEnd++
             }
             for (m in moveIndex until runEnd) {
@@ -748,7 +761,11 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         // Subtle per-layer tint: odd layers are a touch darker so stacked
         // beads read as separate layers (the hue still follows speed/z).
         val level = if (height > 0f) (ez / height).roundToInt() else 0
-        val parity = if (level and 1 == 0) 1f else RIBBON_LAYER_TINT
+        // On fine-layer prints (0.08-0.12 mm) the per-layer parity tint would
+        // band every micro-layer; fade it out so thin layers stack smoothly.
+        val parity = if (level and 1 == 0) 1f else {
+            if (height < THIN_LAYER_HEIGHT_MM) RIBBON_THIN_LAYER_TINT else RIBBON_LAYER_TINT
+        }
         // Quad corners: a/b on the start segment, c/d on the end segment,
         // left face = a->d, right face = b->c (top face at + height).
         val ax = sx - px; val ay = sy - py
@@ -1200,7 +1217,13 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         private const val PATH_WIDTH = 6f
         private const val TRAVEL_WIDTH = 1.5f
         private const val RIBBON_MAX_MOVES = 160_000
+        // Windows split when a new move deviates more than ~49 degrees from
+        // the window's first move (dot < 0.65), so reversed infill zigzags
+        // never inflate a summed-E ribbon into a wide slab.
+        private const val TURN_SPLIT_DOT = 0.65f
         private const val RIBBON_VERTICES_PER_MOVE = 18
+        private const val THIN_LAYER_HEIGHT_MM = 0.12f
+        private const val RIBBON_THIN_LAYER_TINT = 0.995f
         private const val RIBBON_SATURATION = 0.62f
         private const val RIBBON_VALUE = 0.92f
         // Fixed WORLD-space studio rig: the bead path rotates under the lights
