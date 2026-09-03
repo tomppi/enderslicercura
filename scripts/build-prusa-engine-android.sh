@@ -166,6 +166,9 @@ fi
 if [ ! -d $SRC ]; then
   for i in 1 2 3; do git clone --depth 1 --branch version_2.9.6 https://github.com/prusa3d/PrusaSlicer.git $SRC && break; rm -rf $SRC; done
 fi
+# A few dependency builds also install shared variants (zlib in particular). The console must
+# link their static archives only; remove every stray shared library so CMake resolves the .a.
+rm -f $PREFIX/lib/*.so*
 cmake -S $SRC -B $PWD/prusa-build/build -G Ninja \
   -DCMAKE_TOOLCHAIN_FILE=$TC \
   -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-29 -DANDROID_STL=c++_static \
@@ -184,10 +187,13 @@ cmake -S $SRC -B $PWD/prusa-build/build -G Ninja \
 # ARM-checking tool on the host (exec format error). We therefore disable it explicitly.
 # Link hygiene: the NDK sysroot supplies libstdc++.so / libz.so stubs; the console must not
 # depend on them (the device stub provides no real symbols). Drop -lstdc++ (the static libc++
-# is linked instead) and force -lz to resolve statically.
+# is linked instead) and force -lz to resolve statically. The FIRST ninja invocation
+# regenerates build.ninja from CMake, so the link rule is patched only after that.
+ninja -C $PWD/prusa-build/build prusa-slicer -j8
 BIN=$PWD/prusa-build/build/build.ninja
 sed -i 's/ -lstdc++ /  /g' $BIN
 sed -i 's/ -lz / -Wl,-Bstatic -lz -Wl,-Bdynamic /g' $BIN
+sed -i "s#${PWD}/prusa-build/prefix/lib/libz.so##g" $BIN
 ninja -C $PWD/prusa-build/build prusa-slicer -j8
 
 mkdir -p $OUT/src $OUT/resources
