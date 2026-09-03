@@ -605,48 +605,81 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         var travelMoves = 0
         extrusionPrefix = IntArray(value.moveCount + 1)
         travelPrefix = IntArray(value.moveCount + 1)
-        for (moveIndex in 0 until value.moveCount) {
-            val extrusion = source[offset + GcodeNozzlePath.KIND] == GcodeNozzlePath.Kind.EXTRUSION.code
-            val sx = source[offset + GcodeNozzlePath.X1]
-            val sy = source[offset + GcodeNozzlePath.Y1]
-            val sz = source[offset + GcodeNozzlePath.Z1]
-            val ex = source[offset + GcodeNozzlePath.X2]
-            val ey = source[offset + GcodeNozzlePath.Y2]
-            val ez = source[offset + GcodeNozzlePath.Z2]
-            if (extrusion) {
-                boundsVertex += sx; boundsVertex += sy; boundsVertex += sz
-                boundsVertex += ex; boundsVertex += ey; boundsVertex += ez
+        // Paint in contiguous same-kind windows of STALE-STRIDE moves: with
+        // stride > 1 the sampled move spans the WHOLE window (start point of
+        // the first move, end point of the last, summed deltaE), so long
+        // prints stay continuous instead of alternating gaps.
+        var moveIndex = 0
+        while (moveIndex < value.moveCount) {
+            val windowOffset = moveIndex * GcodeNozzlePath.VALUES_PER_MOVE
+            val kind = source[windowOffset + GcodeNozzlePath.KIND]
+            val boundsX1 = source[windowOffset + GcodeNozzlePath.X1]
+            val boundsY1 = source[windowOffset + GcodeNozzlePath.Y1]
+            val boundsZ1 = source[windowOffset + GcodeNozzlePath.Z1]
+            val boundsX2 = source[windowOffset + GcodeNozzlePath.X2]
+            val boundsY2 = source[windowOffset + GcodeNozzlePath.Y2]
+            val boundsZ2 = source[windowOffset + GcodeNozzlePath.Z2]
+            // Consecutive same-kind run starting at moveIndex (ends at first
+            // kind change), capped at the stride window size.
+            var runEnd = moveIndex + 1
+            while (runEnd < value.moveCount &&
+                runEnd - moveIndex < stride &&
+                source[runEnd * GcodeNozzlePath.VALUES_PER_MOVE + GcodeNozzlePath.KIND] == kind) {
+                runEnd++
             }
-            extrusionPrefix[moveIndex + 1] = extrusionMoves
-            travelPrefix[moveIndex + 1] = travelMoves
-            val sampled = moveIndex % stride == 0
-            if (sampled) {
-                val speedRatio = if (extrusion && speedSpan > 0f) {
-                    ((source[offset + GcodeNozzlePath.SPEED] - minSpeed) / speedSpan).coerceIn(0f, 1f)
-                } else 0f
-                val zRatio = if (value.maxZ > value.minZ) {
-                    ((ez - value.minZ) / (value.maxZ - value.minZ)).coerceIn(0f, 1f)
-                } else 0f
-                val color = if (extrusion) {
-                    hsv(extrusionHue(zRatio, speedRatio, colorBySpeed), RIBBON_SATURATION, RIBBON_VALUE, 1f)
-                } else floatArrayOf(0.50f, 0.54f, 0.64f, 0.20f)
-                if (extrusion) {
-                    addRibbonMove(
-                        ribbonVertex, ribbonNormal, ribbonColor, ribbonAmbientValues,
-                        sx, sy, sz, ex, ey, ez,
-                        source[offset + GcodeNozzlePath.DELTA_E],
-                        source[offset + GcodeNozzlePath.LAYER_HEIGHT],
-                        color,
-                    )
-                    extrusionMoves++
-                } else {
-                    travelVertex += sx; travelVertex += sy; travelVertex += sz
-                    travelVertex += ex; travelVertex += ey; travelVertex += ez
-                    repeat(2) { color.forEach { travelColor += it } }
-                    travelMoves++
+            for (m in moveIndex until runEnd) {
+                val o = m * GcodeNozzlePath.VALUES_PER_MOVE
+                extrusionPrefix[m + 1] = extrusionMoves
+                travelPrefix[m + 1] = travelMoves
+                if (kind == GcodeNozzlePath.Kind.EXTRUSION.code) {
+                    boundsVertex += source[o + GcodeNozzlePath.X1]
+                    boundsVertex += source[o + GcodeNozzlePath.Y1]
+                    boundsVertex += source[o + GcodeNozzlePath.Z1]
+                    boundsVertex += source[o + GcodeNozzlePath.X2]
+                    boundsVertex += source[o + GcodeNozzlePath.Y2]
+                    boundsVertex += source[o + GcodeNozzlePath.Z2]
                 }
             }
-            offset += GcodeNozzlePath.VALUES_PER_MOVE
+            val lastOffset = (runEnd - 1) * GcodeNozzlePath.VALUES_PER_MOVE
+            val sx = source[windowOffset + GcodeNozzlePath.X1]
+            val sy = source[windowOffset + GcodeNozzlePath.Y1]
+            val sz = source[windowOffset + GcodeNozzlePath.Z1]
+            val ex = source[lastOffset + GcodeNozzlePath.X2]
+            val ey = source[lastOffset + GcodeNozzlePath.Y2]
+            val ez = source[lastOffset + GcodeNozzlePath.Z2]
+            var windowDeltaE = 0f
+            for (m in moveIndex until runEnd) {
+                windowDeltaE += source[m * GcodeNozzlePath.VALUES_PER_MOVE + GcodeNozzlePath.DELTA_E]
+            }
+            val speedRatio = if (kind == GcodeNozzlePath.Kind.EXTRUSION.code && speedSpan > 0f) {
+                ((source[windowOffset + GcodeNozzlePath.SPEED] - minSpeed) / speedSpan).coerceIn(0f, 1f)
+            } else 0f
+            val zRatio = if (value.maxZ > value.minZ) {
+                ((ez - value.minZ) / (value.maxZ - value.minZ)).coerceIn(0f, 1f)
+            } else 0f
+            val color = if (kind == GcodeNozzlePath.Kind.EXTRUSION.code) {
+                hsv(extrusionHue(zRatio, speedRatio, colorBySpeed), RIBBON_SATURATION, RIBBON_VALUE, 1f)
+            } else floatArrayOf(0.50f, 0.54f, 0.64f, 0.20f)
+            if (kind == GcodeNozzlePath.Kind.EXTRUSION.code) {
+                addRibbonMove(
+                    ribbonVertex, ribbonNormal, ribbonColor, ribbonAmbientValues,
+                    sx, sy, sz, ex, ey, ez,
+                    windowDeltaE,
+                    source[lastOffset + GcodeNozzlePath.LAYER_HEIGHT],
+                    color,
+                )
+                extrusionMoves++
+                extrusionPrefix[runEnd] = extrusionMoves
+                travelPrefix[runEnd] = travelMoves
+            } else {
+                travelVertex += sx; travelVertex += sy; travelVertex += sz
+                travelVertex += ex; travelVertex += ey; travelVertex += ez
+                repeat(2) { color.forEach { travelColor += it } }
+                travelMoves++
+                extrusionPrefix[runEnd] = extrusionMoves
+                travelPrefix[runEnd] = travelMoves
+            }
+            moveIndex = runEnd
         }
         ribbonPositions = ribbonVertex.toFloatBuffer()
         ribbonNormals = ribbonNormal.toFloatBuffer()
