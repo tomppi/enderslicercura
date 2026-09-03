@@ -42,7 +42,7 @@ cm () {
 }
 
 step "[1/6] zlib libpng tbb openexr blosc"
-fetch zlib https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.gz; cm zlib -DZLIB_BUILD_EXAMPLES=OFF
+fetch zlib https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.gz; cm zlib -DZLIB_BUILD_EXAMPLES=OFF -DZLIB_BUILD_SHARED=OFF -DZLIB_BUILD_STATIC=ON
 fetch libpng https://github.com/pnggroup/libpng/archive/refs/tags/v1.6.35.tar.gz; cm libpng -DPNG_TESTS=OFF -DPNG_SHARED=OFF -DPNG_STATIC=ON -DZLIB_ROOT=$PREFIX
 # oneTBB 2021.5 hardcodes the pre-r23 NDK libc++ path; shim it.
 mkdir -p $NDK/sources/cxx-stl/llvm-libc++/libs/arm64-v8a
@@ -83,7 +83,7 @@ fetch nlopt https://github.com/stevengj/nlopt/archive/refs/tags/v2.5.0.tar.gz; c
 fetch curl https://github.com/curl/curl/releases/download/curl-8_5_0/curl-8.5.0.tar.gz; cm curl -DBUILD_CURL_EXE=OFF -DBUILD_SHARED_LIBS=OFF -DCURL_USE_OPENSSL=OFF -DCURL_USE_LIBSSH2=OFF -DCURL_DISABLE_LDAP=ON -DCURL_USE_NTLM=OFF -DCURL_USE_LDAP=OFF -DCURL_USE_APPLE_IDN=OFF -DCURL_USE_BEARER=OFF -DCURL_ZLIB=ON
 fetch expat https://github.com/libexpat/libexpat/releases/download/R_2_6_2/expat-2.6.2.tar.gz; cm expat -DEXPAT_BUILD_DOCS=OFF -DEXPAT_BUILD_EXAMPLES=OFF -DEXPAT_BUILD_TOOLS=OFF
 fetch eigen https://gitlab.com/libeigen/eigen/-/archive/3.4.0/eigen-3.4.0.tar.gz; cm eigen -DEIGEN_BUILD_DOC=OFF
-fetch z3 https://github.com/Z3Prover/z3/archive/refs/tags/z3-4.13.0.tar.gz; cm z3 -DZ3_BUILD_PYTHON_BINDINGS=OFF -DZ3_BUILD_JAVA_BINDINGS=OFF -DZ3_BUILD_DOTNET_BINDINGS=OFF -DZ3_BUILD_EXAMPLES=OFF -DZ3_BUILD_TEST_EXECUTABLES=OFF -DZ3_INSTALL_PYTHON_BINDINGS=OFF
+fetch z3 https://github.com/Z3Prover/z3/archive/refs/tags/z3-4.13.0.tar.gz; cm z3 -DZ3_BUILD_PYTHON_BINDINGS=OFF -DZ3_BUILD_JAVA_BINDINGS=OFF -DZ3_BUILD_DOTNET_BINDINGS=OFF -DZ3_BUILD_EXAMPLES=OFF -DZ3_BUILD_TEST_EXECUTABLES=OFF -DZ3_INSTALL_PYTHON_BINDINGS=OFF -DZ3_BUILD_LIBZ3_STATIC=ON -DZ3_BUILD_LIBZ3_SHARED=OFF
 fetch catch2 https://github.com/catchorg/Catch2/archive/refs/tags/v3.4.0.tar.gz; cm catch2 -DCATCH_BUILD_TESTING=OFF -DCATCH_INSTALL_DOCS=OFF -DCATCH_INSTALL_EXTRAS=OFF
 fetch qhull https://github.com/qhull/qhull/archive/refs/tags/v8.0.2.tar.gz; cm qhull
 fetch nlohmann https://github.com/nlohmann/json/archive/refs/tags/v3.11.3.tar.gz; cm nlohmann -DJSON_BuildTests=OFF
@@ -106,7 +106,7 @@ cmake -S $WORK/cgal -B $WORK/cgal/build -G Ninja -DCMAKE_TOOLCHAIN_FILE=$TC \
 ninja -C $WORK/cgal/build install
 
 step "[5/6] occt jpeg libbgcode heatshrink nanosvg"
-fetch occt https://github.com/Open-Cascade-SAS/OCCT/archive/refs/tags/V7_8_1.tar.gz; cm occt -DUSE_TK=OFF -DUSE_TBB=OFF -DUSE_VTK=OFF -DUSE_FREETYPE=OFF -DUSE_RAPIDJSON=OFF -DBUILD_MODULE_Draw=OFF -DBUILD_MODULE_Visualization=OFF -DINSTALL_DOC_DEVELOPER=OFF -DINSTALL_DOC_LUCID=OFF
+fetch occt https://github.com/Open-Cascade-SAS/OCCT/archive/refs/tags/V7_8_1.tar.gz; cm occt -DUSE_TK=OFF -DUSE_TBB=OFF -DUSE_VTK=OFF -DUSE_FREETYPE=OFF -DUSE_RAPIDJSON=OFF -DBUILD_MODULE_Draw=OFF -DBUILD_MODULE_Visualization=OFF -DINSTALL_DOC_DEVELOPER=OFF -DINSTALL_DOC_LUCID=OFF -DBUILD_LIBRARY_TYPE=STATIC
 fetch jpeg https://github.com/libjpeg-turbo/libjpeg-turbo/archive/refs/tags/3.0.3.tar.gz; cm jpeg -DENABLE_SHARED=OFF -DENABLE_STATIC=ON -DWITH_TURBOJPEG=OFF
 fetch heatshrink https://github.com/atomicobject/heatshrink/archive/refs/tags/v0.4.1.tar.gz
 $CT --target=aarch64-linux-android29 -O2 -fPIC -c $WORK/heatshrink/heatshrink_encoder.c -o /tmp/hse.o
@@ -168,7 +168,7 @@ if [ ! -d $SRC ]; then
 fi
 cmake -S $SRC -B $PWD/prusa-build/build -G Ninja \
   -DCMAKE_TOOLCHAIN_FILE=$TC \
-  -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-29 -DANDROID_STL=c++_shared \
+  -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-29 -DANDROID_STL=c++_static \
   -DCMAKE_BUILD_TYPE=Release \
   "-DCMAKE_CXX_FLAGS=-isystem $PREFIX/include" \
   -DCMAKE_MODULE_PATH=$PWD/prusa-build/cmake-shims \
@@ -176,15 +176,25 @@ cmake -S $SRC -B $PWD/prusa-build/build -G Ninja \
   -DSLIC3R_GUI=OFF -DSLIC3R_STATIC=ON -DBUILD_TESTING=OFF -DSLIC3R_BUILD_TESTS=OFF \
   -DSLIC3R_ENC_CHECK=OFF \
   -DBOOST_ROOT=$PREFIX -DBoost_NO_SYSTEM_PATHS=ON \
-  -DNLOPT_INCLUDE_DIR=$PREFIX/include -DNLOPT_NLOPT_LIBRARY=$PREFIX/lib/libnlopt.a
+  -DNLOPT_INCLUDE_DIR=$PREFIX/include -DNLOPT_NLOPT_LIBRARY=$PREFIX/lib/libnlopt.a \
+  "-DCMAKE_EXE_LINKER_FLAGS=-nostdlib++ -Wl,-Bstatic -lz -lc++_static -lc++abi -Wl,-Bdynamic"
 
 # SLIC3R_ENC_CHECK is normally force-disabled on cross-compiles, but the NDK toolchain does
 # not set IS_CROSS_COMPILE, so the build-time encoding-check stamps would try to execute the
 # ARM-checking tool on the host (exec format error). We therefore disable it explicitly.
+# Link hygiene: the NDK sysroot supplies libstdc++.so / libz.so stubs; the console must not
+# depend on them (the device stub provides no real symbols). Drop -lstdc++ (the static libc++
+# is linked instead) and force -lz to resolve statically.
+BIN=$PWD/prusa-build/build/build.ninja
+sed -i 's/ -lstdc++ /  /g' $BIN
+sed -i 's/ -lz / -Wl,-Bstatic -lz -Wl,-Bdynamic /g' $BIN
 ninja -C $PWD/prusa-build/build prusa-slicer -j8
 
 mkdir -p $OUT/src $OUT/resources
 cp $PWD/prusa-build/build/src/prusa-slicer $OUT/
 cp -rL $SRC/resources $OUT/resources
+echo "== dynamic dependency verification =="
+readelf -d $OUT/prusa-slicer | grep NEEDED | tee $OUT/needed.txt || echo "no dynamic dependencies beyond the interpreter"
+! grep -qE 'libc\+\+_shared|libz\.so|libz3\.so|libTK' $OUT/needed.txt || { echo "FATAL: engine binary needs a library that will not exist on Android"; exit 1; }
 echo PRUSA-ENGINE-READY
 file $OUT/prusa-slicer | head -1
