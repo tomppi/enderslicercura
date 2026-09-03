@@ -51,15 +51,18 @@ object GcodeNozzlePathParser {
     private const val LAYER_HEIGHT_MAX_MM = 0.500
     private const val EXTRUSION_EPSILON = 1e-7
     private const val CANCELLATION_INTERVAL = 2_048
+    fun parse(file: File): GcodeNozzlePath = parse(file, DEFAULT_MAX_MOVES, GcodeDialect.CURA)
 
-    fun parse(file: File): GcodeNozzlePath = parse(file, DEFAULT_MAX_MOVES)
+    fun parse(file: File, dialect: GcodeDialect): GcodeNozzlePath = parse(file, DEFAULT_MAX_MOVES, dialect)
 
-    internal fun parse(file: File, maxMoves: Int): GcodeNozzlePath {
-        require(file.isFile && file.length() > 0L) { "Generated G-code is not available for nozzle-path preview" }
-        require(maxMoves > 1) { "Nozzle-path move limit must retain at least the first and final move" }
+    internal fun parse(file: File, maxMoves: Int): GcodeNozzlePath = parse(file, maxMoves, GcodeDialect.CURA)
 
-        val sourceMoveCount = countSpatialMoves(file)
+    internal fun parse(file: File, maxMoves: Int, dialect: GcodeDialect): GcodeNozzlePath {
+
+        val sourceMoveCount = countSpatialMoves(file, dialect)
         require(sourceMoveCount > 0) { "No spatial nozzle moves were found in the G-code" }
+
+        val prusaRegion = PrusaPrintRegion(dialect)
 
         val accumulator = FloatAccumulator(GcodeNozzlePath.VALUES_PER_MOVE * 2048)
         val sourceIndices = IntAccumulator()
@@ -88,6 +91,7 @@ object GcodeNozzlePathParser {
             lines.forEach { rawLine ->
                 linesRead++
                 checkCancellation(linesRead)
+                if (prusaRegion.beforePrint(rawLine)) return@forEach
                 val command = GcodeCommand.parse(rawLine) ?: return@forEach
                 GcodeCommandPolicy.requirePreviewSafe(command, sourceIndex)
                 GcodeCommandPolicy.speedFactor(command)?.let {
@@ -191,7 +195,8 @@ object GcodeNozzlePathParser {
         )
     }
 
-    private fun countSpatialMoves(file: File): Int {
+    private fun countSpatialMoves(file: File, dialect: GcodeDialect): Int {
+        val prusaRegion = PrusaPrintRegion(dialect)
         val modalState = GcodeModalState()
         var x = 0.0
         var y = 0.0
@@ -202,6 +207,7 @@ object GcodeNozzlePathParser {
             lines.forEach { rawLine ->
                 linesRead++
                 checkCancellation(linesRead)
+                if (prusaRegion.beforePrint(rawLine)) return@forEach
                 val command = GcodeCommand.parse(rawLine) ?: return@forEach
                 GcodeCommandPolicy.requirePreviewSafe(command, count)
                 GcodeCommandPolicy.speedFactor(command)?.let { return@forEach }
@@ -248,6 +254,29 @@ object GcodeNozzlePathParser {
         val before = interiorIndex.toLong() * interiorLimit / interiorCount
         val after = (interiorIndex.toLong() + 1L) * interiorLimit / interiorCount
         return after > before
+    }
+
+    /**
+     * PrusaSlicer gcode wraps the print in ;TYPE:Custom start/end blocks plus a
+     * trailing ; prusaslicer_config dump; those moves (prime lines, present-print,
+     * Z lifts to 120mm) are not part of the part and pollute the nozzle-path view.
+     * The print region is [first ;LAYER_CHANGE .. first ;TYPE:Custom after it].
+     */
+    private class PrusaPrintRegion(private val dialect: GcodeDialect) {
+        private var printStarted = false
+        private var printDone = false
+
+        /** True when [rawLine] belongs to the start/end gcode and must be ignored. */
+        fun beforePrint(rawLine: String): Boolean {
+            if (dialect != GcodeDialect.PRUSA) return false
+            val trimmed = rawLine.trimStart()
+            if (!printStarted) {
+                if (trimmed.startsWith(";LAYER_CHANGE")) printStarted = true
+                return true
+            }
+            if (!printDone && trimmed.startsWith(";TYPE:Custom")) printDone = true
+            return printDone
+        }
     }
 
     private fun checkCancellation(linesRead: Int) {

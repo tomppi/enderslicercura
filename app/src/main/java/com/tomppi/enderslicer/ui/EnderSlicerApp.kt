@@ -82,6 +82,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.tomppi.enderslicer.conical.ConicalSettingsStore
+import com.tomppi.enderslicer.engine.GcodeDialect
 import com.tomppi.enderslicer.mesh.MeshTriangleLimits
 import com.tomppi.enderslicer.model.AllSettingsCatalogs
 import com.tomppi.enderslicer.model.SlicerSettings
@@ -393,6 +394,7 @@ fun EnderSlicerApp(
                         sliceBlockedReason = effectiveSliceBlockedReason,
                         onSlice = viewModel::sliceModel,
                         onExportGcode = { gcodeExportPicker.launch(GcodeExportName.suggest()) },
+                        onTools = { modelToolsOpen = true },
                     )
                 }
                 AppTabBar(
@@ -447,14 +449,14 @@ fun EnderSlicerApp(
                                     .align(Alignment.TopEnd)
                                     .padding(8.dp)
                                     .padding(top = 56.dp)
-                                    .widthIn(min = 270.dp, max = 420.dp),
+                                    .widthIn(min = 230.dp, max = 300.dp),
                             )
                         } else {
                             OutlinedButton(
                                 onClick = { modelUiCollapsed = false },
                                 modifier = Modifier
                                     .align(Alignment.TopEnd)
-                                    .padding(12.dp),
+                                    .padding(top = 56.dp, end = 12.dp),
                             ) {
                                 Text("Menu")
                             }
@@ -1191,6 +1193,7 @@ private fun ViewerPanel(
             )
             viewerMode == ViewerMode.NOZZLE_PATH && gcodeAvailable -> NozzlePathView(
                 gcodePath = requireNotNull(state.gcodePath),
+                dialect = if (state.sliceEngine == SlicerEngine.PRUSA) GcodeDialect.PRUSA else GcodeDialect.CURA,
                 beadHeightMm = state.settings.layerHeightMm,
                 beadLineWidthMm = state.settings.lineWidthMm,
                 filamentDiameterMm = state.settings.filamentDiameterMm,
@@ -1265,10 +1268,10 @@ private fun ViewerPanel(
                 .padding(12.dp),
         ) {
             Card(
-                modifier = Modifier.widthIn(max = 390.dp),
+                modifier = Modifier.widthIn(max = 290.dp),
             ) {
             Column(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 Text(effectivePrinter.name, style = MaterialTheme.typography.titleSmall)
@@ -1360,8 +1363,8 @@ private fun ViewerPanel(
                     .padding(12.dp),
             ) {
                 Row(
-                    modifier = Modifier.padding(6.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.padding(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     ViewerModeButton("Model", ViewerMode.MODEL, viewerMode, true, onViewerMode)
                     ViewerModeButton("Layers", ViewerMode.LAYERS, viewerMode, preview != null, onViewerMode)
@@ -1374,11 +1377,11 @@ private fun ViewerPanel(
             Card(
                 modifier = Modifier
                     .align(Alignment.BottomStart)
-                    .padding(12.dp)
-                    .widthIn(max = 520.dp),
+                    .padding(10.dp)
+                    .widthIn(max = 380.dp),
             ) {
                 Column(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                     verticalArrangement = Arrangement.spacedBy(5.dp),
                 ) {
                     Text(state.statusMessage, style = MaterialTheme.typography.bodySmall)
@@ -1436,7 +1439,7 @@ private fun SessionPanel(
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Card(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Column(modifier = Modifier.padding(6.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -1480,7 +1483,7 @@ private fun SessionPanel(
         }
 
         Card(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text("Quick settings", style = MaterialTheme.typography.titleSmall)
                 Text(
                     "Tap a value to edit it in the Settings tab",
@@ -1509,7 +1512,7 @@ private fun SessionPanel(
         }
 
         Card(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Column(modifier = Modifier.padding(6.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                 Text("Actions", style = MaterialTheme.typography.titleSmall)
                 sliceBlockedReason?.let { reason ->
                     Text(
@@ -1628,10 +1631,21 @@ private fun ViewerModeButton(
     enabled: Boolean,
     onSelected: (ViewerMode) -> Unit,
 ) {
+    val content = @Composable { Text(label, style = MaterialTheme.typography.labelMedium) }
     if (selected == mode) {
-        Button(onClick = { onSelected(mode) }, enabled = enabled) { Text(label) }
+        Button(
+            onClick = { onSelected(mode) },
+            enabled = enabled,
+            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+            modifier = Modifier.height(32.dp),
+        ) { content() }
     } else {
-        OutlinedButton(onClick = { onSelected(mode) }, enabled = enabled) { Text(label) }
+        OutlinedButton(
+            onClick = { onSelected(mode) },
+            enabled = enabled,
+            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+            modifier = Modifier.height(32.dp),
+        ) { content() }
     }
 }
 
@@ -1643,6 +1657,7 @@ private fun ActionBar(
     sliceBlockedReason: String?,
     onSlice: () -> Unit,
     onExportGcode: () -> Unit,
+    onTools: () -> Unit,
 ) {
     val gcodeAvailable = state.hasCurrentGcode()
     Surface(tonalElevation = 4.dp) {
@@ -1690,6 +1705,13 @@ private fun ActionBar(
                 ) {
                     Text("Export G-code")
                 }
+            }
+            OutlinedButton(
+                onClick = onTools,
+                enabled = state.mesh != null && !state.isBusy,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Model tools · move, rotate, scale, paint")
             }
             if (!gcodeAvailable) {
                 Text(

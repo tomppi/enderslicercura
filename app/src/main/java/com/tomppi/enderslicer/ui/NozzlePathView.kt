@@ -49,6 +49,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.tomppi.enderslicer.engine.GcodeDialect
 import com.tomppi.enderslicer.engine.GcodeNozzlePath
 import com.tomppi.enderslicer.engine.GcodeNozzlePathParser
 import com.tomppi.enderslicer.viewer.NozzlePathSurfaceView
@@ -80,6 +81,7 @@ private sealed interface NozzlePathLoadState {
 @Composable
 internal fun NozzlePathView(
     gcodePath: String,
+    dialect: GcodeDialect = GcodeDialect.CURA,
     beadHeightMm: Double,
     beadLineWidthMm: Double,
     filamentDiameterMm: Double,
@@ -88,7 +90,7 @@ internal fun NozzlePathView(
     val loadState by produceState<NozzlePathLoadState>(NozzlePathLoadState.Loading, gcodePath) {
         value = NozzlePathLoadState.Loading
         value = try {
-            val parsed = runInterruptible(Dispatchers.IO) { GcodeNozzlePathParser.parse(File(gcodePath)) }
+            val parsed = runInterruptible(Dispatchers.IO) { GcodeNozzlePathParser.parse(File(gcodePath), dialect) }
             Log.i("NozzlePathView", "parsed " + parsed.moveCount + " moves")
             NozzlePathLoadState.Ready(parsed)
         } catch (cancelled: CancellationException) {
