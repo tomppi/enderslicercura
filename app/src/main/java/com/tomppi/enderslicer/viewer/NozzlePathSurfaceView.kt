@@ -626,19 +626,17 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
             val boundsX2 = source[windowOffset + GcodeNozzlePath.X2]
             val boundsY2 = source[windowOffset + GcodeNozzlePath.Y2]
             val boundsZ2 = source[windowOffset + GcodeNozzlePath.Z2]
-            // Consecutive same-kind run starting at moveIndex (ends at first
-            // kind change), capped at the stride window size, and split at
-            // sharp direction turns so a reversal inside a window never
-            // collapses the chord: summed-E over a near-zero chord inflates
-            // the bead width into huge disconnected slabs (visible as fat
-            // criss-cross infill on long prints).
+            // Natural run: consecutive same-kind moves that stay collinear
+            // (turn-split at sharp reversals), WITHOUT the stride bound.
             var runEnd = moveIndex + 1
             var firstDx = boundsX2 - boundsX1
             var firstDy = boundsY2 - boundsY1
             val firstLen = sqrt(firstDx * firstDx + firstDy * firstDy)
             if (firstLen > 1e-7f) { firstDx /= firstLen; firstDy /= firstLen }
+            var runChord = 0.0f
+            var runDeltaE = 0f
+            var runArc = 0f
             while (runEnd < value.moveCount &&
-                runEnd - moveIndex < stride &&
                 source[runEnd * GcodeNozzlePath.VALUES_PER_MOVE + GcodeNozzlePath.KIND] == kind) {
                 val ro = runEnd * GcodeNozzlePath.VALUES_PER_MOVE
                 var ndx = source[ro + GcodeNozzlePath.X2] - source[ro + GcodeNozzlePath.X1]
@@ -667,10 +665,20 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
             val ex = source[lastOffset + GcodeNozzlePath.X2]
             val ey = source[lastOffset + GcodeNozzlePath.Y2]
             val ez = source[lastOffset + GcodeNozzlePath.Z2]
-            var windowDeltaE = 0f
+            // Run-wide totals: one width for the WHOLE natural run so every
+            // stride window of the same line shares identical geometry -
+            // micro-layer borders never alternate width/height.
+            runChord = sqrt((ex - sx) * (ex - sx) + (ey - sy) * (ey - sy))
+            runDeltaE = 0f
+            runArc = 0f
             for (m in moveIndex until runEnd) {
-                windowDeltaE += source[m * GcodeNozzlePath.VALUES_PER_MOVE + GcodeNozzlePath.DELTA_E]
+                val mo = m * GcodeNozzlePath.VALUES_PER_MOVE
+                runDeltaE += source[mo + GcodeNozzlePath.DELTA_E]
+                val ax = source[mo + GcodeNozzlePath.X1]; val ay = source[mo + GcodeNozzlePath.Y1]
+                val bx = source[mo + GcodeNozzlePath.X2]; val by = source[mo + GcodeNozzlePath.Y2]
+                runArc += sqrt((bx - ax) * (bx - ax) + (by - ay) * (by - ay))
             }
+            val runHeight = source[lastOffset + GcodeNozzlePath.LAYER_HEIGHT]
             val speedRatio = if (kind == GcodeNozzlePath.Kind.EXTRUSION.code && speedSpan > 0f) {
                 ((source[windowOffset + GcodeNozzlePath.SPEED] - minSpeed) / speedSpan).coerceIn(0f, 1f)
             } else 0f
@@ -681,15 +689,39 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
                 hsv(extrusionHue(zRatio, speedRatio, colorBySpeed), RIBBON_SATURATION, RIBBON_VALUE, 1f)
             } else floatArrayOf(0.50f, 0.54f, 0.64f, 0.20f)
             if (kind == GcodeNozzlePath.Kind.EXTRUSION.code) {
-                addRibbonMove(
-                    ribbonVertex, ribbonNormal, ribbonColor, ribbonAmbientValues,
-                    sx, sy, sz, ex, ey, ez,
-                    windowDeltaE,
-                    source[lastOffset + GcodeNozzlePath.LAYER_HEIGHT],
-                    color,
-                )
-                extrusionMoves++
+                // Emit stride-sized windows inside the run. Each window uses
+                // the run deltaE scaled to ITS OWN chord, so the resolved
+                // width equals the run width exactly (same numerator/denominator ratio).
+                var windowStart = moveIndex
+                while (windowStart < runEnd) {
+                    val windowLast = min(windowStart + stride, runEnd) - 1
+                    val wo = windowStart * GcodeNozzlePath.VALUES_PER_MOVE
+                    val wlo = windowLast * GcodeNozzlePath.VALUES_PER_MOVE
+                    val wsx = source[wo + GcodeNozzlePath.X1]
+                    val wsy = source[wo + GcodeNozzlePath.Y1]
+                    val wsz = source[wo + GcodeNozzlePath.Z1]
+                    val wex = source[wlo + GcodeNozzlePath.X2]
+                    val wey = source[wlo + GcodeNozzlePath.Y2]
+                    val wez = source[wlo + GcodeNozzlePath.Z2]
+                    val wChord = sqrt((wex - wsx) * (wex - wsx) + (wey - wsy) * (wey - wsy))
+                    val windowDeltaE = if (runChord > 1e-6f) runDeltaE * (wChord / runChord) else runDeltaE
+                    addRibbonMove(
+                        ribbonVertex, ribbonNormal, ribbonColor, ribbonAmbientValues,
+                        wsx, wsy, wsz, wex, wey, wez,
+                        windowDeltaE,
+                        runHeight,
+                        color,
+                    )
+                    extrusionMoves++
+                    for (m in windowStart until windowLast) {
+                        extrusionPrefix[m + 1] = extrusionMoves
+                        travelPrefix[m + 1] = travelMoves
+                    }
+                    extrusionPrefix[windowLast + 1] = extrusionMoves
+                    windowStart = windowLast + 1
+                }
                 extrusionPrefix[runEnd] = extrusionMoves
+                travelPrefix[runEnd] = travelMoves
             } else {
                 // Pure-Z layer transitions are not meaningful travel paths;
                 // 599 of them at 0.08 mm would paint vertical scratches over
@@ -705,8 +737,10 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
                     repeat(2) { color.forEach { travelColor += it } }
                     travelMoves++
                 }
-                extrusionPrefix[runEnd] = extrusionMoves
-                travelPrefix[runEnd] = travelMoves
+                for (m in moveIndex until runEnd) {
+                    travelPrefix[m + 1] = travelMoves
+                    extrusionPrefix[m + 1] = extrusionMoves
+                }
             }
             moveIndex = runEnd
         }
@@ -768,7 +802,11 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
             filamentArea = filamentArea,
         )
         val height = if (parsedLayerHeight > 0.02f && parsedLayerHeight <= 2.0f) parsedLayerHeight else beadHeight
-        val half = width * 0.5f
+        // A degenerate (sub-cutoff) window would leave a hole in the wall;
+        // draw it as a hairline bead so micro-layer prints stay solid. The
+        // inspector keeps the true zero via its own readout path.
+        val render = if (width <= 0f) beadLineWidth * HAIRLINE_WIDTH_RATIO else width
+        val half = render * 0.5f
         val px = if (length > 1e-4f) -dy / length * half else 0f
         val py = if (length > 1e-4f) dx / length * half else 0f
         // Unit perpendicular of the move direction (outward right face).
@@ -1244,6 +1282,7 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         // never inflate a summed-E ribbon into a wide slab.
         private const val TURN_SPLIT_DOT = 0.65f
         private const val RIBBON_VERTICES_PER_MOVE = 18
+        private const val HAIRLINE_WIDTH_RATIO = 0.5f
         private const val THIN_LAYER_HEIGHT_MM = 0.12f
         private const val RIBBON_THIN_LAYER_TINT = 0.995f
         private const val RIBBON_SATURATION = 0.62f
