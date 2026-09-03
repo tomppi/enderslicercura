@@ -99,10 +99,10 @@ jobs:
           done
           [ -x "$STRIP" ] || { echo "llvm-strip not found for the engine binary"; exit 1; }
           "$STRIP" -s "$BIN" -o "$DEST/prusa-slicer"
-          ( cd "${GITHUB_WORKSPACE}/prusa-build/out" && zip -qr "$DEST/resources.zip" resources )
+          ( cd "${GITHUB_WORKSPACE}/prusa-build/out" && tar -czf "$DEST/resources.tar.gz" resources )
           python3 - <<'PY'
           import base64, json, os, urllib.request
-          for name in ('prusa-slicer', 'resources.zip'):
+          for name in ('prusa-slicer', 'resources.tar.gz'):
               path = '.build-artifacts/prusa-engine/' + name
               data = open(path, 'rb').read()
               print(name, len(data), 'bytes')

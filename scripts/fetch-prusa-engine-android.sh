@@ -20,25 +20,15 @@ if [ -n "${PRUSA_ENGINE_DIR:-}" ]; then
   echo "Using local Prusa engine directory: $PRUSA_ENGINE_DIR"
   SRC_DIR="$PRUSA_ENGINE_DIR"
 else
-  echo "Fetching latest PrusaSlicer engine artifact from $REPO"
-  AUTH=()
-  if [ -n "${GITHUB_TOKEN:-}" ]; then
-    AUTH=(-H "Authorization: Bearer $GITHUB_TOKEN")
-  fi
-  WORKFLOW_RUNS=$(curl -fsSL -m 120 --retry 3 "${AUTH[@]}" \
-    "https://api.github.com/repos/$REPO/actions/workflows/prusa-engine-android.yml/runs?status=success&per_page=1")
-  RUN_ID=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["workflow_runs"][0]["id"])' <<<"$WORKFLOW_RUNS")
-  echo "Latest successful build: run $RUN_ID"
-  ARTIFACTS=$(curl -fsSL -m 120 --retry 3 "${AUTH[@]}" \
-    "https://api.github.com/repos/$REPO/actions/runs/$RUN_ID/artifacts")
-  ARTIFACT_URL=$(python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["archive_download_url"] for x in d["artifacts"] if x["name"]=="PrusaSlicer-2.9.6-android-arm64"))' <<<"$ARTIFACTS")
+  echo "Fetching published PrusaSlicer engine from the repo"
+  BASE="https://raw.githubusercontent.com/$REPO/feature/prusa-engine-android/.build-artifacts/prusa-engine"
   rm -rf .build/prusa-engine-download
-  mkdir -p .build/prusa-engine-download/extract
-  curl -fsSL -m 600 --retry 3 "${AUTH[@]}" -o .build/prusa-engine-download/engine.zip "$ARTIFACT_URL"
-  unzip -q .build/prusa-engine-download/engine.zip -d .build/prusa-engine-download/extract
-  SRC_DIR=$(find .build/prusa-engine-download/extract -type f -name 'prusa-slicer' -printf '%h' | head -1)
-  [ -n "$SRC_DIR" ] || { echo "prusa-slicer binary not found in the artifact"; exit 1; }
-  echo "Extracted engine at: $SRC_DIR"
+  mkdir -p .build/prusa-engine-download
+  curl -fsSL -m 600 --retry 5 -o .build/prusa-engine-download/prusa-slicer "$BASE/prusa-slicer"
+  curl -fsSL -m 900 --retry 5 -o .build/prusa-engine-download/resources.tar.gz "$BASE/resources.tar.gz"
+  ( cd .build/prusa-engine-download && tar -xzf resources.tar.gz )
+  SRC_DIR=".build/prusa-engine-download"
+  echo "Engine published files at: $SRC_DIR"
 fi
 
 mkdir -p "$APP_JNILIBS" "$APP_ASSETS"
