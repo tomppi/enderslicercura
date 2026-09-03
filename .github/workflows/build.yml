@@ -13,6 +13,9 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     timeout-minutes: 180
+    permissions:
+      actions: read
+      contents: read
     env:
       NPM_CONFIG_ENGINE_STRICT: "true"
     steps:
