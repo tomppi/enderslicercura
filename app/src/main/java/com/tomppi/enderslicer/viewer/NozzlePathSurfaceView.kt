@@ -34,6 +34,7 @@ internal fun extrusionHue(zRatio: Float, speedRatio: Float, colorBySpeed: Boolea
 
 /** Micro-segments (sub-0.05 mm) emit with zero width. */
 internal const val RIBBON_MIN_SEGMENT_MM = 0.05f
+internal const val FINE_LAYER_HEIGHT_MM = 0.12f
 
 /**
  * Growable direct FloatBuffer: nozzle-path geometry is built straight into
@@ -114,9 +115,15 @@ internal fun resolveBeadWidthMm(
     } else {
         lineWidth
     }
-    return if (lengthMm < RIBBON_MIN_SEGMENT_MM) 0f else {
-        rawWidth.coerceIn(lineWidth * 0.4f, lineWidth * 4f)
-    }
+    // Micro-segment jitter: on fine layers the E-per-length ratio on
+    // sub-mm moves is dominated by coordinate quantization, inflating
+    // widths to 0.6+ mm against a true 0.42-0.44 mm. Fine-layer beads keep a
+    // tight band around the nominal line width so the noise collapses but
+    // real per-segment variation (skirts, perimeters, infill) survives.
+    val maxRatio = if (height <= FINE_LAYER_HEIGHT_MM) 1.15f else 4.0f
+    val minRatio = if (height <= FINE_LAYER_HEIGHT_MM) 0.60f else 0.4f
+    val bounded = rawWidth.coerceIn(lineWidth * minRatio, lineWidth * maxRatio)
+    return if (lengthMm < RIBBON_MIN_SEGMENT_MM) 0f else bounded
 }
 
 class NozzlePathSurfaceView(context: Context) : GLSurfaceView(context) {
@@ -683,12 +690,21 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
                 )
                 extrusionMoves++
                 extrusionPrefix[runEnd] = extrusionMoves
-                travelPrefix[runEnd] = travelMoves
             } else {
-                travelVertex += sx; travelVertex += sy; travelVertex += sz
-                travelVertex += ex; travelVertex += ey; travelVertex += ez
-                repeat(2) { color.forEach { travelColor += it } }
-                travelMoves++
+                // Pure-Z layer transitions are not meaningful travel paths;
+                // 599 of them at 0.08 mm would paint vertical scratches over
+                // the whole part.
+                val travelDx = ex - sx
+                val travelDy = ey - sy
+                val travelDz = ez - sz
+                val travelLen = sqrt(travelDx * travelDx + travelDy * travelDy + travelDz * travelDz)
+                val verticalOnly = travelLen > 1e-7f && sqrt(travelDx * travelDx + travelDy * travelDy) < travelLen * 0.25f
+                if (!verticalOnly) {
+                    travelVertex += sx; travelVertex += sy; travelVertex += sz
+                    travelVertex += ex; travelVertex += ey; travelVertex += ez
+                    repeat(2) { color.forEach { travelColor += it } }
+                    travelMoves++
+                }
                 extrusionPrefix[runEnd] = extrusionMoves
                 travelPrefix[runEnd] = travelMoves
             }
