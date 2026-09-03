@@ -18,8 +18,10 @@ object PrusaSliceSettingsJson {
             .put("fillDensityPercent", settings.fillDensityPercent)
             .put("fillPattern", settings.fillPattern)
             .put("skirtLoops", settings.skirtLoops)
+            .put("skirtHeightLayers", settings.skirtHeightLayers)
             .put("skirtDistanceMm", settings.skirtDistanceMm)
             .put("brimWidthMm", settings.brimWidthMm)
+            .put("overhangs", settings.overhangs)
             .put("supportMaterial", settings.supportMaterial)
             .put("supportThresholdAngleDegrees", settings.supportThresholdAngleDegrees)
             .put("supportPattern", settings.supportPattern)
@@ -57,8 +59,10 @@ object PrusaSliceSettingsJson {
             fillDensityPercent = json.optDouble("fillDensityPercent", base.fillDensityPercent),
             fillPattern = json.optString("fillPattern", base.fillPattern),
             skirtLoops = json.optInt("skirtLoops", base.skirtLoops),
+            skirtHeightLayers = json.optInt("skirtHeightLayers", base.skirtHeightLayers),
             skirtDistanceMm = json.optDouble("skirtDistanceMm", base.skirtDistanceMm),
             brimWidthMm = json.optDouble("brimWidthMm", base.brimWidthMm),
+            overhangs = json.optBoolean("overhangs", base.overhangs),
             supportMaterial = json.optBoolean("supportMaterial", base.supportMaterial),
             supportThresholdAngleDegrees = json.optDouble("supportThresholdAngleDegrees", base.supportThresholdAngleDegrees),
             supportPattern = json.optString("supportPattern", base.supportPattern),

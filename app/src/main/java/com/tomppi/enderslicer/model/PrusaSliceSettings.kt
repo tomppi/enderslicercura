@@ -23,8 +23,11 @@ data class PrusaSliceSettings(
     val fillPattern: String = "grid",
     // Skirt & brim
     val skirtLoops: Int = 1,
+    val skirtHeightLayers: Int = 1,
     val skirtDistanceMm: Double = 2.0,
     val brimWidthMm: Double = 0.0,
+    // Overhang control
+    val overhangs: Boolean = true,
     // Support material
     val supportMaterial: Boolean = false,
     val supportThresholdAngleDegrees: Double = 55.0,
@@ -62,7 +65,9 @@ data class PrusaSliceSettings(
         const val FILL_DENSITY = "fillDensityPercent"
         const val FILL_PATTERN = "fillPattern"
         const val SKIRT_LOOPS = "skirtLoops"
+        const val SKIRT_HEIGHT_LAYERS = "skirtHeightLayers"
         const val SKIRT_DISTANCE = "skirtDistanceMm"
+        const val OVERHANGS = "overhangs"
         const val BRIM_WIDTH = "brimWidthMm"
         const val SUPPORT_MATERIAL = "supportMaterial"
         const val SUPPORT_THRESHOLD_ANGLE = "supportThresholdAngleDegrees"

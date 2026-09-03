@@ -23,6 +23,7 @@ import com.tomppi.enderslicer.engine.PrinterEnvelope
 import com.tomppi.enderslicer.engine.SliceArtifactPublisher
 import com.tomppi.enderslicer.mesh.MeshTriangleLimits
 import com.tomppi.enderslicer.model.ModelPlacement
+import com.tomppi.enderslicer.model.PrusaConfigImporter
 import com.tomppi.enderslicer.model.PrusaSliceSettings
 import com.tomppi.enderslicer.model.SlicerSettings
 import com.tomppi.enderslicer.model.withSettings
@@ -411,6 +412,54 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         persistSettings(changed, workspaceMutationGeneration.incrementAndGet())
     }
 
+    fun importPrusaConfig(uri: Uri) {
+        if (!beginOperation("Importing PrusaSlicer config…")) return
+        viewModelScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    val text = app.contentResolver.openInputStream(uri)
+                        ?.bufferedReader()
+                        ?.use { it.readText() }
+                        ?: error("Unable to open the selected PrusaSlicer config")
+                    PrusaConfigImporter.parse(text)
+                }
+            }.onSuccess { imported ->
+                _uiState.update { state ->
+                    val machine = state.settings
+                    state.copy(
+                        prusaSettings = imported.settings,
+                        settings = machine.copy(
+                            machineWidthMm = imported.widthMm ?: machine.machineWidthMm,
+                            machineDepthMm = imported.depthMm ?: machine.machineDepthMm,
+                            originAtCenter = imported.originAtCenter,
+                            nozzleSizeMm = imported.nozzleSizeMm ?: machine.nozzleSizeMm,
+                            filamentDiameterMm = imported.filamentDiameterMm ?: machine.filamentDiameterMm,
+                            enabledExtruderCount = imported.extruders ?: machine.enabledExtruderCount,
+                            gcodeFlavor = imported.gcodeFlavor ?: machine.gcodeFlavor,
+                        ),
+                        startGcode = imported.startGcode.ifBlank { state.startGcode },
+                        endGcode = imported.endGcode.ifBlank { state.endGcode },
+                        sliceResultId = null,
+                        gcodePath = null,
+                        baseGcodePath = null,
+                        layerPreview = null,
+                        layerEvents = emptyList(),
+                        estimatedPrintSeconds = null,
+                        sliceLogPath = null,
+                        sliceDurationMilliseconds = null,
+                        isBusy = false,
+                        statusMessage = "Imported PrusaSlicer config (" +
+                            imported.settings.layerHeightMm + "mm layers, " +
+                            imported.settings.perimeters + " perimeters, " +
+                            imported.settings.fillDensityPercent + "% fill)",
+                    )
+                }
+                persistPrusaSettings(imported.settings)
+                persistSettings(_uiState.value.settings, workspaceMutationGeneration.incrementAndGet())
+            }.onFailure(::showOperationFailure)
+        }
+    }
+
     fun updatePrusaSettings(
         key: String,
         transform: (PrusaSliceSettings) -> PrusaSliceSettings,
@@ -626,11 +675,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             showOperationFailure(IllegalStateException("Import an STL before slicing"))
             return
         }
-        if (!engine.isAvailable()) {
-            showOperationFailure(IllegalStateException(engine.status()))
+        val sliceEngine = activeEngine
+        val activeEngineAvailable =
+            if (sliceEngine == SlicerEngine.PRUSA) prusaEngine.isAvailable() else engine.isAvailable()
+        if (!activeEngineAvailable) {
+            showOperationFailure(
+                IllegalStateException(
+                    if (sliceEngine == SlicerEngine.PRUSA) prusaEngine.status() else engine.status(),
+                ),
+            )
             return
         }
-        val sliceEngine = activeEngine
         if (!beginOperation(if (sliceEngine == SlicerEngine.PRUSA) "PrusaSlicer is slicing…" else "CuraEngine is slicing…")) return
         if (NonPlanarRuntime.snapshot() != null && ConicalRuntime.snapshot() != null) {
             _uiState.update {

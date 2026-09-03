@@ -103,12 +103,14 @@ class PrusaConfigWriterTest {
     }
 
     @Test
-    fun valuesMatchSections() {
+    fun valuesMatchConsoleFlatFormat() {
         val config = PrusaConfigWriter.render(settings, printer, "G28", "M84")
 
-        assertTrue(config.contains("[print]"))
-        assertTrue(config.contains("[filament]"))
-        assertTrue(config.contains("[printer]"))
+        // The console honors only the flat format the PC app embeds in a 3MF footer.
+        assertTrue(config.startsWith("print_settings_id ="))
+        assertFalse(config.contains("[print]"))
+        assertFalse(config.contains("[filament]"))
+        assertFalse(config.contains("[printer]"))
         assertTrue(config.contains("layer_height = 0.2"))
         assertTrue(config.contains("fill_density = 15%"))
         assertTrue(config.contains("fill_pattern = grid"))

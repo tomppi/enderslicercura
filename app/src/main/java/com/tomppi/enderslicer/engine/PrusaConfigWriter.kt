@@ -35,9 +35,12 @@ object PrusaConfigWriter {
         endGcode: String,
         filamentType: String = "PLA",
     ): String {
+        // NOTE: the console's --load only honors FLAT config (the same layout the PC app
+        // embeds in a 3MF footer as a prusaslicer_config block). Sectioned preset files
+        // ([print]/[filament]/[printer]) are ignored by the console, so every key is written
+        // at the top level here.
         val out = StringBuilder()
 
-        out.appendLine("[print]")
         out.appendLine(line("print_settings_id", "EnderSlicer Prusa custom"))
         out.appendLine(line("layer_height", settings.layerHeightMm.prusaNumber()))
         out.appendLine(line("first_layer_height", settings.firstLayerHeightMm.prusaNumber()))
@@ -49,7 +52,9 @@ object PrusaConfigWriter {
         out.appendLine(line("fill_density", settings.fillDensityPercent.prusaNumber() + "%"))
         out.appendLine(line("fill_pattern", settings.fillPattern))
         out.appendLine(line("skirts", settings.skirtLoops.toString()))
+        out.appendLine(line("skirt_height", settings.skirtHeightLayers.toString()))
         out.appendLine(line("skirt_distance", settings.skirtDistanceMm.prusaNumber()))
+        out.appendLine(line("overhangs", settings.overhangs.prusaBool()))
         out.appendLine(line("brim_width", settings.brimWidthMm.prusaNumber()))
         out.appendLine(line("support_material", settings.supportMaterial.prusaBool()))
         out.appendLine(line("support_material_threshold_angle", settings.supportThresholdAngleDegrees.prusaNumber()))
@@ -64,9 +69,6 @@ object PrusaConfigWriter {
         out.appendLine(line("gcode_flavor", prusaGcodeFlavor(printer.gcodeFlavor)))
         out.appendLine(line("start_gcode", iniEscape(startGcode.trim().replace("\r\n", "\n"))))
         out.appendLine(line("end_gcode", iniEscape(endGcode.trim().replace("\r\n", "\n"))))
-        out.appendLine()
-
-        out.appendLine("[filament]")
         out.appendLine(line("filament_settings_id", "EnderSlicer Filament"))
         out.appendLine(line("filament_diameter", printer.filamentDiameterMm.prusaNumber()))
         out.appendLine(line("filament_type", filamentType))
@@ -76,9 +78,6 @@ object PrusaConfigWriter {
         out.appendLine(line("first_layer_bed_temperature", settings.firstLayerBedTemperatureC.toString()))
         out.appendLine(line("fan_speed", settings.fanSpeedPercent.toString()))
         out.appendLine(line("extrusion_multiplier", (settings.extrusionMultiplierPercent / 100.0).prusaNumber()))
-        out.appendLine()
-
-        out.appendLine("[printer]")
         out.appendLine(line("printer_settings_id", "EnderSlicer " + printer.name))
         out.appendLine(line("printer_model", "Ender"))
         out.appendLine(line("bed_shape", prusaBedShape(printer)))

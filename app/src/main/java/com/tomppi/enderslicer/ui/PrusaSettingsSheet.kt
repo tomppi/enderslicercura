@@ -27,6 +27,7 @@ import com.tomppi.enderslicer.model.PrusaSliceSettings
 internal fun PrusaSettingsSheet(
     state: MainUiState,
     onSettings: (String, (PrusaSliceSettings) -> PrusaSliceSettings) -> Unit,
+    onImportConfig: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val settings = state.prusaSettings
@@ -43,6 +44,12 @@ internal fun PrusaSettingsSheet(
             style = MaterialTheme.typography.bodySmall,
         )
         OutlinedButton(
+            onClick = onImportConfig,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("Import settings from PrusaSlicer (.ini)")
+        }
+        OutlinedButton(
             onClick = {
                 onSettings(PrusaSliceSettings.Keys.LAYER_HEIGHT) { current ->
                     current.copy(
@@ -56,8 +63,10 @@ internal fun PrusaSettingsSheet(
                         fillDensityPercent = PrusaSliceSettings().fillDensityPercent,
                         fillPattern = PrusaSliceSettings().fillPattern,
                         skirtLoops = PrusaSliceSettings().skirtLoops,
+                        skirtHeightLayers = PrusaSliceSettings().skirtHeightLayers,
                         skirtDistanceMm = PrusaSliceSettings().skirtDistanceMm,
                         brimWidthMm = PrusaSliceSettings().brimWidthMm,
+                        overhangs = PrusaSliceSettings().overhangs,
                         supportMaterial = PrusaSliceSettings().supportMaterial,
                         supportThresholdAngleDegrees = PrusaSliceSettings().supportThresholdAngleDegrees,
                         supportPattern = PrusaSliceSettings().supportPattern,

@@ -198,6 +198,9 @@ fun EnderSlicerApp(
     val configImportPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let(viewModel::importConfiguration)
     }
+    val prusaConfigImportPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let(viewModel::importPrusaConfig)
+    }
     val gcodeExportPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("text/x-gcode"),
     ) { uri: Uri? ->
@@ -462,6 +465,7 @@ fun EnderSlicerApp(
                     PrusaSettingsSheet(
                         state = state,
                         onSettings = viewModel::updatePrusaSettings,
+                        onImportConfig = { prusaConfigImportPicker.launch(arrayOf("text/plain", "application/octet-stream", "*/*")) },
                         modifier = Modifier
                             .fillMaxWidth()
                             .weight(1f),
