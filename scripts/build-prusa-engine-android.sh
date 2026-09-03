@@ -2,6 +2,9 @@
 # Cross-compile PrusaSlicer 2.9.6 console for Android ARM64.
 # Mirrors the locally verified WSL build (NDK r28.2.13676358, Ubuntu-22.04).
 set -euo pipefail
+# On failure, publish a compact tail as ::error:: so the run's check annotations
+# (visible without admin log access) carry the actual error context.
+trap 'rc=$?; echo "::error::prusa engine build failed (exit $rc)"; if [ -f /tmp/final-ninja.log ]; then echo "::error::--- ninja tail ---"; tail -15 /tmp/final-ninja.log | sed "s/^/::error::/"; fi; exit $rc' ERR
 
 # --- locate the NDK (the workflow sets ANDROID_NDK_HOME; fall back to SDK root) ---
 SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
@@ -189,14 +192,14 @@ cmake -S $SRC -B $PWD/prusa-build/build -G Ninja \
 # depend on them (the device stub provides no real symbols). Drop -lstdc++ (the static libc++
 # is linked instead) and force -lz to resolve statically. The FIRST ninja invocation
 # regenerates build.ninja from CMake, so the link rule is patched only after that.
-ninja -C $PWD/prusa-build/build prusa-slicer -j8
+ninja -C $PWD/prusa-build/build prusa-slicer -j8 2>&1 | tee /tmp/final-ninja.log
 BIN=$PWD/prusa-build/build/build.ninja
 sed -i 's/ -lstdc++ /  /g' $BIN
 sed -i 's/ -lz / -Wl,-Bstatic -lz -Wl,-Bdynamic /g' $BIN
 sed -i "s#${PWD}/prusa-build/prefix/lib/libz.so##g" $BIN
 # Ninja considers the link output up to date even though the link rule changed; force a relink.
 rm -f $PWD/prusa-build/build/src/prusa-slicer
-ninja -C $PWD/prusa-build/build prusa-slicer -j8
+ninja -C $PWD/prusa-build/build prusa-slicer -j8 2>&1 | tee /tmp/final-ninja.log
 
 mkdir -p $OUT/src $OUT/resources
 cp $PWD/prusa-build/build/src/prusa-slicer $OUT/
@@ -204,8 +207,8 @@ cp -rL $SRC/resources $OUT/resources
 echo "== dynamic dependency verification =="
 readelf -d $OUT/prusa-slicer | grep NEEDED | tee $OUT/needed.txt || echo "no dynamic dependencies beyond the interpreter"
 if grep -qE 'libc\+\+_shared|libz\.so|libz3\.so|libTK' $OUT/needed.txt; then
-  echo "FATAL: engine binary needs a library that will not exist on Android:"
-  cat $OUT/needed.txt
+  echo "::error::engine binary has undesirable NEEDED entries:"
+  sed 's/^/::error:: /' $OUT/needed.txt
   exit 1
 fi
 echo PRUSA-ENGINE-READY
