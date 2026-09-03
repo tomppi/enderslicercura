@@ -87,11 +87,18 @@ object GcodeSanitizer {
 
                 val command = GcodeCommand.parse(rawLine)
                 if (command == null) {
-                    GcodeCommandPolicy.requirePublishedTextSafe(
-                        rawLine = rawLine,
-                        gcodeFlavor = printerEnvelope?.gcodeFlavor ?: PrinterEnvelope.DEFAULT_GCODE_FLAVOR,
-                        lineNumber = lineNumber,
-                    )
+                    try {
+                        GcodeCommandPolicy.requirePublishedTextSafe(
+                            rawLine = rawLine,
+                            gcodeFlavor = printerEnvelope?.gcodeFlavor ?: PrinterEnvelope.DEFAULT_GCODE_FLAVOR,
+                            lineNumber = lineNumber,
+                        )
+                    } catch (error: IllegalArgumentException) {
+                        throw UnsafeGcodeException(
+                            (error.message ?: "Unsupported textual command") +
+                                " | offending line: " + rawLine.trim().take(140),
+                        )
+                    }
                     return@forEach
                 }
                 val reachedFinalLayer = lastLayerSeen?.let { it >= layerCount - 1 } ?: false
