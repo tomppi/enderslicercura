@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
@@ -146,6 +147,17 @@ fun EnderSlicerApp(
     var allSettingsOpen by rememberSaveable { mutableStateOf(false) }
     var modelUiCollapsed by rememberSaveable { mutableStateOf(false) }
     var conicalOpen by rememberSaveable { mutableStateOf(false) }
+
+    // Android-style back navigation: back closes any open layer instead of exiting.
+    BackHandler(enabled = allSettingsOpen) { allSettingsOpen = false }
+    BackHandler(enabled = printerScreenOpen) { printerScreenOpen = false }
+    BackHandler(enabled = modelToolsOpen) { modelToolsOpen = false }
+    BackHandler(enabled = nonPlanarOpen) { nonPlanarOpen = false }
+    BackHandler(enabled = conicalOpen) { conicalOpen = false }
+    BackHandler(enabled = meshLimitOpen) { meshLimitOpen = false }
+    BackHandler(enabled = profilesOpen) { profilesOpen = false }
+    BackHandler(enabled = layerEventsOpen) { layerEventsOpen = false }
+    BackHandler(enabled = modelUiCollapsed && selectedTab == AppTab.PLATE) { modelUiCollapsed = false }
     var viewerMode by rememberSaveable { mutableStateOf(ViewerMode.MODEL) }
     var selectedLayerIndex by rememberSaveable { mutableStateOf(0) }
     var modelOrientation by rememberSaveable(stateSaver = ViewerOrientationSaver) {
@@ -430,8 +442,8 @@ fun EnderSlicerApp(
                                 onCollapse = { modelUiCollapsed = true },
                                 modifier = Modifier
                                     .align(Alignment.CenterEnd)
-                                    .fillMaxHeight()
-                                    .widthIn(min = 300.dp, max = 460.dp),
+                                    .padding(8.dp)
+                                    .widthIn(min = 270.dp, max = 420.dp),
                             )
                         } else {
                             OutlinedButton(
@@ -1403,20 +1415,20 @@ private fun SessionPanel(
 ) {
     val gcodeAvailable = state.hasCurrentGcode()
     val settings = state.settings
+    // Content-sized overlay: no scroll container, no height fill - touches
+    // outside the cards reach the model underneath.
     Column(
-        modifier = modifier
-            .verticalScroll(rememberScrollState())
-            .padding(vertical = 12.dp, horizontal = 4.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Card(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
-                    Text("Print session", style = MaterialTheme.typography.titleMedium)
+                    Text("Print session", style = MaterialTheme.typography.titleSmall)
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         if (gcodeAvailable) {
                             SessionChip("Ready", MaterialTheme.colorScheme.primary)
