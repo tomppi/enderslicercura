@@ -583,7 +583,10 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
 
         private fun buildPathBuffers(value: GcodeNozzlePath) {
         val source = value.moves
-        val stride = max(1, (value.extrusionMoveCount + RIBBON_MAX_MOVES - 1) / RIBBON_MAX_MOVES)
+        // One window per move, always: full fidelity (no memory cap - if a
+        // journey cannot fit, the system kills the process rather than us
+        // degrading the preview with coarser windows).
+        val stride = 1
         // Geometry is built into direct native buffers: the boxed-list build
         // this replaced OOM'd the Java heap on long prints (boxed Float ~16 B
         // vs 4 B in the final buffer, and 4 arrays per move with lighting).
@@ -1278,7 +1281,6 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         private const val MAX_ZOOM = 60f
         private const val PATH_WIDTH = 6f
         private const val TRAVEL_WIDTH = 1.5f
-        private const val RIBBON_MAX_MOVES = 160_000
         // Windows split when a new move deviates more than ~49 degrees from
         // the window's first move (dot < 0.65), so reversed infill zigzags
         // never inflate a summed-E ribbon into a wide slab.

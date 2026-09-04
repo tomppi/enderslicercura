@@ -219,8 +219,8 @@ internal class PrusaNozzlePathRenderer : GLSurfaceView.Renderer {
 
     internal var ribbonPositions: FloatBuffer? = null
     internal var ribbonNormals: FloatBuffer? = null
-    private var ribbonColors: FloatBuffer? = null
-    private var ribbonAmbient: FloatBuffer? = null
+    internal var ribbonColors: FloatBuffer? = null
+    internal var ribbonAmbient: FloatBuffer? = null
     private var travelPositions: FloatBuffer? = null
     private var travelColors: FloatBuffer? = null
     private var gridPositions: FloatBuffer? = null
@@ -229,8 +229,8 @@ internal class PrusaNozzlePathRenderer : GLSurfaceView.Renderer {
     private var markerGlowPositions: FloatBuffer? = null
     private var markerVertexCount = 0
     private var markerGlowVertexCount = 0
-    private var ribbonPrefix = IntArray(1)
-    private var travelPrefix = IntArray(1)
+    internal var ribbonPrefix = IntArray(1)
+    internal var travelPrefix = IntArray(1)
 
     private var pathVbos = IntArray(0)
     private var uploadedPath: PrusaNozzlePath? = null
@@ -379,14 +379,32 @@ internal class PrusaNozzlePathRenderer : GLSurfaceView.Renderer {
         val ribbonCount = ribbonPrefix[upTo]
         drawSolidLines(gridPositions, gridVertexCount, 1f, 0.24f, 0.30f, 0.40f, 0.48f)
         ensureUploads(current)
-        val litVerts = ribbonCount * WINDOW_VERTICES
+        // Hard clamp: never draw past the emitted vertex data. A mismatch here
+        // previously produced "model disappears after a certain point" and
+        // scrambled speed colors; the clamp degrades to fewer ribbons and
+        // logs the mismatch for diagnosis.
+        val maxRibbonVerts = (ribbonPositions?.limit() ?: 0) / 3
+        val requested = ribbonCount * WINDOW_VERTICES
+        val litVerts = if (requested <= maxRibbonVerts) {
+            requested
+        } else {
+            Log.e("PrusaNozzlePathView", "ribbon overdraw: requested " + requested + " vertices, have " + maxRibbonVerts)
+            maxRibbonVerts
+        }
         if (pathVbos.size == 6 && pathVbos[0] != 0) {
             drawLitTrianglesVbo(litVerts)
         } else {
             drawLitTriangles(litVerts)
         }
         if (showTravels) {
-            val travelVerts = travelPrefix[upTo] * 2
+            val maxTravelVerts = (travelPositions?.limit() ?: 0) / 3
+            val travelRequested = travelPrefix[upTo] * 2
+            val travelVerts = if (travelRequested <= maxTravelVerts) {
+                travelRequested
+            } else {
+                Log.e("PrusaNozzlePathView", "travel overdraw: requested " + travelRequested + " vertices, have " + maxTravelVerts)
+                maxTravelVerts
+            }
             if (pathVbos.size == 6 && pathVbos[4] != 0) {
                 drawColoredLinesVbo(travelVerts, PrusaNozzlePathViewDefaults.TRAVEL_WIDTH)
             } else {
@@ -404,7 +422,11 @@ internal class PrusaNozzlePathRenderer : GLSurfaceView.Renderer {
         // are split into stride-sized emission windows. Even when a run needs
         // several windows, every window uses the SAME run width/height, so
         // adjacent windows tile seamlessly (no alternating dashes).
-        val stride = max(1, (value.extrusionMoveCount + RIBBON_MAX_MOVES - 1) / RIBBON_MAX_MOVES)
+        // One window per move, always: full fidelity. Ribbon geometry lives
+        // in direct native memory and one device-side VBO copy; if a journey
+        // is so large that it cannot fit, the process is killed by the system
+        // instead of us degrading the preview with coarser windows.
+        val stride = 1
         val ribbonVertex = DirectFloatSink()
         val ribbonNormal = DirectFloatSink()
         val ribbonColor = DirectFloatSink()
@@ -1093,7 +1115,6 @@ internal class PrusaNozzlePathRenderer : GLSurfaceView.Renderer {
 
     private companion object {
         const val WINDOW_VERTICES = 18
-        const val RIBBON_MAX_MOVES = 320_000
         const val TURN_SPLIT_DOT = 0.65f
         const val CHAIN_EPS = 0.05f
         const val RIBBON_SATURATION = 0.62f
@@ -1196,7 +1217,6 @@ internal object PrusaNozzlePathViewDefaults {
     const val SIDE_TOP_AMBIENT = 0.94f
     const val SIDE_BASE_AMBIENT = 0.86f
     const val WINDOW_VERTICES = 18
-    const val RIBBON_MAX_MOVES = 320_000
     const val TURN_SPLIT_DOT = 0.65f
     const val RIBBON_SATURATION = 0.62f
     const val RIBBON_VALUE = 0.92f
