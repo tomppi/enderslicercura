@@ -210,7 +210,7 @@ internal class PrusaNozzlePathRenderer : GLSurfaceView.Renderer {
     private var showTravels = true
 
     internal var ribbonPositions: FloatBuffer? = null
-    private var ribbonNormals: FloatBuffer? = null
+    internal var ribbonNormals: FloatBuffer? = null
     private var ribbonColors: FloatBuffer? = null
     private var ribbonAmbient: FloatBuffer? = null
     private var travelPositions: FloatBuffer? = null
@@ -601,9 +601,7 @@ internal class PrusaNozzlePathRenderer : GLSurfaceView.Renderer {
         val qx = endNx * half
         val qy = endNy * half
         // Continuous strip: the end quad of the previous window uses the SAME
-        // averaged normals, so corners coincide exactly at shared boundaries.
-        val ux = (startNx + endNx) * 0.5f
-        val uy = (startNy + endNy) * 0.5f
+        // boundary normals, so corners coincide at shared boundaries.
         // Quad corners: a/b at start (offset by START normals), c/d at end
         // (offset by END normals). Shared boundary => same corner coordinates
         // in both the closing and opening window.
@@ -629,11 +627,16 @@ internal class PrusaNozzlePathRenderer : GLSurfaceView.Renderer {
         repeat(6) { normals += 0f; normals += 0f; normals += 1f }
         push(6)
         repeat(6) { ambient += PrusaNozzlePathViewDefaults.TOP_AMBIENT }
-        // Left side face.
+        // Left side face: per-vertex (Gouraud) normals - the start vertices
+        // carry the START boundary normal and the end vertices the END one,
+        // so shading interpolates continuously along the wall instead of
+        // jumping per window (flat-faced banding looked like warped walls).
         vertex += ax; vertex += ay; vertex += sz
         vertex += dxd; vertex += dyd; vertex += ez
         vertex += dxd; vertex += dyd; vertex += ez + height
-        repeat(3) { normals += -ux; normals += -uy; normals += 0f }
+        normals += -startNx; normals += -startNy; normals += 0f
+        normals += -endNx; normals += -endNy; normals += 0f
+        normals += -endNx; normals += -endNy; normals += 0f
         push(3)
         ambient += PrusaNozzlePathViewDefaults.SIDE_BASE_AMBIENT
         ambient += PrusaNozzlePathViewDefaults.SIDE_BASE_AMBIENT
@@ -641,16 +644,20 @@ internal class PrusaNozzlePathRenderer : GLSurfaceView.Renderer {
         vertex += ax; vertex += ay; vertex += sz
         vertex += dxd; vertex += dyd; vertex += ez + height
         vertex += ax; vertex += ay; vertex += sz + height
-        repeat(3) { normals += -ux; normals += -uy; normals += 0f }
+        normals += -startNx; normals += -startNy; normals += 0f
+        normals += -endNx; normals += -endNy; normals += 0f
+        normals += -startNx; normals += -startNy; normals += 0f
         push(3)
         ambient += PrusaNozzlePathViewDefaults.SIDE_BASE_AMBIENT
         ambient += PrusaNozzlePathViewDefaults.SIDE_TOP_AMBIENT
         ambient += PrusaNozzlePathViewDefaults.SIDE_TOP_AMBIENT
-        // Right side face.
+        // Right side face: same Gouraud normals on the + side.
         vertex += bx; vertex += by; vertex += sz
         vertex += cx; vertex += cy; vertex += ez
         vertex += cx; vertex += cy; vertex += ez + height
-        repeat(3) { normals += ux; normals += uy; normals += 0f }
+        normals += startNx; normals += startNy; normals += 0f
+        normals += endNx; normals += endNy; normals += 0f
+        normals += endNx; normals += endNy; normals += 0f
         push(3)
         ambient += PrusaNozzlePathViewDefaults.SIDE_BASE_AMBIENT
         ambient += PrusaNozzlePathViewDefaults.SIDE_BASE_AMBIENT
@@ -658,7 +665,9 @@ internal class PrusaNozzlePathRenderer : GLSurfaceView.Renderer {
         vertex += bx; vertex += by; vertex += sz
         vertex += cx; vertex += cy; vertex += ez + height
         vertex += bx; vertex += by; vertex += sz + height
-        repeat(3) { normals += ux; normals += uy; normals += 0f }
+        normals += startNx; normals += startNy; normals += 0f
+        normals += endNx; normals += endNy; normals += 0f
+        normals += startNx; normals += startNy; normals += 0f
         push(3)
         ambient += PrusaNozzlePathViewDefaults.SIDE_BASE_AMBIENT
         ambient += PrusaNozzlePathViewDefaults.SIDE_TOP_AMBIENT
@@ -1066,7 +1075,7 @@ internal class PrusaNozzlePathRenderer : GLSurfaceView.Renderer {
 
     private companion object {
         const val WINDOW_VERTICES = 18
-        const val RIBBON_MAX_MOVES = 160_000
+        const val RIBBON_MAX_MOVES = 320_000
         const val TURN_SPLIT_DOT = 0.65f
         const val CHAIN_EPS = 0.05f
         const val RIBBON_SATURATION = 0.62f
@@ -1169,7 +1178,7 @@ internal object PrusaNozzlePathViewDefaults {
     const val SIDE_TOP_AMBIENT = 0.94f
     const val SIDE_BASE_AMBIENT = 0.86f
     const val WINDOW_VERTICES = 18
-    const val RIBBON_MAX_MOVES = 160_000
+    const val RIBBON_MAX_MOVES = 320_000
     const val TURN_SPLIT_DOT = 0.65f
     const val RIBBON_SATURATION = 0.62f
     const val RIBBON_VALUE = 0.92f

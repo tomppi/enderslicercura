@@ -157,6 +157,38 @@ class PrusaNozzlePathRendererTest {
     }
 
     @Test
+    fun sideNormalsInterpolateContinuouslyAcrossWindows() {
+        val moves = ArrayList<FloatArray>()
+        val radius = 10f
+        val stepDeg = 5.0
+        val count = 14
+        for (i in 0 until count) {
+            val a0 = Math.toRadians(i * stepDeg)
+            val a1 = Math.toRadians((i + 1) * stepDeg)
+            moves.add(extrusionMove(
+                (radius * cos(a0)).toFloat(), (radius * sin(a0)).toFloat(),
+                (radius * cos(a1)).toFloat(), (radius * sin(a1)).toFloat(),
+            ))
+        }
+        val renderer = PrusaNozzlePathRenderer()
+        renderer.buildPathBuffers(path(*moves.toTypedArray()))
+        val normals = FloatArray(renderer.ribbonNormals!!.limit())
+        renderer.ribbonNormals!!.position(0)
+        renderer.ribbonNormals!!.get(normals)
+        val windows = normals.size / (18 * 3)
+        assertEquals(count, windows)
+        for (i in 0 until windows - 1) {
+            // Left face: end normal of window i (d vertex 7) must equal the
+            // start normal of window i+1 (a vertex 6) - continuous shading.
+            assertNear(range(normals, i, 7), range(normals, i + 1, 6), 1e-4f, "left n " + i)
+            assertNear(range(normals, i, 13), range(normals, i + 1, 12), 1e-4f, "right n " + i)
+        }
+    }
+
+    private fun range(data: FloatArray, window: Int, vertex: Int): FloatArray =
+        data.copyOfRange(window * 18 * 3 + vertex * 3, window * 18 * 3 + vertex * 3 + 3)
+
+    @Test
     fun beadEndsCappedByTheirOwnDirectionAcrossTravel() {
         val renderer = PrusaNozzlePathRenderer()
         // Bead A along +x, travel jump, bead B along +y.

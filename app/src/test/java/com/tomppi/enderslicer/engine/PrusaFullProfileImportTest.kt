@@ -4,14 +4,18 @@ import com.tomppi.enderslicer.model.PrinterDefinition
 import com.tomppi.enderslicer.model.PrusaConfigImporter
 import com.tomppi.enderslicer.model.PrusaSliceSettings
 import java.io.File
+import org.junit.Assume.assumeTrue
 import org.junit.Test
 
 /** Round-trips the real PC profile (gui-full.ini) through the app importer -> writer. */
 class PrusaFullProfileImportTest {
     @Test
     fun importRealProfileAndRewriteConfig() {
-        val source = File("..\\.build\\prusa-slicer\\gui-full.ini")
-        require(source.isFile) { "gui-full.ini missing: " + source.absolutePath }
+        // Local dev fixture only (repo/.build/prusa-slicer/gui-full.ini); CI and
+        // fresh checkouts skip this test instead of failing on a missing file.
+        val repoRoot = File(System.getProperty("user.dir")).parentFile
+        val source = File(repoRoot, ".build/prusa-slicer/gui-full.ini")
+        assumeTrue("gui-full.ini not available at " + source.absolutePath, source.isFile)
         val imported = PrusaConfigImporter.parse(source.readText())
         val printer = PrinterDefinition(
             name = "Ender 3 V2", widthMm = 230.0, depthMm = 230.0, heightMm = 250.0,
