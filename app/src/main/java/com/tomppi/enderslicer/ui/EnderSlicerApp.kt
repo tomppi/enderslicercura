@@ -1191,28 +1191,23 @@ private fun ViewerPanel(
                 onEditEvents = onEditLayerEvents,
                 modifier = Modifier.fillMaxSize(),
             )
-            viewerMode == ViewerMode.NOZZLE_PATH && gcodeAvailable -> NozzlePathView(
-                gcodePath = requireNotNull(state.gcodePath),
-                dialect = if (state.sliceEngine == SlicerEngine.PRUSA) GcodeDialect.PRUSA else GcodeDialect.CURA,
-                beadHeightMm = if (state.sliceEngine == SlicerEngine.PRUSA) {
-                    state.prusaSettings.layerHeightMm
-                } else {
-                    state.settings.layerHeightMm
-                },
-                beadLineWidthMm = if (state.sliceEngine == SlicerEngine.PRUSA) {
-                    state.prusaSettings.perimeterExtrusionWidthMm
+            viewerMode == ViewerMode.NOZZLE_PATH && gcodeAvailable -> if (state.sliceEngine == SlicerEngine.PRUSA) {
+                PrusaNozzlePathView(
+                    gcodePath = requireNotNull(state.gcodePath),
+                    beadLineWidthMm = state.prusaSettings.perimeterExtrusionWidthMm
                         ?: state.prusaSettings.firstLayerExtrusionWidthMm
-                        ?: state.settings.lineWidthMm
-                } else {
-                    state.settings.lineWidthMm
-                },
-                filamentDiameterMm = if (state.sliceEngine == SlicerEngine.PRUSA) {
-                    state.settings.filamentDiameterMm
-                } else {
-                    state.settings.filamentDiameterMm
-                },
-                modifier = Modifier.fillMaxSize(),
-            )
+                        ?: state.settings.lineWidthMm,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
+                NozzlePathView(
+                    gcodePath = requireNotNull(state.gcodePath),
+                    beadHeightMm = state.settings.layerHeightMm,
+                    beadLineWidthMm = state.settings.lineWidthMm,
+                    filamentDiameterMm = state.settings.filamentDiameterMm,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
             else -> key(effectivePrinter) {
                 var modelView by remember(effectivePrinter) { mutableStateOf<ModelSurfaceView?>(null) }
                 LaunchedEffect(modelView) {
