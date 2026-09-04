@@ -209,7 +209,7 @@ internal class PrusaNozzlePathRenderer : GLSurfaceView.Renderer {
     private var colorBySpeed = false
     private var showTravels = true
 
-    private var ribbonPositions: FloatBuffer? = null
+    internal var ribbonPositions: FloatBuffer? = null
     private var ribbonNormals: FloatBuffer? = null
     private var ribbonColors: FloatBuffer? = null
     private var ribbonAmbient: FloatBuffer? = null
@@ -379,7 +379,7 @@ internal class PrusaNozzlePathRenderer : GLSurfaceView.Renderer {
         drawSolidLines(markerPositions, markerVertexCount, 4.5f, 1f, 1f, 1f, 1f)
     }
     /** Builds continuous ribbon strips from marker-driven runs. */
-    private fun buildPathBuffers(value: PrusaNozzlePath) {
+    internal fun buildPathBuffers(value: PrusaNozzlePath) {
         val source = value.moves
         val n = value.moveCount
         // Windows: natural runs (same kind + collinear + same marker width)
@@ -529,39 +529,52 @@ internal class PrusaNozzlePathRenderer : GLSurfaceView.Renderer {
      */
     private fun boundaryNormal(k: Int, source: FloatArray): Pair<Float, Float> {
         val n = source.size / PrusaNozzlePath.VALUES_PER_MOVE
-        var inX = 0f; var inY = 0f
-        var outX = 0f; var outY = 0f
-        if (k > 0) {
-            val o = (k - 1) * PrusaNozzlePath.VALUES_PER_MOVE
-            inX = source[o + PrusaNozzlePath.X2] - source[o + PrusaNozzlePath.X1]
-            inY = source[o + PrusaNozzlePath.Y2] - source[o + PrusaNozzlePath.Y1]
-            val len = sqrt(inX * inX + inY * inY)
-            inX = if (len > 1e-7f) inX / len else 0f
-            inY = if (len > 1e-7f) inY / len else 0f
+        val inO = if (k > 0) (k - 1) * PrusaNozzlePath.VALUES_PER_MOVE else -1
+        val outO = if (k < n) k * PrusaNozzlePath.VALUES_PER_MOVE else -1
+        val inKind = inO >= 0 && source[inO + PrusaNozzlePath.KIND] == PrusaNozzlePath.Kind.EXTRUSION.code
+        val outKind = outO >= 0 && source[outO + PrusaNozzlePath.KIND] == PrusaNozzlePath.Kind.EXTRUSION.code
+        val i1x = if (inO >= 0) source[inO + PrusaNozzlePath.X2] - source[inO + PrusaNozzlePath.X1] else 0f
+        val i1y = if (inO >= 0) source[inO + PrusaNozzlePath.Y2] - source[inO + PrusaNozzlePath.Y1] else 0f
+        val o1x = if (outO >= 0) source[outO + PrusaNozzlePath.X2] - source[outO + PrusaNozzlePath.X1] else 0f
+        val o1y = if (outO >= 0) source[outO + PrusaNozzlePath.Y2] - source[outO + PrusaNozzlePath.Y1] else 0f
+        val iLen = sqrt(i1x * i1x + i1y * i1y)
+        val oLen = sqrt(o1x * o1x + o1y * o1y)
+        if (inKind && outKind && extrusionSeg(k - 1, k, source)) {
+            // One continuous chain: miter of the two segment tangents, so the
+            // closing window and the opening window share the exact same cap.
+            val mx = if (iLen > 1e-7f) i1x / iLen else 0f
+            val my = if (iLen > 1e-7f) i1y / iLen else 0f
+            val m2 = (mx + o1x / oLen) * (mx + o1x / oLen) + (my + o1y / oLen) * (my + o1y / oLen)
+            if (m2 >= 1e-3f && oLen > 1e-7f) {
+                val len = sqrt(m2)
+                return Pair(-(my + o1y / oLen) / len, (mx + o1x / oLen) / len)
+            }
+            if (iLen > 1e-7f) return Pair(-i1y / iLen, i1x / iLen)
+            if (oLen > 1e-7f) return Pair(-o1y / oLen, o1x / oLen)
+            return Pair(1f, 0f)
         }
-        if (k < n) {
-            val o = k * PrusaNozzlePath.VALUES_PER_MOVE
-            outX = source[o + PrusaNozzlePath.X2] - source[o + PrusaNozzlePath.X1]
-            outY = source[o + PrusaNozzlePath.Y2] - source[o + PrusaNozzlePath.Y1]
-            val len = sqrt(outX * outX + outY * outY)
-            outX = if (len > 1e-7f) outX / len else 0f
-            outY = if (len > 1e-7f) outY / len else 0f
-        }
-        var mx = inX + outX
-        var my = inY + outY
-        if (mx * mx + my * my < 1e-3f) {
-            // Sharp reversal (or fully degenerate): keep the incoming tangent
-            // so the two ribbons meet flush instead of crossing.
-            mx = inX; my = inY
-            if (mx == 0f && my == 0f) { mx = outX; my = outY }
-            if (mx == 0f && my == 0f) return Pair(1f, 0f)
-            val len = sqrt(mx * mx + my * my)
-            mx /= len; my /= len
-            return Pair(-my, mx)
-        }
-        val len = sqrt(mx * mx + my * my)
-        mx /= len; my /= len
-        return Pair(-my, mx)
+        // Not one continuous chain (run boundary, travel, width step): each
+        // side of the boundary caps with ITS OWN tangent so bead ends stay
+        // perpendicular to the bead and are never skewed by a neighbour.
+        if (inKind && iLen > 1e-7f) return Pair(-i1y / iLen, i1x / iLen)
+        if (outKind && oLen > 1e-7f) return Pair(-o1y / oLen, o1x / oLen)
+        return Pair(1f, 0f)
+    }
+    /**
+     * True when moves [a] and [b] are consecutive extrusion segments of one
+     * continuous chain: same kind, same width marker, and the end of [a]
+     * within [CHAIN_EPS] of the start of [b] (gcode coordinate rounding).
+     */
+    private fun extrusionSeg(a: Int, b: Int, source: FloatArray): Boolean {
+        if (a < 0 || b >= source.size / PrusaNozzlePath.VALUES_PER_MOVE) return false
+        val oa = a * PrusaNozzlePath.VALUES_PER_MOVE
+        val ob = b * PrusaNozzlePath.VALUES_PER_MOVE
+        if (source[oa + PrusaNozzlePath.KIND] != PrusaNozzlePath.Kind.EXTRUSION.code) return false
+        if (source[ob + PrusaNozzlePath.KIND] != PrusaNozzlePath.Kind.EXTRUSION.code) return false
+        if (source[oa + PrusaNozzlePath.WIDTH] != source[ob + PrusaNozzlePath.WIDTH]) return false
+        val dx = source[ob + PrusaNozzlePath.X1] - source[oa + PrusaNozzlePath.X2]
+        val dy = source[ob + PrusaNozzlePath.Y1] - source[oa + PrusaNozzlePath.Y2]
+        return dx * dx + dy * dy <= CHAIN_EPS * CHAIN_EPS
     }
     /**
      * One strip segment (window) of a continuous bead: a box from the window
@@ -596,8 +609,8 @@ internal class PrusaNozzlePathRenderer : GLSurfaceView.Renderer {
         // in both the closing and opening window.
         val ax = sx - px; val ay = sy - py
         val bx = sx + px; val by = sy + py
-        val cx = ex - qx; val cy = ey - qy
-        val dxd = ex + qx; val dyd = ey + qy
+        val cx = ex + qx; val cy = ey + qy
+        val dxd = ex - qx; val dyd = ey - qy
         fun push(vertexCount: Int) {
             repeat(vertexCount) {
                 colors += color[0]
@@ -1055,6 +1068,7 @@ internal class PrusaNozzlePathRenderer : GLSurfaceView.Renderer {
         const val WINDOW_VERTICES = 18
         const val RIBBON_MAX_MOVES = 160_000
         const val TURN_SPLIT_DOT = 0.65f
+        const val CHAIN_EPS = 0.05f
         const val RIBBON_SATURATION = 0.62f
         const val RIBBON_VALUE = 0.92f
         const val VIEW_EYE_Y = -0.85f
