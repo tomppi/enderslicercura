@@ -7,7 +7,11 @@ import android.os.Bundle
 import com.tomppi.enderslicer.smartinfill.SmartInfillActivity
 import com.tomppi.enderslicer.texturizer.BumpMeshActivity
 import com.tomppi.enderslicer.window.ToolWindowOrientationPolicy
+import java.io.File
 import java.lang.ref.WeakReference
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /** Applies adaptive orientation policy without coupling either WebView host to it. */
 class EnderSlicerApplication : Application(), Application.ActivityLifecycleCallbacks {
@@ -16,6 +20,28 @@ class EnderSlicerApplication : Application(), Application.ActivityLifecycleCallb
     override fun onCreate() {
         super.onCreate()
         registerActivityLifecycleCallbacks(this)
+        installCrashLog()
+    }
+
+    /**
+     * Captures uncaught exceptions to filesDir/crash.log so device-side crashes
+     * (intermittent nozzle-path issues included) can be diagnosed: pull it with
+     * adb pull /data/data/com.tomppi.enderslicercura/files/crash.log
+     */
+    private fun installCrashLog() {
+        val previous = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            try {
+                val log = File(filesDir, "crash.log")
+                val stamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
+                val trace = throwable.stackTraceToString()
+                // Keep the most recent incidents only.
+                val existing = if (log.isFile) log.readText().takeLast(48_000) else ""
+                log.writeText(existing + "\n==== " + stamp + " thread=" + thread.name + " ====\n" + trace + "\n")
+            } catch (_: Throwable) {
+            }
+            previous?.uncaughtException(thread, throwable)
+        }
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {

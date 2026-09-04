@@ -47,7 +47,15 @@ class PrusaNozzlePathSurfaceView(context: Context) : GLSurfaceView(context) {
         isClickable = true
     }
 
+    private var lastQueuedPath: PrusaNozzlePath? = null
+    private var lastQueuedMove = -1
+
     fun setPath(path: PrusaNozzlePath, selectedMoveIndex: Int) {
+        // AndroidView.update fires on every recomposition (playback ticks
+        // included); skip unchanged calls so the GL queue is not flooded.
+        if (lastQueuedPath === path && lastQueuedMove == selectedMoveIndex) return
+        lastQueuedPath = path
+        lastQueuedMove = selectedMoveIndex
         queueEvent {
             pathRenderer.setPath(path)
             pathRenderer.setSelectedMove(selectedMoveIndex)
@@ -295,7 +303,17 @@ internal class PrusaNozzlePathRenderer : GLSurfaceView.Renderer {
     fun setColorBySpeed(value: Boolean) {
         if (colorBySpeed == value) return
         colorBySpeed = value
-        path?.let { buildPathBuffers(it) }
+        try {
+            path?.let { buildPathBuffers(it) }
+        } catch (error: Throwable) {
+            Log.e("PrusaNozzlePathView", "Unable to rebuild prusa nozzle-path buffers for speed colors", error)
+            ribbonPositions = null
+            ribbonNormals = null
+            ribbonColors = null
+            ribbonAmbient = null
+            travelPositions = null
+            travelColors = null
+        }
     }
 
     fun rotate(deltaYaw: Float, deltaPitch: Float) {
@@ -814,7 +832,7 @@ internal class PrusaNozzlePathRenderer : GLSurfaceView.Renderer {
             GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, pathVbos[index])
             GLES20.glBufferData(
                 GLES20.GL_ARRAY_BUFFER,
-                data.capacity() * Float.SIZE_BYTES,
+                data.remaining() * Float.SIZE_BYTES,
                 data,
                 GLES20.GL_STATIC_DRAW,
             )

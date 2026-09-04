@@ -61,13 +61,15 @@ internal class DirectFloatSink(initialCapacity: Int = 4096) {
 
     fun isEmpty(): Boolean = count == 0
 
+    /**
+     * Zero-copy view of the accumulated data: callers build fully, then read.
+     * Duplicating 60-180 MB of ribbon vertex data per path load pushes the
+     * devices over the heap limit on big prints (intermittent OOM crashes).
+     */
     fun toFloatBuffer(): FloatBuffer {
-        val result = alloc(max(count, 1))
         buffer.position(0)
         buffer.limit(count)
-        result.put(buffer)
-        result.position(0)
-        return result
+        return buffer
     }
 
     fun toFloatArray(): FloatArray {
@@ -1038,7 +1040,7 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
             GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, pathVbos[index])
             GLES20.glBufferData(
                 GLES20.GL_ARRAY_BUFFER,
-                data.capacity() * Float.SIZE_BYTES,
+                data.remaining() * Float.SIZE_BYTES,
                 data,
                 GLES20.GL_STATIC_DRAW,
             )

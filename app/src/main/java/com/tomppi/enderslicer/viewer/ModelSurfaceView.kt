@@ -460,7 +460,7 @@ private class ModelRenderer(
         GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, meshVbo)
         GLES20.glBufferData(
             GLES20.GL_ARRAY_BUFFER,
-            buffer.capacity() * Float.SIZE_BYTES,
+            buffer.remaining() * Float.SIZE_BYTES,
             buffer,
             GLES20.GL_STATIC_DRAW,
         )
@@ -516,7 +516,7 @@ private class ModelRenderer(
                 GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, colorVbo)
                 GLES20.glBufferData(
                     GLES20.GL_ARRAY_BUFFER,
-                    colors.capacity() * Float.SIZE_BYTES,
+                    colors.remaining() * Float.SIZE_BYTES,
                     colors,
                     GLES20.GL_STREAM_DRAW,
                 )

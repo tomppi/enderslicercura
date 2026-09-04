@@ -20,7 +20,9 @@ class DirectFloatSinkTest {
         assertFalse(sink.isEmpty())
 
         val buffer = sink.toFloatBuffer()
-        assertEquals(5000, buffer.capacity())
+        // Zero-copy conversion: limit is the data length; the backing storage
+        // may be a larger power-of-two than the sink capacity.
+        assertEquals(5000, buffer.limit())
         for (i in 0 until 5000) {
             assertEquals(i.toFloat() + 0.5f, buffer[i], 0f)
         }
@@ -37,6 +39,6 @@ class DirectFloatSinkTest {
         val sink = DirectFloatSink()
         assertTrue(sink.isEmpty())
         assertEquals(0, sink.toFloatArray().size)
-        assertEquals(1, sink.toFloatBuffer().capacity())
+        assertEquals(0, sink.toFloatBuffer().limit())
     }
 }
