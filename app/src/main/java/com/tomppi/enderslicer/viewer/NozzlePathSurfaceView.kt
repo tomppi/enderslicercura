@@ -432,7 +432,13 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         colorBySpeed = value
         val current = path ?: return
         // Colours are baked into the buffers, so rebuild them on the toggle.
-        buildPathBuffers(current)
+        // On failure keep the previous buffers: a blank model or a GL-thread
+        // crash is worse than stale colours.
+        try {
+            buildPathBuffers(current)
+        } catch (error: Throwable) {
+            Log.e("NozzlePathView", "Unable to rebuild nozzle-path buffers for speed colors", error)
+        }
     }
 
     val orientation: ViewerOrientation

@@ -303,16 +303,13 @@ internal class PrusaNozzlePathRenderer : GLSurfaceView.Renderer {
     fun setColorBySpeed(value: Boolean) {
         if (colorBySpeed == value) return
         colorBySpeed = value
+        val current = path ?: return
         try {
-            path?.let { buildPathBuffers(it) }
+            rebuildColors(current)
         } catch (error: Throwable) {
-            Log.e("PrusaNozzlePathView", "Unable to rebuild prusa nozzle-path buffers for speed colors", error)
-            ribbonPositions = null
-            ribbonNormals = null
-            ribbonColors = null
-            ribbonAmbient = null
-            travelPositions = null
-            travelColors = null
+            // Keep the previous colors and model; a failed recolor must never
+            // blank the rendered path.
+            Log.e("PrusaNozzlePathView", "Unable to recolor prusa nozzle path", error)
         }
     }
 
@@ -418,15 +415,6 @@ internal class PrusaNozzlePathRenderer : GLSurfaceView.Renderer {
     internal fun buildPathBuffers(value: PrusaNozzlePath) {
         val source = value.moves
         val n = value.moveCount
-        // Windows: natural runs (same kind + collinear + same marker width)
-        // are split into stride-sized emission windows. Even when a run needs
-        // several windows, every window uses the SAME run width/height, so
-        // adjacent windows tile seamlessly (no alternating dashes).
-        // One window per move, always: full fidelity. Ribbon geometry lives
-        // in direct native memory and one device-side VBO copy; if a journey
-        // is so large that it cannot fit, the process is killed by the system
-        // instead of us degrading the preview with coarser windows.
-        val stride = 1
         val ribbonVertex = DirectFloatSink()
         val ribbonNormal = DirectFloatSink()
         val ribbonColor = DirectFloatSink()
@@ -437,19 +425,126 @@ internal class PrusaNozzlePathRenderer : GLSurfaceView.Renderer {
         var travelCount = 0
         ribbonPrefix = IntArray(n + 1)
         travelPrefix = IntArray(n + 1)
-        var minSpeed = Float.POSITIVE_INFINITY
-        var maxSpeed = Float.NEGATIVE_INFINITY
-        if (colorBySpeed) {
-            for (m in 0 until n) {
-                val o = m * PrusaNozzlePath.VALUES_PER_MOVE
-                if (source[o + PrusaNozzlePath.KIND] == PrusaNozzlePath.Kind.EXTRUSION.code) {
-                    val speed = source[o + PrusaNozzlePath.SPEED]
-                    minSpeed = min(minSpeed, speed)
-                    maxSpeed = max(maxSpeed, speed)
+        val (minSpeed, maxSpeed) = speedRange(value)
+        val speedSpan = maxSpeed - minSpeed
+        forEachWindow(value) { kind, winStart, winLast, sx, sy, sz, ex, ey, ez, runWidth, runHeight ->
+            if (kind == PrusaNozzlePath.Kind.EXTRUSION.code) {
+                val wo = winStart * PrusaNozzlePath.VALUES_PER_MOVE
+                val speedRatio = if (speedSpan > 0f) {
+                    ((source[wo + PrusaNozzlePath.SPEED] - minSpeed) / speedSpan).coerceIn(0f, 1f)
+                } else 0f
+                val zRatio = if (value.maxZ > value.minZ) {
+                    ((ez - value.minZ) / (value.maxZ - value.minZ)).coerceIn(0f, 1f)
+                } else 0f
+                val color = hsv(extrusionHue(zRatio, speedRatio, colorBySpeed), RIBBON_SATURATION, RIBBON_VALUE, 1f)
+                // Window boundaries are polyline points of the run: the
+                // shared miter normal is identical for the closing window
+                // and the next opening window, so corner vertices coincide
+                // exactly (continuous strip - no junction slivers).
+                val sN = boundaryNormal(winStart, source)
+                val eN = boundaryNormal(winLast + 1, source)
+                addRibbonMove(
+                    ribbonVertex, ribbonNormal, ribbonColor, ribbonAmbientValues,
+                    sx, sy, sz, ex, ey, ez,
+                    runWidth,
+                    runHeight,
+                    sN.first, sN.second,
+                    eN.first, eN.second,
+                    color,
+                )
+                windowCount++
+            } else {
+                // Skip pure-Z layer transitions (vertical scratches).
+                val travelDx = ex - sx
+                val travelDy = ey - sy
+                val travelDz = ez - sz
+                val travelLen = sqrt(travelDx * travelDx + travelDy * travelDy + travelDz * travelDz)
+                val verticalOnly = travelLen > 1e-7f && sqrt(travelDx * travelDx + travelDy * travelDy) < travelLen * 0.25f
+                if (!verticalOnly) {
+                    travelVertex += sx; travelVertex += sy; travelVertex += sz
+                    travelVertex += ex; travelVertex += ey; travelVertex += ez
+                    repeat(2) { travelColor += 0.50f; travelColor += 0.54f; travelColor += 0.64f; travelColor += 0.20f }
+                    travelCount++
+                }
+            }
+            for (m in winStart until winLast) {
+                ribbonPrefix[m + 1] = windowCount
+                travelPrefix[m + 1] = travelCount
+            }
+            ribbonPrefix[winLast + 1] = windowCount
+            travelPrefix[winLast + 1] = travelCount
+        }
+        ribbonPositions = ribbonVertex.toFloatBuffer()
+        ribbonNormals = ribbonNormal.toFloatBuffer()
+        ribbonColors = ribbonColor.toFloatBuffer()
+        ribbonAmbient = ribbonAmbientValues.toFloatBuffer()
+        travelPositions = travelVertex.toFloatBuffer()
+        travelColors = travelColor.toFloatBuffer()
+        // Camera bounds from the printed part only (extrusion moves).
+        var pMinX = Float.POSITIVE_INFINITY; var pMaxX = Float.NEGATIVE_INFINITY
+        var pMinY = Float.POSITIVE_INFINITY; var pMaxY = Float.NEGATIVE_INFINITY
+        var pMinZ = Float.POSITIVE_INFINITY; var pMaxZ = Float.NEGATIVE_INFINITY
+        for (m in 0 until n) {
+            val o = m * PrusaNozzlePath.VALUES_PER_MOVE
+            if (source[o + PrusaNozzlePath.KIND] == PrusaNozzlePath.Kind.EXTRUSION.code) {
+                pMinX = min(pMinX, min(source[o + PrusaNozzlePath.X1], source[o + PrusaNozzlePath.X2]))
+                pMaxX = max(pMaxX, max(source[o + PrusaNozzlePath.X1], source[o + PrusaNozzlePath.X2]))
+                pMinY = min(pMinY, min(source[o + PrusaNozzlePath.Y1], source[o + PrusaNozzlePath.Y2]))
+                pMaxY = max(pMaxY, max(source[o + PrusaNozzlePath.Y1], source[o + PrusaNozzlePath.Y2]))
+                pMinZ = min(pMinZ, min(source[o + PrusaNozzlePath.Z1], source[o + PrusaNozzlePath.Z2]))
+                pMaxZ = max(pMaxZ, max(source[o + PrusaNozzlePath.Z1], source[o + PrusaNozzlePath.Z2]))
+            }
+        }
+        modelMinX = pMinX; modelMaxX = pMaxX
+        modelMinY = pMinY; modelMaxY = pMaxY
+        modelMinZ = pMinZ; modelMaxZ = pMaxZ
+    }
+
+    /**
+     * Rebuilds ONLY the color stream: geometry, normals, ambient and the
+     * per-move prefixes are color-independent. The speed-colors toggle must
+     * not reallocate the whole ribbon set - with the previous set still live
+     * that duplicate build was the memory pressure that first crashed and,
+     * once guarded, nulled the buffers so no model was visible at all. On
+     * failure the previous colors simply remain (the model stays visible).
+     */
+    private fun rebuildColors(value: PrusaNozzlePath) {
+        val source = value.moves
+        val (minSpeed, maxSpeed) = speedRange(value)
+        val speedSpan = maxSpeed - minSpeed
+        val colorSink = DirectFloatSink()
+        forEachWindow(value) { kind, winStart, _, sx, sy, sz, ex, ey, ez, runWidth, runHeight ->
+            if (kind == PrusaNozzlePath.Kind.EXTRUSION.code) {
+                val wo = winStart * PrusaNozzlePath.VALUES_PER_MOVE
+                val speedRatio = if (speedSpan > 0f) {
+                    ((source[wo + PrusaNozzlePath.SPEED] - minSpeed) / speedSpan).coerceIn(0f, 1f)
+                } else 0f
+                val zRatio = if (value.maxZ > value.minZ) {
+                    ((ez - value.minZ) / (value.maxZ - value.minZ)).coerceIn(0f, 1f)
+                } else 0f
+                val color = hsv(extrusionHue(zRatio, speedRatio, colorBySpeed), RIBBON_SATURATION, RIBBON_VALUE, 1f)
+                repeat(PrusaNozzlePathViewDefaults.WINDOW_VERTICES) {
+                    colorSink += color[0]; colorSink += color[1]; colorSink += color[2]; colorSink += color[3]
                 }
             }
         }
-        val speedSpan = maxSpeed - minSpeed
+        ribbonColors = colorSink.toFloatBuffer()
+    }
+
+    /**
+     * Walks the natural runs (same kind + collinear + same width marker)
+     * split into one window per move, in emission order. One window per move,
+     * always: full fidelity - ribbon geometry uses the machine's memory; if a
+     * journey truly cannot fit, the system kills the process instead of us
+     * degrading the preview with coarser windows.
+     */
+    private fun forEachWindow(
+        value: PrusaNozzlePath,
+        onWindow: (kind: Float, winStart: Int, winLast: Int, sx: Float, sy: Float, sz: Float, ex: Float, ey: Float, ez: Float, runWidth: Float, runHeight: Float) -> Unit,
+    ) {
+        val source = value.moves
+        val n = value.moveCount
+        val stride = 1
         var moveIndex = 0
         while (moveIndex < n) {
             val oi = moveIndex * PrusaNozzlePath.VALUES_PER_MOVE
@@ -478,85 +573,33 @@ internal class PrusaNozzlePathRenderer : GLSurfaceView.Renderer {
                 val winLast = min(winStart + stride, runEnd) - 1
                 val wo = winStart * PrusaNozzlePath.VALUES_PER_MOVE
                 val wlo = winLast * PrusaNozzlePath.VALUES_PER_MOVE
-                val sx = source[wo + PrusaNozzlePath.X1]
-                val sy = source[wo + PrusaNozzlePath.Y1]
-                val sz = source[wo + PrusaNozzlePath.Z1]
-                val ex = source[wlo + PrusaNozzlePath.X2]
-                val ey = source[wlo + PrusaNozzlePath.Y2]
-                val ez = source[wlo + PrusaNozzlePath.Z2]
-                if (kind == PrusaNozzlePath.Kind.EXTRUSION.code) {
-                    var winDeltaE = 0f
-                    val speedRatio = if (speedSpan > 0f) {
-                        ((source[wo + PrusaNozzlePath.SPEED] - minSpeed) / speedSpan).coerceIn(0f, 1f)
-                    } else 0f
-                    val zRatio = if (value.maxZ > value.minZ) {
-                        ((ez - value.minZ) / (value.maxZ - value.minZ)).coerceIn(0f, 1f)
-                    } else 0f
-                    val color = hsv(extrusionHue(zRatio, speedRatio, colorBySpeed), RIBBON_SATURATION, RIBBON_VALUE, 1f)
-                    // Window boundaries are polyline points of the run: the
-                    // shared miter normal is identical for the closing window
-                    // and the next opening window, so corner vertices coincide
-                    // exactly (continuous strip - no junction slivers).
-                    val sN = boundaryNormal(winStart, source)
-                    val eN = boundaryNormal(winLast + 1, source)
-                    addRibbonMove(
-                        ribbonVertex, ribbonNormal, ribbonColor, ribbonAmbientValues,
-                        sx, sy, sz, ex, ey, ez,
-                        runWidth,
-                        runHeight,
-                        sN.first, sN.second,
-                        eN.first, eN.second,
-                        color,
-                    )
-                    windowCount++
-                } else {
-                    // Skip pure-Z layer transitions (vertical scratches).
-                    val travelDx = ex - sx
-                    val travelDy = ey - sy
-                    val travelDz = ez - sz
-                    val travelLen = sqrt(travelDx * travelDx + travelDy * travelDy + travelDz * travelDz)
-                    val verticalOnly = travelLen > 1e-7f && sqrt(travelDx * travelDx + travelDy * travelDy) < travelLen * 0.25f
-                    if (!verticalOnly) {
-                        travelVertex += sx; travelVertex += sy; travelVertex += sz
-                        travelVertex += ex; travelVertex += ey; travelVertex += ez
-                        repeat(2) { travelColor += 0.50f; travelColor += 0.54f; travelColor += 0.64f; travelColor += 0.20f }
-                        travelCount++
-                    }
-                }
-                for (m in winStart until winLast) {
-                    ribbonPrefix[m + 1] = windowCount
-                    travelPrefix[m + 1] = travelCount
-                }
-                ribbonPrefix[winLast + 1] = windowCount
-                travelPrefix[winLast + 1] = travelCount
+                onWindow(
+                    kind, winStart, winLast,
+                    source[wo + PrusaNozzlePath.X1], source[wo + PrusaNozzlePath.Y1], source[wo + PrusaNozzlePath.Z1],
+                    source[wlo + PrusaNozzlePath.X2], source[wlo + PrusaNozzlePath.Y2], source[wlo + PrusaNozzlePath.Z2],
+                    runWidth, runHeight,
+                )
                 winStart = winLast + 1
             }
             moveIndex = runEnd
         }
-        ribbonPositions = ribbonVertex.toFloatBuffer()
-        ribbonNormals = ribbonNormal.toFloatBuffer()
-        ribbonColors = ribbonColor.toFloatBuffer()
-        ribbonAmbient = ribbonAmbientValues.toFloatBuffer()
-        travelPositions = travelVertex.toFloatBuffer()
-        travelColors = travelColor.toFloatBuffer()
-        // Camera bounds from the printed part only (extrusion moves).
-        var pMinX = Float.POSITIVE_INFINITY; var pMaxX = Float.NEGATIVE_INFINITY
-        var pMinY = Float.POSITIVE_INFINITY; var pMaxY = Float.NEGATIVE_INFINITY
-        var pMinZ = Float.POSITIVE_INFINITY; var pMaxZ = Float.NEGATIVE_INFINITY
+    }
+
+    /** Print-speed range over all extrusion moves (for speed-color scaling). */
+    private fun speedRange(value: PrusaNozzlePath): Pair<Float, Float> {
+        val source = value.moves
+        val n = value.moveCount
+        var minSpeed = Float.POSITIVE_INFINITY
+        var maxSpeed = Float.NEGATIVE_INFINITY
         for (m in 0 until n) {
             val o = m * PrusaNozzlePath.VALUES_PER_MOVE
             if (source[o + PrusaNozzlePath.KIND] == PrusaNozzlePath.Kind.EXTRUSION.code) {
-                pMinX = min(pMinX, min(source[o + PrusaNozzlePath.X1], source[o + PrusaNozzlePath.X2]))
-                pMaxX = max(pMaxX, max(source[o + PrusaNozzlePath.X1], source[o + PrusaNozzlePath.X2]))
-                pMinY = min(pMinY, min(source[o + PrusaNozzlePath.Y1], source[o + PrusaNozzlePath.Y2]))
-                pMaxY = max(pMaxY, max(source[o + PrusaNozzlePath.Y1], source[o + PrusaNozzlePath.Y2]))
-                pMinZ = min(pMinZ, min(source[o + PrusaNozzlePath.Z1], source[o + PrusaNozzlePath.Z2]))
-                pMaxZ = max(pMaxZ, max(source[o + PrusaNozzlePath.Z1], source[o + PrusaNozzlePath.Z2]))
+                val speed = source[o + PrusaNozzlePath.SPEED]
+                minSpeed = min(minSpeed, speed)
+                maxSpeed = max(maxSpeed, speed)
             }
         }
-        modelMinX = pMinX; modelMaxX = pMaxX
-        modelMinY = pMinY; modelMaxY = pMaxY
-        modelMinZ = pMinZ; modelMaxZ = pMaxZ
+        return Pair(minSpeed, maxSpeed)
     }
     /**
      * Unit LEFT normal of the sweep at polyline point [k] - the point between

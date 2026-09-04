@@ -51,5 +51,13 @@ class PrusaRibbonLayoutConsistencyTest {
             assertTrue("prefix " + k + " exceeds emitted windows: " + current + " > " + emitted, current <= emitted)
             previous = current
         }
+
+        // Speed-colors toggle recolors ONLY the color stream: vertex counts
+        // stay identical and the model cannot be blanked by the toggle.
+        renderer.setColorBySpeed(true)
+        assertEquals("colors after speed toggle", emitted * 18 * 4, renderer.ribbonColors!!.limit())
+        assertEquals("positions untouched", emitted * 18 * 3, renderer.ribbonPositions!!.limit())
+        assertEquals("ambient untouched", emitted * 18, renderer.ribbonAmbient!!.limit())
+        assertEquals("final prefix untouched", emitted, renderer.ribbonPrefix[path.moveCount])
     }
 }
