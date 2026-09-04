@@ -453,11 +453,19 @@ internal class PrusaNozzlePathRenderer : GLSurfaceView.Renderer {
                         ((ez - value.minZ) / (value.maxZ - value.minZ)).coerceIn(0f, 1f)
                     } else 0f
                     val color = hsv(extrusionHue(zRatio, speedRatio, colorBySpeed), RIBBON_SATURATION, RIBBON_VALUE, 1f)
+                    // Window boundaries are polyline points of the run: the
+                    // shared miter normal is identical for the closing window
+                    // and the next opening window, so corner vertices coincide
+                    // exactly (continuous strip - no junction slivers).
+                    val sN = boundaryNormal(winStart, source)
+                    val eN = boundaryNormal(winLast + 1, source)
                     addRibbonMove(
                         ribbonVertex, ribbonNormal, ribbonColor, ribbonAmbientValues,
                         sx, sy, sz, ex, ey, ez,
                         runWidth,
                         runHeight,
+                        sN.first, sN.second,
+                        eN.first, eN.second,
                         color,
                     )
                     windowCount++
@@ -510,7 +518,57 @@ internal class PrusaNozzlePathRenderer : GLSurfaceView.Renderer {
         modelMinY = pMinY; modelMaxY = pMaxY
         modelMinZ = pMinZ; modelMaxZ = pMaxZ
     }
-    /** One bead: top face + left/right side faces, 18 vertices. */
+    /**
+     * Unit LEFT normal of the sweep at polyline point [k] - the point between
+     * moves k-1 and k - as the miter of the two adjacent segment tangents.
+     * Both the window that ends at this point and the window that starts at it
+     * query the same index, so they receive the exact same normal and their
+     * corner vertices coincide: the strip is continuous even across stride
+     * windows and run boundaries. Degenerate 180-degree reversals fall back to
+     * the incoming tangent so the corner stays a butt joint, not a crossing.
+     */
+    private fun boundaryNormal(k: Int, source: FloatArray): Pair<Float, Float> {
+        val n = source.size / PrusaNozzlePath.VALUES_PER_MOVE
+        var inX = 0f; var inY = 0f
+        var outX = 0f; var outY = 0f
+        if (k > 0) {
+            val o = (k - 1) * PrusaNozzlePath.VALUES_PER_MOVE
+            inX = source[o + PrusaNozzlePath.X2] - source[o + PrusaNozzlePath.X1]
+            inY = source[o + PrusaNozzlePath.Y2] - source[o + PrusaNozzlePath.Y1]
+            val len = sqrt(inX * inX + inY * inY)
+            inX = if (len > 1e-7f) inX / len else 0f
+            inY = if (len > 1e-7f) inY / len else 0f
+        }
+        if (k < n) {
+            val o = k * PrusaNozzlePath.VALUES_PER_MOVE
+            outX = source[o + PrusaNozzlePath.X2] - source[o + PrusaNozzlePath.X1]
+            outY = source[o + PrusaNozzlePath.Y2] - source[o + PrusaNozzlePath.Y1]
+            val len = sqrt(outX * outX + outY * outY)
+            outX = if (len > 1e-7f) outX / len else 0f
+            outY = if (len > 1e-7f) outY / len else 0f
+        }
+        var mx = inX + outX
+        var my = inY + outY
+        if (mx * mx + my * my < 1e-3f) {
+            // Sharp reversal (or fully degenerate): keep the incoming tangent
+            // so the two ribbons meet flush instead of crossing.
+            mx = inX; my = inY
+            if (mx == 0f && my == 0f) { mx = outX; my = outY }
+            if (mx == 0f && my == 0f) return Pair(1f, 0f)
+            val len = sqrt(mx * mx + my * my)
+            mx /= len; my /= len
+            return Pair(-my, mx)
+        }
+        val len = sqrt(mx * mx + my * my)
+        mx /= len; my /= len
+        return Pair(-my, mx)
+    }
+    /**
+     * One strip segment (window) of a continuous bead: a box from the window
+     * start to its end. [startN] and [endN] are the unit LEFT normals shared
+     * with the neighbouring windows (central-difference average at each run
+     * boundary), so adjacent segments touch exactly - no junction slivers.
+     */
     private fun addRibbonMove(
         vertex: DirectFloatSink,
         normals: DirectFloatSink,
@@ -520,21 +578,26 @@ internal class PrusaNozzlePathRenderer : GLSurfaceView.Renderer {
         ex: Float, ey: Float, ez: Float,
         width: Float,
         height: Float,
+        startNx: Float, startNy: Float,
+        endNx: Float, endNy: Float,
         color: FloatArray,
     ) {
-        val dx = ex - sx
-        val dy = ey - sy
-        val length = sqrt(dx * dx + dy * dy)
         val half = width * 0.5f
-        val px = if (length > 1e-4f) -dy / length * half else 0f
-        val py = if (length > 1e-4f) dx / length * half else 0f
-        val ux = if (length > 1e-4f) -dy / length else 1f
-        val uy = if (length > 1e-4f) dx / length else 0f
-        // Quad corners: a/b start, c/d end.
+        val px = startNx * half
+        val py = startNy * half
+        val qx = endNx * half
+        val qy = endNy * half
+        // Continuous strip: the end quad of the previous window uses the SAME
+        // averaged normals, so corners coincide exactly at shared boundaries.
+        val ux = (startNx + endNx) * 0.5f
+        val uy = (startNy + endNy) * 0.5f
+        // Quad corners: a/b at start (offset by START normals), c/d at end
+        // (offset by END normals). Shared boundary => same corner coordinates
+        // in both the closing and opening window.
         val ax = sx - px; val ay = sy - py
         val bx = sx + px; val by = sy + py
-        val cx = ex + px; val cy = ey + py
-        val dxd = ex - px; val dyd = ey - py
+        val cx = ex - qx; val cy = ey - qy
+        val dxd = ex + qx; val dyd = ey + qy
         fun push(vertexCount: Int) {
             repeat(vertexCount) {
                 colors += color[0]
