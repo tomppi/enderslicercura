@@ -62,7 +62,12 @@ object PrusaNozzlePathParser {
 
     fun parse(file: File): PrusaNozzlePath = parse(file, DEFAULT_MAX_MOVES)
 
-    internal fun parse(file: File, maxMoves: Int): PrusaNozzlePath {
+    fun parse(file: File, progress: (Float) -> Unit): PrusaNozzlePath =
+        parse(file, DEFAULT_MAX_MOVES, progress)
+
+    internal fun parse(file: File, maxMoves: Int): PrusaNozzlePath = parse(file, maxMoves) {}
+
+    internal fun parse(file: File, maxMoves: Int, progress: (Float) -> Unit): PrusaNozzlePath {
         require(file.isFile && file.length() > 0L) { "Generated G-code is not available for nozzle-path preview" }
         require(maxMoves > 1) { "Nozzle-path move limit must retain at least the first and final move" }
 
@@ -111,7 +116,10 @@ object PrusaNozzlePathParser {
             if (kind == PrusaNozzlePath.Kind.EXTRUSION) extrusionMoves++ else travelMoves++
         }
 
-        file.bufferedReader().useLines { lines ->
+        val totalBytes = file.length().coerceAtLeast(1L)
+        progressReader(file) { bytes ->
+            progress((bytes.toDouble() / totalBytes).toFloat().coerceIn(0f, 1f))
+        }.useLines { lines ->
             lines.forEach { rawLine ->
                 linesRead++
                 if (linesRead % CANCELLATION_INTERVAL == 0 && Thread.currentThread().isInterrupted) {
@@ -175,6 +183,7 @@ object PrusaNozzlePathParser {
         }
 
         require(accumulator.size > 0) { "No nozzle moves were found in the G-code" }
+        progress(1f)
         val totalMoves = accumulator.size / PrusaNozzlePath.VALUES_PER_MOVE
         val truncated = sourceIndex > maxMoves
         return PrusaNozzlePath(

@@ -1,6 +1,8 @@
 package com.tomppi.enderslicer.engine
 
 import java.io.File
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
 
@@ -36,6 +38,29 @@ class PrusaNozzlePathParserTest {
         }
         println("PP widths ok=" + widthsOk + "/" + samples)
         check(widthsOk > samples * 0.95f) { "widths outside marker range: " + widthsOk + "/" + samples }
+    }
+
+    @Test
+    fun reportsMonotonicProgressFromZeroToOne() {
+        val commands = buildString {
+            appendLine(";LAYER_CHANGE")
+            for (index in 1..150_000) {
+                appendLine("G1 X$index Y${index * 2} Z0.2 F1200")
+            }
+        }
+        val dir = kotlin.io.path.createTempDirectory("prusa-progress-test").toFile()
+        val gcode = File(dir, "t.gcode").apply { writeText(commands) }
+        val reports = mutableListOf<Float>()
+        PrusaNozzlePathParser.parse(gcode) { reports += it }
+
+        assertTrue("expected progress reports", reports.isNotEmpty())
+        assertEquals(1f, reports.last())
+        for (index in 1 until reports.size) {
+            assertTrue(
+                "progress must be monotonic (" + reports[index - 1] + " then " + reports[index] + ")",
+                reports[index] >= reports[index - 1],
+            )
+        }
     }
 
     @Test

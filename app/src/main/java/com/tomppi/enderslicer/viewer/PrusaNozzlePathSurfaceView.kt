@@ -45,6 +45,10 @@ class PrusaNozzlePathSurfaceView(context: Context) : GLSurfaceView(context) {
         setRenderer(pathRenderer)
         renderMode = RENDERMODE_WHEN_DIRTY
         isClickable = true
+        // The ribbon build runs on the GL thread; hop progress/failure back
+        // to the main thread so the UI can show where it got to.
+        pathRenderer.onBuildProgress = { fraction -> post { onBuildProgress?.invoke(fraction) } }
+        pathRenderer.onBuildFinished = { error -> post { onBuildFinished?.invoke(error) } }
     }
 
     private var lastQueuedPath: PrusaNozzlePath? = null
@@ -94,6 +98,12 @@ class PrusaNozzlePathSurfaceView(context: Context) : GLSurfaceView(context) {
     var onOrientationChanged: ((ViewerOrientation) -> Unit)? = null
     var onZoomChanged: ((Float) -> Unit)? = null
     var onMovePicked: ((Int) -> Unit)? = null
+
+    /** Invoked on the main thread with ribbon-build progress (0..1). */
+    var onBuildProgress: ((Float) -> Unit)? = null
+
+    /** Invoked on the main thread when the geometry build settles; null = success. */
+    var onBuildFinished: ((String?) -> Unit)? = null
 
     fun currentOrientation(): ViewerOrientation = pathRenderer.orientation
 
@@ -245,6 +255,10 @@ internal class PrusaNozzlePathRenderer : GLSurfaceView.Renderer {
     private var viewportWidth = 1
     private var viewportHeight = 1
     private var maxLineWidth = 1f
+    // Live build progress for the UI; reports every BUILD_PROGRESS_STRIDE moves.
+    var onBuildProgress: ((Float) -> Unit)? = null
+    var onBuildFinished: ((String?) -> Unit)? = null
+    private var lastReportedMove = 0
     private var yaw = PrusaNozzlePathViewDefaults.DEFAULT_YAW
     private var pitch = PrusaNozzlePathViewDefaults.DEFAULT_PITCH
     private var zoom = PrusaNozzlePathViewDefaults.DEFAULT_ZOOM
@@ -272,11 +286,20 @@ internal class PrusaNozzlePathRenderer : GLSurfaceView.Renderer {
         if (path === value) return
         path = value
         selectedMoveIndex = if (value.moveCount <= 0) 0 else selectedMoveIndex.coerceIn(0, value.moveCount - 1)
+        lastReportedMove = 0
+        onBuildProgress?.invoke(0f)
+        val startedAt = System.nanoTime()
         try {
             buildPathBuffers(value)
             buildGrid(value)
             buildMarker()
-            Log.i("PrusaNozzlePathView", "geometry built: " + value.moveCount + " moves")
+            onBuildProgress?.invoke(1f)
+            onBuildFinished?.invoke(null)
+            Log.i(
+                "PrusaNozzlePathView",
+                "geometry built: " + value.moveCount + " moves in " +
+                    ((System.nanoTime() - startedAt) / 1_000_000) + " ms",
+            )
         } catch (error: Throwable) {
             Log.e("PrusaNozzlePathView", "Unable to build prusa nozzle-path buffers", error)
             ribbonPositions = null
@@ -285,6 +308,7 @@ internal class PrusaNozzlePathRenderer : GLSurfaceView.Renderer {
             ribbonAmbient = null
             travelPositions = null
             travelColors = null
+            onBuildFinished?.invoke(error.message ?: error.javaClass.simpleName)
         }
         resetCamera()
     }
@@ -305,11 +329,16 @@ internal class PrusaNozzlePathRenderer : GLSurfaceView.Renderer {
         colorBySpeed = value
         val current = path ?: return
         try {
+            lastReportedMove = 0
+            onBuildProgress?.invoke(0f)
             rebuildColors(current)
+            onBuildProgress?.invoke(1f)
+            onBuildFinished?.invoke(null)
         } catch (error: Throwable) {
             // Keep the previous colors and model; a failed recolor must never
             // blank the rendered path.
             Log.e("PrusaNozzlePathView", "Unable to recolor prusa nozzle path", error)
+            onBuildFinished?.invoke(error.message ?: error.javaClass.simpleName)
         }
     }
 
@@ -427,7 +456,7 @@ internal class PrusaNozzlePathRenderer : GLSurfaceView.Renderer {
         travelPrefix = IntArray(n + 1)
         val (minSpeed, maxSpeed) = speedRange(value)
         val speedSpan = maxSpeed - minSpeed
-        forEachWindow(value) { kind, winStart, winLast, sx, sy, sz, ex, ey, ez, runWidth, runHeight ->
+        forEachWindow(value, onProgress = { fraction -> onBuildProgress?.invoke(fraction) }) { kind, winStart, winLast, sx, sy, sz, ex, ey, ez, runWidth, runHeight ->
             if (kind == PrusaNozzlePath.Kind.EXTRUSION.code) {
                 val wo = winStart * PrusaNozzlePath.VALUES_PER_MOVE
                 val speedRatio = if (speedSpan > 0f) {
@@ -513,7 +542,7 @@ internal class PrusaNozzlePathRenderer : GLSurfaceView.Renderer {
         val (minSpeed, maxSpeed) = speedRange(value)
         val speedSpan = maxSpeed - minSpeed
         val colorSink = DirectFloatSink()
-        forEachWindow(value) { kind, winStart, _, sx, sy, sz, ex, ey, ez, runWidth, runHeight ->
+        forEachWindow(value, onProgress = { fraction -> onBuildProgress?.invoke(fraction) }) { kind, winStart, _, sx, sy, sz, ex, ey, ez, runWidth, runHeight ->
             if (kind == PrusaNozzlePath.Kind.EXTRUSION.code) {
                 val wo = winStart * PrusaNozzlePath.VALUES_PER_MOVE
                 val speedRatio = if (speedSpan > 0f) {
@@ -540,6 +569,7 @@ internal class PrusaNozzlePathRenderer : GLSurfaceView.Renderer {
      */
     private fun forEachWindow(
         value: PrusaNozzlePath,
+        onProgress: ((Float) -> Unit)? = null,
         onWindow: (kind: Float, winStart: Int, winLast: Int, sx: Float, sy: Float, sz: Float, ex: Float, ey: Float, ez: Float, runWidth: Float, runHeight: Float) -> Unit,
     ) {
         val source = value.moves
@@ -547,6 +577,10 @@ internal class PrusaNozzlePathRenderer : GLSurfaceView.Renderer {
         val stride = 1
         var moveIndex = 0
         while (moveIndex < n) {
+            if (onProgress != null && moveIndex - lastReportedMove >= BUILD_PROGRESS_STRIDE) {
+                lastReportedMove = moveIndex
+                onProgress((moveIndex.toFloat() / max(n, 1)).coerceIn(0f, 1f))
+            }
             val oi = moveIndex * PrusaNozzlePath.VALUES_PER_MOVE
             val kind = source[oi + PrusaNozzlePath.KIND]
             val runWidth = source[oi + PrusaNozzlePath.WIDTH]
@@ -1158,6 +1192,7 @@ internal class PrusaNozzlePathRenderer : GLSurfaceView.Renderer {
 
     private companion object {
         const val WINDOW_VERTICES = 18
+        const val BUILD_PROGRESS_STRIDE = 16_384
         const val TURN_SPLIT_DOT = 0.65f
         const val CHAIN_EPS = 0.05f
         const val RIBBON_SATURATION = 0.62f

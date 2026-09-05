@@ -148,6 +148,10 @@ class NozzlePathSurfaceView(context: Context) : GLSurfaceView(context) {
         setRenderer(pathRenderer)
         renderMode = RENDERMODE_WHEN_DIRTY
         isClickable = true
+        // The ribbon build runs on the GL thread; hop progress/failure back
+        // to the main thread so the UI can show where it got to.
+        pathRenderer.onBuildProgress = { fraction -> post { onBuildProgress?.invoke(fraction) } }
+        pathRenderer.onBuildFinished = { error -> post { onBuildFinished?.invoke(error) } }
     }
 
     fun setPath(
@@ -204,6 +208,12 @@ class NozzlePathSurfaceView(context: Context) : GLSurfaceView(context) {
 
     /** Invoked on the main thread when the user taps a move to inspect it. */
     var onMovePicked: ((Int) -> Unit)? = null
+
+    /** Invoked on the main thread with ribbon-build progress (0..1). */
+    var onBuildProgress: ((Float) -> Unit)? = null
+
+    /** Invoked on the main thread when the geometry build settles; null = success. */
+    var onBuildFinished: ((String?) -> Unit)? = null
 
     fun currentOrientation(): ViewerOrientation = pathRenderer.orientation
 
@@ -359,6 +369,10 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
     private var maxLineWidth = 1f
     private var viewportWidth = 1
     private var viewportHeight = 1
+    // Live build progress for the UI; reports every BUILD_PROGRESS_STRIDE moves.
+    var onBuildProgress: ((Float) -> Unit)? = null
+    var onBuildFinished: ((String?) -> Unit)? = null
+    private var lastReportedMove = 0
     // Camera pivot and fit use the EXTRUSION bounds (the printed model), not
     // the whole path: travel moves to the prime line or skirt sit far from the
     // part and would anchor the orbit to the plate instead of the model.
@@ -395,11 +409,20 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         beadLineWidth = beadLineWidthMm.coerceIn(0.10f, 2.0f)
         filamentArea = (Math.PI.toFloat() * (filamentDiameterMm.coerceIn(0.5f, 4.0f) / 2f).let { it * it })
         selectedMoveIndex = if (value.moveCount <= 0) 0 else selectedMoveIndex.coerceIn(0, value.moveCount - 1)
+        lastReportedMove = 0
+        onBuildProgress?.invoke(0f)
+        val startedAt = System.nanoTime()
         try {
             buildPathBuffers(value)
             buildGrid(value)
             buildMarker()
-            Log.i(TAG, "nozzle-path geometry built: " + value.moveCount + " moves")
+            onBuildProgress?.invoke(1f)
+            onBuildFinished?.invoke(null)
+            Log.i(
+                TAG,
+                "nozzle-path geometry built: " + value.moveCount + " moves in " +
+                    ((System.nanoTime() - startedAt) / 1_000_000) + " ms",
+            )
         } catch (error: Throwable) {
             // Keep the render thread alive and surface the cause in logcat
             // instead of taking the app down.
@@ -410,6 +433,7 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
             ribbonAmbient = null
             travelPositions = null
             travelColors = null
+            onBuildFinished?.invoke(error.message ?: error.javaClass.simpleName)
         }
         resetCamera()
     }
@@ -435,9 +459,14 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         // On failure keep the previous buffers: a blank model or a GL-thread
         // crash is worse than stale colours.
         try {
+            lastReportedMove = 0
+            onBuildProgress?.invoke(0f)
             buildPathBuffers(current)
+            onBuildProgress?.invoke(1f)
+            onBuildFinished?.invoke(null)
         } catch (error: Throwable) {
             Log.e("NozzlePathView", "Unable to rebuild nozzle-path buffers for speed colors", error)
+            onBuildFinished?.invoke(error.message ?: error.javaClass.simpleName)
         }
     }
 
@@ -629,6 +658,10 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         // prints stay continuous instead of alternating gaps.
         var moveIndex = 0
         while (moveIndex < value.moveCount) {
+            if (moveIndex - lastReportedMove >= BUILD_PROGRESS_STRIDE) {
+                lastReportedMove = moveIndex
+                onBuildProgress?.invoke((moveIndex.toFloat() / max(value.moveCount, 1)).coerceIn(0f, 1f))
+            }
             val windowOffset = moveIndex * GcodeNozzlePath.VALUES_PER_MOVE
             val kind = source[windowOffset + GcodeNozzlePath.KIND]
             val boundsX1 = source[windowOffset + GcodeNozzlePath.X1]
@@ -1287,6 +1320,7 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         private const val MAX_ZOOM = 60f
         private const val PATH_WIDTH = 6f
         private const val TRAVEL_WIDTH = 1.5f
+        private const val BUILD_PROGRESS_STRIDE = 16_384
         // Windows split when a new move deviates more than ~49 degrees from
         // the window's first move (dot < 0.65), so reversed infill zigzags
         // never inflate a summed-E ribbon into a wide slab.

@@ -53,13 +53,21 @@ object GcodeNozzlePathParser {
     private const val CANCELLATION_INTERVAL = 2_048
     fun parse(file: File): GcodeNozzlePath = parse(file, DEFAULT_MAX_MOVES, GcodeDialect.CURA)
 
-    fun parse(file: File, dialect: GcodeDialect): GcodeNozzlePath = parse(file, DEFAULT_MAX_MOVES, dialect)
+    fun parse(file: File, dialect: GcodeDialect, progress: (Float) -> Unit = {}): GcodeNozzlePath =
+        parse(file, DEFAULT_MAX_MOVES, dialect, progress)
 
-    internal fun parse(file: File, maxMoves: Int): GcodeNozzlePath = parse(file, maxMoves, GcodeDialect.CURA)
+    internal fun parse(file: File, maxMoves: Int): GcodeNozzlePath =
+        parse(file, maxMoves, GcodeDialect.CURA)
 
-    internal fun parse(file: File, maxMoves: Int, dialect: GcodeDialect): GcodeNozzlePath {
+    internal fun parse(file: File, maxMoves: Int, dialect: GcodeDialect): GcodeNozzlePath =
+        parse(file, maxMoves, dialect) {}
 
-        val sourceMoveCount = countSpatialMoves(file, dialect)
+    internal fun parse(file: File, maxMoves: Int, dialect: GcodeDialect, progress: (Float) -> Unit): GcodeNozzlePath {
+
+        val totalBytes = file.length().coerceAtLeast(1L)
+        val sourceMoveCount = countSpatialMoves(file, dialect) { fraction ->
+            progress(fraction)
+        }
         require(sourceMoveCount > 0) { "No spatial nozzle moves were found in the G-code" }
 
         val prusaRegion = PrusaPrintRegion(dialect)
@@ -87,7 +95,9 @@ object GcodeNozzlePathParser {
         var maxZ = Float.NEGATIVE_INFINITY
         var linesRead = 0
 
-        file.bufferedReader().useLines { lines ->
+        progressReader(file) { bytes ->
+            progress((0.5 + bytes.toDouble() / totalBytes * 0.5).toFloat().coerceIn(0f, 1f))
+        }.useLines { lines ->
             lines.forEach { rawLine ->
                 linesRead++
                 checkCancellation(linesRead)
@@ -179,6 +189,7 @@ object GcodeNozzlePathParser {
         }
 
         require(accumulator.size > 0) { "No nozzle moves remained after preview sampling" }
+        progress(1f)
         return GcodeNozzlePath(
             moves = accumulator.toArray(),
             sourceMoveIndices = sourceIndices.toArray(),
@@ -195,7 +206,8 @@ object GcodeNozzlePathParser {
         )
     }
 
-    private fun countSpatialMoves(file: File, dialect: GcodeDialect): Int {
+    private fun countSpatialMoves(file: File, dialect: GcodeDialect, report: (Float) -> Unit = {}): Int {
+        val totalBytes = file.length().coerceAtLeast(1L)
         val prusaRegion = PrusaPrintRegion(dialect)
         val modalState = GcodeModalState()
         var x = 0.0
@@ -203,7 +215,9 @@ object GcodeNozzlePathParser {
         var z = 0.0
         var count = 0
         var linesRead = 0
-        file.bufferedReader().useLines { lines ->
+        progressReader(file) { bytes ->
+            report((bytes.toDouble() / totalBytes * 0.5).toFloat().coerceIn(0f, 0.5f))
+        }.useLines { lines ->
             lines.forEach { rawLine ->
                 linesRead++
                 checkCancellation(linesRead)

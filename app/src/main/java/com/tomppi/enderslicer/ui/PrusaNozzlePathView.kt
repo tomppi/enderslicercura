@@ -1,5 +1,6 @@
 package com.tomppi.enderslicer.ui
 
+import android.os.SystemClock
 import android.util.Log
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -16,12 +17,15 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -29,6 +33,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -63,6 +68,8 @@ private const val PRUSA_PLAYBACK_TOTAL_MS = 60_000L
 private const val PRUSA_PLAYBACK_MAX_STEP_MS = 2_000L
 private const val PRUSA_HOLD_REPEAT_DELAY_MS = 400L
 private const val PRUSA_HOLD_REPEAT_INTERVAL_MS = 100L
+/** After this long without a ribbon-build progress report the UI says so. */
+private const val PRUSA_NOZZLE_BUILD_STALL_MS = 60_000L
 
 private sealed interface PrusaNozzlePathLoadState {
     data object Loading : PrusaNozzlePathLoadState
@@ -76,11 +83,22 @@ internal fun PrusaNozzlePathView(
     beadLineWidthMm: Double,
     modifier: Modifier = Modifier,
 ) {
+    var parseProgress by remember(gcodePath) { mutableStateOf(0f) }
     val loadState by produceState<PrusaNozzlePathLoadState>(PrusaNozzlePathLoadState.Loading, gcodePath) {
         value = PrusaNozzlePathLoadState.Loading
+        parseProgress = 0f
         value = try {
-            val parsed = runInterruptible(Dispatchers.IO) { PrusaNozzlePathParser.parse(File(gcodePath)) }
-            Log.i("PrusaNozzlePathView", "parsed " + parsed.moveCount + " moves, " + parsed.layerCount + " layers")
+            val startedAt = SystemClock.uptimeMillis()
+            val parsed = runInterruptible(Dispatchers.IO) {
+                PrusaNozzlePathParser.parse(File(gcodePath)) { fraction ->
+                    parseProgress = fraction
+                }
+            }
+            Log.i(
+                "PrusaNozzlePathView",
+                "parsed " + parsed.moveCount + " moves, " + parsed.layerCount + " layers in " +
+                    (SystemClock.uptimeMillis() - startedAt) + " ms",
+            )
             PrusaNozzlePathLoadState.Ready(parsed)
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -92,7 +110,17 @@ internal fun PrusaNozzlePathView(
 
     when (val current = loadState) {
         PrusaNozzlePathLoadState.Loading -> Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            CircularProgressIndicator()
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.width(240.dp),
+            ) {
+                LinearProgressIndicator(progress = { parseProgress }, modifier = Modifier.fillMaxWidth())
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    "Parsing G-code… ${(parseProgress * 100).toInt()}%",
+                    style = MaterialTheme.typography.labelMedium,
+                )
+            }
         }
         is PrusaNozzlePathLoadState.Failed -> Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text(current.message, modifier = Modifier.padding(24.dp))
@@ -170,6 +198,13 @@ private fun PrusaNozzlePathPlayer(
     var colorBySpeed by rememberSaveable(artifactKey) { mutableStateOf(false) }
     var orthographic by rememberSaveable(artifactKey) { mutableStateOf(false) }
     var zoomLevel by remember(artifactKey) { mutableStateOf(1f) }
+    // Ribbon build state: the GL thread builds the whole path before the first
+    // frame, so surface a live bar (or an explicit failure) instead of silence.
+    var buildProgress by remember(artifactKey) { mutableStateOf<Float?>(null) }
+    var buildDone by remember(artifactKey) { mutableStateOf(false) }
+    var buildError by remember(artifactKey) { mutableStateOf<String?>(null) }
+    var lastBuildReportAt by remember(artifactKey) { mutableLongStateOf(SystemClock.uptimeMillis()) }
+    var buildStallNote by remember(artifactKey) { mutableStateOf<String?>(null) }
 
     LaunchedEffect(surfaceView) {
         surfaceView?.let { orientation = it.currentOrientation() }
@@ -215,6 +250,27 @@ private fun PrusaNozzlePathPlayer(
         }
     }
 
+    // Watchdog: a build no longer reporting progress is either still working
+    // on a very large path or truly stuck. Say which in the UI; if the process
+    // is killed, logcat keeps the last reported state for diagnosis.
+    LaunchedEffect(buildProgress, buildDone, artifactKey) {
+        while (!buildDone && isActive) {
+            delay(5_000)
+            if (SystemClock.uptimeMillis() - lastBuildReportAt > PRUSA_NOZZLE_BUILD_STALL_MS) {
+                if (buildStallNote == null) {
+                    Log.w(
+                        "PrusaNozzlePathView",
+                        "no build progress for ${PRUSA_NOZZLE_BUILD_STALL_MS / 1000}s (last at ${buildProgress})",
+                    )
+                    buildStallNote =
+                        "No progress for ${PRUSA_NOZZLE_BUILD_STALL_MS / 1000} s — still building or stuck. " +
+                            "If the app closes, the device killed it."
+                }
+                break
+            }
+        }
+    }
+
     BoxWithConstraints(modifier = modifier) {
         val offset = safeIndex * PrusaNozzlePath.VALUES_PER_MOVE
         val sourceIndex = path.sourceMoveIndices[safeIndex]
@@ -242,6 +298,14 @@ private fun PrusaNozzlePathPlayer(
                             playing = false
                             moveIndex = picked.coerceIn(0, path.moveCount - 1)
                         }
+                        view.onBuildProgress = { fraction ->
+                            buildProgress = fraction
+                            lastBuildReportAt = SystemClock.uptimeMillis()
+                        }
+                        view.onBuildFinished = { error ->
+                            buildDone = true
+                            buildError = error
+                        }
                         view.showTravels = showTravels
                         view.colorBySpeed = colorBySpeed
                         view.orthographic = orthographic
@@ -263,6 +327,43 @@ private fun PrusaNozzlePathPlayer(
                             cameraElevation = ViewerOrientationMath.PATH_VIEW_ELEVATION,
                         )
                         Spacer(modifier = Modifier.height(8.dp))
+                    }
+                }
+                if (!buildDone || buildError != null) {
+                    Surface(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(12.dp),
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .padding(horizontal = 12.dp, vertical = 8.dp)
+                                .width(240.dp),
+                        ) {
+                            val fraction = buildProgress
+                            if (fraction == null) {
+                                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                            } else {
+                                LinearProgressIndicator(
+                                    progress = { fraction },
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = buildError
+                                    ?: buildStallNote
+                                    ?: "Building preview… ${((fraction ?: 0f) * 100).toInt()}%",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (buildError != null) {
+                                    MaterialTheme.colorScheme.error
+                                } else {
+                                    MaterialTheme.colorScheme.onSurface
+                                },
+                            )
+                        }
                     }
                 }
             }

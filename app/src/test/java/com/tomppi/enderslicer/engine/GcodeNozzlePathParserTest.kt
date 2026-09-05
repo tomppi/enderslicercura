@@ -89,6 +89,29 @@ class GcodeNozzlePathParserTest {
         assertTrue(requireNotNull(failure).message.orEmpty().contains("G2/G3"))
     }
 
+    @Test
+    fun reportsMonotonicProgressFromZeroToOne() {
+        val commands = buildString {
+            appendLine("G90")
+            appendLine("M83")
+            for (index in 1..150_000) {
+                appendLine("G1 X$index Y${index * 2} Z${index / 100.0} E0.1 F1200")
+            }
+        }
+        val file = temporaryGcode(commands)
+        val reports = mutableListOf<Float>()
+        GcodeNozzlePathParser.parse(file, GcodeDialect.CURA) { reports += it }
+
+        assertTrue("expected progress reports", reports.isNotEmpty())
+        assertEquals(1f, reports.last())
+        for (index in 1 until reports.size) {
+            assertTrue(
+                "progress must be monotonic (" + reports[index - 1] + " then " + reports[index] + ")",
+                reports[index] >= reports[index - 1],
+            )
+        }
+    }
+
     private fun temporaryGcode(contents: String): File =
         File.createTempFile("nozzle-path-test", ".gcode").apply {
             writeText(contents)
