@@ -444,12 +444,17 @@ internal class PrusaNozzlePathRenderer : GLSurfaceView.Renderer {
     internal fun buildPathBuffers(value: PrusaNozzlePath) {
         val source = value.moves
         val n = value.moveCount
-        val ribbonVertex = DirectFloatSink()
-        val ribbonNormal = DirectFloatSink()
-        val ribbonColor = DirectFloatSink()
-        val ribbonAmbientValues = DirectFloatSink()
-        val travelVertex = DirectFloatSink()
-        val travelColor = DirectFloatSink()
+        // Exact pre-size from the parsed path counts: one window per move and
+        // one allocation per sink, so a big path never grows with doubling
+        // copies (the 128 MB grow step is what OOM'd at ~500k+ moves).
+        val extrusionCount = value.extrusionMoveCount
+        val travelRunsUpperBound = value.travelMoveCount
+        val ribbonVertex = DirectFloatSink(extrusionCount * WINDOW_VERTICES * 3)
+        val ribbonNormal = DirectFloatSink(extrusionCount * WINDOW_VERTICES * 3)
+        val ribbonColor = DirectFloatSink(extrusionCount * WINDOW_VERTICES * 4)
+        val ribbonAmbientValues = DirectFloatSink(extrusionCount * WINDOW_VERTICES * 1)
+        val travelVertex = DirectFloatSink(travelRunsUpperBound * 2 * 3)
+        val travelColor = DirectFloatSink(travelRunsUpperBound * 2 * 4)
         var windowCount = 0
         var travelCount = 0
         ribbonPrefix = IntArray(n + 1)

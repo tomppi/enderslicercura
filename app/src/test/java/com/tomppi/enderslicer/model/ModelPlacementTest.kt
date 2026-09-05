@@ -183,6 +183,42 @@ class ModelPlacementTest {
         }
     }
 
+    @Test
+    fun largePlacedMeshKeepsVertexDataOffHeap() {
+        val triangleCount = 200_000
+        val interleaved = FloatArray(triangleCount * 18)
+        repeat(triangleCount) { t ->
+            val o = t * 18
+            interleaved[o] = (t % 10).toFloat()
+            interleaved[o + 1] = ((t / 10) % 10).toFloat()
+            interleaved[o + 2] = 0f
+            interleaved[o + 5] = 1f
+            interleaved[o + 6] = (t % 10).toFloat()
+            interleaved[o + 7] = ((t / 10) % 10).toFloat()
+            interleaved[o + 8] = 0f
+            interleaved[o + 11] = 1f
+            interleaved[o + 12] = (t % 10).toFloat()
+            interleaved[o + 13] = ((t / 10) % 10).toFloat()
+            interleaved[o + 14] = 0f
+            interleaved[o + 17] = 1f
+        }
+        val mesh = StlMesh(
+            "big",
+            VertexData.fromArray(interleaved),
+            triangleCount,
+            MeshBounds(0f, 0f, 0f, 9f, 9f, 0f),
+        )
+        val transformed = ModelPlacement.centeredOnBed(mesh, 230.0, 230.0).transformed(mesh)
+
+        assertTrue(
+            "placed big mesh must not sit in the Java heap",
+            transformed.interleavedVertices.directOrNull() != null,
+        )
+        assertEquals(triangleCount, transformed.triangleCount)
+        assertEquals(115.0, transformed.bounds.centerX.toDouble(), 1e-4)
+        assertEquals(0.0, transformed.bounds.minZ.toDouble(), 1e-4)
+    }
+
     private fun triangleMesh(positions: FloatArray): StlMesh {
         require(positions.size == 9)
         val interleaved = FloatArray(18)

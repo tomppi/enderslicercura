@@ -72,8 +72,12 @@ object GcodeNozzlePathParser {
 
         val prusaRegion = PrusaPrintRegion(dialect)
 
-        val accumulator = FloatAccumulator(GcodeNozzlePath.VALUES_PER_MOVE * 2048)
-        val sourceIndices = IntAccumulator()
+        // The retained move count is known exactly after the count pass, so
+        // pre-size both accumulators: giant prints no longer pay the doubling
+        // growth copies (each one can be 40-160 MB at the worst moment).
+        val retainedCount = if (sourceMoveCount <= maxMoves) sourceMoveCount else maxMoves
+        val accumulator = FloatAccumulator(GcodeNozzlePath.VALUES_PER_MOVE * retainedCount)
+        val sourceIndices = IntAccumulator(retainedCount)
         val modalState = GcodeModalState()
         var x = 0.0
         var y = 0.0

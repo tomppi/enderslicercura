@@ -1,9 +1,13 @@
 package com.tomppi.enderslicer.model
 
 import com.tomppi.enderslicer.viewer.MeshBounds
+import com.tomppi.enderslicer.viewer.OFF_HEAP_MIN_TRIANGLES
 import com.tomppi.enderslicer.viewer.StlMesh
 import com.tomppi.enderslicer.viewer.StlSliceTransform
 import com.tomppi.enderslicer.viewer.VertexData
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
+import java.nio.FloatBuffer
 import kotlin.math.abs
 import kotlin.math.acos
 import kotlin.math.cos
@@ -57,7 +61,22 @@ data class ModelPlacement(
         val dx = centerXmm - rawBounds.centerX
         val dy = centerYmm - rawBounds.centerY
         val dz = baseZmm - rawBounds.minZ
-        val output = FloatArray(Math.multiplyExact(mesh.triangleCount, 18))
+        // The placed display copy is written on every placement. Big meshes
+        // keep it in a direct native buffer (the same rule the STL parser
+        // uses) so a multi-million-triangle placed model does not sit on the
+        // Java heap - the previous FloatArray copy could be 144-430 MB and is
+        // what left no heap room for the nozzle-path view on big prints.
+        val offHeap = mesh.triangleCount >= OFF_HEAP_MIN_TRIANGLES
+        val outputFloatCount = Math.multiplyExact(mesh.triangleCount, 18)
+        val arrayOutput: FloatArray? = if (offHeap) null else FloatArray(outputFloatCount)
+        val directOutput: FloatBuffer? = if (offHeap) {
+            ByteBuffer.allocateDirect(outputFloatCount * Float.SIZE_BYTES)
+                .order(ByteOrder.nativeOrder())
+                .asFloatBuffer()
+        } else null
+        fun setFloat(index: Int, value: Float) {
+            if (directOutput != null) directOutput.put(index, value) else arrayOutput!![index] = value
+        }
         val input = mesh.interleavedVertices
         var inputOffset = 0
         var outputOffset = 0
@@ -98,12 +117,12 @@ data class ModelPlacement(
                 val xf = x.toFloat()
                 val yf = y.toFloat()
                 val zf = z.toFloat()
-                output[outputOffset++] = xf
-                output[outputOffset++] = yf
-                output[outputOffset++] = zf
-                output[outputOffset++] = nx.toFloat()
-                output[outputOffset++] = ny.toFloat()
-                output[outputOffset++] = nz.toFloat()
+                setFloat(outputOffset++, xf)
+                setFloat(outputOffset++, yf)
+                setFloat(outputOffset++, zf)
+                setFloat(outputOffset++, nx.toFloat())
+                setFloat(outputOffset++, ny.toFloat())
+                setFloat(outputOffset++, nz.toFloat())
                 outputBounds.include(xf, yf, zf)
             }
             writeVertex(x0, y0, z0)
@@ -114,7 +133,7 @@ data class ModelPlacement(
 
         return StlMesh(
             displayName = mesh.displayName,
-            interleavedVertices = VertexData.fromArray(output),
+            interleavedVertices = if (offHeap) VertexData.fromDirect(directOutput!!) else VertexData.fromArray(arrayOutput!!),
             triangleCount = mesh.triangleCount,
             bounds = outputBounds.finish(),
             slicingSourceInterleavedVertices = mesh.interleavedVertices,

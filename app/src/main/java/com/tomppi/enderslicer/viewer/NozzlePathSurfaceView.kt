@@ -625,15 +625,20 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         // Geometry is built into direct native buffers: the boxed-list build
         // this replaced OOM'd the Java heap on long prints (boxed Float ~16 B
         // vs 4 B in the final buffer, and 4 arrays per move with lighting).
-        val ribbonVertex = DirectFloatSink()
-        val ribbonNormal = DirectFloatSink()
-        val ribbonColor = DirectFloatSink()
-        val ribbonAmbientValues = DirectFloatSink()
-        val travelVertex = DirectFloatSink()
-        val travelColor = DirectFloatSink()
+        // Exact pre-size from the parsed path counts: one window per move and
+        // one allocation per sink, so a big path never grows with doubling
+        // copies (the 128 MB grow step is what OOM'd at ~500k+ moves).
+        val extrusionCount = value.extrusionMoveCount
+        val travelRunsUpperBound = value.travelMoveCount
+        val ribbonVertex = DirectFloatSink(extrusionCount * RIBBON_VERTICES_PER_MOVE * 3)
+        val ribbonNormal = DirectFloatSink(extrusionCount * RIBBON_VERTICES_PER_MOVE * 3)
+        val ribbonColor = DirectFloatSink(extrusionCount * RIBBON_VERTICES_PER_MOVE * 4)
+        val ribbonAmbientValues = DirectFloatSink(extrusionCount * RIBBON_VERTICES_PER_MOVE * 1)
+        val travelVertex = DirectFloatSink(travelRunsUpperBound * 2 * 3)
+        val travelColor = DirectFloatSink(travelRunsUpperBound * 2 * 4)
         // Full-range extrusion points for the camera fit (percentile-trimmed
         // later), independent of the ribbon stride sampling.
-        val boundsVertex = DirectFloatSink()
+        val boundsVertex = DirectFloatSink(extrusionCount * 6)
         var minSpeed = Float.POSITIVE_INFINITY
         var maxSpeed = Float.NEGATIVE_INFINITY
         if (colorBySpeed) {
