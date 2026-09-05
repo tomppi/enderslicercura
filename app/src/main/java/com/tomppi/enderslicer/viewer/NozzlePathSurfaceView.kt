@@ -22,14 +22,12 @@ import kotlin.math.sqrt
 import kotlin.math.tan
 
 /**
- * Hue for an extrusion move: the layer-height ramp (blue at the bed, red at
- * the top) or the print-speed ramp (cyan slow, orange fast) when
- * [colorBySpeed] is set.
+ * Hue for an extrusion move: the print-speed ramp (cyan slow, orange fast).
+ * Speed colors are the single nozzle-path color mode.
  */
-internal fun extrusionHue(zRatio: Float, speedRatio: Float, colorBySpeed: Boolean): Float {
-    val clampedZ = zRatio.coerceIn(0f, 1f)
+internal fun extrusionHue(speedRatio: Float): Float {
     val clampedSpeed = speedRatio.coerceIn(0f, 1f)
-    return if (colorBySpeed) 200f - 180f * clampedSpeed else 240f - 240f * clampedZ
+    return 200f - 180f * clampedSpeed
 }
 
 /** Micro-segments (sub-0.05 mm) emit with zero width. */
@@ -176,15 +174,6 @@ class NozzlePathSurfaceView(context: Context) : GLSurfaceView(context) {
             if (field == value) return
             field = value
             queueEvent { pathRenderer.setShowTravels(value) }
-            requestRender()
-        }
-
-    /** When true, extrusion colours follow print speed (cyan slow, orange fast) instead of layer height. */
-    var colorBySpeed: Boolean = false
-        set(value) {
-            if (field == value) return
-            field = value
-            queueEvent { pathRenderer.setColorBySpeed(value) }
             requestRender()
         }
 
@@ -348,16 +337,14 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
     private var extrusionPrefix = IntArray(1)
     private var travelPrefix = IntArray(1)
     @Volatile private var showTravels = true
-    @Volatile private var colorBySpeed = false
     @Volatile var orthographic = false
     private var gridPositions: FloatBuffer? = null
     private var gridVertexCount = 0
     // GPU-side (VBO) copies of the ribbon/travel geometry: uploaded once per
-    // path (and again when the color mode flips), so the path renders from
-    // GPU memory like a game renders static geometry.
+    // path, so the path renders from GPU memory like a game renders static
+    // geometry.
     private var pathVbos = IntArray(0)
     private var uploadedPath: GcodeNozzlePath? = null
-    private var uploadedColorBySpeed = false
     private var markerPositions: FloatBuffer? = null
     private var markerVertexCount = 0
     private var markerGlowPositions: FloatBuffer? = null
@@ -451,25 +438,6 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         showTravels = value
     }
 
-    fun setColorBySpeed(value: Boolean) {
-        if (colorBySpeed == value) return
-        colorBySpeed = value
-        val current = path ?: return
-        // Colours are baked into the buffers, so rebuild them on the toggle.
-        // On failure keep the previous buffers: a blank model or a GL-thread
-        // crash is worse than stale colours.
-        try {
-            lastReportedMove = 0
-            onBuildProgress?.invoke(0f)
-            buildPathBuffers(current)
-            onBuildProgress?.invoke(1f)
-            onBuildFinished?.invoke(null)
-        } catch (error: Throwable) {
-            Log.e("NozzlePathView", "Unable to rebuild nozzle-path buffers for speed colors", error)
-            onBuildFinished?.invoke(error.message ?: error.javaClass.simpleName)
-        }
-    }
-
     val orientation: ViewerOrientation
         get() = ViewerOrientation(yaw, pitch)
 
@@ -518,7 +486,6 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         // A new GL context invalidates old VBO ids.
         pathVbos = IntArray(0)
         uploadedPath = null
-        uploadedColorBySpeed = false
         maxLineWidth = queryMaxLineWidth()
     }
 
@@ -641,14 +608,12 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         val boundsVertex = DirectFloatSink(extrusionCount * 6)
         var minSpeed = Float.POSITIVE_INFINITY
         var maxSpeed = Float.NEGATIVE_INFINITY
-        if (colorBySpeed) {
-            for (moveIndex in 0 until value.moveCount) {
-                val moveOffset = moveIndex * GcodeNozzlePath.VALUES_PER_MOVE
-                if (source[moveOffset + GcodeNozzlePath.KIND] == GcodeNozzlePath.Kind.EXTRUSION.code) {
-                    val speed = source[moveOffset + GcodeNozzlePath.SPEED]
-                    minSpeed = min(minSpeed, speed)
-                    maxSpeed = max(maxSpeed, speed)
-                }
+        for (moveIndex in 0 until value.moveCount) {
+            val moveOffset = moveIndex * GcodeNozzlePath.VALUES_PER_MOVE
+            if (source[moveOffset + GcodeNozzlePath.KIND] == GcodeNozzlePath.Kind.EXTRUSION.code) {
+                val speed = source[moveOffset + GcodeNozzlePath.SPEED]
+                minSpeed = min(minSpeed, speed)
+                maxSpeed = max(maxSpeed, speed)
             }
         }
         val speedSpan = maxSpeed - minSpeed
@@ -731,11 +696,8 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
             val speedRatio = if (kind == GcodeNozzlePath.Kind.EXTRUSION.code && speedSpan > 0f) {
                 ((source[windowOffset + GcodeNozzlePath.SPEED] - minSpeed) / speedSpan).coerceIn(0f, 1f)
             } else 0f
-            val zRatio = if (value.maxZ > value.minZ) {
-                ((ez - value.minZ) / (value.maxZ - value.minZ)).coerceIn(0f, 1f)
-            } else 0f
             val color = if (kind == GcodeNozzlePath.Kind.EXTRUSION.code) {
-                hsv(extrusionHue(zRatio, speedRatio, colorBySpeed), RIBBON_SATURATION, RIBBON_VALUE, 1f)
+                hsv(extrusionHue(speedRatio), RIBBON_SATURATION, RIBBON_VALUE, 1f)
             } else floatArrayOf(0.50f, 0.54f, 0.64f, 0.20f)
             if (kind == GcodeNozzlePath.Kind.EXTRUSION.code) {
                 // Emit stride-sized windows inside the run. Each window uses
@@ -1074,7 +1036,7 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
      * to client-side pointers if the driver allocates no buffer ids.
      */
     private fun ensureUploads(current: GcodeNozzlePath) {
-        if (uploadedPath === current && uploadedColorBySpeed == colorBySpeed && pathVbos.size == 6) return
+        if (uploadedPath === current && pathVbos.size == 6) return
         if (pathVbos.size != 6) {
             val ids = IntArray(6)
             GLES20.glGenBuffers(6, ids, 0)
@@ -1094,7 +1056,6 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         }
         GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, 0)
         uploadedPath = current
-        uploadedColorBySpeed = colorBySpeed
     }
 
     private fun drawLitTrianglesVbo(vertexCount: Int) {

@@ -238,7 +238,6 @@ private fun NozzlePathPlayer(
     var surfaceView by remember(artifactKey) { mutableStateOf<NozzlePathSurfaceView?>(null) }
     var orientation by remember(artifactKey) { mutableStateOf<ViewerOrientation?>(null) }
     var showTravels by rememberSaveable(artifactKey) { mutableStateOf(true) }
-    var colorBySpeed by rememberSaveable(artifactKey) { mutableStateOf(false) }
     var orthographic by rememberSaveable(artifactKey) { mutableStateOf(false) }
     var zoomLevel by remember(artifactKey) { mutableStateOf(1f) }
     // Ribbon build state: the GL thread builds the whole path before the first
@@ -356,7 +355,6 @@ private fun NozzlePathPlayer(
                             buildError = error
                         }
                         view.showTravels = showTravels
-                        view.colorBySpeed = colorBySpeed
                         view.orthographic = orthographic
                     },
                     onRelease = { view ->
@@ -491,13 +489,6 @@ private fun NozzlePathPlayer(
                         Switch(
                             checked = showTravels,
                             onCheckedChange = { showTravels = it },
-                            modifier = Modifier.scale(0.7f),
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text("Speed colors", style = MaterialTheme.typography.labelMedium)
-                        Switch(
-                            checked = colorBySpeed,
-                            onCheckedChange = { colorBySpeed = it },
                             modifier = Modifier.scale(0.7f),
                         )
                         Spacer(modifier = Modifier.weight(1f))

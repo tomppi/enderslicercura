@@ -77,15 +77,6 @@ class PrusaNozzlePathSurfaceView(context: Context) : GLSurfaceView(context) {
             requestRender()
         }
 
-    /** When true, extrusion colours follow print speed instead of layer height. */
-    var colorBySpeed: Boolean = false
-        set(value) {
-            if (field == value) return
-            field = value
-            queueEvent { pathRenderer.setColorBySpeed(value) }
-            requestRender()
-        }
-
     /** Orthographic (true-width) camera for measuring the path. */
     var orthographic: Boolean = false
         set(value) {
@@ -224,7 +215,6 @@ internal class PrusaNozzlePathRenderer : GLSurfaceView.Renderer {
 
     private var path: PrusaNozzlePath? = null
     private var selectedMoveIndex = 0
-    private var colorBySpeed = false
     private var showTravels = true
 
     internal var ribbonPositions: FloatBuffer? = null
@@ -244,7 +234,6 @@ internal class PrusaNozzlePathRenderer : GLSurfaceView.Renderer {
 
     private var pathVbos = IntArray(0)
     private var uploadedPath: PrusaNozzlePath? = null
-    private var uploadedColorBySpeed = false
 
     private var modelMinX = -115f
     private var modelMaxX = 115f
@@ -324,24 +313,6 @@ internal class PrusaNozzlePathRenderer : GLSurfaceView.Renderer {
 
     fun setShowTravels(value: Boolean) { showTravels = value }
 
-    fun setColorBySpeed(value: Boolean) {
-        if (colorBySpeed == value) return
-        colorBySpeed = value
-        val current = path ?: return
-        try {
-            lastReportedMove = 0
-            onBuildProgress?.invoke(0f)
-            rebuildColors(current)
-            onBuildProgress?.invoke(1f)
-            onBuildFinished?.invoke(null)
-        } catch (error: Throwable) {
-            // Keep the previous colors and model; a failed recolor must never
-            // blank the rendered path.
-            Log.e("PrusaNozzlePathView", "Unable to recolor prusa nozzle path", error)
-            onBuildFinished?.invoke(error.message ?: error.javaClass.simpleName)
-        }
-    }
-
     fun rotate(deltaYaw: Float, deltaPitch: Float) {
         yaw = wrapDegrees(yaw + deltaYaw)
         pitch = wrapDegrees(pitch + deltaPitch)
@@ -382,7 +353,6 @@ internal class PrusaNozzlePathRenderer : GLSurfaceView.Renderer {
         solidProgram = createProgram(SOLID_VERTEX_SHADER, SOLID_FRAGMENT_SHADER)
         pathVbos = IntArray(0)
         uploadedPath = null
-        uploadedColorBySpeed = false
         maxLineWidth = queryMaxLineWidth()
     }
 
@@ -467,10 +437,7 @@ internal class PrusaNozzlePathRenderer : GLSurfaceView.Renderer {
                 val speedRatio = if (speedSpan > 0f) {
                     ((source[wo + PrusaNozzlePath.SPEED] - minSpeed) / speedSpan).coerceIn(0f, 1f)
                 } else 0f
-                val zRatio = if (value.maxZ > value.minZ) {
-                    ((ez - value.minZ) / (value.maxZ - value.minZ)).coerceIn(0f, 1f)
-                } else 0f
-                val color = hsv(extrusionHue(zRatio, speedRatio, colorBySpeed), RIBBON_SATURATION, RIBBON_VALUE, 1f)
+                val color = hsv(extrusionHue(speedRatio), RIBBON_SATURATION, RIBBON_VALUE, 1f)
                 // Window boundaries are polyline points of the run: the
                 // shared miter normal is identical for the closing window
                 // and the next opening window, so corner vertices coincide
@@ -532,37 +499,6 @@ internal class PrusaNozzlePathRenderer : GLSurfaceView.Renderer {
         modelMinX = pMinX; modelMaxX = pMaxX
         modelMinY = pMinY; modelMaxY = pMaxY
         modelMinZ = pMinZ; modelMaxZ = pMaxZ
-    }
-
-    /**
-     * Rebuilds ONLY the color stream: geometry, normals, ambient and the
-     * per-move prefixes are color-independent. The speed-colors toggle must
-     * not reallocate the whole ribbon set - with the previous set still live
-     * that duplicate build was the memory pressure that first crashed and,
-     * once guarded, nulled the buffers so no model was visible at all. On
-     * failure the previous colors simply remain (the model stays visible).
-     */
-    private fun rebuildColors(value: PrusaNozzlePath) {
-        val source = value.moves
-        val (minSpeed, maxSpeed) = speedRange(value)
-        val speedSpan = maxSpeed - minSpeed
-        val colorSink = DirectFloatSink()
-        forEachWindow(value, onProgress = { fraction -> onBuildProgress?.invoke(fraction) }) { kind, winStart, _, sx, sy, sz, ex, ey, ez, runWidth, runHeight ->
-            if (kind == PrusaNozzlePath.Kind.EXTRUSION.code) {
-                val wo = winStart * PrusaNozzlePath.VALUES_PER_MOVE
-                val speedRatio = if (speedSpan > 0f) {
-                    ((source[wo + PrusaNozzlePath.SPEED] - minSpeed) / speedSpan).coerceIn(0f, 1f)
-                } else 0f
-                val zRatio = if (value.maxZ > value.minZ) {
-                    ((ez - value.minZ) / (value.maxZ - value.minZ)).coerceIn(0f, 1f)
-                } else 0f
-                val color = hsv(extrusionHue(zRatio, speedRatio, colorBySpeed), RIBBON_SATURATION, RIBBON_VALUE, 1f)
-                repeat(PrusaNozzlePathViewDefaults.WINDOW_VERTICES) {
-                    colorSink += color[0]; colorSink += color[1]; colorSink += color[2]; colorSink += color[3]
-                }
-            }
-        }
-        ribbonColors = colorSink.toFloatBuffer()
     }
 
     /**
@@ -923,7 +859,7 @@ internal class PrusaNozzlePathRenderer : GLSurfaceView.Renderer {
         return dx * dx + dy * dy
     }
     private fun ensureUploads(current: PrusaNozzlePath) {
-        if (uploadedPath === current && uploadedColorBySpeed == colorBySpeed && pathVbos.size == 6) return
+        if (uploadedPath === current && pathVbos.size == 6) return
         if (pathVbos.size != 6) {
             val ids = IntArray(6)
             GLES20.glGenBuffers(6, ids, 0)
@@ -943,7 +879,6 @@ internal class PrusaNozzlePathRenderer : GLSurfaceView.Renderer {
         }
         GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, 0)
         uploadedPath = current
-        uploadedColorBySpeed = colorBySpeed
     }
 
     private fun drawLitTrianglesVbo(vertexCount: Int) {
