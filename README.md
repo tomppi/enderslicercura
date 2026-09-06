@@ -4,15 +4,23 @@
 
 # DuoSlicer
 
-DuoSlicer (formerly EnderSlicerCura) is an Android-first front end for **both CuraEngine and PrusaSlicer** - importing, preparing, slicing, previewing and sending 3D prints from a phone or foldable. It is **1.0.0**, targets Android 10+ on **ARM64**, and bundles CuraEngine with Cura resources from **5.14.0-alpha.0** plus a PrusaSlicer engine. Its most-tested baseline is a modified Creality Ender 3 V2.
+DuoSlicer (formerly EnderSlicerCura) is an Android-first front end for **both CuraEngine and PrusaSlicer** - importing, preparing, slicing, previewing and sending 3D prints from a phone or foldable. It is **1.0.0**, targets Android 10+ on **ARM64**, and bundles the CuraEngine ARM64 binary with Cura resources from **5.14.0-alpha.0** plus a native **PrusaSlicer 2.9.6** engine with its resources. Its most-tested baseline is a modified Creality Ender 3 V2.
 
-> This is development software, not a complete Cura replacement. Inspect every model, setting and generated G-code before printing.
+> This is development software, not a complete Cura or PrusaSlicer replacement. Inspect every model, setting and generated G-code before printing.
 
-## Importing from Cura
+## Engines
 
-The simplest way to reproduce your Cura setup is to save a **project** from Cura Desktop (**File → Save Project…**, a `.3mf`) and import it with **Menu → Import Cura project (.3mf)**. A project bundles the machine definition, quality/material settings and start/end G-code in one file, so EnderSlicerCura can resolve the same formulas and values Cura uses.
+- **Cura (blue)** - CuraEngine slicing with Cura profiles, quality/material/adhesion/supports settings and Cura project (`.3mf`) or profile (`.curaprofile`) import
+- **PrusaSlicer (orange)** - PrusaSlicer engine with Prusa settings, marker-driven previews and settings import from a PrusaSlicer config bundle (`.ini`)
+- One switcher in **Settings**; the app theme and accent (blue vs orange) follow the active engine, and per-engine profiles stay separate
+
+## Importing
+
+The simplest way to reproduce your Cura setup is to save a **project** from Cura Desktop (**File → Save Project…**, a `.3mf`) and import it with **Menu → Import Cura project (.3mf)**. A project bundles the machine definition, quality/material settings and start/end G-code in one file, so DuoSlicer can resolve the same formulas and values Cura uses.
 
 For just the print/filament settings, export a **profile** (**File → Save Profile…**, a `.curaprofile`) and use **Menu → Import Cura profile**. A profile may not include machine definitions; the app then falls back to its bundled Ender 3 V2 definitions.
+
+On the Prusa engine, use **Import settings from PrusaSlicer (.ini)** to apply a config bundle; machine and filament profiles are resolved the same way.
 
 Imported values are kept as a persistent baseline: they stay in effect until you override them in the app, and app overrides are tracked separately. Formula resolution is verified against the pinned **5.14.0-alpha.0** resources; projects from other Cura versions usually import, but verify the resolved settings before a critical print.
 
@@ -20,15 +28,15 @@ Imported values are kept as a persistent baseline: they stay in effect until you
 
 ### Slicing & profiles
 
-- Local ARM64 CuraEngine slicing with up to eight workers
-- STL import plus Cura `.3mf` / `.curaprofile` import with machine/extruder inheritance and formula recalculation
-- Editable printer, quality, material, supports, travel, cooling and adhesion settings
-- Adaptive layers, estimated time and repaired G-code metadata; validated CRLF `.gcode` export
+- Local ARM64 slicing: CuraEngine with up to eight workers, plus the PrusaSlicer engine
+- STL import plus Cura `.3mf` / `.curaprofile` import with machine/extruder inheritance and formula recalculation, and PrusaSlicer `.ini` config-bundle import
+- Editable printer, quality, material, supports, travel, cooling and adhesion settings, per engine
+- Adaptive layers (layer heights step 0.01 mm between 0.14 and 0.26 mm against a 0.2 mm base in shipped G-code), estimated time and repaired G-code metadata; validated CRLF `.gcode` export
 
 ### Model, viewer & texturing
 
 - Move, rotate, **scale by percentage**, center, lay flat and drop-to-bed; build-volume validation before slicing
-- OpenGL model viewer, speed-colored layer preview and nozzle-path view
+- OpenGL model viewer, layer preview and **nozzle-path view with speed-colored beads** (cyan slow → orange fast - the one color mode on both engines)
 - Offline BumpMesh displacement texturing (planar/triplanar/cubic or cylindrical mapping, 100k–8M triangle limit)
 
 ### Print editing
@@ -79,8 +87,9 @@ Requirements: JDK 17, Android SDK 36 + NDK `28.2.13676358`, CMake `3.22.1` / `3.
 From a clean checkout:
 
 ```bash
-chmod +x scripts/fetch-cura-resources.sh scripts/build-curaengine-android.sh
+chmod +x scripts/fetch-cura-resources.sh scripts/build-curaengine-android.sh scripts/fetch-prusa-engine-android.sh
 scripts/fetch-cura-resources.sh
+scripts/fetch-prusa-engine-android.sh
 
 export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358"
 export APP_JNILIBS_DIR="$PWD/app/src/main/jniLibs"
@@ -89,7 +98,7 @@ scripts/build-curaengine-android.sh
 gradle :app:verifyDebugApkContents
 ```
 
-Gradle prepares the pinned offline BumpMesh and filaSim assets before `preBuild`; `verifyDebugApkContents` builds the debug APK and verifies the packaged ARM64 CuraEngine. GitHub Actions builds the WASM engine, runs the unit/regression and definition audits, verifies packaged assets and uploads the APK.
+Gradle prepares the pinned offline BumpMesh and filaSim assets before `preBuild`; `verifyDebugApkContents` builds the debug APK and verifies the packaged ARM64 CuraEngine and PrusaSlicer engine. GitHub Actions builds the WASM engine, runs the unit/regression and definition audits, verifies packaged assets and uploads the APK.
 
 ## Safety
 
@@ -97,4 +106,4 @@ Generated G-code is checked for valid extrusion temperatures, machine bounds, me
 
 ## License
 
-DuoSlicer is distributed under GNU AGPL-3.0-or-later because it links to CuraEngine. The embedded BumpMesh and filaSim source are retained under `AGPL-3.0-only`. See [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). UltiMaker and Cura are trademarks of their respective owners; EnderSlicerCura is not an official UltiMaker, Creality or CNC Kitchen application.
+DuoSlicer is distributed under GNU AGPL-3.0-or-later because it links to CuraEngine. The embedded BumpMesh and filaSim source are retained under `AGPL-3.0-only`. See [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). UltiMaker, Cura and PrusaSlicer are trademarks of their respective owners; DuoSlicer is not an official UltiMaker, Creality, Prusa Research or CNC Kitchen application.
