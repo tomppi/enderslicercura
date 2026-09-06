@@ -6,22 +6,9 @@
     android:viewportHeight="108">
     <path android:fillColor="#FF10151C" android:pathData="M0,0H108V108H0Z" />
 
-    <path android:fillColor="#FFFFFFFF" android:pathData="M20,36H39V42H20Z" />
-    <path android:fillColor="#FFFFFFFF" android:pathData="M20,36H26V70H20Z" />
-    <path android:fillColor="#FFFFFFFF" android:pathData="M20,50H37V56H20Z" />
-    <path android:fillColor="#FFFFFFFF" android:pathData="M20,64H39V70H20Z" />
-
-    <path android:fillColor="#FFFFFFFF" android:pathData="M45,36H64V42H45Z" />
-    <path android:fillColor="#FFFFFFFF" android:pathData="M45,36H51V56H45Z" />
-    <path android:fillColor="#FFFFFFFF" android:pathData="M45,50H64V56H45Z" />
-    <path android:fillColor="#FFFFFFFF" android:pathData="M58,50H64V70H58Z" />
-    <path android:fillColor="#FFFFFFFF" android:pathData="M45,64H64V70H45Z" />
-
-    <path android:fillColor="#FFFFFFFF" android:pathData="M70,36H89V42H70Z" />
-    <path android:fillColor="#FFFFFFFF" android:pathData="M70,36H76V70H70Z" />
-    <path android:fillColor="#FFFFFFFF" android:pathData="M70,64H89V70H70Z" />
-
-    <path android:fillColor="#FF3B82F6" android:pathData="M25,76H43V81H25Z" />
-    <path android:fillColor="#FF22C55E" android:pathData="M45,76H64V81H45Z" />
-    <path android:fillColor="#FFF97316" android:pathData="M66,76H84V81H66Z" />
+    <!-- DuoSlicer: two extruder hotends - blue (CuraEngine) left, orange (PrusaSlicer) right. -->
+    <path android:fillColor="#FF3B82F6" android:pathData="M30,36H54V50L49,62L45,72H39L35,62L30,50Z" />
+    <path android:fillColor="#FF3B82F6" android:pathData="M39,72H45V78H39Z" />
+    <path android:fillColor="#FFF97316" android:pathData="M56,42H80V56L75,68L71,78H65L61,68L56,56Z" />
+    <path android:fillColor="#FFF97316" android:pathData="M65,78H71V84H65Z" />
 </vector>
