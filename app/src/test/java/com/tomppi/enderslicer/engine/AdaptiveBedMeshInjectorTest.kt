@@ -127,6 +127,32 @@ class AdaptiveBedMeshInjectorTest {
     }
 
     @Test
+    fun existingC29InStartGetsCommentsOnly() {
+        val file = temporaryGcode(
+            "G28\n" +
+                "C29 A ; use AML\n" +
+                ";LAYER:0\n" +
+                "G1 X10 Y20 E0.5\n" +
+                ";LAYER:1\n" +
+                "G1 X10 Y20 Z0.4 E0.5\n",
+        )
+        assertTrue(AdaptiveBedMeshInjector.inject(file, envelope, 5.0))
+        val text = file.readText()
+        assertTrue(text.contains("; First layer print x min = 5.00"))
+        assertEquals(1, "C29 A".toRegex().findAll(text).count())
+        assertFalse("second injection must be idempotent", AdaptiveBedMeshInjector.inject(file, envelope, 5.0))
+    }
+
+    @Test
+    fun g27ParkIsTrustedBeforeMotionLikeG28() {
+        GcodeCommandPolicy.requirePreviewSafe(GcodeCommand.parse("G27")!!, 0)
+        val afterMotion = runCatching {
+            GcodeCommandPolicy.requirePreviewSafe(GcodeCommand.parse("G27")!!, 5)
+        }.exceptionOrNull()
+        assertTrue(afterMotion != null)
+    }
+
+    @Test
     fun otherCCodesRemainRejected() {
         val bad = GcodeCommand.parse("C20")!!
         val preview = runCatching { GcodeCommandPolicy.requirePreviewSafe(bad, 0) }.exceptionOrNull()

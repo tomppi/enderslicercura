@@ -6,7 +6,9 @@ import java.util.Locale
 internal object GcodeCommandPolicy {
     private val LINEAR_PARAMETERS = setOf('X', 'Y', 'Z', 'E', 'F')
     private val SAFE_NON_MOTION_G = setOf(4, 10, 11, 17, 21, 90, 91, 92, 94)
-    private val TRUSTED_STARTUP_G = setOf(28, 29)
+    private val TRUSTED_STARTUP_G = setOf(27, 28, 29)
+    // G27 is the park-head command used by the AML start script (and kept
+    // startup-only: after printable motion begins it is rejected like G28).
     private val SAFE_CUSTOM_EVENT_COMMANDS = setOf(
         "M104",
         "M109",

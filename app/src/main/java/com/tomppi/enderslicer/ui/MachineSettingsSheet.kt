@@ -247,6 +247,22 @@ internal fun MachineSettingsContent(
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                OutlinedButton(
+                    onClick = {
+                        onSettings(SlicerSettings.Keys.CUSTOM_START_GCODE) { current ->
+                            current.copy(
+                                customStartGcodeEnabled = true,
+                                customStartGcode = amlStartGcode(
+                                    settings.initialNozzleTemperatureC,
+                                    settings.bedTemperatureC,
+                                ),
+                            )
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Use the official AML start G-code (recommended)")
+                }
             }
         }
 
@@ -295,6 +311,35 @@ private fun GcodeField(label: String, value: String, onValue: (String) -> Unit) 
         textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
         modifier = Modifier.fillMaxWidth(),
     )
+}
+
+/**
+ * The official mriscoc AML start script (from the AML guide), with the
+ * Cura placeholders resolved to the current profile temperatures. This
+ * replaces the old home/level/prime block entirely - exactly what mriscoc
+ * recommends for AML to work.
+ */
+internal fun amlStartGcode(nozzleTemperatureC: Int, bedTemperatureC: Int): String = buildString {
+    appendLine("; Heat up")
+    appendLine("M104 S$nozzleTemperatureC ; Set Extruder temperature")
+    appendLine("M140 S$bedTemperatureC ; Set Heat Bed temperature")
+    appendLine("G28 ; Home all axes")
+    appendLine("G27 ; Park tool head")
+    appendLine("M190 S$bedTemperatureC ; Wait for Heat Bed temperature")
+    appendLine("M109 S$nozzleTemperatureC ; Wait for Extruder temperature")
+    appendLine(";")
+    appendLine("; Reset settings")
+    appendLine("M220 S100 ;Reset Feed rate")
+    appendLine("M221 S100 ;Reset Flow rate")
+    appendLine(";")
+    appendLine("; Ender Custom Start G-code")
+    appendLine("G92 E0 ; Reset Extruder")
+    appendLine("G28O ; Home optionally if steppers were shutdown")
+    appendLine("M420 S1 ; activate leveling")
+    appendLine(";")
+    appendLine("; Adaptive Mesh Leveling (AML)")
+    appendLine("C29 A ; use AML")
+    appendLine(";")
 }
 
 

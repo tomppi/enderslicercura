@@ -38,6 +38,7 @@ internal object AdaptiveBedMeshInjector {
         var minY = Double.POSITIVE_INFINITY
         var maxX = Double.NEGATIVE_INFINITY
         var maxY = Double.NEGATIVE_INFINITY
+        var hasC29InStart = false
         var layerCount = 0
         var inFirstLayer = false
 
@@ -84,6 +85,7 @@ internal object AdaptiveBedMeshInjector {
                     } else if (command.opcode == "G29" && command.rawArguments.contains('A')) {
                         activationIndex = currentIndex
                     }
+                    if (command.opcode == "C29") hasC29InStart = true
                 }
             }
         }
@@ -126,10 +128,14 @@ internal object AdaptiveBedMeshInjector {
             appendLine("; AML margin = ${format(marginMm)}")
             appendLine("; AML prime = 1")
         }
+        // When the start script already carries C29 A (the official AML start
+        // script), only the header comments are missing - never duplicate the
+        // command, or the firmware would probe the region twice.
         val commandBlock = buildString {
             if (activationIndex < 0) appendLine("M420 S1 ; activate leveling")
             appendLine("C29 A ; use AML")
         }
+        val emitCommand = !hasC29InStart
 
         // Pass 2: stream the file; comments first, command after the anchor.
         val temporary = File(file.parentFile, "${file.name}.aml.tmp")
@@ -141,12 +147,12 @@ internal object AdaptiveBedMeshInjector {
                     while (true) {
                         val line = reader.readLine() ?: break
                         if (current == 0) writer.write(headerComments)
-                        if (current == anchorIndex && anchorBeforeLayer) {
+                        if (emitCommand && current == anchorIndex && anchorBeforeLayer) {
                             writer.write(commandBlock)
                         }
                         writer.write(line)
                         writer.newLine()
-                        if (current == anchorIndex && !anchorBeforeLayer) writer.write(commandBlock)
+                        if (emitCommand && current == anchorIndex && !anchorBeforeLayer) writer.write(commandBlock)
                         current++
                     }
                 }
