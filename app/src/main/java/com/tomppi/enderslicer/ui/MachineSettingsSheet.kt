@@ -217,9 +217,8 @@ internal fun MachineSettingsContent(
         Section("Adaptive mesh leveling (AML)") {
             Text(
                 "For the mriscoc Professional Firmware (Ender 3 V2 / S1) with AML support: after slicing, the " +
-                    "app writes the first-layer print bounds and C29 A into the G-code so the firmware probes " +
-                    "only the area the model occupies. The leveling activation (M420 S1 or G29 A) must be in " +
-                    "the start G-code; the app also emits it when missing.",
+                    "app injects C29 (the mesh probe area = first-layer print bounds + margin) followed by " +
+                    "G29 P1, so the firmware probes only the area the model occupies instead of the whole bed.",
                 style = MaterialTheme.typography.bodySmall,
             )
             SwitchRow(
@@ -243,7 +242,7 @@ internal fun MachineSettingsContent(
                     }
                 }
                 Text(
-                    "Injected per slice: first-layer x/y bounds, density auto, margin above, prime 1, then C29 A.",
+                    "Injected per slice: C29 L/R/F/B probe bounds (+ margin), 9x9 density, then G29 P1.",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -317,7 +316,7 @@ private fun GcodeField(label: String, value: String, onValue: (String) -> Unit) 
  * The official mriscoc AML start script (from the AML guide), with the
  * Cura placeholders resolved to the current profile temperatures. This
  * replaces the old home/level/prime block entirely - exactly what mriscoc
- * recommends for AML to work.
+ * recommends for AML to work. The adaptive probe commands are added per slice by the app.
  */
 internal fun amlStartGcode(nozzleTemperatureC: Int, bedTemperatureC: Int): String = buildString {
     appendLine("; Heat up")
@@ -338,7 +337,8 @@ internal fun amlStartGcode(nozzleTemperatureC: Int, bedTemperatureC: Int): Strin
     appendLine("M420 S1 ; activate leveling")
     appendLine(";")
     appendLine("; Adaptive Mesh Leveling (AML)")
-    appendLine("C29 A ; use AML")
+    appendLine("; The C29 mesh-area + G29 P1 block is injected per slice by the app")
+    appendLine(";")
     appendLine(";")
 }
 

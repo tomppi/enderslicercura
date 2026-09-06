@@ -1,25 +1,40 @@
 package com.tomppi.enderslicer.engine
 
 import java.io.File
-import java.util.Locale
 
 /**
  * Adaptive mesh leveling (AML) for the mriscoc Ender 3 V2 / S1 Professional
- * Firmware. The firmware exposes AML through the custom C-code `C29 A` and
- * reads the first-layer print bounds from `; First layer print x min = ...`
- * comment lines, plus optional `; AML ...` parameters (mesh density per axis,
- * margin and prime).
+ * Firmware (AML2.0 builds, 2026 and later).
  *
- * This injector is the free, built-in replacement for the paid AML slicer
+ * On these builds AML is not a comment protocol - there is no `; First layer
+ * print ...` or `; AML ...` parsing. The firmware exposes the mesh region
+ * through the custom C-code:
+ *
+ *   C29 L<left> R<right> F<front> B<back> N<grid points>  (mesh inset + grid)
+ *   G29 P1                                                (probe only that area)
+ *
+ * `C29` stores the probe region in the runtime mesh settings (`meshSet`),
+ * recomputes the grid spacing, invalidates the mesh and disables leveling.
+ * With PROUI_EX the UBL grid positions are computed at runtime from these
+ * values, so a following stock `G29 P1` probes just the model footprint.
+ * `C29 A`, `C29 P1` and the bare command do nothing but print the settings.
+ *
+ * This injector is the free, built-in equivalent of the paid AML slicer
  * scripts: after the engine slice is final, it scans the first printable
  * layer for the real extrusion footprint, clamps it to the build volume plus
- * the configured margin and emits the bound comments + `C29 A` right after
- * the leveling activation (`M420 S1` / `G29 A`, or after G28 when the start
- * script does not activate leveling itself).
+ * the configured margin and emits `C29 L.. R.. F.. B.. N9` right before the
+ * bed probe (`G29 P1` when the start G-code already probes, otherwise right
+ * at the leveling activation / last home).
  */
 internal object AdaptiveBedMeshInjector {
     /** Idempotency marker written with every injection. */
     const val MARKER = ";ENDERSLICER_AML"
+
+    /** Grid density used for the adaptive mesh (built-in 9x9, like the firmware default). */
+    const val GRID_POINTS = 9
+
+    /** Maximum sensible region edge in millimetres; larger values are rejected. */
+    private const val MAX_REGION_MM = 10_000.0
 
     /**
      * Injects the AML block into [file]. Returns true when the block was
@@ -31,6 +46,7 @@ internal object AdaptiveBedMeshInjector {
         require(marginMm.isFinite() && marginMm in 0.0..1000.0) { "AML margin is invalid" }
 
         var sawMarker = false
+        var probeIndex = -1
         var activationIndex = -1
         var lastHomeIndex = -1
         var layerStartIndex = -1
@@ -38,7 +54,6 @@ internal object AdaptiveBedMeshInjector {
         var minY = Double.POSITIVE_INFINITY
         var maxX = Double.NEGATIVE_INFINITY
         var maxY = Double.NEGATIVE_INFINITY
-        var hasC29InStart = false
         var layerCount = 0
         var inFirstLayer = false
 
@@ -77,15 +92,15 @@ internal object AdaptiveBedMeshInjector {
                         }
                     }
                 } else if (layerStartIndex < 0) {
-                    // Only the start G-code region: track activation and homing.
+                    // Only the start G-code region: track the probe/activation anchors.
                     val command = GcodeCommand.parse(line) ?: continue
                     if (command.opcode == "G28") lastHomeIndex = currentIndex
+                    if (command.opcode == "G29" && isProbePhase1(command)) probeIndex = currentIndex
                     if (command.opcode == "M420" && command.value('S') == 1.0) {
                         activationIndex = currentIndex
-                    } else if (command.opcode == "G29" && command.rawArguments.contains('A')) {
+                    } else if (command.opcode == "G29" && command.rawArguments.replace(" ", "").contains('A')) {
                         activationIndex = currentIndex
                     }
-                    if (command.opcode == "C29") hasC29InStart = true
                 }
             }
         }
@@ -102,42 +117,39 @@ internal object AdaptiveBedMeshInjector {
         val regionMinY = maxOf(bedMinY, minY - marginMm)
         val regionMaxY = minOf(bedMaxY, maxY + marginMm)
         if (regionMaxX < regionMinX || regionMaxY < regionMinY) return false
+        if (regionMaxX - regionMinX > MAX_REGION_MM || regionMaxY - regionMinY > MAX_REGION_MM) return false
 
-        // anchorBeforeLayer: the block is written immediately before the first
-        // layer marker when the start script has no home or activation line.
-        val anchorBeforeLayer = activationIndex < 0 && lastHomeIndex < 0
+        // The firmware stores the mesh inset in millimetres as integers, so the
+        // injected region is rounded to whole millimetres.
+        val left = Math.round(regionMinX).toInt()
+        val right = Math.round(regionMaxX).toInt()
+        val front = Math.round(regionMinY).toInt()
+        val back = Math.round(regionMaxY).toInt()
+        if (right <= left || back <= front) return false
+
+        // The command block. One authoritative C29 sets the region:
+        //  - already probing?           -> C29 right before the existing G29 P1
+        //  - activation present?        -> C29 + G29 P1 right before the activation
+        //  - otherwise                  -> C29 + G29 P1 + M420 S1 after the last G28
+        val commandBlock = buildString {
+            appendLine(MARKER)
+            appendLine("C29 L$left R$right F$front B$back N$GRID_POINTS ; AML mesh area")
+            if (probeIndex < 0) {
+                appendLine("G29 P1 ; probe only the model area")
+                if (activationIndex < 0) appendLine("M420 S1 ; activate leveling")
+            }
+        }
         val anchorIndex = when {
+            probeIndex >= 0 -> probeIndex
             activationIndex >= 0 -> activationIndex
-            lastHomeIndex >= 0 -> lastHomeIndex
+            lastHomeIndex >= 0 -> lastHomeIndex + 1
             else -> layerStartIndex
         }
         if (anchorIndex < 0) return false
 
-        // The firmware reads the AML bounds from the header comments at file
-        // load (the official slicer sample places them on the very first
-        // lines, before any command), so the comment block goes at the top of
-        // the file while the C29 A command stays anchored at the activation.
-        val headerComments = buildString {
-            appendLine(MARKER)
-            appendLine("; First layer print x min = ${format(regionMinX)}")
-            appendLine("; First layer print y min = ${format(regionMinY)}")
-            appendLine("; First layer print x max = ${format(regionMaxX)}")
-            appendLine("; First layer print y max = ${format(regionMaxY)}")
-            appendLine("; AML mesh density X = auto")
-            appendLine("; AML mesh density Y = auto")
-            appendLine("; AML margin = ${format(marginMm)}")
-            appendLine("; AML prime = 1")
-        }
-        // When the start script already carries C29 A (the official AML start
-        // script), only the header comments are missing - never duplicate the
-        // command, or the firmware would probe the region twice.
-        val commandBlock = buildString {
-            if (activationIndex < 0) appendLine("M420 S1 ; activate leveling")
-            appendLine("C29 A ; use AML")
-        }
-        val emitCommand = !hasC29InStart
-
-        // Pass 2: stream the file; comments first, command after the anchor.
+        // Pass 2: stream the file, inserting the block at the anchor and
+        // dropping any C29 command lines from the start region - the injector
+        // owns the AML mesh area and only one C29 may win.
         val temporary = File(file.parentFile, "${file.name}.aml.tmp")
         temporary.delete()
         try {
@@ -146,13 +158,16 @@ internal object AdaptiveBedMeshInjector {
                     var current = 0
                     while (true) {
                         val line = reader.readLine() ?: break
-                        if (current == 0) writer.write(headerComments)
-                        if (emitCommand && current == anchorIndex && anchorBeforeLayer) {
-                            writer.write(commandBlock)
+                        if (current < layerStartIndex) {
+                            val command = GcodeCommand.parse(line)
+                            if (command?.opcode == "C29") {
+                                current++
+                                continue
+                            }
                         }
+                        if (current == anchorIndex) writer.write(commandBlock)
                         writer.write(line)
                         writer.newLine()
-                        if (emitCommand && current == anchorIndex && !anchorBeforeLayer) writer.write(commandBlock)
                         current++
                     }
                 }
@@ -174,5 +189,10 @@ internal object AdaptiveBedMeshInjector {
         return true
     }
 
-    private fun format(value: Double): String = String.format(Locale.US, "%.2f", value)
+    /** True for `G29 P1` in any compact/unspaced spelling ("G29P1", "G29 P1 C"). */
+    private fun isProbePhase1(command: GcodeCommand.Parsed): Boolean {
+        if (command.opcode != "G29") return false
+        val compact = command.rawArguments.replace(" ", "")
+        return compact.startsWith("P1")
+    }
 }

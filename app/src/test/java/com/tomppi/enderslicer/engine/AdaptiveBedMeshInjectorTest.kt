@@ -13,7 +13,7 @@ class AdaptiveBedMeshInjectorTest {
     )
 
     @Test
-    fun ublStartGcodeGetsBoundsAndC29AfterActivation() {
+    fun ublStartGcodeGetsC29AreaAndProbeBeforeActivation() {
         val file = temporaryGcode(
             ";FLAVOR:Marlin\n" +
                 "G28\n" +
@@ -28,16 +28,10 @@ class AdaptiveBedMeshInjectorTest {
         assertTrue(AdaptiveBedMeshInjector.inject(file, envelope, 5.0))
         val text = file.readText()
         val activation = text.indexOf("G29 A  ; activate UBL")
-        assertTrue("bounds comments must lead the file", text.indexOf("; First layer print x min") < activation)
-        assertTrue("C29 A must come after the activation line", activation < text.indexOf("C29 A"))
-        assertTrue(text.contains("; First layer print x min = 5.00"))
-        assertTrue(text.contains("; First layer print y min = 15.00"))
-        assertTrue(text.contains("; First layer print x max = 65.00"))
-        assertTrue(text.contains("; First layer print y max = 75.00"))
-        assertTrue(text.contains("; AML mesh density X = auto"))
-        assertTrue(text.contains("; AML margin = 5.00"))
-        assertTrue(text.contains("; AML prime = 1"))
-        assertTrue(text.contains("C29 A ; use AML"))
+        assertTrue("C29 area must come before the activation", text.indexOf("C29 L5") in 0 until activation)
+        assertTrue("the probe must come before the activation", text.indexOf("G29 P1") in 0 until activation)
+        assertTrue(text.contains("C29 L5 R65 F15 B75 N9 ; AML mesh area"))
+        assertFalse("case B must not add its own activation", text.contains("M420 S1 ; activate leveling"))
         assertTrue(text.contains(AdaptiveBedMeshInjector.MARKER))
         assertFalse("second injection must be idempotent", AdaptiveBedMeshInjector.inject(file, envelope, 5.0))
     }
@@ -57,12 +51,29 @@ class AdaptiveBedMeshInjectorTest {
         assertTrue(AdaptiveBedMeshInjector.inject(file, envelope, 2.0))
         val text = file.readText()
         assertFalse("no duplicate M420 when the start script already activates", text.contains("M420 S1 ; activate leveling"))
-        assertTrue(text.contains("; First layer print x min = 28.00"))
-        assertTrue(text.contains("; First layer print x max = 92.00"))
+        assertTrue(text.contains("C29 L28 R92 F38 B102 N9 ; AML mesh area"))
+        assertTrue("the probe must come before the existing M420", text.indexOf("G29 P1") < text.indexOf("M420 S1"))
     }
 
     @Test
-    fun missingActivationEmitsActivationAndC29AfterHome() {
+    fun existingProbeIsPreservedAndSetBeforeIt() {
+        val file = temporaryGcode(
+            "G28\n" +
+                "M420 S1\n" +
+                "G29 P1 ; probe\n" +
+                ";LAYER:0\n" +
+                "G1 X10 Y20 E0.3\n" +
+                ";LAYER:1\n",
+        )
+        assertTrue(AdaptiveBedMeshInjector.inject(file, envelope, 5.0))
+        val text = file.readText()
+        assertEquals(1, "G29 P1".toRegex().findAll(text).count())
+        assertTrue("C29 must be right before the existing probe", text.indexOf("C29 L5 R15 F15 B25 N9") < text.indexOf("G29 P1"))
+        assertFalse("no second G29 P1 from the app", text.contains("G29 P1 ; probe only the model area"))
+    }
+
+    @Test
+    fun missingActivationEmitsAreaProbeAndActivationAfterHome() {
         val file = temporaryGcode(
             "G28\n" +
                 ";LAYER:0\n" +
@@ -73,7 +84,9 @@ class AdaptiveBedMeshInjectorTest {
         val text = file.readText()
         assertTrue(text.contains("M420 S1 ; activate leveling"))
         val home = text.indexOf("G28")
-        assertTrue("block must come after G28", home in 0 until text.indexOf("C29 A"))
+        assertTrue("block must come after G28", home in 0 until text.indexOf("C29 L5"))
+        assertTrue("C29 before probe", text.indexOf("C29 L5") < text.indexOf("G29 P1"))
+        assertTrue("probe before activation", text.indexOf("G29 P1") < text.indexOf("M420 S1 ; activate leveling"))
     }
 
     @Test
@@ -87,8 +100,7 @@ class AdaptiveBedMeshInjectorTest {
         )
         assertTrue(AdaptiveBedMeshInjector.inject(file, envelope, 10.0))
         val text = file.readText()
-        assertTrue(text.contains("; First layer print x min = 0.00"))
-        assertTrue(text.contains("; First layer print y max = 220.00"))
+        assertTrue(text.contains("C29 L0 R60 F205 B220 N9 ; AML mesh area"))
     }
 
     @Test
@@ -104,13 +116,13 @@ class AdaptiveBedMeshInjectorTest {
         )
         assertTrue(AdaptiveBedMeshInjector.inject(file, envelope, 5.0))
         val text = file.readText()
-        assertTrue(text.contains("; First layer print x min = 15.00"))
-        assertTrue(text.contains("; First layer print x max = 85.00"))
-        assertTrue(text.contains("C29 A ; use AML"))
+        assertTrue(text.contains("C29 L15 R85 F25 B95 N9 ; AML mesh area"))
+        assertTrue(text.contains("G29 P1 ; probe only the model area"))
+        assertTrue(text.contains("M420 S1 ; activate leveling"))
     }
 
     @Test
-    fun c29LicensedForPreviewAndPublishedAndNozzlePathParsesIt() {
+    fun c29AreaLicensedForPreviewAndPublishedAndNozzlePathParsesIt() {
         val file = temporaryGcode(
             "G28\n" +
                 ";LAYER:0\n" +
@@ -121,16 +133,19 @@ class AdaptiveBedMeshInjectorTest {
         assertTrue(AdaptiveBedMeshInjector.inject(file, envelope, 5.0))
         val path = GcodeNozzlePathParser.parse(file)
         assertEquals(2, path.moveCount)
-        val parsed = GcodeCommand.parse("C29 A")!!
+        val parsed = GcodeCommand.parse("C29 L53 R175 F57 B177 N9")!!
         GcodeCommandPolicy.requirePreviewSafe(parsed, 0)
         GcodeCommandPolicy.requirePublishedSafe(parsed, null, 1)
+        GcodeCommandPolicy.requirePreviewSafe(GcodeCommand.parse("C29 A")!!, 0)
+        GcodeCommandPolicy.requirePublishedSafe(GcodeCommand.parse("C29 M")!!, null, 1)
     }
 
     @Test
-    fun existingC29InStartGetsCommentsOnly() {
+    fun existingC29InStartIsReplacedByTheAuthoritativeArea() {
         val file = temporaryGcode(
             "G28\n" +
                 "C29 A ; use AML\n" +
+                "M420 S1\n" +
                 ";LAYER:0\n" +
                 "G1 X10 Y20 E0.5\n" +
                 ";LAYER:1\n" +
@@ -138,8 +153,9 @@ class AdaptiveBedMeshInjectorTest {
         )
         assertTrue(AdaptiveBedMeshInjector.inject(file, envelope, 5.0))
         val text = file.readText()
-        assertTrue(text.contains("; First layer print x min = 5.00"))
-        assertEquals(1, "C29 A".toRegex().findAll(text).count())
+        assertFalse("the useless C29 A must be removed", text.contains("C29 A"))
+        assertEquals(1, "C29 L".toRegex().findAll(text).count())
+        assertTrue(text.contains("C29 L5 R15 F15 B25 N9 ; AML mesh area"))
         assertFalse("second injection must be idempotent", AdaptiveBedMeshInjector.inject(file, envelope, 5.0))
     }
 
@@ -153,14 +169,17 @@ class AdaptiveBedMeshInjectorTest {
     }
 
     @Test
-    fun otherCCodesRemainRejected() {
-        val bad = GcodeCommand.parse("C20")!!
-        val preview = runCatching { GcodeCommandPolicy.requirePreviewSafe(bad, 0) }.exceptionOrNull()
+    fun otherCCodesAndUnsupportedC29ArgumentsRemainRejected() {
+        val preview = runCatching { GcodeCommandPolicy.requirePreviewSafe(GcodeCommand.parse("C20")!!, 0) }.exceptionOrNull()
         assertTrue(preview != null)
         val published = runCatching {
-            GcodeCommandPolicy.requirePublishedSafe(GcodeCommand.parse("C29 B")!!, null, 1)
+            GcodeCommandPolicy.requirePublishedSafe(GcodeCommand.parse("C29 Q")!!, null, 1)
         }.exceptionOrNull()
         assertTrue(published != null)
+        val publishedTooBig = runCatching {
+            GcodeCommandPolicy.requirePublishedSafe(GcodeCommand.parse("C29 L5000")!!, null, 1)
+        }.exceptionOrNull()
+        assertTrue(publishedTooBig != null)
     }
 
     private fun temporaryGcode(contents: String): File =
