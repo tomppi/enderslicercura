@@ -556,9 +556,12 @@ def main() -> int:
     patch_android_viewer(scene_file)
 
     npm_environment = {"NPM_CONFIG_ENGINE_STRICT": "true"}
-    run(["npm", "ci", "--no-audit", "--no-fund"], cwd=web_root, env=npm_environment)
+    # Windows: CreateProcess cannot resolve the bare "npm" name - npm is
+    # npm.cmd there - so invoke it explicitly on win32.
+    npm = ["npm.cmd"] if os.name == "nt" else ["npm"]
+    run([*npm, "ci", "--no-audit", "--no-fund"], cwd=web_root, env=npm_environment)
     run(["node", "scripts/build-wasm.mjs", "st"], cwd=web_root)
-    run(["npm", "run", "build"], cwd=web_root, env={**npm_environment, "VITE_BASE": "./"})
+    run([*npm, "run", "build"], cwd=web_root, env={**npm_environment, "VITE_BASE": "./"})
 
     dist = web_root / "dist"
     if not (dist / "index.html").is_file():
