@@ -1,5 +1,5 @@
 /*
- * EnderSlicerCura Thermal Integrity progress and cancellation shell.
+ * DuoSlicer Thermal Integrity progress and cancellation shell.
  *
  * React owns the Thermal workflow station and panel. This injected runtime only
  * augments the Android-only Thermal Integrity controls; it never hides, moves,

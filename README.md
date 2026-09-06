@@ -1,10 +1,10 @@
 <p align="center">
-  <img src="docs/esc-icon.svg" width="128" height="128" alt="EnderSlicerCura ESC icon">
+  <img src="docs/esc-icon.svg" width="128" height="128" alt="DuoSlicer icon">
 </p>
 
-# EnderSlicerCura
+# DuoSlicer
 
-EnderSlicerCura is an Android-first CuraEngine front end for importing, preparing, slicing, previewing and sending 3D prints from a phone or foldable. It is **1.0.0**, targets Android 10+ on **ARM64**, and bundles CuraEngine with Cura resources from **5.14.0-alpha.0**. Its most-tested baseline is a modified Creality Ender 3 V2.
+DuoSlicer (formerly EnderSlicerCura) is an Android-first front end for **both CuraEngine and PrusaSlicer** - importing, preparing, slicing, previewing and sending 3D prints from a phone or foldable. It is **1.0.0**, targets Android 10+ on **ARM64**, and bundles CuraEngine with Cura resources from **5.14.0-alpha.0** plus a PrusaSlicer engine. Its most-tested baseline is a modified Creality Ender 3 V2.
 
 > This is development software, not a complete Cura replacement. Inspect every model, setting and generated G-code before printing.
 
@@ -97,4 +97,4 @@ Generated G-code is checked for valid extrusion temperatures, machine bounds, me
 
 ## License
 
-EnderSlicerCura is distributed under GNU AGPL-3.0-or-later because it links to CuraEngine. The embedded BumpMesh and filaSim source are retained under `AGPL-3.0-only`. See [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). UltiMaker and Cura are trademarks of their respective owners; EnderSlicerCura is not an official UltiMaker, Creality or CNC Kitchen application.
+DuoSlicer is distributed under GNU AGPL-3.0-or-later because it links to CuraEngine. The embedded BumpMesh and filaSim source are retained under `AGPL-3.0-only`. See [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). UltiMaker and Cura are trademarks of their respective owners; EnderSlicerCura is not an official UltiMaker, Creality or CNC Kitchen application.

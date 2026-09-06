@@ -71,7 +71,7 @@ internal fun OnboardingScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Spacer(modifier = Modifier.height(18.dp))
-            Text("EnderSlicerCura", style = MaterialTheme.typography.headlineMedium)
+            Text("DuoSlicer", style = MaterialTheme.typography.headlineMedium)
             Spacer(modifier = Modifier.height(6.dp))
             Text(
                 "One app for slicing, previewing and printing.\nStart by telling us about your machine.",

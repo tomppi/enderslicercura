@@ -2,7 +2,7 @@ package com.tomppi.enderslicer.engine
 
 import com.tomppi.enderslicer.model.SlicerSettings
 
-/** App-owned settings consumed by the EnderSlicerCura CuraEngine wave patch. */
+/** App-owned settings consumed by the DuoSlicer CuraEngine wave patch. */
 internal object WaveOverhangEngineSettings {
     const val ENABLED = "enderslicer_wave_overhang_enabled"
     const val PATTERN = "enderslicer_wave_overhang_pattern"

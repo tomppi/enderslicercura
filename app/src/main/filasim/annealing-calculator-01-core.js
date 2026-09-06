@@ -1,5 +1,5 @@
 /*
- * EnderSlicerCura geometry-aware annealing planner.
+ * DuoSlicer geometry-aware annealing planner.
  *
  * Uses the validated Thermal Integrity voxel grid and implicit transient solver.
  * Heating completes only after the coldest material voxel reaches the requested

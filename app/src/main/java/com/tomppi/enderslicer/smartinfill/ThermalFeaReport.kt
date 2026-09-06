@@ -134,7 +134,7 @@ internal data class ThermalFeaReport(
     }
 
     fun toMarkdown(): String = buildString {
-        appendLine("# EnderSlicerCura thermal FEA report")
+        appendLine("# DuoSlicer thermal FEA report")
         appendLine()
         appendLine("> Experimental build-process thermo-mechanical estimate. This report is not a certification or an absolute failure verdict.")
         appendLine()

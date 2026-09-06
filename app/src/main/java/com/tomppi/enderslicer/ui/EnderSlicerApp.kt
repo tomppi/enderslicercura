@@ -1005,7 +1005,7 @@ private fun MoreScreen(
         Card(modifier = Modifier.fillMaxWidth()) {
             MoreRow(
                 icon = AppIcons.Info,
-                title = "EnderSlicerCura",
+                title = "DuoSlicer",
                 subtitle = "Version 1.0.0 · AGPL-3.0-or-later",
                 onClick = {},
             )

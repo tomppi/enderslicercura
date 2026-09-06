@@ -1,4 +1,4 @@
-/* EnderSlicerCura Android-only nearby hot object thermal workspace. */
+/* DuoSlicer Android-only nearby hot object thermal workspace. */
 (() => {
   "use strict";
 

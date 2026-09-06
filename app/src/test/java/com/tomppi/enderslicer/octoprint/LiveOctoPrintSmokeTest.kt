@@ -56,7 +56,7 @@ class LiveOctoPrintSmokeTest {
             val folder = "es-smoke-$stamp"
             val folder2 = "es-smoke-$stamp-2"
             val gcode = File.createTempFile("es-smoke-", ".gcode").apply {
-                writeText("; EnderSlicerCura live smoke fixture\nG21\nG90\nM107\n")
+                writeText("; DuoSlicer live smoke fixture\nG21\nG90\nM107\n")
             }
             try {
                 step("createFolder1 start")

@@ -1,7 +1,7 @@
 /*
  * Android host adapter for the pinned filaSim web workspace.
  * The upstream application remains responsible for analysis and optimization;
- * this adapter injects the displayed EnderSlicerCura STL, returns validated
+ * this adapter injects the displayed DuoSlicer STL, returns validated
  * optimizer outputs, and captures an auditable build-process thermal FEA report.
  */
 (() => {
@@ -75,7 +75,7 @@
 
         function forwardWithoutReport(poseRequest, reason) {
           latestBuildSimRaw = null;
-          console.error(`EnderSlicerCura thermal report capture disabled for this run: ${reason}`);
+          console.error(`DuoSlicer thermal report capture disabled for this run: ${reason}`);
           postNative(
             nativePostMessage,
             poseRequest.buildMessage,
@@ -308,7 +308,7 @@
             throw new Error("Android rejected the thermal FEA report");
           }
         } catch (error) {
-          console.error("EnderSlicerCura thermal FEA report capture failed", error);
+          console.error("DuoSlicer thermal FEA report capture failed", error);
           alert(`Unable to save the thermal FEA report: ${error?.message || error}`);
         }
       });
@@ -431,8 +431,8 @@
       input.dispatchEvent(new Event("change", { bubbles: true }));
     } catch (error) {
       modelLoadStarted = false;
-      console.error("EnderSlicerCura filaSim model handoff failed", error);
-      alert(`Unable to load the EnderSlicerCura model into filaSim: ${error?.message || error}`);
+      console.error("DuoSlicer filaSim model handoff failed", error);
+      alert(`Unable to load the DuoSlicer model into filaSim: ${error?.message || error}`);
     }
   }
 

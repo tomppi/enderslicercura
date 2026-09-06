@@ -1,5 +1,5 @@
 /*
- * EnderSlicerCura Android-only thermal integrity workspace.
+ * DuoSlicer Android-only thermal integrity workspace.
  *
  * This is deliberately separate from filaSim's print-build shrink simulation:
  * it solves service-temperature heat conduction and couples the temperature

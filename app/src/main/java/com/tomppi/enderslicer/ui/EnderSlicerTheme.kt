@@ -9,7 +9,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 
 /**
- * EnderSlicerCura palette ("engineering cockpit"), themed per slicing
+ * DuoSlicer palette ("engineering cockpit"), themed per slicing
  * engine: Cura (blue) and PrusaSlicer (orange) so the whole app visibly
  * changes identity with the engine choice. See
  * docs/ux-redesign/DESIGN_PROPOSAL.md.

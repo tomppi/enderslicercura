@@ -547,7 +547,7 @@ class SmartInfillPackageStore(private val context: Context) {
     private fun requireSupportedPattern(raw: String): String {
         val normalized = raw.trim().lowercase()
         require(normalized in SUPPORTED_PATTERNS) {
-            "filaSim returned an infill pattern that EnderSlicerCura cannot reproduce: '$raw'"
+            "filaSim returned an infill pattern that DuoSlicer cannot reproduce: '$raw'"
         }
         return normalized
     }

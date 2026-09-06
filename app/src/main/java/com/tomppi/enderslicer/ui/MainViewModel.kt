@@ -1056,7 +1056,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     val format = root.optString("format")
                     val version = root.optInt("version", -1)
                     require(format == CONFIG_SNAPSHOT_FORMAT) {
-                        "The selected file is not an EnderSlicerCura configuration snapshot"
+                        "The selected file is not a DuoSlicer configuration snapshot"
                     }
                     require(version == CONFIG_SNAPSHOT_VERSION) {
                         "Unsupported configuration snapshot version $version"

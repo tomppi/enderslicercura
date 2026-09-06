@@ -496,7 +496,7 @@ class OctoPrintClient(
         fileName: String? = null,
         onProgress: (Long, Long) -> Unit = { _, _ -> },
     ): JSONObject {
-        val boundary = "----EnderSlicerCura${UUID.randomUUID().toString().replace("-", "")}" 
+        val boundary = "----DuoSlicer${UUID.randomUUID().toString().replace("-", "")}" 
         val prefix = ByteArrayOutputStream().apply {
             fields.forEach { (name, value) ->
                 write("--$boundary\r\n".toByteArray(Charsets.UTF_8))
