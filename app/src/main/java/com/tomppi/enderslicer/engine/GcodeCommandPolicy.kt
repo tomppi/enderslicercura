@@ -102,6 +102,9 @@ internal object GcodeCommandPolicy {
             'T' -> require(command.code == 0) {
                 "Unsupported tool change ${command.opcode} at line $lineNumber"
             }
+            'C' -> require(command.code == 29 && command.rawArguments in setOf("", "A")) {
+                "Unsupported C-code ${command.opcode} at line $lineNumber; only C29 A (AML) is allowed"
+            }
             else -> error(
                 "Unsupported command family ${command.family} at line $lineNumber; " +
                     "the G-code was not made available for export",
@@ -154,6 +157,9 @@ internal object GcodeCommandPolicy {
             'M' -> requirePublishedM(command, lineNumber = null, consumer = "Nozzle Path")
             'T' -> require(command.code == 0) {
                 "Nozzle Path cannot safely display tool change ${command.opcode}"
+            }
+            'C' -> require(command.code == 29 && command.rawArguments in setOf("", "A")) {
+                "Nozzle Path cannot safely display ${command.opcode}; only C29 A (AML) is allowed"
             }
             else -> error("Nozzle Path cannot safely display command family ${command.family}")
         }

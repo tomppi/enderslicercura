@@ -191,6 +191,8 @@ object SlicerSettingsJson {
         .put(SlicerSettings.Keys.ADAPTIVE_LAYER_HEIGHT_VARIATION, settings.adaptiveLayerHeightVariationMm)
         .put(SlicerSettings.Keys.ADAPTIVE_LAYER_HEIGHT_VARIATION_STEP, settings.adaptiveLayerHeightVariationStepMm)
         .put(SlicerSettings.Keys.ADAPTIVE_LAYER_HEIGHT_THRESHOLD, settings.adaptiveLayerHeightThreshold)
+        .put(SlicerSettings.Keys.ADAPTIVE_MESH_LEVELING_ENABLED, settings.adaptiveMeshLevelingEnabled)
+        .put(SlicerSettings.Keys.AML_MARGIN_MM, settings.amlMarginMm)
         .put(SlicerSettings.Keys.LINE_WIDTH, settings.lineWidthMm)
         .put(SlicerSettings.Keys.SLICING_TOLERANCE, settings.slicingTolerance)
         .put(SlicerSettings.Keys.WALL_LINE_COUNT, settings.wallLineCount)
@@ -355,6 +357,12 @@ object SlicerSettingsJson {
                 )
                 SlicerSettings.Keys.ADAPTIVE_LAYER_HEIGHT_THRESHOLD -> restored.copy(
                     adaptiveLayerHeightThreshold = values.optDouble(key, restored.adaptiveLayerHeightThreshold),
+                )
+                SlicerSettings.Keys.ADAPTIVE_MESH_LEVELING_ENABLED -> restored.copy(
+                    adaptiveMeshLevelingEnabled = values.optBoolean(key, restored.adaptiveMeshLevelingEnabled),
+                )
+                SlicerSettings.Keys.AML_MARGIN_MM -> restored.copy(
+                    amlMarginMm = values.optDouble(key, restored.amlMarginMm).coerceIn(0.0, 100.0),
                 )
                 SlicerSettings.Keys.LINE_WIDTH -> restored.copy(lineWidthMm = values.optDouble(key, restored.lineWidthMm))
                 SlicerSettings.Keys.SLICING_TOLERANCE -> restored.copy(slicingTolerance = values.optString(key, restored.slicingTolerance))

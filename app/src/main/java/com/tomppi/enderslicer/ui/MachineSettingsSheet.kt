@@ -214,6 +214,42 @@ internal fun MachineSettingsContent(
             }
         }
 
+        Section("Adaptive mesh leveling (AML)") {
+            Text(
+                "For the mriscoc Professional Firmware (Ender 3 V2 / S1) with AML support: after slicing, the " +
+                    "app writes the first-layer print bounds and C29 A into the G-code so the firmware probes " +
+                    "only the area the model occupies. The leveling activation (M420 S1 or G29 A) must be in " +
+                    "the start G-code; the app also emits it when missing.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            SwitchRow(
+                "Use adaptive mesh leveling",
+                settings.adaptiveMeshLevelingEnabled,
+                source(state, SlicerSettings.Keys.ADAPTIVE_MESH_LEVELING_ENABLED),
+            ) {
+                onSettings(SlicerSettings.Keys.ADAPTIVE_MESH_LEVELING_ENABLED) { current ->
+                    current.copy(adaptiveMeshLevelingEnabled = it)
+                }
+            }
+            if (settings.adaptiveMeshLevelingEnabled) {
+                NumberField(
+                    "Probe margin (mm)",
+                    settings.amlMarginMm,
+                    source(state, SlicerSettings.Keys.AML_MARGIN_MM),
+                    decimals = 1,
+                ) {
+                    onSettings(SlicerSettings.Keys.AML_MARGIN_MM) { current ->
+                        current.copy(amlMarginMm = it.coerceIn(0.0, 100.0))
+                    }
+                }
+                Text(
+                    "Injected per slice: first-layer x/y bounds, density auto, margin above, prime 1, then C29 A.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+
         Spacer(Modifier.height(24.dp))
     }
 }

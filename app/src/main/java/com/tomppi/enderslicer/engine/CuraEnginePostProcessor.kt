@@ -34,6 +34,8 @@ internal object CuraEnginePostProcessor {
         settingsTransport: String,
         layerEvents: List<LayerEvent>,
         printerEnvelope: PrinterEnvelope,
+        amlEnabled: Boolean = false,
+        amlMarginMm: Double = 5.0,
     ): Result {
         val workspace = outputFile.parentFile
             ?: error("CuraEngine output path has no parent workspace")
@@ -104,6 +106,9 @@ internal object CuraEnginePostProcessor {
             layerEvents.filter { it.layerNumber in validLayerNumbers },
         )
 
+        if (amlEnabled) {
+            AdaptiveBedMeshInjector.inject(outputFile, effectiveEnvelope, amlMarginMm)
+        }
         if (resolvedEvents.isEmpty()) {
             return Result(
                 summary = baseSummary,
@@ -123,6 +128,9 @@ internal object CuraEnginePostProcessor {
             printerEnvelope = effectiveEnvelope,
         )
         val previewResult = runCatching { GcodeLayerPreviewParser.parse(outputFile) }
+        if (amlEnabled) {
+            AdaptiveBedMeshInjector.inject(outputFile, effectiveEnvelope, amlMarginMm)
+        }
         return Result(
             summary = summary,
             layerPreview = previewResult.getOrNull(),
