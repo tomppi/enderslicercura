@@ -106,7 +106,7 @@ private fun SafetyChecklistCard(
         ChecklistItem(
             id = PrinterChecklistIds.HOTEND,
             title = "Hotend limit matches your firmware",
-            subtitle = "Profile hotend %.0f °C · verify before a critical print".format(settings.nozzleTemperatureC),
+            subtitle = "Profile hotend %d °C · verify before a critical print".format(settings.nozzleTemperatureC),
         ),
         ChecklistItem(
             id = PrinterChecklistIds.GCODE,
