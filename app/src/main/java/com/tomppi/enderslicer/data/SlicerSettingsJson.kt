@@ -36,6 +36,8 @@ object SlicerSettingsJson {
         SlicerSettings.Keys.ADAPTIVE_LAYER_HEIGHT_VARIATION,
         SlicerSettings.Keys.ADAPTIVE_LAYER_HEIGHT_VARIATION_STEP,
         SlicerSettings.Keys.ADAPTIVE_LAYER_HEIGHT_THRESHOLD,
+        SlicerSettings.Keys.ADAPTIVE_MESH_LEVELING_ENABLED,
+        SlicerSettings.Keys.AML_MARGIN_MM,
         SlicerSettings.Keys.LINE_WIDTH,
         SlicerSettings.Keys.SLICING_TOLERANCE,
         SlicerSettings.Keys.WALL_LINE_COUNT,
