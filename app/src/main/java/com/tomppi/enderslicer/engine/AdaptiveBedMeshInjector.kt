@@ -32,13 +32,14 @@ internal object AdaptiveBedMeshInjector {
     /** Idempotency marker written with every injection. */
     const val MARKER = ";ENDERSLICER_AML"
 
-    /**
-     * Grid density per axis used for the adaptive mesh. AML2.0 firmware accepts
-     * rectangular N x M densities (C29 X and Y separately) - 9x9 matches the
-     * firmware default, and any other square/rectangular density is emitted the
-     * same explicit way.
-     */
-    const val GRID_POINTS = 9
+    /** Firmware minimum density per axis (GRID_MIN). */
+    const val GRID_MIN = 3
+
+    /** Firmware maximum density per axis (GRID_LIMIT). */
+    const val GRID_MAX = 9
+
+    /** Default density per axis; with margins this keeps probing time sane. */
+    const val DEFAULT_GRID_POINTS = 5
 
     /** Region edges larger than this are rejected; matches the C29 policy range. */
     private const val MAX_REGION_MM = 1000.0
@@ -51,9 +52,15 @@ internal object AdaptiveBedMeshInjector {
      * written, false when the file already carries the marker, has no
      * printable first layer, or the region collapses after clamping.
      */
-    fun inject(file: File, envelope: PrinterEnvelope, marginMm: Double): Boolean {
+    fun inject(
+        file: File,
+        envelope: PrinterEnvelope,
+        marginMm: Double,
+        gridPoints: Int = DEFAULT_GRID_POINTS,
+    ): Boolean {
         require(file.isFile && file.length() > 0L) { "Sliced G-code is unavailable" }
         require(marginMm.isFinite() && marginMm in 0.0..1000.0) { "AML margin is invalid" }
+        require(gridPoints in GRID_MIN..GRID_MAX) { "AML grid density must be $GRID_MIN..$GRID_MAX" }
 
         var sawMarker = false
         var probeIndex = -1
@@ -142,7 +149,7 @@ internal object AdaptiveBedMeshInjector {
         val back = Math.round(regionMaxY).toInt()
         if (right <= left || back <= front) return false
 
-        val area = "C29 L$left R$right F$front B$back X$GRID_POINTS Y$GRID_POINTS ; AML mesh area"
+        val area = "C29 L$left R$right F$front B$back X$gridPoints Y$gridPoints ; AML mesh area"
 
         val blockBefore = buildString {
             appendLine(MARKER)

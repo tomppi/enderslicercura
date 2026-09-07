@@ -159,7 +159,7 @@ class PrusaEngineRunner(private val context: Context) {
                 dialect = GcodeDialect.PRUSA,
             )
             if (machineSettings.adaptiveMeshLevelingEnabled) {
-                AdaptiveBedMeshInjector.inject(workspace.output, printerEnvelope, machineSettings.amlMarginMm)
+                AdaptiveBedMeshInjector.inject(workspace.output, printerEnvelope, machineSettings.amlMarginMm, machineSettings.amlGridPoints)
             }
             val prusaEstimateSeconds = parsePrusaEstimateSeconds(workspace.output) ?: summary.estimatedSeconds
             val preview = runCatching {

@@ -33,6 +33,7 @@ data class SlicerSettings(
     val adaptiveLayerHeightThreshold: Double = 0.20,
     val adaptiveMeshLevelingEnabled: Boolean = false,
     val amlMarginMm: Double = 5.0,
+    val amlGridPoints: Int = 5,
     val lineWidthMm: Double = 0.40,
     val slicingTolerance: String = "middle",
     val wallLineCount: Int = 2,
@@ -244,6 +245,7 @@ data class SlicerSettings(
         const val ADAPTIVE_LAYER_HEIGHT_THRESHOLD = "adaptiveLayerHeightThreshold"
         const val ADAPTIVE_MESH_LEVELING_ENABLED = "adaptiveMeshLevelingEnabled"
         const val AML_MARGIN_MM = "amlMarginMm"
+        const val AML_GRID_POINTS = "amlGridPoints"
         const val LINE_WIDTH = "lineWidthMm"
         const val SLICING_TOLERANCE = "slicingTolerance"
         const val WALL_LINE_COUNT = "wallLineCount"

@@ -1,5 +1,6 @@
 package com.tomppi.enderslicer.ui
 
+import kotlin.math.roundToInt
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -241,8 +242,18 @@ internal fun MachineSettingsContent(
                         current.copy(amlMarginMm = it.coerceIn(0.0, 100.0))
                     }
                 }
+                NumberField(
+                    "Mesh points per axis",
+                    settings.amlGridPoints.toDouble(),
+                    source(state, SlicerSettings.Keys.AML_GRID_POINTS),
+                    decimals = 0,
+                ) {
+                    onSettings(SlicerSettings.Keys.AML_GRID_POINTS) { current ->
+                        current.copy(amlGridPoints = it.roundToInt().coerceIn(3, 9))
+                    }
+                }
                 Text(
-                    "Injected per slice: C29 L/R/F/B probe bounds (+ margin), 9x9 density, then G29 P1.",
+                    "Injected per slice: C29 L/R/F/B probe bounds (+ margin), grid density above, then G29 P1.",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
