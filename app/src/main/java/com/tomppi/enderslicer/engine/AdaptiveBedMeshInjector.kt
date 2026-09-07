@@ -38,8 +38,8 @@ internal object AdaptiveBedMeshInjector {
     /** Firmware maximum density per axis (GRID_LIMIT). */
     const val GRID_MAX = 9
 
-    /** Default density per axis; with margins this keeps probing time sane. */
-    const val DEFAULT_GRID_POINTS = 5
+    /** Default points per axis the user wants before fitting to the region. */
+    const val DEFAULT_GRID_POINTS = 6
 
     /** Region edges larger than this are rejected; matches the C29 policy range. */
     private const val MAX_REGION_MM = 1000.0
@@ -56,11 +56,13 @@ internal object AdaptiveBedMeshInjector {
         file: File,
         envelope: PrinterEnvelope,
         marginMm: Double,
-        gridPoints: Int = DEFAULT_GRID_POINTS,
+        maxPointsPerAxis: Int = DEFAULT_GRID_POINTS,
     ): Boolean {
         require(file.isFile && file.length() > 0L) { "Sliced G-code is unavailable" }
         require(marginMm.isFinite() && marginMm in 0.0..1000.0) { "AML margin is invalid" }
-        require(gridPoints in GRID_MIN..GRID_MAX) { "AML grid density must be $GRID_MIN..$GRID_MAX" }
+        require(maxPointsPerAxis in GRID_MIN..GRID_MAX) {
+            "AML grid density must be $GRID_MIN..$GRID_MAX points per axis"
+        }
 
         var sawMarker = false
         var probeIndex = -1
@@ -149,7 +151,8 @@ internal object AdaptiveBedMeshInjector {
         val back = Math.round(regionMaxY).toInt()
         if (right <= left || back <= front) return false
 
-        val area = "C29 L$left R$right F$front B$back X$gridPoints Y$gridPoints ; AML mesh area"
+        val (pointsX, pointsY) = fitGrid(regionMaxX - regionMinX, regionMaxY - regionMinY, maxPointsPerAxis)
+        val area = "C29 L$left R$right F$front B$back X$pointsX Y$pointsY ; AML mesh area"
 
         val blockBefore = buildString {
             appendLine(MARKER)
@@ -222,6 +225,19 @@ internal object AdaptiveBedMeshInjector {
         if (command.opcode != "G29") return false
         // P==1 distinguishes phase 1 from P2 (manual), P10+ etc.
         return command.value('P') == 1.0
+    }
+
+    /**
+     * Fits the user-chosen per-axis density to the region: the longer axis gets
+     * [maxPointsPerAxis], the shorter one is scaled down by its aspect ratio
+     * (so spacing stays roughly equal on both axes), clamped to the firmware
+     * limits (3..9).
+     */
+    private fun fitGrid(widthMm: Double, heightMm: Double, maxPointsPerAxis: Int): Pair<Int, Int> {
+        val long = maxPointsPerAxis
+        val ratio = minOf(widthMm, heightMm) / maxOf(widthMm, heightMm)
+        val short = (Math.round(ratio * (long - 1)) + 1).toInt().coerceIn(GRID_MIN, GRID_MAX)
+        return if (widthMm >= heightMm) long to short else short to long
     }
 
     /** True for `G29 A` (activate UBL) in any compact/unspaced spelling. */

@@ -33,7 +33,7 @@ data class SlicerSettings(
     val adaptiveLayerHeightThreshold: Double = 0.20,
     val adaptiveMeshLevelingEnabled: Boolean = false,
     val amlMarginMm: Double = 5.0,
-    val amlGridPoints: Int = 5,
+    val amlGridPoints: Int = 6,
     val lineWidthMm: Double = 0.40,
     val slicingTolerance: String = "middle",
     val wallLineCount: Int = 2,

@@ -243,7 +243,7 @@ internal fun MachineSettingsContent(
                     }
                 }
                 NumberField(
-                    "Mesh points per axis",
+                    "Probe points per axis (accuracy)",
                     settings.amlGridPoints.toDouble(),
                     source(state, SlicerSettings.Keys.AML_GRID_POINTS),
                     decimals = 0,
