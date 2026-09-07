@@ -32,7 +32,12 @@ internal object AdaptiveBedMeshInjector {
     /** Idempotency marker written with every injection. */
     const val MARKER = ";ENDERSLICER_AML"
 
-    /** Grid density used for the adaptive mesh (built-in 9x9, like the firmware default). */
+    /**
+     * Grid density per axis used for the adaptive mesh. AML2.0 firmware accepts
+     * rectangular N x M densities (C29 X and Y separately) - 9x9 matches the
+     * firmware default, and any other square/rectangular density is emitted the
+     * same explicit way.
+     */
     const val GRID_POINTS = 9
 
     /** Region edges larger than this are rejected; matches the C29 policy range. */
@@ -137,7 +142,7 @@ internal object AdaptiveBedMeshInjector {
         val back = Math.round(regionMaxY).toInt()
         if (right <= left || back <= front) return false
 
-        val area = "C29 L$left R$right F$front B$back N$GRID_POINTS ; AML mesh area"
+        val area = "C29 L$left R$right F$front B$back X$GRID_POINTS Y$GRID_POINTS ; AML mesh area"
 
         val blockBefore = buildString {
             appendLine(MARKER)
