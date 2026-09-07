@@ -12,6 +12,7 @@ import java.io.File
  *
  *   C29 L<left> R<right> F<front> B<back> N<grid points>  (mesh inset + grid)
  *   G29 P1                                                (probe only that area)
+ *   M420 S1                                               (activate leveling)
  *
  * `C29` stores the probe region in the runtime mesh settings (`meshSet`),
  * recomputes the grid spacing, invalidates the mesh and disables leveling.
@@ -22,9 +23,10 @@ import java.io.File
  * This injector is the free, built-in equivalent of the paid AML slicer
  * scripts: after the engine slice is final, it scans the first printable
  * layer for the real extrusion footprint, clamps it to the build volume plus
- * the configured margin and emits `C29 L.. R.. F.. B.. N9` right before the
- * bed probe (`G29 P1` when the start G-code already probes, otherwise right
- * at the leveling activation / last home).
+ * the configured margin and emits `C29 L.. R.. F.. B.. N9` together with the
+ * probe/activation so the leveling sequence is always:
+ *
+ *   C29 (set region) -> G29 P1 (probe region) -> M420 S1 (activate leveling)
  */
 internal object AdaptiveBedMeshInjector {
     /** Idempotency marker written with every injection. */
@@ -33,8 +35,11 @@ internal object AdaptiveBedMeshInjector {
     /** Grid density used for the adaptive mesh (built-in 9x9, like the firmware default). */
     const val GRID_POINTS = 9
 
-    /** Maximum sensible region edge in millimetres; larger values are rejected. */
-    private const val MAX_REGION_MM = 10_000.0
+    /** Region edges larger than this are rejected; matches the C29 policy range. */
+    private const val MAX_REGION_MM = 1000.0
+
+    /** Comment suffix used by activation lines emitted by this injector. */
+    const val ACTIVATION_COMMENT = " ; activate leveling"
 
     /**
      * Injects the AML block into [file]. Returns true when the block was
@@ -48,6 +53,7 @@ internal object AdaptiveBedMeshInjector {
         var sawMarker = false
         var probeIndex = -1
         var activationIndex = -1
+        var hasActivationAfterProbe = false
         var lastHomeIndex = -1
         var layerStartIndex = -1
         var minX = Double.POSITIVE_INFINITY
@@ -92,14 +98,14 @@ internal object AdaptiveBedMeshInjector {
                         }
                     }
                 } else if (layerStartIndex < 0) {
-                    // Only the start G-code region: track the probe/activation anchors.
                     val command = GcodeCommand.parse(line) ?: continue
-                    if (command.opcode == "G28") lastHomeIndex = currentIndex
-                    if (command.opcode == "G29" && isProbePhase1(command)) probeIndex = currentIndex
-                    if (command.opcode == "M420" && command.value('S') == 1.0) {
-                        activationIndex = currentIndex
-                    } else if (command.opcode == "G29" && command.rawArguments.replace(" ", "").contains('A')) {
-                        activationIndex = currentIndex
+                    when {
+                        command.opcode == "G28" -> lastHomeIndex = currentIndex
+                        isProbePhase1(command) && probeIndex < 0 -> probeIndex = currentIndex
+                        command.opcode == "M420" && command.value('S') == 1.0
+                            || command.opcode == "G29" && isActivation(command) -> {
+                            if (probeIndex >= 0) hasActivationAfterProbe = true else activationIndex = currentIndex
+                        }
                     }
                 }
             }
@@ -108,14 +114,18 @@ internal object AdaptiveBedMeshInjector {
         if (sawMarker) return false
         if (!minX.isFinite() || !maxX.isFinite() || !minY.isFinite() || !maxY.isFinite()) return false
 
-        val bedMinX = if (envelope.originAtCenter) -envelope.widthMm / 2.0 else 0.0
-        val bedMaxX = if (envelope.originAtCenter) envelope.widthMm / 2.0 else envelope.widthMm
-        val bedMinY = if (envelope.originAtCenter) -envelope.depthMm / 2.0 else 0.0
-        val bedMaxY = if (envelope.originAtCenter) envelope.depthMm / 2.0 else envelope.depthMm
-        val regionMinX = maxOf(bedMinX, minX - marginMm)
-        val regionMaxX = minOf(bedMaxX, maxX + marginMm)
-        val regionMinY = maxOf(bedMinY, minY - marginMm)
-        val regionMaxY = minOf(bedMaxY, maxY + marginMm)
+        // The mesh inset lives in the printer's bed coordinates (0..bed size).
+        // Convert center-origin slices to absolute bed coordinates first.
+        if (envelope.originAtCenter) {
+            val shiftX = envelope.widthMm / 2.0
+            val shiftY = envelope.depthMm / 2.0
+            minX += shiftX; maxX += shiftX
+            minY += shiftY; maxY += shiftY
+        }
+        val regionMinX = maxOf(0.0, minX - marginMm)
+        val regionMaxX = minOf(envelope.widthMm, maxX + marginMm)
+        val regionMinY = maxOf(0.0, minY - marginMm)
+        val regionMaxY = minOf(envelope.depthMm, maxY + marginMm)
         if (regionMaxX < regionMinX || regionMaxY < regionMinY) return false
         if (regionMaxX - regionMinX > MAX_REGION_MM || regionMaxY - regionMinY > MAX_REGION_MM) return false
 
@@ -127,16 +137,14 @@ internal object AdaptiveBedMeshInjector {
         val back = Math.round(regionMaxY).toInt()
         if (right <= left || back <= front) return false
 
-        // The command block. One authoritative C29 sets the region:
-        //  - already probing?           -> C29 right before the existing G29 P1
-        //  - activation present?        -> C29 + G29 P1 right before the activation
-        //  - otherwise                  -> C29 + G29 P1 + M420 S1 after the last G28
-        val commandBlock = buildString {
+        val area = "C29 L$left R$right F$front B$back N$GRID_POINTS ; AML mesh area"
+
+        val blockBefore = buildString {
             appendLine(MARKER)
-            appendLine("C29 L$left R$right F$front B$back N$GRID_POINTS ; AML mesh area")
+            appendLine(area)
             if (probeIndex < 0) {
                 appendLine("G29 P1 ; probe only the model area")
-                if (activationIndex < 0) appendLine("M420 S1 ; activate leveling")
+                if (activationIndex < 0) appendLine("M420 S1$ACTIVATION_COMMENT")
             }
         }
         val anchorIndex = when {
@@ -146,11 +154,13 @@ internal object AdaptiveBedMeshInjector {
             else -> layerStartIndex
         }
         if (anchorIndex < 0) return false
+        // When the file already probes, leveling must still be activated after
+        // the probe (C29 disabled it) unless the start script activates later.
+        val needsPostProbeActivation = probeIndex >= 0 && !hasActivationAfterProbe
 
-        // Pass 2: stream the file, inserting the block at the anchor and
-        // dropping any C29 command lines from the start region - the injector
-        // owns the AML mesh area and only one C29 may win.
-        val temporary = File(file.parentFile, "${file.name}.aml.tmp")
+        // Pass 2: stream the file. The injected block is written at the anchor
+        // BEFORE any C29 stripping so a stripped C29 line can never swallow it.
+        val temporary = File(file.absoluteFile.parentFile, "${file.name}.aml.tmp")
         temporary.delete()
         try {
             file.bufferedReader().use { reader ->
@@ -158,16 +168,24 @@ internal object AdaptiveBedMeshInjector {
                     var current = 0
                     while (true) {
                         val line = reader.readLine() ?: break
-                        if (current < layerStartIndex) {
-                            val command = GcodeCommand.parse(line)
-                            if (command?.opcode == "C29") {
-                                current++
-                                continue
+                        val command = if (current < layerStartIndex) GcodeCommand.parse(line) else null
+
+                        if (current == anchorIndex) writer.write(blockBefore)
+                        when {
+                            current < layerStartIndex && command?.opcode == "C29" -> {
+                                // The injector owns the AML mesh area in the start
+                                // block; exactly one C29 may run, and it is ours.
+                            }
+                            current == probeIndex && needsPostProbeActivation -> {
+                                writer.write(line)
+                                writer.newLine()
+                                writer.write("M420 S1$ACTIVATION_COMMENT")
+                            }
+                            else -> {
+                                writer.write(line)
+                                writer.newLine()
                             }
                         }
-                        if (current == anchorIndex) writer.write(commandBlock)
-                        writer.write(line)
-                        writer.newLine()
                         current++
                     }
                 }
@@ -179,9 +197,7 @@ internal object AdaptiveBedMeshInjector {
                     java.nio.file.StandardCopyOption.REPLACE_EXISTING,
                 )
             } catch (_: java.io.IOException) {
-                check(temporary.renameTo(file) || temporary.copyTo(file, overwrite = true).let { temporary.delete(); true }) {
-                    "Unable to publish the AML G-code"
-                }
+                if (!temporary.renameTo(file)) error("Unable to publish the AML G-code")
             }
         } finally {
             temporary.delete()
@@ -189,10 +205,14 @@ internal object AdaptiveBedMeshInjector {
         return true
     }
 
-    /** True for `G29 P1` in any compact/unspaced spelling ("G29P1", "G29 P1 C"). */
+    /** True only for UBL phase-1 probing: `G29 P1` (also "G29P1", "G29 P1 C"). */
     private fun isProbePhase1(command: GcodeCommand.Parsed): Boolean {
         if (command.opcode != "G29") return false
-        val compact = command.rawArguments.replace(" ", "")
-        return compact.startsWith("P1")
+        // P==1 distinguishes phase 1 from P2 (manual), P10+ etc.
+        return command.value('P') == 1.0
     }
+
+    /** True for `G29 A` (activate UBL) in any compact/unspaced spelling. */
+    private fun isActivation(command: GcodeCommand.Parsed): Boolean =
+        command.rawArguments.replace(" ", "").contains('A')
 }
