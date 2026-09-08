@@ -12,6 +12,10 @@ class InfillPatternLabelTest {
         assertEquals("Zig zag", infillPatternLabel("zigzag"))
         assertEquals("Quarter cubic", infillPatternLabel("quarter_cubic"))
         assertEquals("Gyroid", infillPatternLabel("gyroid"))
+        assertEquals("Honeycomb", infillPatternLabel("honeycomb"))
+        assertEquals("Rectilinear", infillPatternLabel("rectilinear"))
+        assertEquals("Aligned rectilinear", infillPatternLabel("aligned rectilinear"))
+        assertEquals("Cross hatch", infillPatternLabel("cross-hatch"))
     }
 
     @Test

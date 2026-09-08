@@ -47,6 +47,14 @@ internal fun infillPatternLabel(pattern: String): String = when (pattern.lowerca
     "cross_3d" -> "Cross 3D"
     "gyroid" -> "Gyroid"
     "lightning" -> "Lightning"
+    "rectilinear" -> "Rectilinear"
+    "aligned rectilinear" -> "Aligned rectilinear"
+    "alignedrectilinear" -> "Aligned rectilinear"
+    "honeycomb" -> "Honeycomb"
+    "stars" -> "Stars"
+    "cross-hatch" -> "Cross hatch"
+    "crosshatch" -> "Cross hatch"
+    "snug" -> "Snug"
     else -> pattern.replaceFirstChar { it.uppercase() }
 }
 

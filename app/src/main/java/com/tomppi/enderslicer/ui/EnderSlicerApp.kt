@@ -85,6 +85,7 @@ import com.tomppi.enderslicer.conical.ConicalSettingsStore
 import com.tomppi.enderslicer.engine.GcodeDialect
 import com.tomppi.enderslicer.mesh.MeshTriangleLimits
 import com.tomppi.enderslicer.model.AllSettingsCatalogs
+import com.tomppi.enderslicer.model.PrusaSliceSettings
 import com.tomppi.enderslicer.model.SlicerSettings
 import com.tomppi.enderslicer.model.withSettings
 import com.tomppi.enderslicer.nonplanar.NonPlanarSettingsStore
@@ -441,6 +442,8 @@ fun EnderSlicerApp(
                                 sliceBlockedReason = effectiveSliceBlockedReason,
                                 onOpenSettings = { selectedTab = AppTab.SETTINGS },
                                 onSettings = viewModel::updateSettings,
+                                engine = engine,
+                                onPrusaSettings = viewModel::updatePrusaSettings,
                                 onSlice = viewModel::sliceModel,
                                 onExportGcode = { gcodeExportPicker.launch(GcodeExportName.suggest()) },
                                 onTools = { modelToolsOpen = true },
@@ -1433,6 +1436,8 @@ private fun SessionPanel(
     sliceBlockedReason: String?,
     onOpenSettings: () -> Unit,
     onSettings: (String, (SlicerSettings) -> SlicerSettings) -> Unit,
+    engine: SlicerEngine,
+    onPrusaSettings: (String, (PrusaSliceSettings) -> PrusaSliceSettings) -> Unit,
     onSlice: () -> Unit,
     onExportGcode: () -> Unit,
     onTools: () -> Unit,
@@ -1441,6 +1446,12 @@ private fun SessionPanel(
 ) {
     val gcodeAvailable = state.hasCurrentGcode()
     val settings = state.settings
+    val prusaSettings = state.prusaSettings
+    val isPrusa = engine == SlicerEngine.PRUSA
+    val sessionLayerHeight = if (isPrusa) prusaSettings.layerHeightMm else settings.layerHeightMm
+    val sessionInfillPercent = if (isPrusa) prusaSettings.fillDensityPercent else settings.infillDensityPercent
+    val sessionInfillPattern = infillPatternLabel(if (isPrusa) prusaSettings.fillPattern else settings.infillPattern)
+    val sessionSupports = if (isPrusa) prusaSettings.supportMaterial else settings.supportsEnabled
     // Content-sized overlay: touches outside the cards reach the model
     // underneath; if the content outgrows the window it scrolls.
     Column(
@@ -1479,12 +1490,12 @@ private fun SessionPanel(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    SessionStat("Layer", "%.2f".format(settings.layerHeightMm), "mm", Modifier.weight(1f))
-                    SessionStat("Infill", "%.0f%%".format(settings.infillDensityPercent), infillPatternLabel(settings.infillPattern), Modifier.weight(1f))
+                    SessionStat("Layer", "%.2f".format(sessionLayerHeight), "mm", Modifier.weight(1f))
+                    SessionStat("Infill", "%.0f%%".format(sessionInfillPercent), sessionInfillPattern, Modifier.weight(1f))
                     SessionStat(
                         "Supports",
-                        if (settings.supportsEnabled) "ON" else "OFF",
-                        settings.supportPlacement,
+                        if (sessionSupports) "ON" else "OFF",
+                        if (isPrusa) infillPatternLabel(prusaSettings.supportPattern) else settings.supportPlacement,
                         Modifier.weight(1f),
                     )
                 }
@@ -1499,9 +1510,19 @@ private fun SessionPanel(
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                QuickSettingRow("Layer height", "%.2f".format(settings.layerHeightMm), "mm", onOpenSettings)
-                QuickSettingRow("Infill density", "%.0f%%".format(settings.infillDensityPercent), infillPatternLabel(settings.infillPattern), onOpenSettings)
-                QuickSettingRow("Adhesion", settings.adhesionType, "", onOpenSettings)
+                QuickSettingRow("Layer height", "%.2f".format(sessionLayerHeight), "mm", onOpenSettings)
+                QuickSettingRow("Infill density", "%.0f%%".format(sessionInfillPercent), sessionInfillPattern, onOpenSettings)
+                QuickSettingRow(
+                        "Adhesion",
+                        if (isPrusa) {
+                            if (prusaSettings.brimWidthMm > 0) "Brim %.1f mm".format(prusaSettings.brimWidthMm)
+                            else "Skirt ${prusaSettings.skirtLoops}x"
+                        } else {
+                            settings.adhesionType
+                        },
+                        "",
+                        onOpenSettings,
+                    )
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -1509,10 +1530,16 @@ private fun SessionPanel(
                 ) {
                     Text("Supports", style = MaterialTheme.typography.bodyMedium)
                     Switch(
-                        checked = settings.supportsEnabled,
+                        checked = sessionSupports,
                         onCheckedChange = { checked ->
-                            onSettings(SlicerSettings.Keys.SUPPORTS_ENABLED) { current ->
-                                current.copy(supportsEnabled = checked)
+                            if (isPrusa) {
+                                onPrusaSettings(PrusaSliceSettings.Keys.SUPPORT_MATERIAL) { current ->
+                                    current.copy(supportMaterial = checked)
+                                }
+                            } else {
+                                onSettings(SlicerSettings.Keys.SUPPORTS_ENABLED) { current ->
+                                    current.copy(supportsEnabled = checked)
+                                }
                             }
                         },
                     )
