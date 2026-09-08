@@ -1480,7 +1480,7 @@ private fun SessionPanel(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     SessionStat("Layer", "%.2f".format(settings.layerHeightMm), "mm", Modifier.weight(1f))
-                    SessionStat("Infill", "%.0f%%".format(settings.infillDensityPercent), "grid", Modifier.weight(1f))
+                    SessionStat("Infill", "%.0f%%".format(settings.infillDensityPercent), infillPatternLabel(settings.infillPattern), Modifier.weight(1f))
                     SessionStat(
                         "Supports",
                         if (settings.supportsEnabled) "ON" else "OFF",
@@ -1500,7 +1500,7 @@ private fun SessionPanel(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 QuickSettingRow("Layer height", "%.2f".format(settings.layerHeightMm), "mm", onOpenSettings)
-                QuickSettingRow("Infill density", "%.0f%%".format(settings.infillDensityPercent), "grid", onOpenSettings)
+                QuickSettingRow("Infill density", "%.0f%%".format(settings.infillDensityPercent), infillPatternLabel(settings.infillPattern), onOpenSettings)
                 QuickSettingRow("Adhesion", settings.adhesionType, "", onOpenSettings)
                 Row(
                     modifier = Modifier.fillMaxWidth(),

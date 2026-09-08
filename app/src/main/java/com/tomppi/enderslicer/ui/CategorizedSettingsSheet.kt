@@ -32,6 +32,24 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.unit.dp
 import com.tomppi.enderslicer.model.SlicerSettings
 
+internal fun infillPatternLabel(pattern: String): String = when (pattern.lowercase()) {
+    "grid" -> "Grid"
+    "lines" -> "Lines"
+    "triangles" -> "Triangles"
+    "trihexagon" -> "Tri-hexagon"
+    "cubic" -> "Cubic"
+    "cubicsubdiv" -> "Cubic subdivision"
+    "octet" -> "Octet"
+    "quarter_cubic" -> "Quarter cubic"
+    "concentric" -> "Concentric"
+    "zigzag" -> "Zig zag"
+    "cross" -> "Cross"
+    "cross_3d" -> "Cross 3D"
+    "gyroid" -> "Gyroid"
+    "lightning" -> "Lightning"
+    else -> pattern.replaceFirstChar { it.uppercase() }
+}
+
 @Composable
 internal fun CategorizedSettingsSheet(
     state: MainUiState,
@@ -957,6 +975,8 @@ internal fun SettingsCategory(
 }
 
 @Composable
+/** User-facing label for a Cura infill pattern value. */
+
 private fun CalculatedField(
     label: String,
     value: Double,
