@@ -90,7 +90,7 @@ rep(root / 'deps/+cpptrace/cpptrace.cmake',
     'cpptrace: bundled libdwarf')
 rep(root / 'deps/+OpenSSL/OpenSSL.cmake',
     '    BUILD_COMMAND make depend && make "-j${NPROC}"',
-    '    BUILD_COMMAND sh -c "set -o pipefail; make depend && make -j${NPROC} 2>&1 | tee /tmp/openssl-make.log"',
+    '    BUILD_COMMAND sh -c "set -o pipefail; make depend && make -j${NPROC} build_libs 2>&1 | tee /tmp/openssl-make.log"',
     'openssl: capture make log')
 rep(root / 'deps/+Boost/Boost.cmake',
     'set(_excluded_libs contract|fiber|numpy|stacktrace|wave|test|log)',
