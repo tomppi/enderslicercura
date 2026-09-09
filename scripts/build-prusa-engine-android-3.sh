@@ -100,6 +100,10 @@ rep(root / 'deps/+Boost/Boost.cmake',
     'set(_excluded_libs contract|fiber|numpy|stacktrace|wave|test|log)',
     'set(_excluded_libs contract|fiber|numpy|stacktrace|wave|test|log|process)',
     'boost: exclude process lib')
+rep(root / 'deps/+OpenVDB/OpenVDB.cmake',
+    '        -DOPENVDB_BUILD_VDB_PRINT=OFF',
+    '        -DOPENVDB_BUILD_VDB_PRINT=OFF\n        -DBoost_INCLUDE_DIR=${${PROJECT_NAME}_DEP_INSTALL_PREFIX}/include',
+    'openvdb: explicit Boost include dir (FindBoost module skips CMAKE_PREFIX_PATH)')
 
 # OpenSSL ships no generic CMake config: its ./Configure must target android-*.
 rep(root / 'deps/+OpenSSL/OpenSSL.cmake',
