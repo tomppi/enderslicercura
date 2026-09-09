@@ -167,6 +167,8 @@ set(PACKAGE_VERSION 1.0.4)
 set(PACKAGE_VERSION_COMPATIBLE TRUE)
 CEO
 
+echo "SHIM-BEGIN"; ls -R "$LIBDWARF_PREFIX/lib/cmake" 2>&1 | head -40; echo "SHIM-END"
+
 step "[3/5] dependency bundle (deps/ ExternalProject chain)"
 mkdir -p "$PREFIX"
 cmake -S "$SRC/deps" -B "$BUILD/deps" -G Ninja \
