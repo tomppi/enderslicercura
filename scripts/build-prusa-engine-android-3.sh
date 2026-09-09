@@ -122,6 +122,19 @@ elif [ "$ABI" = "x86_64" ]; then
   export CXX=$TOOLBIN/x86_64-linux-android24-clang++
 fi
 
+# cpptrace finds libdwarf via find_package, but libdwarf's install emits only
+# targets files; provide the package config it expects (libdwarf 0.11.1).
+LIBDWARF_PREFIX=$BUILD/deps/destdir/usr/local
+mkdir -p "$LIBDWARF_PREFIX/lib/cmake/libdwarf"
+cat > "$LIBDWARF_PREFIX/lib/cmake/libdwarf/libdwarfConfig.cmake" <<'CEO'
+include("${CMAKE_CURRENT_LIST_DIR}/libdwarf-targets.cmake")
+set(libdwarf_FOUND TRUE)
+CEO
+cat > "$LIBDWARF_PREFIX/lib/cmake/libdwarf/libdwarfConfigVersion.cmake" <<'CEO'
+set(PACKAGE_VERSION 0.11.1)
+set(PACKAGE_VERSION_COMPATIBLE TRUE)
+CEO
+
 step "[3/5] dependency bundle (deps/ ExternalProject chain)"
 mkdir -p "$PREFIX"
 cmake -S "$SRC/deps" -B "$BUILD/deps" -G Ninja \
