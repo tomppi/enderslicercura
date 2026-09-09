@@ -94,6 +94,19 @@ rep(root / 'deps/+Imath/Imath.cmake',
     '-DLIBDEFLATE_BUILD_SHARED_LIB=OFF\n        -DLIBDEFLATE_BUILD_GZIP=OFF',
     '-DLIBDEFLATE_BUILD_SHARED_LIB=OFF\n        -DLIBDEFLATE_BUILD_GZIP=OFF\n        -DBUILD_TESTING=OFF',
     'imath: tests off')
+# OpenSSL ships no generic CMake config: its ./Configure must target android-*.
+rep(root / 'deps/+OpenSSL/OpenSSL.cmake',
+    'set(_conf_cmd "./config")\nset(_cross_arch "")\nset(_cross_comp_prefix_line "")\nset(_apple_target_flags "")',
+    'set(_conf_cmd "./config")\nset(_cross_arch "")\nset(_cross_comp_prefix_line "")\nset(_apple_target_flags "")\nset(_openssl_tgt "")',
+    'openssl: tgt var')
+rep(root / 'deps/+OpenSSL/OpenSSL.cmake',
+    '    CONFIGURE_COMMAND ${_conf_cmd} ${_cross_arch}',
+    '    CONFIGURE_COMMAND env "CC=${CMAKE_C_COMPILER} ${_openssl_tgt} --sysroot=${CMAKE_SYSROOT}" "CXX=${CMAKE_CXX_COMPILER} ${_openssl_tgt} --sysroot=${CMAKE_SYSROOT}" ${_conf_cmd} ${_cross_arch}',
+    'openssl: clang env')
+rep(root / 'deps/+OpenSSL/OpenSSL.cmake',
+    'elseif (CMAKE_CROSSCOMPILING)',
+    'elseif (ANDROID)\n    set(_conf_cmd "./Configure")\n    if (ANDROID_ABI STREQUAL "arm64-v8a")\n        set(_cross_arch "linux-aarch64")\n        set(_openssl_tgt "--target=aarch64-linux-android24")\n    elseif (ANDROID_ABI STREQUAL "x86_64")\n        set(_cross_arch "linux-x86_64")\n        set(_openssl_tgt "--target=x86_64-linux-android24")\n    else ()\n        message(FATAL_ERROR "OpenSSL: unsupported Android ABI: ${ANDROID_ABI}")\n    endif ()\nelseif (CMAKE_CROSSCOMPILING)',
+    'openssl: android configure target')
 PY
 
 
@@ -160,17 +173,3 @@ ls "$OUT/resources" | tr '\n' ' '
 echo
 echo PRUSA-ENGINE-3-READY
 file "$OUT/prusa-slicer" | head -1
-
-# OpenSSL ships no generic CMake config: its ./Configure must target android-*.
-rep(root / 'deps/+OpenSSL/OpenSSL.cmake',
-    'set(_conf_cmd "./config")\nset(_cross_arch "")\nset(_cross_comp_prefix_line "")\nset(_apple_target_flags "")',
-    'set(_conf_cmd "./config")\nset(_cross_arch "")\nset(_cross_comp_prefix_line "")\nset(_apple_target_flags "")\nset(_openssl_tgt "")',
-    'openssl: tgt var')
-rep(root / 'deps/+OpenSSL/OpenSSL.cmake',
-    '    CONFIGURE_COMMAND ${_conf_cmd} ${_cross_arch}',
-    '    CONFIGURE_COMMAND env "CC=${CMAKE_C_COMPILER} ${_openssl_tgt} --sysroot=${CMAKE_SYSROOT}" "CXX=${CMAKE_CXX_COMPILER} ${_openssl_tgt} --sysroot=${CMAKE_SYSROOT}" ${_conf_cmd} ${_cross_arch}',
-    'openssl: clang env')
-rep(root / 'deps/+OpenSSL/OpenSSL.cmake',
-    'elseif (CMAKE_CROSSCOMPILING)',
-    'elseif (ANDROID)\n    set(_conf_cmd "./Configure")\n    if (ANDROID_ABI STREQUAL "arm64-v8a")\n        set(_cross_arch "linux-aarch64")\n        set(_openssl_tgt "--target=aarch64-linux-android24")\n    elseif (ANDROID_ABI STREQUAL "x86_64")\n        set(_cross_arch "linux-x86_64")\n        set(_openssl_tgt "--target=x86_64-linux-android24")\n    else ()\n        message(FATAL_ERROR "OpenSSL: unsupported Android ABI: ${ANDROID_ABI}")\n    endif ()\nelseif (CMAKE_CROSSCOMPILING)',
-    'openssl: android configure target')
