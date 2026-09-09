@@ -183,6 +183,7 @@ jobs:
           grep -q 'CuraEngine Android artifacts (5.14.0-alpha.0)' curaengine-android-build.log
           grep -q 'EnderSlicer: Cura.*frontend applies the complete affine' .build/CuraEngine/src/communication/CommandLine.cpp
           grep -q 'EnderSlicer: carry the affine translation in the transform' .build/CuraEngine/src/communication/CommandLine.cpp
+          grep -q 'EnderSlicer: resolved model values must live on the' .build/CuraEngine/src/communication/CommandLine.cpp
           grep -q 'EnderSlicer: zero cool_min_temperature is a Cura frontend sentinel' .build/CuraEngine/src/LayerPlanBuffer.cpp
           grep -q "Preserve the generator's inner-to-outer order" .build/CuraEngine/src/FffGcodeWriter.cpp
           grep -q 'One centre is retained for the complete connected island' .build/CuraEngine/include/ArcOverhang.h

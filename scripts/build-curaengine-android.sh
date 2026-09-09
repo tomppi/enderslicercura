@@ -164,8 +164,39 @@ replace(
                         const auto extruder_nr = slice->scene.mesh_groups[mesh_group_index].settings.get<size_t>("extruder_nr");''',
 )
 
-# Note: the resolved-model-values copy is no longer needed since 5.14 e5b844b3
-# (CommandLine now stores per-mesh settings on the loaded Mesh directly).
+# The stock resolved-settings (-r) loader adds each model section to the shared
+# mesh-group settings but constructs the loaded Mesh with only the extruder
+# stack as parent, so settable_per_mesh values (infill_mesh, magic_mesh_type,
+# support_interface_enable, ...) never reach the slicer per mesh. Copy the
+# model's values onto the loaded Mesh right after loading - still required on
+# the 5.14.0-alpha.0 e5b844b3 pin.
+command_line_cpp = root / "src" / "communication" / "CommandLine.cpp"
+replace(
+    command_line_cpp,
+    '''                        if (! loadMeshIntoMeshGroup(&slice->scene.mesh_groups[mesh_group_index], model_name.c_str(), transformation, slice->scene.extruders[extruder_nr].settings_))
+                        {
+                            spdlog::error("Failed to load model: {}. (error number {})", model_name, errno);
+                            exit(1);
+                        }''',
+    '''                        if (! loadMeshIntoMeshGroup(&slice->scene.mesh_groups[mesh_group_index], model_name.c_str(), transformation, slice->scene.extruders[extruder_nr].settings_))
+                        {
+                            spdlog::error("Failed to load model: {}. (error number {})", model_name, errno);
+                            exit(1);
+                        }
+
+                        // EnderSlicer: resolved model values must live on the
+                        // actual Mesh, not only on MeshGroup::settings. The
+                        // latter is not a parent of Mesh::settings_, so without
+                        // this copy settable_per_mesh values such as
+                        // support_interface_enable silently use extruder/default
+                        // values during slicing.
+                        Mesh& loaded_mesh = slice->scene.mesh_groups[mesh_group_index].meshes.back();
+                        for (const auto& [setting_key, setting_value] : values)
+                        {
+                            loaded_mesh.settings_.add(setting_key, setting_value);
+                        }''',
+)
+
 layer_plan_buffer_cpp = root / "src" / "LayerPlanBuffer.cpp"
 replace(
     layer_plan_buffer_cpp,
