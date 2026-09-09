@@ -73,7 +73,7 @@ rep(root / 'deps/+GMP/GMP.cmake',
     'gmp: android target flags')
 rep(root / 'deps/+GMP/GMP.cmake',
     '        set(_cfg_cmd env "CFLAGS=${_gmp_ccflags}" "CXXFLAGS=${_gmp_ccflags}" ./configure',
-    '        set(_cfg_cmd env "CC=${_ndk_bin}/${_ndk_cc_name}" "CXX=${_ndk_bin}/${_ndk_cxx_name}" "CFLAGS=${_gmp_ccflags}" "CXXFLAGS=${_gmp_ccflags}" ./configure',
+    '        set(_cfg_cmd env "CC=${_ndk_bin}/${_ndk_cc_name}" "CXX=${_ndk_bin}/${_ndk_cxx_name}" "CFLAGS=${_gmp_ccflags}" "CXXFLAGS=${_gmp_ccflags} -std=gnu++17" ./configure',
     'gmp: android clang wrapper')
 
 rep(root / 'deps/+MPFR/MPFR.cmake',
