@@ -84,6 +84,10 @@ rep(root / 'deps/+Imath/Imath.cmake',
     '-DLIBDEFLATE_BUILD_SHARED_LIB=OFF\n        -DLIBDEFLATE_BUILD_GZIP=OFF',
     '-DLIBDEFLATE_BUILD_SHARED_LIB=OFF\n        -DLIBDEFLATE_BUILD_GZIP=OFF\n        -DBUILD_TESTING=OFF',
     'imath: tests off')
+rep(root / 'deps/+cpptrace/cpptrace.cmake',
+    '        -DCPPTRACE_USE_EXTERNAL_LIBDWARF=ON',
+    '        -DCPPTRACE_USE_EXTERNAL_LIBDWARF=OFF',
+    'cpptrace: bundled libdwarf')
 
 # OpenSSL ships no generic CMake config: its ./Configure must target android-*.
 rep(root / 'deps/+OpenSSL/OpenSSL.cmake',
