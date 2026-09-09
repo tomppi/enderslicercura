@@ -111,8 +111,8 @@ rep(root / 'deps/+OpenSSL/OpenSSL.cmake',
     '    CONFIGURE_COMMAND env "CC=${_ndk_bin}/${_ndk_cc_name}" "CXX=${_ndk_bin}/${_ndk_cxx_name}" ${_conf_cmd} ${_cross_arch}',
     'openssl: clang wrapper')
 rep(root / 'deps/+OpenSSL/OpenSSL.cmake',
-    '        "--prefix=${PROJECT_NAME}_DEP_INSTALL_PREFIX"\n        ${_cross_comp_prefix_line}',
-    '        "--prefix=${PROJECT_NAME}_DEP_INSTALL_PREFIX"\n        --libdir=lib\n        ${_cross_comp_prefix_line}',
+    '        "--prefix=${${PROJECT_NAME}_DEP_INSTALL_PREFIX}"\n        ${_cross_comp_prefix_line}',
+    '        "--prefix=${${PROJECT_NAME}_DEP_INSTALL_PREFIX}"\n        --libdir=lib\n        ${_cross_comp_prefix_line}',
     'openssl: libdir lib')
 PY
 
