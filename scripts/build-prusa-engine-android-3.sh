@@ -62,6 +62,7 @@ rep(root / 'deps/+GMP/GMP.cmake',
 rep(root / 'deps/+MPFR/MPFR.cmake',
     'URL https://www.mpfr.org/mpfr-4.2.1/mpfr-4.2.1.tar.bz2',
     'URL https://ftp.gnu.org/gnu/mpfr/mpfr-4.2.1.tar.bz2',
+    'mpfr: ftp.gnu.org mirror')
 
 # GMP/MPFR autotools builds default to the host compiler; target Android via the
 # NDK clang wrapper + the android-* host triplet.
