@@ -121,6 +121,12 @@ rep(root / 'cmake/modules/FindBlosc.cmake',
     '  # zstd cross-build config-version rejects empty-version requests; resolve via -Dzstd_DIR\n  set(zstd_FOUND TRUE)\n  if(NOT TARGET zstd::libzstd)\n    add_library(zstd::libzstd INTERFACE IMPORTED)\n    set_target_properties(zstd::libzstd PROPERTIES INTERFACE_INCLUDE_DIRECTORIES "${Blosc_INCLUDE_DIR}")\n  message(STATUS "DBG-BLOSC INCDIR=[${Blosc_INCLUDE_DIR}] INCDIRS=[${Blosc_INCLUDE_DIRS}] PC=[${PC_Blosc_INCLUDE_DIRS}] PCO=[${PC_Blosc_CFLAGS_OTHER}] PRFX=[${CMAKE_INSTALL_PREFIX}]")\n  if(NOT EXISTS "${Blosc_INCLUDE_DIR}/blosc.h" AND DEFINED CMAKE_INSTALL_PREFIX)\n    set(Blosc_INCLUDE_DIR "${CMAKE_INSTALL_PREFIX}/include")\n    set(Blosc_INCLUDE_DIRS "${Blosc_INCLUDE_DIR}")\n  endif()\n  endif()',
     'FindBlosc: zstd shim + cross include clamp')
 
+# Sol2 v3.5.0 calls find_package(Lua 5.4 EXACT); module-mode FindLua ignores
+# CMAKE_PREFIX_PATH (same issue as Boost/Blosc), so point it at the stage dir.
+rep(root / 'deps/+Sol2/Sol2.cmake',
+    '            -DSOL2_BUILD_LUA=OFF',
+    '            -DSOL2_BUILD_LUA=OFF\n            -DLUA_INCLUDE_DIR=${${PROJECT_NAME}_DEP_INSTALL_PREFIX}/include\n            -DLUA_LIBRARY=${${PROJECT_NAME}_DEP_INSTALL_PREFIX}/lib/liblua.a',
+    'sol2: explicit Lua paths')
 # OpenSSL ships no generic CMake config: its ./Configure must target android-*.
 rep(root / 'deps/+OpenSSL/OpenSSL.cmake',
     'set(_conf_cmd "./config")\nset(_cross_arch "")\nset(_cross_comp_prefix_line "")\nset(_apple_target_flags "")',
