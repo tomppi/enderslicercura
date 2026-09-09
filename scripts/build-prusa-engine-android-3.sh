@@ -88,6 +88,10 @@ rep(root / 'deps/+cpptrace/cpptrace.cmake',
     '        -DCPPTRACE_USE_EXTERNAL_LIBDWARF=ON',
     '        -DCPPTRACE_USE_EXTERNAL_LIBDWARF=OFF',
     'cpptrace: bundled libdwarf')
+rep(root / 'deps/+cpptrace/cpptrace.cmake',
+    'PATCH_COMMAND ${PATCH_CMD} ${CMAKE_CURRENT_LIST_DIR}/cpptrace.patch',
+    'PATCH_COMMAND ${PATCH_CMD} ${CMAKE_CURRENT_LIST_DIR}/cpptrace.patch && ${PYTHON} ${CMAKE_CURRENT_LIST_DIR}/strip_config_installs.py',
+    'cpptrace: drop own config install (shims win)')
 rep(root / 'deps/+OpenSSL/OpenSSL.cmake',
     '    BUILD_COMMAND make depend && make "-j${NPROC}"',
     '    BUILD_COMMAND make depend && make "-j${NPROC}" build_libs',
@@ -122,7 +126,28 @@ rep(root / 'deps/+LibAssert/LibAssert.cmake',
     '            -DLIBASSERT_USE_EXTERNAL_CPPTRACE=ON',
     '            -DLIBASSERT_USE_EXTERNAL_CPPTRACE=ON\n            -DCPPTRACE_ROOT_DIR=${${PROJECT_NAME}_DEP_INSTALL_PREFIX}',
     'libassert: cpptrace root dir')
+
+# cpptrace installs its own <pkg>-config.cmake which demands find_dependency(libdwarf);
+# our shims provide the config, so neutralize cpptrace's config/version/targets
+# installs by shipping a second patch that removes those install() blocks.
+print('cpptrace: shims patch written')
+
+# cpptrace's own install emits a config that demands find_dependency(libdwarf),
+# which the cross-build cannot satisfy; strip the config/version/targets
+# install() blocks so the shim configs (write_shims) are authoritative.
+(root / 'deps/+cpptrace' / 'strip_config_installs.py').write_text('''
+import pathlib
+p = pathlib.Path('cmake/InstallRules.cmake')
+s = p.read_text(encoding='utf-8')
+i = s.index('# copy config file for find_package to find')
+j = s.index('# Findzstd.cmake')
+s = s[:i].rstrip() + chr(10) * 2 + s[j:]
+p.write_text(s, encoding='utf-8')
+print('cpptrace: config installs stripped')
+''')
+
 PY
+
 
 # OpenSSL's android configuration still looks for NDK <triple>-gcc names;
 # the NDK ships clang wrappers only, so provide the classic symlinks.
@@ -146,26 +171,39 @@ elif [ "$ABI" = "x86_64" ]; then
   export CXX=$TOOLBIN/x86_64-linux-android24-clang++
 fi
 
-# cpptrace finds libdwarf via find_package, but libdwarf's install emits only
-# targets files; provide the package configs the consumers expect.
-LIBDWARF_PREFIX=$BUILD/deps/destdir/usr/local
-mkdir -p "$LIBDWARF_PREFIX/lib/cmake/libdwarf" "$LIBDWARF_PREFIX/lib/cmake/cpptrace"
-cat > "$LIBDWARF_PREFIX/lib/cmake/libdwarf/libdwarfConfig.cmake" <<'CEO'
-include("${CMAKE_CURRENT_LIST_DIR}/libdwarf-targets.cmake")
+# cpptrace finds libdwarf via find_package, but the cross-installed configs are
+# not self-sufficient for the bare find_package(cpptrace) that libassert issues.
+# Write known-good self-contained configs BEFORE the deps build (deps may
+# configure early) and AFTER it (the real installs may clobber them).
+write_shims () {
+  LIBDWARF_PREFIX=$BUILD/deps/destdir/usr/local
+  mkdir -p "$LIBDWARF_PREFIX/lib/cmake/libdwarf" "$LIBDWARF_PREFIX/lib/cmake/cpptrace"
+  cat > "$LIBDWARF_PREFIX/lib/cmake/libdwarf/libdwarfConfig.cmake" <<'CEO'
+include("${CMAKE_CURRENT_LIST_DIR}/libdwarf-targets.cmake" OPTIONAL)
 set(libdwarf_FOUND TRUE)
 CEO
-cat > "$LIBDWARF_PREFIX/lib/cmake/libdwarf/libdwarfConfigVersion.cmake" <<'CEO'
+  cat > "$LIBDWARF_PREFIX/lib/cmake/libdwarf/libdwarfConfigVersion.cmake" <<'CEO'
 set(PACKAGE_VERSION 0.11.1)
 set(PACKAGE_VERSION_COMPATIBLE TRUE)
 CEO
-cat > "$LIBDWARF_PREFIX/lib/cmake/cpptrace/cpptraceConfig.cmake" <<'CEO'
-include("${CMAKE_CURRENT_LIST_DIR}/cpptrace-targets.cmake")
+  cat > "$LIBDWARF_PREFIX/lib/cmake/cpptrace/cpptraceConfig.cmake" <<'CEO'
+include("${CMAKE_CURRENT_LIST_DIR}/cpptrace-targets.cmake" OPTIONAL)
+include("${CMAKE_CURRENT_LIST_DIR}/cpptraceTargets.cmake" OPTIONAL)
+if(NOT TARGET cpptrace::cpptrace AND NOT TARGET cpptrace)
+  add_library(cpptrace INTERFACE IMPORTED)
+  add_library(cpptrace::cpptrace ALIAS cpptrace)
+  set_target_properties(cpptrace PROPERTIES
+    INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_CURRENT_LIST_DIR}/../../..;${CMAKE_CURRENT_LIST_DIR}/../../../include")
+endif()
 set(cpptrace_FOUND TRUE)
 CEO
-cat > "$LIBDWARF_PREFIX/lib/cmake/cpptrace/cpptraceConfigVersion.cmake" <<'CEO'
+  cat > "$LIBDWARF_PREFIX/lib/cmake/cpptrace/cpptraceConfigVersion.cmake" <<'CEO'
 set(PACKAGE_VERSION 1.0.4)
 set(PACKAGE_VERSION_COMPATIBLE TRUE)
 CEO
+  echo "SHIM-BEGIN"; ls -R "$LIBDWARF_PREFIX/lib/cmake" 2>&1 | head -40; echo "SHIM-END"
+}
+write_shims
 
 echo "SHIM-BEGIN"; ls -R "$LIBDWARF_PREFIX/lib/cmake" 2>&1 | head -40; echo "SHIM-END"
 
@@ -178,6 +216,9 @@ cmake -S "$SRC/deps" -B "$BUILD/deps" -G Ninja \
   -DPrusaSlicer_deps_PACKAGE_EXCLUDES='wxWidgets|GLEW|GLFW|SDL2|SDL|OpenCSG|yoga|Tracy|WebView2|Trumpeloeil|libfyaml|yamlCpp' \
   -DCMAKE_POSITION_INDEPENDENT_CODE=ON 2>&1 | tee /tmp/prusa3-depconf.log
 cmake --build "$BUILD/deps" -j 1 2>&1 | tee /tmp/prusa3-depbuild.log
+
+# Re-write shims after the real installs (the deps chain may have clobbered them).
+write_shims
 
 step "[4/5] console-only PrusaSlicer ($ABI)"
 cmake -S "$SRC" -B "$BUILD/main" -G Ninja \
