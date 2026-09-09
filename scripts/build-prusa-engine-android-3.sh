@@ -120,7 +120,7 @@ rep(root / 'deps/+CURL/CURL.cmake',
     'curl: explicit openssl paths')
 rep(root / 'deps/+LibAssert/LibAssert.cmake',
     '            -DLIBASSERT_USE_EXTERNAL_CPPTRACE=ON',
-    '            -DLIBASSERT_USE_EXTERNAL_CPPTRACE=ON\n            -DCPPTRACE_ROOT_DIR=${${PROJECT_NAME}_DEP_INSTALL_PREFIX',
+    '            -DLIBASSERT_USE_EXTERNAL_CPPTRACE=ON\n            -DCPPTRACE_ROOT_DIR=${${PROJECT_NAME}_DEP_INSTALL_PREFIX}',
     'libassert: cpptrace root dir')
 PY
 
