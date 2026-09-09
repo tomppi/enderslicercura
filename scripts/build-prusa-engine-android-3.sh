@@ -72,7 +72,7 @@ rep(root / 'deps/+GMP/GMP.cmake',
     'gmp: android clang compiler')
 rep(root / 'deps/+GMP/GMP.cmake',
     '    set(_cross_compile_arg "")\n    if (APPLE)',
-    '    set(_cross_compile_arg "")\n    if (ANDROID)\n        if (ANDROID_ABI STREQUAL "arm64-v8a")\n            set(_cross_compile_arg --host=aarch64-linux-android)\n        elseif (ANDROID_ABI STREQUAL "x86_64")\n            set(_cross_compile_arg --host=x86_64-linux-android)\n        endif ()\n    elseif (APPLE)',
+    '    set(_cross_compile_arg "")\n    if (ANDROID)\n        if (ANDROID_ABI STREQUAL "arm64-v8a")\n            set(_cross_compile_arg --host=aarch64-linux-android)\n        elseif (ANDROID_ABI STREQUAL "x86_64")\n            set(_cross_compile_arg --host=x86_64-linux-android)\n        endif ()\n        set(_gmp_build_tgt "")\n    elseif (APPLE)',
     'gmp: android host triplet')
 rep(root / 'deps/+MPFR/MPFR.cmake',
     "                 CFLAGS='${_gmp_ccflags}' \\\n                 CXXFLAGS='${_gmp_ccflags}' \\",
