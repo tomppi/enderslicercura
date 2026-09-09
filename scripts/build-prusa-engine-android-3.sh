@@ -100,14 +100,19 @@ rep(root / 'deps/+Boost/Boost.cmake',
     'set(_excluded_libs contract|fiber|numpy|stacktrace|wave|test|log)',
     'set(_excluded_libs contract|fiber|numpy|stacktrace|wave|test|log|process)',
     'boost: exclude process lib')
+rep(root / 'deps/+Boost/Boost.cmake',
+    'add_cmake_project(Boost',
+    'add_cmake_project(Boost\n    PATCH_COMMAND python3 ${CMAKE_CURRENT_LIST_DIR}/make_regex_static.py',
+    'boost: static regex build hook')
+
 rep(root / 'deps/+OpenVDB/OpenVDB.cmake',
     '        -DOPENVDB_BUILD_VDB_PRINT=OFF',
     '        -DOPENVDB_BUILD_VDB_PRINT=OFF\n        -DBoost_INCLUDE_DIR=${${PROJECT_NAME}_DEP_INSTALL_PREFIX}/include\n        -DBoost_LIBRARY_DIR=${${PROJECT_NAME}_DEP_INSTALL_PREFIX}/lib\n        -DBoost_USE_STATIC_LIBS=ON\n        -DBoost_USE_MULTITHREADED=OFF\n        -DTBB_DIR=${${PROJECT_NAME}_DEP_INSTALL_PREFIX}/lib/cmake/TBB\n        -DTBB_ROOT=${${PROJECT_NAME}_DEP_INSTALL_PREFIX}\n        -DImath_DIR=${${PROJECT_NAME}_DEP_INSTALL_PREFIX}/lib/cmake/Imath\n        -DBlosc_INCLUDE_DIR=${${PROJECT_NAME}_DEP_INSTALL_PREFIX}/include\n        -DBlosc_LIBRARY=${${PROJECT_NAME}_DEP_INSTALL_PREFIX}/lib/libblosc.a\n        -DLog4cplus_INCLUDE_DIR=${${PROJECT_NAME}_DEP_INSTALL_PREFIX}/include\n        -DLog4cplus_LIBRARY=${${PROJECT_NAME}_DEP_INSTALL_PREFIX}/lib/liblog4cplus.a\n        -Dzstd_DIR=${${PROJECT_NAME}_DEP_INSTALL_PREFIX}/lib/cmake/zstd',
     'openvdb: explicit Boost include dir (FindBoost module skips CMAKE_PREFIX_PATH)')
 rep(root / 'cmake/modules/FindBlosc.cmake',
     '  find_package(zstd REQUIRED)',
-    '  # zstd cross-build config-version rejects empty-version requests; resolve via -Dzstd_DIR\n  set(zstd_FOUND TRUE)\n  if(NOT TARGET zstd::libzstd)\n    add_library(zstd::libzstd INTERFACE IMPORTED)\n    set_target_properties(zstd::libzstd PROPERTIES INTERFACE_INCLUDE_DIRECTORIES "${${PROJECT_NAME}_DEP_INSTALL_PREFIX}/include")\n  endif()',
-    'FindBlosc: zstd resolved via explicit dir')
+    '  # zstd cross-build config-version rejects empty-version requests; resolve via -Dzstd_DIR\n  set(zstd_FOUND TRUE)\n  if(NOT TARGET zstd::libzstd)\n    add_library(zstd::libzstd INTERFACE IMPORTED)\n    set_target_properties(zstd::libzstd PROPERTIES INTERFACE_INCLUDE_DIRECTORIES "${Blosc_INCLUDE_DIR}")\n  message(STATUS "DBG-BLOSC INCDIR=[${Blosc_INCLUDE_DIR}] INCDIRS=[${Blosc_INCLUDE_DIRS}] PC=[${PC_Blosc_INCLUDE_DIRS}] PCO=[${PC_Blosc_CFLAGS_OTHER}] PRFX=[${CMAKE_INSTALL_PREFIX}]")\n  if(NOT EXISTS "${Blosc_INCLUDE_DIR}/blosc.h" AND DEFINED CMAKE_INSTALL_PREFIX)\n    set(Blosc_INCLUDE_DIR "${CMAKE_INSTALL_PREFIX}/include")\n    set(Blosc_INCLUDE_DIRS "${Blosc_INCLUDE_DIR}")\n  endif()\n  endif()',
+    'FindBlosc: zstd shim + cross include clamp')
 
 # OpenSSL ships no generic CMake config: its ./Configure must target android-*.
 rep(root / 'deps/+OpenSSL/OpenSSL.cmake',
@@ -152,6 +157,51 @@ s = s[:i].rstrip() + chr(10) * 2 + s[j:]
 p.write_text(s, encoding='utf-8')
 print('cpptrace: config installs stripped')
 ''')
+
+
+# Boost.Regex ships only a header-only CMakeLists in 1.86 (INTERFACE lib, so no
+# libboost_regex.a is produced), but CMake 3.31's FindBoost module hard-links
+# Boost::iostreams -> Boost::regex and looks for a real static archive. Replace
+# libs/regex/CMakeLists.txt with a static build of the b2 sources so that
+# libboost_regex.a is built and installed into the deps stage dir.
+(root / 'deps/+Boost' / 'make_regex_static.py').write_text('''
+from pathlib import Path
+
+cmake = '\\n'.join([
+    'cmake_minimum_required(VERSION 3.5...3.16)',
+    '',
+    'project(boost_regex VERSION "${BOOST_SUPERPROJECT_VERSION}" LANGUAGES CXX)',
+    '',
+    'add_library(boost_regex',
+    '  src/posix_api.cpp',
+    '  src/regex.cpp',
+    '  src/regex_debug.cpp',
+    '  src/static_mutex.cpp',
+    '  src/wide_posix_api.cpp',
+    ')',
+    '',
+    'add_library(Boost::regex ALIAS boost_regex)',
+    '',
+    'target_include_directories(boost_regex PUBLIC include)',
+    '',
+    'target_link_libraries(boost_regex',
+    '  PUBLIC',
+    '    Boost::assert',
+    '    Boost::config',
+    '    Boost::predef',
+    '    Boost::throw_exception',
+    ')',
+    '',
+    'target_compile_definitions(boost_regex PUBLIC BOOST_REGEX_NO_LIB)',
+    '',
+    'if(BUILD_TESTING AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/test/CMakeLists.txt")',
+    '  add_subdirectory(test)',
+    'endif()',
+]);
+Path('libs/regex/CMakeLists.txt').write_text(cmake + '\\n', encoding='utf-8')
+print('boost: static regex CMakeLists written')
+''')
+
 
 PY
 
