@@ -155,7 +155,7 @@ cmake -S "$SRC/deps" -B "$BUILD/deps" -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
   -DPrusaSlicer_deps_PACKAGE_EXCLUDES='wxWidgets|GLEW|GLFW|SDL2|SDL|OpenCSG|yoga|Tracy|WebView2|Trumpeloeil|libfyaml|yamlCpp' \
   -DCMAKE_POSITION_INDEPENDENT_CODE=ON 2>&1 | tee /tmp/prusa3-depconf.log
-cmake --build "$BUILD/deps" 2>&1 | tee /tmp/prusa3-depbuild.log
+cmake --build "$BUILD/deps" -j 1 2>&1 | tee /tmp/prusa3-depbuild.log
 
 step "[4/5] console-only PrusaSlicer ($ABI)"
 cmake -S "$SRC" -B "$BUILD/main" -G Ninja \
