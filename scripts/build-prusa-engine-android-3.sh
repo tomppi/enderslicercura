@@ -162,8 +162,6 @@ cat > "$LIBDWARF_PREFIX/lib/cmake/cpptrace/cpptraceConfigVersion.cmake" <<'CEO'
 set(PACKAGE_VERSION 1.0.4)
 set(PACKAGE_VERSION_COMPATIBLE TRUE)
 CEO
-set(PACKAGE_VERSION_COMPATIBLE TRUE)
-CEO
 
 step "[3/5] dependency bundle (deps/ ExternalProject chain)"
 mkdir -p "$PREFIX"
