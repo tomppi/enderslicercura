@@ -88,6 +88,10 @@ rep(root / 'deps/+cpptrace/cpptrace.cmake',
     '        -DCPPTRACE_USE_EXTERNAL_LIBDWARF=ON',
     '        -DCPPTRACE_USE_EXTERNAL_LIBDWARF=OFF',
     'cpptrace: bundled libdwarf')
+rep(root / 'deps/+Boost/Boost.cmake',
+    'set(_excluded_libs contract|fiber|numpy|stacktrace|wave|test|log)',
+    'set(_excluded_libs contract|fiber|numpy|stacktrace|wave|test|log|process)',
+    'boost: exclude process lib')
 
 # OpenSSL ships no generic CMake config: its ./Configure must target android-*.
 rep(root / 'deps/+OpenSSL/OpenSSL.cmake',
