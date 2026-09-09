@@ -152,6 +152,18 @@ set(libdwarf_FOUND TRUE)
 CEO
 cat > "$LIBDWARF_PREFIX/lib/cmake/libdwarf/libdwarfConfigVersion.cmake" <<'CEO'
 set(PACKAGE_VERSION 0.11.1)
+CEO
+
+# libassert also needs cpptrace via find_package.
+mkdir -p "$LIBDWARF_PREFIX/lib/cmake/cpptrace"
+cat > "$LIBDWARF_PREFIX/lib/cmake/cpptrace/cpptraceConfig.cmake" <<'CEO'
+include("${CMAKE_CURRENT_LIST_DIR}/cpptrace-targets.cmake")
+set(cpptrace_FOUND TRUE)
+CEO
+cat > "$LIBDWARF_PREFIX/lib/cmake/cpptrace/cpptraceConfigVersion.cmake" <<'CEO'
+set(PACKAGE_VERSION 1.0.4)
+set(PACKAGE_VERSION_COMPATIBLE TRUE)
+CEO
 set(PACKAGE_VERSION_COMPATIBLE TRUE)
 CEO
 
