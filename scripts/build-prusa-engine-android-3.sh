@@ -52,6 +52,17 @@ rep(root / 'deps/+OpenSSL/OpenSSL.cmake',
     'elseif (CMAKE_CROSSCOMPILING)',
     'elseif (ANDROID)\n    set(_conf_cmd "./Configure")\n    if (ANDROID_ABI STREQUAL "arm64-v8a")\n        set(_cross_arch "android-arm64")\n    elseif (ANDROID_ABI STREQUAL "x86_64")\n        set(_cross_arch "android-x86_64")\n    else ()\n        message(FATAL_ERROR "OpenSSL: unsupported Android ABI: ${ANDROID_ABI}")\n    endif ()\nelseif (CMAKE_CROSSCOMPILING)',
     'openssl: android configure target')
+
+# gmplib.org / mpfr.org are unreachable from GitHub runners; mirror on ftp.gnu.org
+# (identical tarballs, same hashes).
+rep(root / 'deps/+GMP/GMP.cmake',
+    'URL https://gmplib.org/download/gmp/gmp-6.2.1.tar.bz2',
+    'URL https://ftp.gnu.org/gnu/gmp/gmp-6.2.1.tar.bz2',
+    'gmp: ftp.gnu.org mirror')
+rep(root / 'deps/+MPFR/MPFR.cmake',
+    'URL https://www.mpfr.org/mpfr-4.2.1/mpfr-4.2.1.tar.bz2',
+    'URL https://ftp.gnu.org/gnu/mpfr/mpfr-4.2.1.tar.bz2',
+    'mpfr: ftp.gnu.org mirror')
 PY
 
 step "[3/5] dependency bundle (deps/ ExternalProject chain)"
