@@ -46,6 +46,13 @@ rep(root / 'deps/CMakeLists.txt',
     'if (UNIX)\n    # On UNIX systems (including Apple) ZLIB should be available\n    list(APPEND SYSTEM_PROVIDED_PACKAGES ZLIB)\nendif ()',
     'if (UNIX AND NOT ANDROID)\n    # On UNIX systems (including Apple) ZLIB should be available\n    list(APPEND SYSTEM_PROVIDED_PACKAGES ZLIB)\nendif ()',
     'deps: ZLIB is source-built on Android')
+# AddCMakeProject forwards only a fixed argument list to every dependency's
+# ExternalProject configure; the NDK toolchain would then default to
+# armeabi-v7a. Forward the ABI/platform/STL via DEP_CMAKE_OPTS.
+rep(root / 'deps/CMakeLists.txt',
+    '    set(DEP_CMAKE_OPTS "-DCMAKE_POSITION_INDEPENDENT_CODE=ON")',
+    '    set(DEP_CMAKE_OPTS "-DCMAKE_POSITION_INDEPENDENT_CODE=ON;-DANDROID_ABI=${ANDROID_ABI};-DANDROID_PLATFORM=${ANDROID_PLATFORM};-DANDROID_STL=${ANDROID_STL}")',
+    'deps: forward ANDROID_ABI to dep projects')
 
 # gmplib.org / mpfr.org are unreachable from GitHub runners; mirror on ftp.gnu.org.
 rep(root / 'deps/+GMP/GMP.cmake',
@@ -188,6 +195,8 @@ cmake = '\\n'.join([
     '  PUBLIC',
     '    Boost::assert',
     '    Boost::config',
+    '    Boost::core',
+    '    Boost::static_assert',
     '    Boost::predef',
     '    Boost::throw_exception',
     ')',
