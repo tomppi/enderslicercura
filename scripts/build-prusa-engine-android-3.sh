@@ -62,8 +62,27 @@ rep(root / 'deps/+GMP/GMP.cmake',
 rep(root / 'deps/+MPFR/MPFR.cmake',
     'URL https://www.mpfr.org/mpfr-4.2.1/mpfr-4.2.1.tar.bz2',
     'URL https://ftp.gnu.org/gnu/mpfr/mpfr-4.2.1.tar.bz2',
-    'mpfr: ftp.gnu.org mirror')
+
+# GMP/MPFR autotools builds default to the host compiler; target Android via the
+# NDK clang wrapper + the android-* host triplet.
+rep(root / 'deps/+GMP/GMP.cmake',
+    '        set(_cfg_cmd env "CFLAGS=${_gmp_ccflags}" "CXXFLAGS=${_gmp_ccflags}" ./configure ${_cross_compile_arg} --enable-shared=no --enable-cxx=yes --enable-static=yes "--prefix=${${PROJECT_NAME}_DEP_INSTALL_PREFIX}" ${_gmp_build_tgt})',
+    '        set(_cfg_cmd env "CC=${CMAKE_C_COMPILER}" "CFLAGS=${_gmp_ccflags}" "CXXFLAGS=${_gmp_ccflags}" ./configure ${_cross_compile_arg} --enable-shared=no --enable-cxx=yes --enable-static=yes "--prefix=${${PROJECT_NAME}_DEP_INSTALL_PREFIX}" ${_gmp_build_tgt})',
+    'gmp: android clang compiler')
+rep(root / 'deps/+GMP/GMP.cmake',
+    '    set(_cross_compile_arg "")\n    if (APPLE)',
+    '    set(_cross_compile_arg "")\n    if (ANDROID)\n        if (ANDROID_ABI STREQUAL "arm64-v8a")\n            set(_cross_compile_arg --host=aarch64-linux-android)\n        elseif (ANDROID_ABI STREQUAL "x86_64")\n            set(_cross_compile_arg --host=x86_64-linux-android)\n        endif ()\n    elseif (APPLE)',
+    'gmp: android host triplet')
+rep(root / 'deps/+MPFR/MPFR.cmake',
+    "                 CFLAGS='${_gmp_ccflags}' \\\n                 CXXFLAGS='${_gmp_ccflags}' \\",
+    "                 CC='${CMAKE_C_COMPILER}' \\\n                 CFLAGS='${_gmp_ccflags}' \\\n                 CXXFLAGS='${_gmp_ccflags}' \\",
+    'mpfr: android clang compiler')
+rep(root / 'deps/+MPFR/MPFR.cmake',
+    '    if (EMSCRIPTEN)\n        set(_cross_compile_arg --host=wasm32)\n    endif ()',
+    '    if (ANDROID)\n        if (ANDROID_ABI STREQUAL "arm64-v8a")\n            set(_cross_compile_arg --host=aarch64-linux-android)\n        elseif (ANDROID_ABI STREQUAL "x86_64")\n            set(_cross_compile_arg --host=x86_64-linux-android)\n        endif ()\n    elseif (EMSCRIPTEN)\n        set(_cross_compile_arg --host=wasm32)\n    endif ()',
+    'mpfr: android host triplet')
 PY
+
 
 step "[3/5] dependency bundle (deps/ ExternalProject chain)"
 mkdir -p "$PREFIX"
