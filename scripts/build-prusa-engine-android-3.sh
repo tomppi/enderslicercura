@@ -102,7 +102,7 @@ rep(root / 'deps/+Boost/Boost.cmake',
     'boost: exclude process lib')
 rep(root / 'deps/+OpenVDB/OpenVDB.cmake',
     '        -DOPENVDB_BUILD_VDB_PRINT=OFF',
-    '        -DOPENVDB_BUILD_VDB_PRINT=OFF\n        -DBoost_INCLUDE_DIR=${${PROJECT_NAME}_DEP_INSTALL_PREFIX}/include',
+    '        -DOPENVDB_BUILD_VDB_PRINT=OFF\n        -DBoost_INCLUDE_DIR=${${PROJECT_NAME}_DEP_INSTALL_PREFIX}/include\n        -DBoost_LIBRARY_DIR=${${PROJECT_NAME}_DEP_INSTALL_PREFIX}/lib\n        -DBoost_USE_STATIC_LIBS=ON',
     'openvdb: explicit Boost include dir (FindBoost module skips CMAKE_PREFIX_PATH)')
 
 # OpenSSL ships no generic CMake config: its ./Configure must target android-*.
