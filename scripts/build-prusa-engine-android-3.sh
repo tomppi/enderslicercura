@@ -123,14 +123,13 @@ rep(root / 'deps/+CURL/CURL.cmake',
     '  -DHTTP_ONLY=ON\n  -DOPENSSL_ROOT_DIR=${${PROJECT_NAME}_DEP_INSTALL_PREFIX}\n  -DOPENSSL_CRYPTO_LIBRARY=${${PROJECT_NAME}_DEP_INSTALL_PREFIX}/lib/libcrypto.a\n  -DOPENSSL_SSL_LIBRARY=${${PROJECT_NAME}_DEP_INSTALL_PREFIX}/lib/libssl.a\n  -DOPENSSL_INCLUDE_DIR=${${PROJECT_NAME}_DEP_INSTALL_PREFIX}/include',
     'curl: explicit openssl paths')
 rep(root / 'deps/+LibAssert/LibAssert.cmake',
-    '            -DLIBASSERT_USE_EXTERNAL_CPPTRACE=ON',
-    '            -DLIBASSERT_USE_EXTERNAL_CPPTRACE=ON\n            -DCPPTRACE_ROOT_DIR=${${PROJECT_NAME}_DEP_INSTALL_PREFIX}',
-    'libassert: cpptrace root dir')
+    '            -DLIBASSERT_USE_EXTERNAL_CPPTRACE=OFF',
+    '            -DLIBASSERT_USE_EXTERNAL_CPPTRACE=OFF',
+    'libassert: bundled cpptrace (no find_package)')
 
 # cpptrace installs its own <pkg>-config.cmake which demands find_dependency(libdwarf);
 # our shims provide the config, so neutralize cpptrace's config/version/targets
 # installs by shipping a second patch that removes those install() blocks.
-print('cpptrace: shims patch written')
 
 # cpptrace's own install emits a config that demands find_dependency(libdwarf),
 # which the cross-build cannot satisfy; strip the config/version/targets
