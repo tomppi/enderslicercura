@@ -47,11 +47,7 @@ rep(root / 'deps/CMakeLists.txt',
     'if (UNIX AND NOT ANDROID)\n    # On UNIX systems (including Apple) ZLIB should be available\n    list(APPEND SYSTEM_PROVIDED_PACKAGES ZLIB)\nendif ()',
     'deps: ZLIB is source-built on Android')
 
-# OpenSSL ships no generic CMake config: its ./Configure must target android-*.
-rep(root / 'deps/+OpenSSL/OpenSSL.cmake',
-    'elseif (CMAKE_CROSSCOMPILING)',
-    'elseif (ANDROID)\n    set(_conf_cmd "./Configure")\n    if (ANDROID_ABI STREQUAL "arm64-v8a")\n        set(_cross_arch "android-arm64")\n    elseif (ANDROID_ABI STREQUAL "x86_64")\n        set(_cross_arch "android-x86_64")\n    else ()\n        message(FATAL_ERROR "OpenSSL: unsupported Android ABI: ${ANDROID_ABI}")\n    endif ()\nelseif (CMAKE_CROSSCOMPILING)',
-    'openssl: android configure target')
+
 
 # gmplib.org / mpfr.org are unreachable from GitHub runners; mirror on ftp.gnu.org
 # (identical tarballs, same hashes).
@@ -68,7 +64,7 @@ rep(root / 'deps/+MPFR/MPFR.cmake',
 # NDK clang wrapper + the android-* host triplet.
 rep(root / 'deps/+GMP/GMP.cmake',
     '        set(_cfg_cmd env "CFLAGS=${_gmp_ccflags}" "CXXFLAGS=${_gmp_ccflags}" ./configure ${_cross_compile_arg} --enable-shared=no --enable-cxx=yes --enable-static=yes "--prefix=${${PROJECT_NAME}_DEP_INSTALL_PREFIX}" ${_gmp_build_tgt})',
-    '        set(_cfg_cmd env "CC=${CMAKE_C_COMPILER}" "CFLAGS=${_gmp_ccflags}" "CXXFLAGS=${_gmp_ccflags}" ./configure ${_cross_compile_arg} --enable-shared=no --enable-cxx=yes --enable-static=yes "--prefix=${${PROJECT_NAME}_DEP_INSTALL_PREFIX}" ${_gmp_build_tgt})',
+    '        set(_cfg_cmd env "CC=${CMAKE_C_COMPILER}" "CXX=${CMAKE_CXX_COMPILER}" "CFLAGS=${_gmp_ccflags}" "CXXFLAGS=${_gmp_ccflags}" ./configure ${_cross_compile_arg} --enable-shared=no --enable-cxx=yes --enable-static=yes "--prefix=${${PROJECT_NAME}_DEP_INSTALL_PREFIX}" ${_gmp_build_tgt})',
     'gmp: android clang compiler')
 rep(root / 'deps/+GMP/GMP.cmake',
     '    set(_cross_compile_arg "")\n    if (APPLE)',
@@ -84,7 +80,7 @@ rep(root / 'deps/+GMP/GMP.cmake',
     'gmp: android clang target flag')
 rep(root / 'deps/+MPFR/MPFR.cmake',
     "                 CFLAGS='${_gmp_ccflags}' \\\n                 CXXFLAGS='${_gmp_ccflags}' \\",
-    "                 CC='${CMAKE_C_COMPILER}' \\\n                 CFLAGS='${_gmp_ccflags}' \\\n                 CXXFLAGS='${_gmp_ccflags}' \\",
+    "                 CC='${CMAKE_C_COMPILER}' \\\n                 CFLAGS='${_gmp_ccflags}' \\\n                 CXXFLAGS='${_gmp_ccflags}' \\\n",
     'mpfr: android clang compiler')
 rep(root / 'deps/+MPFR/MPFR.cmake',
     '    if (EMSCRIPTEN)\n        set(_cross_compile_arg --host=wasm32)\n    endif ()',
@@ -100,6 +96,17 @@ rep(root / 'deps/+Imath/Imath.cmake',
     'imath: tests off')
 PY
 
+
+# OpenSSL's android configuration still looks for NDK <triple>-gcc names;
+# the NDK ships clang wrappers only, so provide the classic symlinks.
+NDKBIN=$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin
+export ANDROID_API=24
+for TRIPLE in aarch64-linux-android x86_64-linux-android; do
+  ln -sf clang "$NDKBIN/$TRIPLE${ANDROID_API}-gcc"
+  ln -sf clang++ "$NDKBIN/$TRIPLE${ANDROID_API}-g++"
+  ln -sf clang "$NDKBIN/$TRIPLE-gcc"
+  ln -sf clang++ "$NDKBIN/$TRIPLE-g++"
+done
 
 step "[3/5] dependency bundle (deps/ ExternalProject chain)"
 mkdir -p "$PREFIX"
