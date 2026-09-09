@@ -104,6 +104,10 @@ rep(root / 'deps/+OpenVDB/OpenVDB.cmake',
     '        -DOPENVDB_BUILD_VDB_PRINT=OFF',
     '        -DOPENVDB_BUILD_VDB_PRINT=OFF\n        -DBoost_INCLUDE_DIR=${${PROJECT_NAME}_DEP_INSTALL_PREFIX}/include\n        -DBoost_LIBRARY_DIR=${${PROJECT_NAME}_DEP_INSTALL_PREFIX}/lib\n        -DBoost_USE_STATIC_LIBS=ON\n        -DBoost_USE_MULTITHREADED=OFF\n        -DTBB_DIR=${${PROJECT_NAME}_DEP_INSTALL_PREFIX}/lib/cmake/TBB\n        -DTBB_ROOT=${${PROJECT_NAME}_DEP_INSTALL_PREFIX}\n        -DImath_DIR=${${PROJECT_NAME}_DEP_INSTALL_PREFIX}/lib/cmake/Imath\n        -DBlosc_INCLUDE_DIR=${${PROJECT_NAME}_DEP_INSTALL_PREFIX}/include\n        -DBlosc_LIBRARY=${${PROJECT_NAME}_DEP_INSTALL_PREFIX}/lib/libblosc.a\n        -DLog4cplus_INCLUDE_DIR=${${PROJECT_NAME}_DEP_INSTALL_PREFIX}/include\n        -DLog4cplus_LIBRARY=${${PROJECT_NAME}_DEP_INSTALL_PREFIX}/lib/liblog4cplus.a\n        -Dzstd_DIR=${${PROJECT_NAME}_DEP_INSTALL_PREFIX}/lib/cmake/zstd',
     'openvdb: explicit Boost include dir (FindBoost module skips CMAKE_PREFIX_PATH)')
+rep(root / 'cmake/modules/FindBlosc.cmake',
+    '  find_package(zstd REQUIRED)',
+    '  # zstd cross-build config-version rejects empty-version requests; resolve via -Dzstd_DIR\n  set(zstd_FOUND TRUE)\n  if(NOT TARGET zstd::libzstd)\n    add_library(zstd::libzstd INTERFACE IMPORTED)\n    set_target_properties(zstd::libzstd PROPERTIES INTERFACE_INCLUDE_DIRECTORIES "${${PROJECT_NAME}_DEP_INSTALL_PREFIX}/include")\n  endif()',
+    'FindBlosc: zstd resolved via explicit dir')
 
 # OpenSSL ships no generic CMake config: its ./Configure must target android-*.
 rep(root / 'deps/+OpenSSL/OpenSSL.cmake',
@@ -205,6 +209,22 @@ set(PACKAGE_VERSION 1.0.4)
 set(PACKAGE_VERSION_COMPATIBLE TRUE)
 CEO
   echo "SHIM-BEGIN"; ls -R "$LIBDWARF_PREFIX/lib/cmake" 2>&1 | head -40; echo "SHIM-END"
+  mkdir -p "$LIBDWARF_PREFIX/lib/cmake/zstd"
+  cat > "$LIBDWARF_PREFIX/lib/cmake/zstd/zstdConfig.cmake" <<'CEO'
+include("${CMAKE_CURRENT_LIST_DIR}/zstd-targets.cmake" OPTIONAL)
+include("${CMAKE_CURRENT_LIST_DIR}/zstdTargets.cmake" OPTIONAL)
+if(NOT TARGET zstd::libzstd)
+  add_library(zstd::libzstd INTERFACE IMPORTED)
+  set_target_properties(zstd::libzstd PROPERTIES
+    INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_CURRENT_LIST_DIR}/../../..;${CMAKE_CURRENT_LIST_DIR}/../../../include")
+endif()
+set(zstd_FOUND TRUE)
+CEO
+  cat > "$LIBDWARF_PREFIX/lib/cmake/zstd/zstdConfigVersion.cmake" <<'CEO'
+set(PACKAGE_VERSION 1.5.6)
+set(PACKAGE_VERSION_COMPATIBLE TRUE)
+set(PACKAGE_VERSION_UNSUITABLE FALSE)
+CEO
 }
 write_shims
 
