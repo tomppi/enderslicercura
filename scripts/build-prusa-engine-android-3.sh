@@ -94,6 +94,10 @@ rep(root / 'deps/+MPFR/MPFR.cmake',
     '    if (ANDROID)\n        if (ANDROID_ABI STREQUAL "arm64-v8a")\n            set(_cross_compile_arg --host=aarch64-linux-android)\n        elseif (ANDROID_ABI STREQUAL "x86_64")\n            set(_cross_compile_arg --host=x86_64-linux-android)\n        endif ()\n    elseif (EMSCRIPTEN)',
     '    if (ANDROID)\n        if (ANDROID_ABI STREQUAL "arm64-v8a")\n            set(_cross_compile_arg --host=aarch64-linux-android)\n        elseif (ANDROID_ABI STREQUAL "x86_64")\n            set(_cross_compile_arg --host=x86_64-linux-android)\n        endif ()\n        if (ANDROID_ABI STREQUAL "arm64-v8a")\n            set(_gmp_ccflags "${_gmp_ccflags} --target=aarch64-linux-android24")\n        elseif (ANDROID_ABI STREQUAL "x86_64")\n            set(_gmp_ccflags "${_gmp_ccflags} --target=x86_64-linux-android24")\n        endif ()\n    elseif (EMSCRIPTEN)',
     'mpfr android clang target flag')
+rep(root / 'deps/+Imath/Imath.cmake',
+    '-DLIBDEFLATE_BUILD_SHARED_LIB=OFF\n        -DLIBDEFLATE_BUILD_GZIP=OFF',
+    '-DLIBDEFLATE_BUILD_SHARED_LIB=OFF\n        -DLIBDEFLATE_BUILD_GZIP=OFF\n        -DBUILD_TESTING=OFF',
+    'imath: tests off')
 PY
 
 
