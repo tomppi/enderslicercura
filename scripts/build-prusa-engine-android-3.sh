@@ -118,6 +118,10 @@ rep(root / 'deps/+CURL/CURL.cmake',
     '  -DHTTP_ONLY=ON',
     '  -DHTTP_ONLY=ON\n  -DOPENSSL_ROOT_DIR=${${PROJECT_NAME}_DEP_INSTALL_PREFIX}\n  -DOPENSSL_CRYPTO_LIBRARY=${${PROJECT_NAME}_DEP_INSTALL_PREFIX}/lib/libcrypto.a\n  -DOPENSSL_SSL_LIBRARY=${${PROJECT_NAME}_DEP_INSTALL_PREFIX}/lib/libssl.a\n  -DOPENSSL_INCLUDE_DIR=${${PROJECT_NAME}_DEP_INSTALL_PREFIX}/include',
     'curl: explicit openssl paths')
+rep(root / 'deps/+LibAssert/LibAssert.cmake',
+    '            -DLIBASSERT_USE_EXTERNAL_CPPTRACE=ON',
+    '            -DLIBASSERT_USE_EXTERNAL_CPPTRACE=ON\n            -DCPPTRACE_ROOT_DIR=${${PROJECT_NAME}_DEP_INSTALL_PREFIX',
+    'libassert: cpptrace root dir')
 PY
 
 # OpenSSL's android configuration still looks for NDK <triple>-gcc names;
