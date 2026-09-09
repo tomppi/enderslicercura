@@ -90,7 +90,7 @@ rep(root / 'deps/+cpptrace/cpptrace.cmake',
     'cpptrace: bundled libdwarf')
 rep(root / 'deps/+cpptrace/cpptrace.cmake',
     'PATCH_COMMAND ${PATCH_CMD} ${CMAKE_CURRENT_LIST_DIR}/cpptrace.patch',
-    'PATCH_COMMAND ${PATCH_CMD} ${CMAKE_CURRENT_LIST_DIR}/cpptrace.patch && ${PYTHON} ${CMAKE_CURRENT_LIST_DIR}/strip_config_installs.py',
+    'PATCH_COMMAND ${PATCH_CMD} ${CMAKE_CURRENT_LIST_DIR}/cpptrace.patch && python3 ${CMAKE_CURRENT_LIST_DIR}/strip_config_installs.py',
     'cpptrace: drop own config install (shims win)')
 rep(root / 'deps/+OpenSSL/OpenSSL.cmake',
     '    BUILD_COMMAND make depend && make "-j${NPROC}"',
