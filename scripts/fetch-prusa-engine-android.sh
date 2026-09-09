@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Places the PrusaSlicer ARM64 engine (binary + resources) into the app package.
+# Places the PrusaSlicer 3.0.0-alpha11 ARM64 engine (binary + resources) into the app package.
 #
 #   CI:           downloads the latest successful "PrusaSlicer-2.9.6-android-arm64"
 #                 artifact from the prusa-engine-android workflow (needs

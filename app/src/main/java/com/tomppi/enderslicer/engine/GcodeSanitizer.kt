@@ -243,6 +243,12 @@ object GcodeSanitizer {
             var insertedMarkers = false
             file.bufferedReader().useLines { lines ->
                 lines.forEach { originalLine ->
+                    // The 3.x profile resolution emits M201-M205 (machine limits)
+                    // from the base printer profile regardless of the app config;
+                    // the target printer firmware applies its own defaults.
+                    if (dialect == GcodeDialect.PRUSA && PRUSA_MACHINE_LIMIT.containsMatchIn(originalLine)) {
+                        return@forEach
+                    }
                     val line = when {
                         originalLine.startsWith(";ENDERSLICER_VERSION:") ||
                             originalLine.startsWith(";ENDERSLICER_COORDINATE_TRANSPORT:") ||
@@ -310,6 +316,8 @@ object GcodeSanitizer {
         val seconds = match.groupValues[3].ifEmpty { "0" }.toInt()
         return (hours * 3600 + minutes * 60 + seconds).toDouble()
     }
+
+    private val PRUSA_MACHINE_LIMIT = Regex("^M20[1-5]\\s")
 
     private val PRUSA_ELAPSED = Regex(
         """(?:([0-9]+)h)?\s*(?:([0-9]+)m)?\s*(?:([0-9]+)s)?$""",

@@ -50,6 +50,11 @@ android {
         }
         jniLibs {
             useLegacyPackaging = true
+            // The 1.34 GB Blender engine blob keeps all symbols on purpose
+            // (prebuilt linker; see BLENDER_MCP_INTEGRATION.md 3.5). Stripping
+            // it would shrink the lib to ~100 MB and is explicitly forbidden.
+            keepDebugSymbols += setOf("**/libblender_exec.so")
+            doNotStrip += setOf("**/libblender_exec.so")
         }
     }
 }
@@ -150,6 +155,29 @@ val verifyDebugApkPrusaContents by tasks.registering {
     }
 }
 
+val verifyDebugApkBlenderContents by tasks.registering {
+    group = "verification"
+    description = "Builds the debug APK and verifies the Blender MCP engine lib + assets are packaged"
+    dependsOn("verifyDebugApkPrusaContents")
+    doLast {
+        val apk = layout.buildDirectory.file("outputs/apk/debug/app-debug.apk").get().asFile
+        check(apk.isFile && apk.length() > 0L) { "Debug APK was not created" }
+        ZipFile(apk).use { zip ->
+            val engine = zip.getEntry("lib/arm64-v8a/libblender_exec.so")
+            check(engine != null && engine.size > 900L * 1024 * 1024) {
+                "Debug APK does not contain the full unstripped ARM64 Blender engine (" + (engine?.size ?: 0L) + " bytes)"
+            }
+            val pythonCount = zip.entries().asSequence().count { it.name.startsWith("assets/blender/python/lib/python3.11/") }
+            check(pythonCount > 1000) {
+                "Debug APK does not contain the Blender python assets (found $pythonCount entries)"
+            }
+            val addon = zip.getEntry("assets/blender/scripts/startup/start_blender_mcp.py")
+            check(addon != null && addon.size > 0L) {
+                "Debug APK does not contain the Blender MCP addon"
+            }
+        }
+    }
+}
 val bumpMeshCommit = "a6ac179149b8a17c71a9469dd4cb6f866c0c01d1"
 val threeVersion = "r170"
 val fflateVersion = "0.8.2"

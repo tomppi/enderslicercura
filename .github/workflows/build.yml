@@ -208,7 +208,7 @@ jobs:
           file app/src/main/jniLibs/arm64-v8a/libprusa_slicer_exec.so
           readelf -d app/src/main/jniLibs/arm64-v8a/libprusa_slicer_exec.so | tee prusa-needed.log
           ! grep -qE 'libc\+\+_shared|libz\.so|libz3\.so|libstdc\+\+\.so|libTK' prusa-needed.log
-          test -s app/src/main/assets/prusa/resources/profiles/Anker.ini
+          test -s app/src/main/assets/prusa/resources/presets/prusa-research-fff/PrusaResearch/vendor.yaml
 
       - name: Build pinned host CuraEngine fixture binary
         run: |
@@ -238,7 +238,7 @@ jobs:
           grep -q 'lib/arm64-v8a/libcura-formulae-engine.so' apk-contents.log
           grep -q 'lib/arm64-v8a/libprusa_slicer_exec.so' apk-contents.log
           grep -q 'assets/cura/definitions/version.txt' apk-contents.log
-          grep -q 'assets/prusa/resources/profiles/Anker.ini' apk-contents.log
+          grep -q 'assets/prusa/resources/presets/prusa-research-fff/PrusaResearch/vendor.yaml' apk-contents.log
           grep -q 'assets/bumpmesh/index.html' apk-contents.log
           grep -q 'assets/bumpmesh/LICENSE' apk-contents.log
           grep -q 'assets/bumpmesh/android-bridge.js' apk-contents.log

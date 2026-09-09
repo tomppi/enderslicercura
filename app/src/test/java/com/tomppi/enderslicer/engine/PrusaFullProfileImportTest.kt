@@ -28,8 +28,9 @@ class PrusaFullProfileImportTest {
             printheadXMaxMm = 32.0, printheadYMaxMm = 34.0,
             gantryHeightMm = 25.0,
         )
-        val config = PrusaConfigWriter.render(imported.settings, printer, imported.startGcode, imported.endGcode)
-        val out = File("build/imported-full.ini")
+        val baseConfig = File("src/main/assets/prusa3-base.json").readText()
+        val config = PrusaConfigWriter.render(imported.settings, printer, imported.startGcode, imported.endGcode, baseConfig)
+        val out = File("build/imported-full.json")
         out.parentFile?.mkdirs()
         out.writeText(config)
         println("IMPORTED-SUMMARY")

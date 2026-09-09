@@ -241,10 +241,32 @@ internal object GcodeCommandPolicy {
                 location = location,
                 rules = emptyMap(),
             )
+            142 -> {
+                // PrusaSlicer 3.x computes the heatbreak cooling target from the
+                // filament temperature (M142 S36 style) at the start of a print.
+                only('S', 'R')
+                bounded('S', 0.0, 500.0)
+                bounded('R', 0.0, 500.0)
+            }
+            486 -> {
+                // PrusaSlicer 3.x emits M486 S0/S-1 (cancel-object tracking
+                // enable/disable) and M486 A<object name> (register object).
+                only('S', 'A')
+                bounded('S', -1.0, 1.0)
+            }
+            74 -> {
+                // PrusaSlicer 3.x per-layer progress marker (M74 W<percent>).
+                only('W')
+                bounded('W', 0.0, 100.0)
+            }
             73 -> {
-                only('P', 'R')
+                // PrusaSlicer 3.x emits both M73 P/R (progress %, remaining
+                // minutes) and M73 Q/S (alternate progress variant).
+                only('P', 'Q', 'R', 'S')
                 bounded('P', 0.0, 100.0)
+                bounded('Q', 0.0, 100.0)
                 bounded('R', 0.0, 1_000_000.0)
+                bounded('S', 0.0, 1_000_000.0)
             }
             104, 109 -> {
                 only('S', 'R', 'T')
