@@ -114,6 +114,10 @@ rep(root / 'deps/+OpenSSL/OpenSSL.cmake',
     '        "--prefix=${${PROJECT_NAME}_DEP_INSTALL_PREFIX}"\n        ${_cross_comp_prefix_line}',
     '        "--prefix=${${PROJECT_NAME}_DEP_INSTALL_PREFIX}"\n        --libdir=lib\n        ${_cross_comp_prefix_line}',
     'openssl: libdir lib')
+rep(root / 'deps/+CURL/CURL.cmake',
+    '  -DHTTP_ONLY=ON',
+    '  -DHTTP_ONLY=ON\n  -DOPENSSL_ROOT_DIR=${${${PROJECT_NAME}_DEP_INSTALL_PREFIX}\n  -DOPENSSL_CRYPTO_LIBRARY=${${${PROJECT_NAME}_DEP_INSTALL_PREFIX}/lib/libcrypto.a\n  -DOPENSSL_SSL_LIBRARY=${${${PROJECT_NAME}_DEP_INSTALL_PREFIX}/lib/libssl.a\n  -DOPENSSL_INCLUDE_DIR=${${${PROJECT_NAME}_DEP_INSTALL_PREFIX}/include',
+    'curl: explicit openssl paths')
 PY
 
 # OpenSSL's android configuration still looks for NDK <triple>-gcc names;
@@ -167,6 +171,10 @@ cmake -S "$SRC" -B "$BUILD/main" -G Ninja \
   -DANDROID_ABI=$ABI -DANDROID_PLATFORM=android-29 -DANDROID_STL=c++_static \
   -DCMAKE_BUILD_TYPE=Release \
   -DSLIC3R_GUI=OFF -DSLIC3R_STATIC=ON -DSLIC3R_RELEASE_DEBUG_SYMBOLS=OFF \
+  -DOPENSSL_ROOT_DIR=$DEST \
+  -DOPENSSL_CRYPTO_LIBRARY=$DEST/lib/libcrypto.a \
+  -DOPENSSL_SSL_LIBRARY=$DEST/lib/libssl.a \
+  -DOPENSSL_INCLUDE_DIR=$DEST/include \
   -DBUILD_TESTING=OFF -DSLIC3R_BUILD_TESTS=OFF \
   -DCMAKE_PREFIX_PATH=$DEST -DCMAKE_FIND_ROOT_PATH=$DEST \
   "-DCMAKE_CXX_FLAGS=-isystem $DEST/include" \
