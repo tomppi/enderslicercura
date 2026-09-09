@@ -140,7 +140,7 @@ import pathlib
 p = pathlib.Path('cmake/InstallRules.cmake')
 s = p.read_text(encoding='utf-8')
 i = s.index('# copy config file for find_package to find')
-j = s.index('# Findzstd.cmake')
+j = s.index('# support packaging library')
 s = s[:i].rstrip() + chr(10) * 2 + s[j:]
 p.write_text(s, encoding='utf-8')
 print('cpptrace: config installs stripped')
