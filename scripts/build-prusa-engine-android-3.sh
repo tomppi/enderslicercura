@@ -51,7 +51,7 @@ rep(root / 'deps/CMakeLists.txt',
 # armeabi-v7a. Forward the ABI/platform/STL via DEP_CMAKE_OPTS.
 rep(root / 'deps/CMakeLists.txt',
     '    set(DEP_CMAKE_OPTS "-DCMAKE_POSITION_INDEPENDENT_CODE=ON")',
-    '    set(DEP_CMAKE_OPTS "-DCMAKE_POSITION_INDEPENDENT_CODE=ON;-DANDROID_ABI=${ANDROID_ABI};-DANDROID_PLATFORM=${ANDROID_PLATFORM};-DANDROID_STL=${ANDROID_STL}")',
+    '    set(DEP_CMAKE_OPTS "-DCMAKE_POSITION_INDEPENDENT_CODE=ON;-DANDROID_ABI=${ANDROID_ABI};-DANDROID_PLATFORM=${ANDROID_PLATFORM};-DANDROID_STL=${ANDROID_STL};-DCMAKE_FIND_ROOT_PATH=${${PROJECT_NAME}_DEP_INSTALL_PREFIX}")',
     'deps: forward ANDROID_ABI to dep projects')
 
 # gmplib.org / mpfr.org are unreachable from GitHub runners; mirror on ftp.gnu.org.
