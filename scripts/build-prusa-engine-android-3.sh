@@ -143,19 +143,17 @@ elif [ "$ABI" = "x86_64" ]; then
 fi
 
 # cpptrace finds libdwarf via find_package, but libdwarf's install emits only
-# targets files; provide the package config it expects (libdwarf 0.11.1).
+# targets files; provide the package configs the consumers expect.
 LIBDWARF_PREFIX=$BUILD/deps/destdir/usr/local
-mkdir -p "$LIBDWARF_PREFIX/lib/cmake/libdwarf"
+mkdir -p "$LIBDWARF_PREFIX/lib/cmake/libdwarf" "$LIBDWARF_PREFIX/lib/cmake/cpptrace"
 cat > "$LIBDWARF_PREFIX/lib/cmake/libdwarf/libdwarfConfig.cmake" <<'CEO'
 include("${CMAKE_CURRENT_LIST_DIR}/libdwarf-targets.cmake")
 set(libdwarf_FOUND TRUE)
 CEO
 cat > "$LIBDWARF_PREFIX/lib/cmake/libdwarf/libdwarfConfigVersion.cmake" <<'CEO'
 set(PACKAGE_VERSION 0.11.1)
+set(PACKAGE_VERSION_COMPATIBLE TRUE)
 CEO
-
-# libassert also needs cpptrace via find_package.
-mkdir -p "$LIBDWARF_PREFIX/lib/cmake/cpptrace"
 cat > "$LIBDWARF_PREFIX/lib/cmake/cpptrace/cpptraceConfig.cmake" <<'CEO'
 include("${CMAKE_CURRENT_LIST_DIR}/cpptrace-targets.cmake")
 set(cpptrace_FOUND TRUE)
