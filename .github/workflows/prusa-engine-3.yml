@@ -2,7 +2,7 @@ name: Build PrusaSlicer 3.0.0-alpha11 Android
 
 on:
   push:
-    branches: [ 'feature/prusa-engine-android' ]
+    branches: [ 'feature/prusa-engine-android', 'main' ]
     paths:
       - '.github/workflows/prusa-engine-3.yml'
       - 'scripts/build-prusa-engine-android-3.sh'
