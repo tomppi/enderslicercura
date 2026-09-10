@@ -4,15 +4,24 @@
 
 # DuoSlicer
 
-DuoSlicer (formerly EnderSlicerCura) is an Android-first front end for **both CuraEngine and PrusaSlicer** - importing, preparing, slicing, previewing and sending 3D prints from a phone or foldable. It is **1.0.0**, targets Android 10+ on **ARM64**, and bundles the CuraEngine ARM64 binary with Cura resources from **5.14.0-alpha.0** plus a native **PrusaSlicer 2.9.6** engine with its resources. Its most-tested baseline is a modified Creality Ender 3 V2.
+DuoSlicer (formerly EnderSlicerCura) is an Android-first front end for **both CuraEngine and PrusaSlicer** - importing, preparing, slicing, previewing and sending 3D prints from a phone or foldable. It is **1.0.0**, targets Android 10+ on **ARM64**, and bundles the CuraEngine ARM64 binary with Cura resources from **5.14.0-alpha.0** plus a native **PrusaSlicer 3.0.0-alpha11** engine with its resources. Its most-tested baseline is a modified Creality Ender 3 V2.
 
 > This is development software, not a complete Cura or PrusaSlicer replacement. Inspect every model, setting and generated G-code before printing.
 
 ## Engines
 
-- **Cura (blue)** - CuraEngine slicing with Cura profiles, quality/material/adhesion/supports settings and Cura project (`.3mf`) or profile (`.curaprofile`) import
-- **PrusaSlicer (orange)** - PrusaSlicer engine with Prusa settings, marker-driven previews and settings import from a PrusaSlicer config bundle (`.ini`)
+- **Cura (blue)** - CuraEngine **5.14.0-alpha.0** (arm64-v8a) with Cura profiles, quality/material/adhesion/supports settings and Cura project (`.3mf`) or profile (`.curaprofile`) import
+- **PrusaSlicer (orange)** - PrusaSlicer **3.0.0-alpha11** (arm64-v8a) with Prusa settings, marker-driven previews and settings import from a PrusaSlicer config bundle (`.ini`)
 - One switcher in **Settings**; the app theme and accent (blue vs orange) follow the active engine, and per-engine profiles stay separate
+- Both engines are cross-compiled for Android from their pinned sources and validated on device: importing a model, slicing it and exporting G-code works on either engine, and both previews parse their G-code dialects
+
+## Comparing the engines
+
+Both engines produce valid G-code for the same printer. Where their previews look different, the cause is the profile rather than the engine:
+
+- **Layer height** drives how blocky a preview looks: the Cura default in the app is `0.2 mm`, a fine Prusa profile can be `0.08 mm`, so the same 48 mm model is drawn with 241 or 599 steps. Both are correct - 0.2 mm prints in a fraction of the time.
+- **Bead width** is known exactly on the Prusa side: PrusaSlicer writes `;WIDTH:` and `;HEIGHT:` per segment, and the preview uses those markers. Cura G-code has no such markers, so widths there are estimated from the extrusion delta and clamped to a band around the configured line width.
+- **Rendering is shared**: the nozzle-path view builds both dialects through the same ribbon geometry (mitred joints, corner-sealed walls, speed-colored beads), so a path that looks coarser is a coarser profile, not a coarser renderer.
 
 ## Importing
 
@@ -65,6 +74,8 @@ Imported values are kept as a persistent baseline: they stay in effect until you
 - High-density models and fine FEA grids may exceed the Android heap; thermal FEA lacks transient conduction and creep
 - Non-planar slicing (CurviSlicer and conical) buffers the full transformed G-code in memory, so very large or very dense prints can exhaust the Android heap (see "Increasing the Java heap")
 - OctoPrint needs broader real-server validation; printer-specific firmware commands must be checked against the installed firmware
+- The PrusaSlicer engine is packaged for **arm64-v8a** only; the x86_64 build was dropped because the shipped ABI is what device validation covers
+- Cura previews estimate bead widths from the extrusion delta (Cura G-code carries no width markers), so a previewed width can differ slightly from what the engine planned
 
 ## Increasing the Java heap
 
@@ -97,6 +108,8 @@ scripts/build-curaengine-android.sh
 
 gradle :app:verifyDebugApkContents
 ```
+
+`fetch-prusa-engine-android.sh` downloads the newest successful `PrusaSlicer-3.0.0-alpha11-android-arm64-v8a` artifact of the [`prusa-engine-3`](.github/workflows/prusa-engine-3.yml) workflow, which cross-compiles the alpha11 console from source; set `PRUSA_ENGINE_DIR` to a directory containing `prusa-slicer` and `resources` to package a local build instead.
 
 Gradle prepares the pinned offline BumpMesh and filaSim assets before `preBuild`; `verifyDebugApkContents` builds the debug APK and verifies the packaged ARM64 CuraEngine and PrusaSlicer engine. GitHub Actions builds the WASM engine, runs the unit/regression and definition audits, verifies packaged assets and uploads the APK.
 
