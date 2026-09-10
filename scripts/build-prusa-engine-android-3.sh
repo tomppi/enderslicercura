@@ -164,6 +164,12 @@ rep(root / 'src/slic3r-shared/src/Slic3r/Biz/RemovableDrive/RemovableDriveServic
     '    return true;\n}\n} // namespace',
     '    return true;\n}\n#endif // __ANDROID__\n} // namespace',
     'removable drive: close the Android guard')
+# The GUI-free subset of slic3r-shared still includes Theme.hpp, which needs
+# imgui headers; the bundled target is otherwise only added for GUI builds.
+rep(root / 'bundled_deps/CMakeLists.txt',
+    'if (SLIC3R_GUI)\n    add_subdirectory(imgui)\nendif ()',
+    '# imgui is used by the GUI and by the headless console (Theme.hpp).\nadd_subdirectory(imgui)',
+    'bundled deps: imgui for the console')
 # PrusaSlicer 3.0 builds its CLI only when SLIC3R_GUI is on (slic3r-app-cli links
 # the ImGui/Plater slic3r-shared library). Build a headless console instead that
 # links the GUI-free engine layers; the platform layer is GUI-free apart from the
@@ -627,6 +633,9 @@ endforeach()
 foreach(_package nlohmann_json magic_enum pugixml cereal expat CURL PNG JPEG TBB Boost ZLIB)
     find_package(${_package} QUIET)
 endforeach()
+
+# yoga ships a config package only (used by the Yoga UI headers).
+find_package(yoga CONFIG QUIET)
 
 add_executable(slic3r-console-headless ${_headless_sources})
 
