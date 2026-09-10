@@ -134,6 +134,30 @@ rep(root / 'deps/+Sol2/Sol2.cmake',
     '            -DSOL2_BUILD_LUA=OFF',
     '            -DSOL2_BUILD_LUA=OFF\n            -DLUA_INCLUDE_DIR=${${PROJECT_NAME}_DEP_INSTALL_PREFIX}/include\n            -DLUA_LIBRARY=${${PROJECT_NAME}_DEP_INSTALL_PREFIX}/lib/liblua.a',
     'sol2: explicit Lua paths')
+# PrusaSlicer 3.0 builds its CLI only when SLIC3R_GUI is on (slic3r-app-cli links
+# the ImGui/Plater slic3r-shared library). Build a headless console instead that
+# links the GUI-free engine layers; the platform layer is GUI-free apart from the
+# OpenGL render canvas.
+rep(root / 'src/CMakeLists.txt',
+    'if (SLIC3R_GUI)\n    # TODO: The following two are GUI only for now, before we can build these',
+    'add_subdirectory(slic3r-platform)\n\nif (SLIC3R_GUI)\n    # TODO: The following two are GUI only for now, before we can build these',
+    'src: platform layer outside the GUI gate')
+rep(root / 'src/CMakeLists.txt',
+    '    add_subdirectory(slic3r-render)\n    add_subdirectory(slic3r-platform)\n    add_subdirectory(libvgcode)',
+    '    add_subdirectory(slic3r-render)\n    add_subdirectory(libvgcode)',
+    'src: drop duplicate platform subdir')
+rep(root / 'src/CMakeLists.txt',
+    'else()\n    message(FATAL_ERROR "Non-GUI build is not supported yet.")\nendif ()',
+    'else()\n    add_subdirectory(slic3r-console-headless)\nendif ()',
+    'src: headless console target')
+rep(root / 'src/slic3r-platform/CMakeLists.txt',
+    'add_library(slic3r-platform STATIC ${SLIC3R_PLATFORM_FILES})',
+    'if (NOT SLIC3R_GUI)\n    # The render canvas needs OpenGL/ImGui: only for GUI builds.\n    list(REMOVE_ITEM SLIC3R_PLATFORM_FILES src/Slic3r/App/Platform/AbstractRenderCanvas.cpp)\nendif ()\n\nadd_library(slic3r-platform STATIC ${SLIC3R_PLATFORM_FILES})',
+    'platform: no OpenGL canvas when headless')
+rep(root / 'src/slic3r-platform/CMakeLists.txt',
+    'target_link_libraries(slic3r-platform PUBLIC slic3r-render slic3r-jthread)',
+    'target_link_libraries(slic3r-platform PUBLIC slic3r-jthread)\n\nif (SLIC3R_GUI)\n    target_link_libraries(slic3r-platform PUBLIC slic3r-render)\nendif ()',
+    'platform: render link only for GUI')
 # OpenSSL ships no generic CMake config: its ./Configure must target android-*.
 rep(root / 'deps/+OpenSSL/OpenSSL.cmake',
     'set(_conf_cmd "./config")\nset(_cross_arch "")\nset(_cross_comp_prefix_line "")\nset(_apple_target_flags "")',
@@ -226,6 +250,392 @@ print('boost: static regex CMakeLists written')
 
 
 PY
+
+# Headless console sources (see src/slic3r-console-headless/CMakeLists.txt for why
+# they are not part of the upstream tree).
+CONSOLE_DIR="$SRC/src/slic3r-console-headless"
+mkdir -p "$CONSOLE_DIR"
+cat > "$CONSOLE_DIR/main.cpp" <<'CEOF'
+// Headless slicing console for the Android bundle.
+//
+// PrusaSlicer 3.0 gates its stock CLI behind SLIC3R_GUI (slic3r-app-cli links the
+// ImGui/Plater library), so this front-end drives the GUI-free engine layers
+// (Slic3r::Domain / Slic3r::Biz) directly. It accepts the same invocation the
+// app uses:
+//
+//   prusa-slicer --datadir DIR --load config.json --export-gcode -o out.gcode model.stl
+//
+// The configuration file is the PrusaSlicer "--save" format ({preset, configuration}).
+
+#include <chrono>
+#include <cstdlib>
+#include <fstream>
+#include <functional>
+#include <future>
+#include <iostream>
+#include <memory>
+#include <optional>
+#include <string>
+#include <thread>
+#include <vector>
+
+#include <boost/filesystem.hpp>
+#include <nlohmann/json.hpp>
+
+#include "Slic3r/App/Platform/StdMainThreadDispatcher.hpp"
+#include "Slic3r/Biz/AppInstance/AppInstanceMessageHandlerFactory.hpp"
+#include "Slic3r/Biz/Config/ConfigLoad.hpp"
+#include "Slic3r/Biz/FileLoadingLogic.hpp"
+#include "Slic3r/Biz/Platform/JobManager/JobManager.hpp"
+#include "Slic3r/Biz/Platform/PlatformServices.hpp"
+#include "Slic3r/Biz/ProjectInteractor.hpp"
+#include "Slic3r/Biz/SecretStoreDummy.hpp"
+#include "Slic3r/Biz/StatusCache.hpp"
+#include "Slic3r/Directories.hpp"
+#include "Slic3r/Domain/Workbench.hpp"
+#include "libslic3r/IThumbnailImageGenerator.hpp"
+
+using namespace Slic3r;
+using namespace Slic3r::Biz;
+
+namespace {
+
+/// Thumbnails are a GUI feature; the console reports none.
+class StubThumbnailGenerator final : public Slicing::IThumbnailImageGenerator
+{
+public:
+    std::future<Slicing::ThumbnailImageResults> enqueue_thumbnail_requests(
+        const Slicing::ThumbnailImageRequests&
+    ) override
+    {
+        std::promise<Slicing::ThumbnailImageResults> promise;
+        promise.set_value(Slicing::ThumbnailImageResults{});
+        return promise.get_future();
+    }
+
+    void handle_enqueued_requests() override {}
+};
+
+/// Watches the export job so the console can block until the G-code was written.
+class ExportFinishedListener final :
+    public Platform::JobManager::IJobManagerStatusChangedListener
+{
+public:
+    bool finished{false};
+    bool failed{false};
+    std::string error;
+
+    void on_job_manager_status_changed(
+        const Platform::JobManager::JobManagerStatus& job_manager_status
+    ) override
+    {
+        for (const auto& [job_name, job_progress] : job_manager_status) {
+            if (job_name.rfind("printhost", 0) != 0) {
+                continue;
+            }
+
+            if (job_progress.status == Domain::JobStatus::Failed) {
+                failed   = true;
+                finished = true;
+            } else if (job_progress.status == Domain::JobStatus::Finished) {
+                finished = true;
+            }
+        }
+    }
+};
+
+/// Mirrors Slic3r::App::init_paths() so the engine finds the bundled presets.
+void prepare_datadirs(const std::string& datadir)
+{
+    namespace fs = boost::filesystem;
+    const fs::path data_dir(datadir);
+    for (const fs::path& sub : {
+             data_dir,
+             data_dir / "cache",
+             data_dir / "update_sync",
+             data_dir / "shared_runtime",
+             data_dir / "local_repositories",
+             data_dir / "snapshots",
+             data_dir / "presets",
+             data_dir / "presets" / "local",
+             data_dir / "presets" / "user",
+             data_dir / "shapes",
+             data_dir / "lua",
+             data_dir / "authorized_authors",
+         })
+    {
+        if (!fs::exists(sub)) {
+            fs::create_directories(sub);
+        }
+    }
+}
+
+std::string usage()
+{
+    return "usage: prusa-slicer --datadir DIR --load config.json --export-gcode "
+           "-o out.gcode model.stl\n";
+}
+
+} // namespace
+
+int main(int argc, char** argv)
+{
+    std::string datadir;
+    std::string config_path;
+    std::string output_path;
+    std::string model_path;
+
+    for (int i = 1; i < argc; ++i) {
+        const std::string arg = argv[i];
+        if (arg == "--datadir" && i + 1 < argc) {
+            datadir = argv[++i];
+        } else if (arg == "--load" && i + 1 < argc) {
+            config_path = argv[++i];
+        } else if (arg == "--export-gcode") {
+            // Slicing always exports G-code in this console.
+        } else if ((arg == "-o" || arg == "--output") && i + 1 < argc) {
+            output_path = argv[++i];
+        } else if (arg == "--help" || arg == "-h") {
+            std::cout << usage();
+            return EXIT_SUCCESS;
+        } else if (!arg.empty() && arg[0] != '-') {
+            model_path = arg;
+        }
+    }
+
+    if (model_path.empty() || config_path.empty() || output_path.empty()) {
+        std::cerr << usage();
+        return EXIT_FAILURE;
+    }
+
+    if (!datadir.empty()) {
+        Slic3r::set_data_dir(datadir);
+        Slic3r::set_cache_dir((boost::filesystem::path(datadir) / "cache").string());
+        Slic3r::set_resources_dir(datadir);
+        Slic3r::set_var_dir((boost::filesystem::path(datadir) / "icons").string());
+        prepare_datadirs(datadir);
+    }
+
+    PlatformServices& platform_services = PlatformServices::instance();
+    platform_services.set_secret_store(std::make_unique<SecretStoreDummy>());
+    platform_services.set_job_manager(nullptr);
+    platform_services.set_app_instance_message_handler(nullptr);
+    platform_services.set_main_thread_dispatcher(
+        std::make_unique<App::Platform::StdMainThreadDispatcher>()
+    );
+    platform_services.set_job_manager(
+        std::make_unique<Platform::JobManager::JobManager>(
+            platform_services.main_thread_dispatcher()
+        )
+    );
+    platform_services.set_app_instance_message_handler(
+        AppInstance::create_app_instance_message_handler(
+            platform_services.main_thread_dispatcher()
+        )
+    );
+
+    const auto wait_until = [&platform_services](const std::function<bool()>& predicate)
+    {
+        while (true) {
+            platform_services.main_thread_dispatcher().dispatch_enqueued();
+            if (predicate()) {
+                return;
+            }
+
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    };
+
+    StubThumbnailGenerator thumbnail_generator;
+    Domain::Workbench workbench;
+    ProjectInteractor project_interactor(
+        workbench,
+        platform_services.main_thread_dispatcher(),
+        thumbnail_generator
+    );
+
+    // Configuration: the app passes a full "--save" document, so no preset bundle lookup.
+    nlohmann::ordered_json config_document;
+    try {
+        std::ifstream config_stream(config_path);
+        if (!config_stream.is_open()) {
+            std::cerr << "Cannot open configuration " << config_path << "\n";
+            return EXIT_FAILURE;
+        }
+        config_stream >> config_document;
+    } catch (const std::exception& exception) {
+        std::cerr << "Invalid configuration " << config_path << ": " << exception.what() << "\n";
+        return EXIT_FAILURE;
+    }
+
+    tl::expected<Config::PresetAndConfig, std::string> preset_and_config =
+        Config::load_preset_and_config(config_document);
+    if (!preset_and_config.has_value()) {
+        std::cerr << config_path << ": " << preset_and_config.error() << "\n";
+        return EXIT_FAILURE;
+    }
+
+    tl::expected<Domain::SelectionId, std::string> project_id =
+        project_interactor.new_project_with_preset(
+            preset_and_config->preset_metadata,
+            preset_and_config->config_pack
+        );
+    if (!project_id.has_value()) {
+        std::cerr << project_id.error() << "\n";
+        return EXIT_FAILURE;
+    }
+
+    tl::expected<Domain::Model, std::string> model =
+        FileLoadingLogic::read_model_from_file(model_path, nullptr);
+    if (!model.has_value()) {
+        std::cerr << model_path << ": " << model.error() << "\n";
+        return EXIT_FAILURE;
+    }
+    if (model->objects.empty()) {
+        std::cerr << model_path << ": no objects in the model\n";
+        return EXIT_FAILURE;
+    }
+
+    project_interactor.scene_interactor().add_new_objects(std::move(model->objects));
+
+    Slicing::SlicingInteractor& slicing_interactor = project_interactor.slicing_interactor();
+    StatusCache& status_cache                      = project_interactor.status_cache();
+    const Domain::SlicingId slicing_id             = project_interactor.selected_bed_slicing_id();
+
+    Domain::Project& project                        = project_interactor.selected_project();
+    const Domain::ConfigContainer& config_container = project_interactor.selected_config_container();
+
+    const Domain::BedInstance* bed_instance =
+        project.find_bed_instance_by_id(slicing_id.bed_instance_id);
+    if (bed_instance == nullptr) {
+        std::cerr << "No print bed selected\n";
+        return EXIT_FAILURE;
+    }
+
+    slicing_interactor.update_process(
+        project.model(),
+        project.metadata(),
+        config_container.selected_preset().metadata(),
+        config_container.build_print_config(),
+        *bed_instance
+    );
+    slicing_interactor.slice_bed(slicing_id);
+
+    wait_until(
+        [&status_cache, &slicing_id]()
+        {
+            const std::optional<Slicing::Status> status = status_cache.get_status(slicing_id);
+            return status.has_value()
+                && (status->code == Slicing::StatusCode::Empty
+                    || status->code == Slicing::StatusCode::Removed
+                    || status->code == Slicing::StatusCode::Finished
+                    || status->code == Slicing::StatusCode::InvalidData);
+        }
+    );
+
+    const std::optional<Slicing::Status> slicing_status = status_cache.get_status(slicing_id);
+    if (!slicing_status.has_value() || slicing_status->code != Slicing::StatusCode::Finished) {
+        std::cerr << "Slicing failed";
+        if (slicing_status.has_value()) {
+            for (const Slicing::Error& error : slicing_status->errors) {
+                std::cerr << ": " << error;
+            }
+        }
+        std::cerr << "\n";
+        return EXIT_FAILURE;
+    }
+
+    ExportFinishedListener export_listener;
+    platform_services.job_manager()
+        .add_listener<Platform::JobManager::IJobManagerStatusChangedListener>(&export_listener);
+    project_interactor.do_result_export(
+        slicing_id,
+        boost::filesystem::path(output_path)
+    );
+    wait_until([&export_listener]() { return export_listener.finished; });
+    platform_services.job_manager()
+        .remove_listener<Platform::JobManager::IJobManagerStatusChangedListener>(&export_listener);
+
+    if (export_listener.failed) {
+        std::cerr << "Export failed\n";
+        return EXIT_FAILURE;
+    }
+
+    std::cout << "Slicing result exported to " << output_path << "\n";
+    return EXIT_SUCCESS;
+}
+CEOF
+cat > "$CONSOLE_DIR/CMakeLists.txt" <<'CEOF'
+# Headless console for the Android bundle.
+#
+# PrusaSlicer 3.0 builds its CLI only with the GUI (slic3r-app-cli links the
+# ImGui/Plater library, see src/CMakeLists.txt). This target links the GUI-free
+# engine layers instead, so the console can be cross-compiled for Android.
+
+set(_headless_sources main.cpp)
+
+# The business-logic layer (and the app services it uses) lives in slic3r-shared,
+# whose library target also carries the ImGui/Plater code. Compile the sources
+# that do not reference the GUI libraries into this target directly.
+file(GLOB_RECURSE _headless_candidates
+    "${CMAKE_SOURCE_DIR}/src/slic3r-shared/src/Slic3r/Biz/*.cpp"
+    "${CMAKE_SOURCE_DIR}/src/slic3r-shared/src/Slic3r/App/*.cpp"
+)
+
+foreach(_candidate ${_headless_candidates})
+    file(READ "${_candidate}" _content)
+    if (_content MATCHES "imgui|<GL/|GLES|wx/|libvgcode|Slic3r/App/Render|Slic3r/App/Plater|Slic3r/App/Yoga|Slic3r/App/Imgui|Slic3r/App/Preview|Slic3r/App/View|Slic3r/App/ToolBar|Slic3r/App/Browser|Slic3r/App/Scene|Slic3r/App/Undo")
+        continue()
+    endif ()
+
+    list(APPEND _headless_sources "${_candidate}")
+endforeach()
+
+add_executable(slic3r-console-headless ${_headless_sources})
+
+target_include_directories(slic3r-console-headless PRIVATE
+    "${CMAKE_SOURCE_DIR}/src/slic3r-shared/include"
+    "${CMAKE_SOURCE_DIR}/src/slic3r-shared/src"
+    "${CMAKE_SOURCE_DIR}/src/slic3r-platform/include"
+    "$<TARGET_PROPERTY:libslic3r,SOURCE_DIR>/src"
+)
+
+slic3r_add_tracy(slic3r-console-headless)
+
+target_link_libraries(slic3r-console-headless PRIVATE
+    slic3r-domain
+    slic3r-base
+    slic3r-biz-algorithms
+    slic3r-biz-arrange
+    slic3r-biz-crypto
+    slic3r-biz-parser
+    slic3r-biz-lua
+    slic3r-platform
+    slic3r-gcode-reader
+    libpgcode
+    slic3r-jthread
+    libslic3r
+    fmt::fmt
+    nlohmann_json::nlohmann_json
+    magic_enum::magic_enum
+    expat::expat
+    pugixml::pugixml
+    range-v3::range-v3
+    libcereal
+    TBB::tbb
+    TBB::tbbmalloc
+    ZLIB::ZLIB
+    PNG::PNG
+    JPEG::JPEG
+    CURL::libcurl
+    Boost::filesystem
+    Boost::thread
+    libcurl
+    libexpat
+    fastfloat
+)
+CEOF
+step "[2b/5] headless console sources written"
 
 
 # OpenSSL's android configuration still looks for NDK <triple>-gcc names;
@@ -330,7 +740,7 @@ cmake -S "$SRC" -B "$BUILD/main" -G Ninja \
   "-DCMAKE_CXX_FLAGS=-isystem $DEST/include" \
   "-DCMAKE_EXE_LINKER_FLAGS=-nostdlib++ -Wl,-Bstatic -lz -lc++_static -lc++abi -Wl,-Bdynamic" \
   2>&1 | tee /tmp/prusa3-mainconf.log
-ninja -C "$BUILD/main" slic3r-app-launcher -j8 2>&1 | tee /tmp/prusa3-ninja.log
+ninja -C "$BUILD/main" slic3r-console-headless -j8 2>&1 | tee /tmp/prusa3-ninja.log
 # Link hygiene: the NDK sysroot provides libstdc++.so / libz.so stubs; the console
 # must not depend on them. Drop -lstdc++ (static libc++ is used) and force -lz to
 # resolve statically. The FIRST ninja invocation regenerates build.ninja.
@@ -338,12 +748,12 @@ BIN="$BUILD/main/build.ninja"
 sed -i 's/ -lstdc++ /  /g' "$BIN"
 sed -i 's/ -lz / -Wl,-Bstatic -lz -Wl,-Bdynamic /g' "$BIN"
 sed -i "s#${DEST}/lib/libz.so##g" "$BIN"
-rm -f "$BUILD/main/src/slic3r-app-launcher"
-ninja -C "$BUILD/main" slic3r-app-launcher -j8 2>&1 | tee /tmp/prusa3-ninja.log
+rm -f "$BUILD/main/src/slic3r-console-headless/slic3r-console-headless"
+ninja -C "$BUILD/main" slic3r-console-headless -j8 2>&1 | tee /tmp/prusa3-ninja.log
 
 step "[5/5] package $ABI"
 mkdir -p "$OUT"
-cp -v "$BUILD/main/src/slic3r-app-launcher" "$OUT/prusa-slicer"
+cp -v "$BUILD/main/src/slic3r-console-headless/slic3r-console-headless" "$OUT/prusa-slicer"
 STRIP="${ANDROID_NDK_HOME:-$SDK/ndk/28.2.13676358}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip"
 if [ -x "$STRIP" ]; then "$STRIP" -s "$OUT/prusa-slicer"; fi
 echo "== dynamic dependency verification =="
