@@ -70,6 +70,11 @@ Imported values are kept as a persistent baseline: they stay in effect until you
 - The first run materializes `assets/blender/{python,scripts}` into app storage; new `.stl` files in the export directory are picked up and shown as the latest model
 - The packaged engine is trimmed: DWARF stripped and the GPU-kernel, virtualenv and numpy-test payload removed, with the Cycles CPU path and the MCP addon intact
 - Protocol, runbook and verification evidence: [`BLENDER_MCP_INTEGRATION.md`](BLENDER_MCP_INTEGRATION.md)
+- **Plate ▸ Blender ▸ Upload model to Blender** copies the loaded model into the engine's import directory so it can be opened and modified there; the result returns through the export handoff above. **Stop Blender engine** ends the engine and its keeper service deliberately
+
+<p align="center">
+  <img src="docs/screenshots/blender-menu.jpg" width="260" alt="Plate menu showing the Blender section: Upload model to Blender and Stop Blender engine">
+</p>
 
 ### Print editing
 
