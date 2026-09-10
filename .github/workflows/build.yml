@@ -200,6 +200,9 @@ jobs:
           ! grep -q 'libc++_shared.so' curaengine-needed.log
 
       - name: Fetch and validate PrusaSlicer ARM64 engine
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           chmod +x scripts/fetch-prusa-engine-android.sh
           set -o pipefail
