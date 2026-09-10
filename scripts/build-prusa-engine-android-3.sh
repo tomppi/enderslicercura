@@ -591,6 +591,12 @@ foreach(_candidate ${_headless_candidates})
     list(APPEND _headless_sources "${_candidate}")
 endforeach()
 
+# Third-party dependencies of the business logic; the GUI libraries normally pull
+# these in, so this target resolves them itself.
+foreach(_package nlohmann_json magic_enum pugixml cereal expat CURL PNG JPEG TBB Boost ZLIB)
+    find_package(${_package} QUIET)
+endforeach()
+
 add_executable(slic3r-console-headless ${_headless_sources})
 
 target_include_directories(slic3r-console-headless PRIVATE
@@ -602,7 +608,18 @@ target_include_directories(slic3r-console-headless PRIVATE
 
 slic3r_add_tracy(slic3r-console-headless)
 
-target_link_libraries(slic3r-console-headless PRIVATE
+# Link everything this configuration provides; GUI-only targets are skipped.
+function(_headless_link)
+    foreach(_dep IN LISTS ARGN)
+        if (TARGET ${_dep})
+            target_link_libraries(slic3r-console-headless PRIVATE ${_dep})
+        else ()
+            message(STATUS "headless console: target ${_dep} unavailable, skipping")
+        endif ()
+    endforeach()
+endfunction()
+
+_headless_link(
     slic3r-domain
     slic3r-base
     slic3r-biz-algorithms
@@ -619,6 +636,7 @@ target_link_libraries(slic3r-console-headless PRIVATE
     nlohmann_json::nlohmann_json
     magic_enum::magic_enum
     expat::expat
+    libexpat
     pugixml::pugixml
     range-v3::range-v3
     libcereal
@@ -630,9 +648,6 @@ target_link_libraries(slic3r-console-headless PRIVATE
     CURL::libcurl
     Boost::filesystem
     Boost::thread
-    libcurl
-    libexpat
-    fastfloat
 )
 CEOF
 step "[2b/5] headless console sources written"
@@ -670,21 +685,35 @@ write_shims () {
   cat > "$LIBDWARF_PREFIX/lib/cmake/libdwarf/libdwarfConfig.cmake" <<'CEO'
 include("${CMAKE_CURRENT_LIST_DIR}/libdwarf-targets.cmake" OPTIONAL)
 set(libdwarf_FOUND TRUE)
+if(NOT TARGET libdwarf::dwarf AND EXISTS "${CMAKE_CURRENT_LIST_DIR}/../../../lib/libdwarf.a")
+  add_library(libdwarf::dwarf STATIC IMPORTED)
+  set_target_properties(libdwarf::dwarf PROPERTIES
+    IMPORTED_LOCATION "${CMAKE_CURRENT_LIST_DIR}/../../../lib/libdwarf.a"
+    INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_CURRENT_LIST_DIR}/../../../include")
+endif()
 CEO
   cat > "$LIBDWARF_PREFIX/lib/cmake/libdwarf/libdwarfConfigVersion.cmake" <<'CEO'
 set(PACKAGE_VERSION 0.11.1)
 set(PACKAGE_VERSION_COMPATIBLE TRUE)
 CEO
+  # The installed cpptrace targets file references libdwarf::dwarf, which the
+  # cross build does not export; provide the interface target here instead (the
+  # archive is self contained: libdwarf is bundled into it).
   cat > "$LIBDWARF_PREFIX/lib/cmake/cpptrace/cpptraceConfig.cmake" <<'CEO'
-include("${CMAKE_CURRENT_LIST_DIR}/cpptrace-targets.cmake" OPTIONAL)
-include("${CMAKE_CURRENT_LIST_DIR}/cpptraceTargets.cmake" OPTIONAL)
-if(NOT TARGET cpptrace::cpptrace AND NOT TARGET cpptrace)
-  add_library(cpptrace INTERFACE IMPORTED)
-  add_library(cpptrace::cpptrace ALIAS cpptrace)
-  set_target_properties(cpptrace PROPERTIES
-    INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_CURRENT_LIST_DIR}/../../..;${CMAKE_CURRENT_LIST_DIR}/../../../include")
-endif()
 set(cpptrace_FOUND TRUE)
+if(NOT TARGET cpptrace::cpptrace)
+  add_library(cpptrace::cpptrace INTERFACE IMPORTED)
+  set_target_properties(cpptrace::cpptrace PROPERTIES
+    INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_CURRENT_LIST_DIR}/../../..;${CMAKE_CURRENT_LIST_DIR}/../../../include")
+  if(EXISTS "${CMAKE_CURRENT_LIST_DIR}/../../../lib/libcpptrace.a")
+    set_target_properties(cpptrace::cpptrace PROPERTIES
+      INTERFACE_LINK_LIBRARIES "${CMAKE_CURRENT_LIST_DIR}/../../../lib/libcpptrace.a")
+  endif()
+endif()
+if(NOT TARGET cpptrace)
+  add_library(cpptrace INTERFACE IMPORTED)
+  set_target_properties(cpptrace PROPERTIES INTERFACE_LINK_LIBRARIES cpptrace::cpptrace)
+endif()
 CEO
   cat > "$LIBDWARF_PREFIX/lib/cmake/cpptrace/cpptraceConfigVersion.cmake" <<'CEO'
 set(PACKAGE_VERSION 1.0.4)
