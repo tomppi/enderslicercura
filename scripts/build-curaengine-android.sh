@@ -9,7 +9,7 @@ NDK_PATH="${ANDROID_NDK_HOME:-${ANDROID_NDK_ROOT:-}}"
 CURA_ENGINE_TAG="5.14.0-alpha.0"
 # 5.14.0-alpha.0 has no release tag yet; pin the exact main-branch commit so the
 # Android ARM64 build stays reproducible until a stable tag is cut.
-CURA_ENGINE_COMMIT="a27787d68548bef9725e1126468394fb8a661e1b"
+CURA_ENGINE_COMMIT="e5b844b3b851caf282f2dc5d49cf66058bd8059e"
 
 if [[ -z "$NDK_PATH" ]]; then
   echo "ANDROID_NDK_HOME or ANDROID_NDK_ROOT must point to Android NDK 28.2.13676358" >&2
@@ -126,37 +126,61 @@ application_cpp.write_text(text)
 command_line_cpp = root / "src" / "communication" / "CommandLine.cpp"
 replace(
     command_line_cpp,
+    '''                    const auto transformation = last_settings->get<Matrix4x3D>("mesh_rotation_matrix"); // The transformation applied to the model when loaded.''',
+    '''                    auto transformation = last_settings->get<Matrix4x3D>("mesh_rotation_matrix"); // The transformation applied to the model when loaded.
+                    // EnderSlicer: Cura's frontend applies the complete affine
+                    // transform before converting vertices to integer microns.
+                    // mesh_position is too late for that because MeshGroup
+                    // finalization runs after the STL loader has rounded each
+                    // transformed vertex. Carry the translation in Matrix4x3D.
+                    // The fallback command transport never sends the translation
+                    // keys (zero affine): guard the reads so the engine keeps
+                    // stock behavior instead of failing on absent settings.
+                    if (last_settings->has("enderslicer_mesh_translation_x", true))
+                    {
+                        transformation.m[3][0] = last_settings->get<double>("enderslicer_mesh_translation_x");
+                        transformation.m[3][1] = last_settings->get<double>("enderslicer_mesh_translation_y");
+                        transformation.m[3][2] = last_settings->get<double>("enderslicer_mesh_translation_z");
+                    }''',
+)
+
+# The resolved-settings (-r) loader reads mesh_rotation_matrix from the
+# mesh-group settings but never applies the affine translation before the STL
+# loader rounds vertices. Carry it the same way as the -l command path.
+command_line_cpp = root / "src" / "communication" / "CommandLine.cpp"
+replace(
+    command_line_cpp,
     '''                        const auto transformation = slice->scene.mesh_groups[mesh_group_index].settings.get<Matrix4x3D>("mesh_rotation_matrix");
                         const auto extruder_nr = slice->scene.mesh_groups[mesh_group_index].settings.get<size_t>("extruder_nr");''',
     '''                        auto transformation = slice->scene.mesh_groups[mesh_group_index].settings.get<Matrix4x3D>("mesh_rotation_matrix");
-                        // EnderSlicer: Cura's frontend applies the complete affine
-                        // transform before converting vertices to integer microns.
-                        // mesh_position is too late for that because MeshGroup
-                        // finalization runs after the STL loader has rounded each
-                        // transformed vertex. Carry the translation in Matrix4x3D.
-                        transformation.m[3][0] = slice->scene.mesh_groups[mesh_group_index].settings.get<double>("enderslicer_mesh_translation_x");
-                        transformation.m[3][1] = slice->scene.mesh_groups[mesh_group_index].settings.get<double>("enderslicer_mesh_translation_y");
-                        transformation.m[3][2] = slice->scene.mesh_groups[mesh_group_index].settings.get<double>("enderslicer_mesh_translation_z");
+                        // EnderSlicer: carry the affine translation in the transform
+                        // so it is applied before the STL loader rounds vertices.
+                        if (slice->scene.mesh_groups[mesh_group_index].settings.has("enderslicer_mesh_translation_x", true))
+                        {
+                            transformation.m[3][0] = slice->scene.mesh_groups[mesh_group_index].settings.get<double>("enderslicer_mesh_translation_x");
+                            transformation.m[3][1] = slice->scene.mesh_groups[mesh_group_index].settings.get<double>("enderslicer_mesh_translation_y");
+                            transformation.m[3][2] = slice->scene.mesh_groups[mesh_group_index].settings.get<double>("enderslicer_mesh_translation_z");
+                        }
                         const auto extruder_nr = slice->scene.mesh_groups[mesh_group_index].settings.get<size_t>("extruder_nr");''',
 )
+
+# The stock resolved-settings (-r) loader adds each model section to the shared
+# mesh-group settings but constructs the loaded Mesh with only the extruder
+# stack as parent, so settable_per_mesh values (infill_mesh, magic_mesh_type,
+# support_interface_enable, ...) never reach the slicer per mesh. Copy the
+# model's values onto the loaded Mesh right after loading - still required on
+# the 5.14.0-alpha.0 e5b844b3 pin.
+command_line_cpp = root / "src" / "communication" / "CommandLine.cpp"
 replace(
     command_line_cpp,
-    '''                        if (! loadMeshIntoMeshGroup(
-                                &slice->scene.mesh_groups[mesh_group_index],
-                                settings_folder / model_name,
-                                transformation,
-                                slice->scene.extruders[extruder_nr].settings_))
+    '''                        if (! loadMeshIntoMeshGroup(&slice->scene.mesh_groups[mesh_group_index], model_name.c_str(), transformation, slice->scene.extruders[extruder_nr].settings_))
                         {
-                            spdlog::error("Failed to load model: {} (error number {})", model_name, errno);
+                            spdlog::error("Failed to load model: {}. (error number {})", model_name, errno);
                             exit(1);
                         }''',
-    '''                        if (! loadMeshIntoMeshGroup(
-                                &slice->scene.mesh_groups[mesh_group_index],
-                                settings_folder / model_name,
-                                transformation,
-                                slice->scene.extruders[extruder_nr].settings_))
+    '''                        if (! loadMeshIntoMeshGroup(&slice->scene.mesh_groups[mesh_group_index], model_name.c_str(), transformation, slice->scene.extruders[extruder_nr].settings_))
                         {
-                            spdlog::error("Failed to load model: {} (error number {})", model_name, errno);
+                            spdlog::error("Failed to load model: {}. (error number {})", model_name, errno);
                             exit(1);
                         }
 

@@ -512,70 +512,18 @@ internal class PrusaNozzlePathRenderer : GLSurfaceView.Renderer {
         value: PrusaNozzlePath,
         onProgress: ((Float) -> Unit)? = null,
         onWindow: (kind: Float, winStart: Int, winLast: Int, sx: Float, sy: Float, sz: Float, ex: Float, ey: Float, ez: Float, runWidth: Float, runHeight: Float) -> Unit,
-    ) {
-        val source = value.moves
-        val n = value.moveCount
-        val stride = 1
-        var moveIndex = 0
-        while (moveIndex < n) {
-            if (onProgress != null && moveIndex - lastReportedMove >= BUILD_PROGRESS_STRIDE) {
-                lastReportedMove = moveIndex
-                onProgress((moveIndex.toFloat() / max(n, 1)).coerceIn(0f, 1f))
-            }
-            val oi = moveIndex * PrusaNozzlePath.VALUES_PER_MOVE
-            val kind = source[oi + PrusaNozzlePath.KIND]
-            val runWidth = source[oi + PrusaNozzlePath.WIDTH]
-            val runHeight = source[oi + PrusaNozzlePath.HEIGHT]
-            // Natural run: same kind + collinear + same width marker.
-            var runEnd = moveIndex + 1
-            var fdx = source[oi + PrusaNozzlePath.X2] - source[oi + PrusaNozzlePath.X1]
-            var fdy = source[oi + PrusaNozzlePath.Y2] - source[oi + PrusaNozzlePath.Y1]
-            val firstLen = sqrt(fdx * fdx + fdy * fdy)
-            if (firstLen > 1e-7f) { fdx /= firstLen; fdy /= firstLen }
-            while (runEnd < n &&
-                source[runEnd * PrusaNozzlePath.VALUES_PER_MOVE + PrusaNozzlePath.KIND] == kind &&
-                source[runEnd * PrusaNozzlePath.VALUES_PER_MOVE + PrusaNozzlePath.WIDTH] == runWidth) {
-                val ro = runEnd * PrusaNozzlePath.VALUES_PER_MOVE
-                var ndx = source[ro + PrusaNozzlePath.X2] - source[ro + PrusaNozzlePath.X1]
-                var ndy = source[ro + PrusaNozzlePath.Y2] - source[ro + PrusaNozzlePath.Y1]
-                val nlen = sqrt(ndx * ndx + ndy * ndy)
-                if (nlen > 1e-7f && fdx * ndx / nlen + fdy * ndy / nlen < TURN_SPLIT_DOT) break
-                runEnd++
-            }
-            // Emit windows of up to stride moves inside this run.
-            var winStart = moveIndex
-            while (winStart < runEnd) {
-                val winLast = min(winStart + stride, runEnd) - 1
-                val wo = winStart * PrusaNozzlePath.VALUES_PER_MOVE
-                val wlo = winLast * PrusaNozzlePath.VALUES_PER_MOVE
-                onWindow(
-                    kind, winStart, winLast,
-                    source[wo + PrusaNozzlePath.X1], source[wo + PrusaNozzlePath.Y1], source[wo + PrusaNozzlePath.Z1],
-                    source[wlo + PrusaNozzlePath.X2], source[wlo + PrusaNozzlePath.Y2], source[wlo + PrusaNozzlePath.Z2],
-                    runWidth, runHeight,
-                )
-                winStart = winLast + 1
-            }
-            moveIndex = runEnd
-        }
-    }
+    ) = RibbonPathGeometry.forEachWindow(
+        value.moves,
+        value.moveCount,
+        { index -> value.moves[index * PrusaNozzlePath.VALUES_PER_MOVE + PrusaNozzlePath.WIDTH] },
+        0f,
+        onProgress,
+        onWindow,
+    )
 
     /** Print-speed range over all extrusion moves (for speed-color scaling). */
-    private fun speedRange(value: PrusaNozzlePath): Pair<Float, Float> {
-        val source = value.moves
-        val n = value.moveCount
-        var minSpeed = Float.POSITIVE_INFINITY
-        var maxSpeed = Float.NEGATIVE_INFINITY
-        for (m in 0 until n) {
-            val o = m * PrusaNozzlePath.VALUES_PER_MOVE
-            if (source[o + PrusaNozzlePath.KIND] == PrusaNozzlePath.Kind.EXTRUSION.code) {
-                val speed = source[o + PrusaNozzlePath.SPEED]
-                minSpeed = min(minSpeed, speed)
-                maxSpeed = max(maxSpeed, speed)
-            }
-        }
-        return Pair(minSpeed, maxSpeed)
-    }
+    private fun speedRange(value: PrusaNozzlePath): Pair<Float, Float> =
+        RibbonPathGeometry.speedRange(value.moves, value.moveCount)
     /**
      * Unit LEFT normal of the sweep at polyline point [k] - the point between
      * moves k-1 and k - as the miter of the two adjacent segment tangents.
@@ -585,55 +533,14 @@ internal class PrusaNozzlePathRenderer : GLSurfaceView.Renderer {
      * windows and run boundaries. Degenerate 180-degree reversals fall back to
      * the incoming tangent so the corner stays a butt joint, not a crossing.
      */
-    private fun boundaryNormal(k: Int, source: FloatArray): Pair<Float, Float> {
-        val n = source.size / PrusaNozzlePath.VALUES_PER_MOVE
-        val inO = if (k > 0) (k - 1) * PrusaNozzlePath.VALUES_PER_MOVE else -1
-        val outO = if (k < n) k * PrusaNozzlePath.VALUES_PER_MOVE else -1
-        val inKind = inO >= 0 && source[inO + PrusaNozzlePath.KIND] == PrusaNozzlePath.Kind.EXTRUSION.code
-        val outKind = outO >= 0 && source[outO + PrusaNozzlePath.KIND] == PrusaNozzlePath.Kind.EXTRUSION.code
-        val i1x = if (inO >= 0) source[inO + PrusaNozzlePath.X2] - source[inO + PrusaNozzlePath.X1] else 0f
-        val i1y = if (inO >= 0) source[inO + PrusaNozzlePath.Y2] - source[inO + PrusaNozzlePath.Y1] else 0f
-        val o1x = if (outO >= 0) source[outO + PrusaNozzlePath.X2] - source[outO + PrusaNozzlePath.X1] else 0f
-        val o1y = if (outO >= 0) source[outO + PrusaNozzlePath.Y2] - source[outO + PrusaNozzlePath.Y1] else 0f
-        val iLen = sqrt(i1x * i1x + i1y * i1y)
-        val oLen = sqrt(o1x * o1x + o1y * o1y)
-        if (inKind && outKind && extrusionSeg(k - 1, k, source)) {
-            // One continuous chain: miter of the two segment tangents, so the
-            // closing window and the opening window share the exact same cap.
-            val mx = if (iLen > 1e-7f) i1x / iLen else 0f
-            val my = if (iLen > 1e-7f) i1y / iLen else 0f
-            val m2 = (mx + o1x / oLen) * (mx + o1x / oLen) + (my + o1y / oLen) * (my + o1y / oLen)
-            if (m2 >= 1e-3f && oLen > 1e-7f) {
-                val len = sqrt(m2)
-                return Pair(-(my + o1y / oLen) / len, (mx + o1x / oLen) / len)
-            }
-            if (iLen > 1e-7f) return Pair(-i1y / iLen, i1x / iLen)
-            if (oLen > 1e-7f) return Pair(-o1y / oLen, o1x / oLen)
-            return Pair(1f, 0f)
-        }
-        // Not one continuous chain (run boundary, travel, width step): each
-        // side of the boundary caps with ITS OWN tangent so bead ends stay
-        // perpendicular to the bead and are never skewed by a neighbour.
-        if (inKind && iLen > 1e-7f) return Pair(-i1y / iLen, i1x / iLen)
-        if (outKind && oLen > 1e-7f) return Pair(-o1y / oLen, o1x / oLen)
-        return Pair(1f, 0f)
-    }
-    /**
-     * True when moves [a] and [b] are consecutive extrusion segments of one
-     * continuous chain: same kind, same width marker, and the end of [a]
-     * within [CHAIN_EPS] of the start of [b] (gcode coordinate rounding).
-     */
-    private fun extrusionSeg(a: Int, b: Int, source: FloatArray): Boolean {
-        if (a < 0 || b >= source.size / PrusaNozzlePath.VALUES_PER_MOVE) return false
-        val oa = a * PrusaNozzlePath.VALUES_PER_MOVE
-        val ob = b * PrusaNozzlePath.VALUES_PER_MOVE
-        if (source[oa + PrusaNozzlePath.KIND] != PrusaNozzlePath.Kind.EXTRUSION.code) return false
-        if (source[ob + PrusaNozzlePath.KIND] != PrusaNozzlePath.Kind.EXTRUSION.code) return false
-        if (source[oa + PrusaNozzlePath.WIDTH] != source[ob + PrusaNozzlePath.WIDTH]) return false
-        val dx = source[ob + PrusaNozzlePath.X1] - source[oa + PrusaNozzlePath.X2]
-        val dy = source[ob + PrusaNozzlePath.Y1] - source[oa + PrusaNozzlePath.Y2]
-        return dx * dx + dy * dy <= CHAIN_EPS * CHAIN_EPS
-    }
+    private fun boundaryNormal(k: Int, source: FloatArray): Pair<Float, Float> =
+        RibbonPathGeometry.boundaryNormal(
+            k,
+            source,
+            source.size / PrusaNozzlePath.VALUES_PER_MOVE,
+            { index -> source[index * PrusaNozzlePath.VALUES_PER_MOVE + PrusaNozzlePath.WIDTH] },
+            0f,
+        )
     /**
      * One strip segment (window) of a continuous bead: a box from the window
      * start to its end. [startN] and [endN] are the unit LEFT normals shared
@@ -652,85 +559,16 @@ internal class PrusaNozzlePathRenderer : GLSurfaceView.Renderer {
         startNx: Float, startNy: Float,
         endNx: Float, endNy: Float,
         color: FloatArray,
-    ) {
-        val half = width * 0.5f
-        val px = startNx * half
-        val py = startNy * half
-        val qx = endNx * half
-        val qy = endNy * half
-        // Continuous strip: the end quad of the previous window uses the SAME
-        // boundary normals, so corners coincide at shared boundaries.
-        // Quad corners: a/b at start (offset by START normals), c/d at end
-        // (offset by END normals). Shared boundary => same corner coordinates
-        // in both the closing and opening window.
-        val ax = sx - px; val ay = sy - py
-        val bx = sx + px; val by = sy + py
-        val cx = ex + qx; val cy = ey + qy
-        val dxd = ex - qx; val dyd = ey - qy
-        fun push(vertexCount: Int) {
-            repeat(vertexCount) {
-                colors += color[0]
-                colors += color[1]
-                colors += color[2]
-                colors += color[3]
-            }
-        }
-        // Top face.
-        vertex += ax; vertex += ay; vertex += sz + height
-        vertex += bx; vertex += by; vertex += sz + height
-        vertex += cx; vertex += cy; vertex += ez + height
-        vertex += ax; vertex += ay; vertex += sz + height
-        vertex += cx; vertex += cy; vertex += ez + height
-        vertex += dxd; vertex += dyd; vertex += ez + height
-        repeat(6) { normals += 0f; normals += 0f; normals += 1f }
-        push(6)
-        repeat(6) { ambient += PrusaNozzlePathViewDefaults.TOP_AMBIENT }
-        // Left side face: per-vertex (Gouraud) normals - the start vertices
-        // carry the START boundary normal and the end vertices the END one,
-        // so shading interpolates continuously along the wall instead of
-        // jumping per window (flat-faced banding looked like warped walls).
-        vertex += ax; vertex += ay; vertex += sz
-        vertex += dxd; vertex += dyd; vertex += ez
-        vertex += dxd; vertex += dyd; vertex += ez + height
-        normals += -startNx; normals += -startNy; normals += 0f
-        normals += -endNx; normals += -endNy; normals += 0f
-        normals += -endNx; normals += -endNy; normals += 0f
-        push(3)
-        ambient += PrusaNozzlePathViewDefaults.SIDE_BASE_AMBIENT
-        ambient += PrusaNozzlePathViewDefaults.SIDE_BASE_AMBIENT
-        ambient += PrusaNozzlePathViewDefaults.SIDE_TOP_AMBIENT
-        vertex += ax; vertex += ay; vertex += sz
-        vertex += dxd; vertex += dyd; vertex += ez + height
-        vertex += ax; vertex += ay; vertex += sz + height
-        normals += -startNx; normals += -startNy; normals += 0f
-        normals += -endNx; normals += -endNy; normals += 0f
-        normals += -startNx; normals += -startNy; normals += 0f
-        push(3)
-        ambient += PrusaNozzlePathViewDefaults.SIDE_BASE_AMBIENT
-        ambient += PrusaNozzlePathViewDefaults.SIDE_TOP_AMBIENT
-        ambient += PrusaNozzlePathViewDefaults.SIDE_TOP_AMBIENT
-        // Right side face: same Gouraud normals on the + side.
-        vertex += bx; vertex += by; vertex += sz
-        vertex += cx; vertex += cy; vertex += ez
-        vertex += cx; vertex += cy; vertex += ez + height
-        normals += startNx; normals += startNy; normals += 0f
-        normals += endNx; normals += endNy; normals += 0f
-        normals += endNx; normals += endNy; normals += 0f
-        push(3)
-        ambient += PrusaNozzlePathViewDefaults.SIDE_BASE_AMBIENT
-        ambient += PrusaNozzlePathViewDefaults.SIDE_BASE_AMBIENT
-        ambient += PrusaNozzlePathViewDefaults.SIDE_TOP_AMBIENT
-        vertex += bx; vertex += by; vertex += sz
-        vertex += cx; vertex += cy; vertex += ez + height
-        vertex += bx; vertex += by; vertex += sz + height
-        normals += startNx; normals += startNy; normals += 0f
-        normals += endNx; normals += endNy; normals += 0f
-        normals += startNx; normals += startNy; normals += 0f
-        push(3)
-        ambient += PrusaNozzlePathViewDefaults.SIDE_BASE_AMBIENT
-        ambient += PrusaNozzlePathViewDefaults.SIDE_TOP_AMBIENT
-        ambient += PrusaNozzlePathViewDefaults.SIDE_TOP_AMBIENT
-    }
+    ) = RibbonPathGeometry.addStrip(
+        vertex, normals, colors, ambient,
+        sx, sy, sz, ex, ey, ez,
+        width, height,
+        startNx, startNy, endNx, endNy,
+        color,
+        PrusaNozzlePathViewDefaults.TOP_AMBIENT,
+        PrusaNozzlePathViewDefaults.SIDE_BASE_AMBIENT,
+        PrusaNozzlePathViewDefaults.SIDE_TOP_AMBIENT,
+    )
     private fun buildGrid(value: PrusaNozzlePath) {
         val width = max(modelMaxX - modelMinX, 1f)
         val depth = max(modelMaxY - modelMinY, 1f)

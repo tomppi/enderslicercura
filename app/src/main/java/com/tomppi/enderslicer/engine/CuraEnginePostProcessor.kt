@@ -36,6 +36,7 @@ internal object CuraEnginePostProcessor {
         printerEnvelope: PrinterEnvelope,
         amlEnabled: Boolean = false,
         amlMarginMm: Double = 5.0,
+        amlGridPoints: Int = AdaptiveBedMeshInjector.DEFAULT_GRID_POINTS,
     ): Result {
         val workspace = outputFile.parentFile
             ?: error("CuraEngine output path has no parent workspace")
@@ -107,7 +108,7 @@ internal object CuraEnginePostProcessor {
         )
 
         if (amlEnabled) {
-            AdaptiveBedMeshInjector.inject(outputFile, effectiveEnvelope, amlMarginMm)
+            AdaptiveBedMeshInjector.inject(outputFile, effectiveEnvelope, amlMarginMm, amlGridPoints)
         }
         if (resolvedEvents.isEmpty()) {
             return Result(
@@ -129,7 +130,7 @@ internal object CuraEnginePostProcessor {
         )
         val previewResult = runCatching { GcodeLayerPreviewParser.parse(outputFile) }
         if (amlEnabled) {
-            AdaptiveBedMeshInjector.inject(outputFile, effectiveEnvelope, amlMarginMm)
+            AdaptiveBedMeshInjector.inject(outputFile, effectiveEnvelope, amlMarginMm, amlGridPoints)
         }
         return Result(
             summary = summary,

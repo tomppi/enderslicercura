@@ -22,6 +22,28 @@ internal object GcodeCommandPolicy {
         "M400",
     )
 
+    // C29 (mriscoc ProUI): mesh inset for adaptive mesh leveling.
+    // L/R/F/B bound the probe region, N/X/Y the grid density, T/V report
+    // modifiers; A/M/C are flag-only (AML mode, maximize area, center area).
+    private val C29_ARGUMENT_RULES: Map<Char, ReadOnlyArgumentRule> = mapOf(
+        'L' to ReadOnlyArgumentRule(allowFlag = false, numericRange = 0.0..1000.0, integerOnly = true),
+        'R' to ReadOnlyArgumentRule(allowFlag = false, numericRange = 0.0..1000.0, integerOnly = true),
+        'F' to ReadOnlyArgumentRule(allowFlag = false, numericRange = 0.0..1000.0, integerOnly = true),
+        'B' to ReadOnlyArgumentRule(allowFlag = false, numericRange = 0.0..1000.0, integerOnly = true),
+        'N' to ReadOnlyArgumentRule(allowFlag = false, numericRange = 0.0..99.0, integerOnly = true),
+        'X' to ReadOnlyArgumentRule(allowFlag = false, numericRange = 0.0..99.0, integerOnly = true),
+        'Y' to ReadOnlyArgumentRule(allowFlag = false, numericRange = 0.0..99.0, integerOnly = true),
+        'T' to ReadOnlyArgumentRule(allowFlag = false, numericRange = 0.0..100.0, integerOnly = true),
+        'V' to ReadOnlyArgumentRule(allowFlag = false, numericRange = 0.0..4.0, integerOnly = true),
+        'A' to ReadOnlyArgumentRule(allowFlag = true),
+        'M' to ReadOnlyArgumentRule(allowFlag = true),
+        'C' to ReadOnlyArgumentRule(allowFlag = true),
+    )
+
+    private fun requireC29Arguments(command: GcodeCommand.Parsed, consumer: String) {
+        requireReadOnlyArguments(command, consumer, location = "", rules = C29_ARGUMENT_RULES)
+    }
+
     private data class ReadOnlyArgumentRule(
         val allowFlag: Boolean,
         val numericRange: ClosedFloatingPointRange<Double>? = null,
@@ -104,8 +126,11 @@ internal object GcodeCommandPolicy {
             'T' -> require(command.code == 0) {
                 "Unsupported tool change ${command.opcode} at line $lineNumber"
             }
-            'C' -> require(command.code == 29 && command.rawArguments in setOf("", "A")) {
-                "Unsupported C-code ${command.opcode} at line $lineNumber; only C29 A (AML) is allowed"
+            'C' -> {
+                require(command.code == 29) {
+                    "Unsupported C-code ${command.opcode} at line $lineNumber; only C29 (AML) is allowed"
+                }
+                requireC29Arguments(command, "Published G-code at line $lineNumber")
             }
             else -> error(
                 "Unsupported command family ${command.family} at line $lineNumber; " +
@@ -160,8 +185,11 @@ internal object GcodeCommandPolicy {
             'T' -> require(command.code == 0) {
                 "Nozzle Path cannot safely display tool change ${command.opcode}"
             }
-            'C' -> require(command.code == 29 && command.rawArguments in setOf("", "A")) {
-                "Nozzle Path cannot safely display ${command.opcode}; only C29 A (AML) is allowed"
+            'C' -> {
+                require(command.code == 29) {
+                    "Nozzle Path cannot safely display ${command.opcode}; only C29 (AML) is allowed"
+                }
+                requireC29Arguments(command, "Nozzle Path")
             }
             else -> error("Nozzle Path cannot safely display command family ${command.family}")
         }
@@ -213,10 +241,32 @@ internal object GcodeCommandPolicy {
                 location = location,
                 rules = emptyMap(),
             )
+            142 -> {
+                // PrusaSlicer 3.x computes the heatbreak cooling target from the
+                // filament temperature (M142 S36 style) at the start of a print.
+                only('S', 'R')
+                bounded('S', 0.0, 500.0)
+                bounded('R', 0.0, 500.0)
+            }
+            486 -> {
+                // PrusaSlicer 3.x emits M486 S0/S-1 (cancel-object tracking
+                // enable/disable) and M486 A<object name> (register object).
+                only('S', 'A')
+                bounded('S', -1.0, 1.0)
+            }
+            74 -> {
+                // PrusaSlicer 3.x per-layer progress marker (M74 W<percent>).
+                only('W')
+                bounded('W', 0.0, 100.0)
+            }
             73 -> {
-                only('P', 'R')
+                // PrusaSlicer 3.x emits both M73 P/R (progress %, remaining
+                // minutes) and M73 Q/S (alternate progress variant).
+                only('P', 'Q', 'R', 'S')
                 bounded('P', 0.0, 100.0)
+                bounded('Q', 0.0, 100.0)
                 bounded('R', 0.0, 1_000_000.0)
+                bounded('S', 0.0, 1_000_000.0)
             }
             104, 109 -> {
                 only('S', 'R', 'T')

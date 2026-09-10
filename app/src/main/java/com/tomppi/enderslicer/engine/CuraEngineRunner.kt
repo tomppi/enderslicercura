@@ -296,6 +296,7 @@ class CuraEngineRunner(private val context: Context) {
                 printerEnvelope = printerEnvelope,
                 amlEnabled = effectiveSettings.adaptiveMeshLevelingEnabled,
                 amlMarginMm = effectiveSettings.amlMarginMm,
+                amlGridPoints = effectiveSettings.amlGridPoints,
             )
             throwIfInterrupted()
 

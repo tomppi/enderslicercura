@@ -1,6 +1,7 @@
 import java.io.File
 import java.io.InputStream
 import java.net.URI
+import java.util.Properties
 import java.util.zip.GZIPInputStream
 import java.util.zip.ZipFile
 import java.util.zip.ZipInputStream
@@ -50,6 +51,12 @@ android {
         }
         jniLibs {
             useLegacyPackaging = true
+            // The staged Blender engine is linked with -g: ~91% of its 1.37 GB is
+            // DWARF (.debug_info/.debug_str/...), which no runtime path reads. The
+            // trimBlenderEngine task removes those sections in place - the dynamic
+            // and JNI symbols the app enters through are untouched - and AGP must
+            // not strip anything else from it.
+            keepDebugSymbols += setOf("**/libblender_exec.so")
         }
     }
 }
@@ -150,6 +157,190 @@ val verifyDebugApkPrusaContents by tasks.registering {
     }
 }
 
+fun localPropertiesSdkDir(): File? {
+    val file = rootProject.file("local.properties")
+    if (!file.isFile) return null
+    val properties = Properties()
+    file.inputStream().use { properties.load(it) }
+    return properties.getProperty("sdk.dir")?.let { File(it) }
+}
+
+/** The NDK the engine blobs are built with; newer ones also work. */
+val pinnedNdkVersion = "28.2.13676358"
+
+fun newestNdk(sdkRoot: File?): File? {
+    val ndkRoot = sdkRoot?.let { File(it, "ndk") } ?: return null
+    return ndkRoot.resolve(pinnedNdkVersion).takeIf { it.isDirectory }
+        ?: ndkRoot.listFiles()?.filter { it.isDirectory }?.maxByOrNull { it.name }
+}
+
+val ndkDirectory: File by lazy {
+    val fromEnvironment = listOfNotNull(
+        System.getenv("ANDROID_NDK_HOME")?.let { File(it) },
+        System.getenv("ANDROID_NDK_ROOT")?.let { File(it) },
+    ).firstOrNull { it.isDirectory }
+    if (fromEnvironment != null) {
+        fromEnvironment
+    } else {
+        listOfNotNull(
+            newestNdk(System.getenv("ANDROID_HOME")?.let { File(it) }),
+            newestNdk(System.getenv("ANDROID_SDK_ROOT")?.let { File(it) }),
+            newestNdk(localPropertiesSdkDir()),
+        ).firstOrNull { it.isDirectory }
+            ?: error("No Android NDK found; set ANDROID_NDK_HOME or install one for this SDK")
+    }
+}
+
+val blenderEngineBlob = layout.projectDirectory.file("src/main/jniLibs/arm64-v8a/libblender_exec.so")
+
+/** Strips DWARF debug sections from the staged Blender engine (-g linked). */
+val trimBlenderEngine by tasks.registering {
+    group = "build"
+    description = "Removes DWARF debug info from the staged Blender engine (no functional change)"
+    outputs.upToDateWhen { false }
+
+    doLast {
+        val blob = blenderEngineBlob.asFile
+        if (!blob.isFile || blob.length() == 0L) {
+            logger.lifecycle("Blender engine is not staged; skipping the debug-info trim")
+            return@doLast
+        }
+
+        val hostDir = sequenceOf("windows-x86_64", "linux-x86_64", "darwin-x86_64")
+            .map { File(ndkDirectory, "toolchains/llvm/prebuilt/$it/bin") }
+            .firstOrNull { it.isDirectory }
+            ?: error("Android NDK toolchain not found under $ndkDirectory")
+        val suffix = if (System.getProperty("os.name").startsWith("Windows")) ".exe" else ""
+        val objcopy = File(hostDir, "llvm-objcopy$suffix")
+        val readelf = File(hostDir, "llvm-readelf$suffix")
+        val nm = File(hostDir, "llvm-nm$suffix")
+        check(objcopy.isFile && readelf.isFile && nm.isFile) {
+            "llvm-objcopy/llvm-readelf/llvm-nm missing in $hostDir"
+        }
+
+        fun run(vararg command: String): String {
+            val process = ProcessBuilder(*command).redirectErrorStream(true).start()
+            val output = process.inputStream.bufferedReader().readText()
+            check(process.waitFor() == 0) {
+                "command failed: ${command.joinToString(" ")}\n$output"
+            }
+            return output
+        }
+
+        val sections = run(readelf.absolutePath, "-S", blob.absolutePath)
+        if (!sections.lineSequence().any { it.contains(".debug_info") }) {
+            logger.lifecycle("Blender engine already trimmed (${blob.length() / 1048576} MB)")
+            return@doLast
+        }
+
+        val jniPrefix = "Java_com_tomppi_enderslicer_nativebridge_BlenderBridge_"
+        val before = blob.length()
+        val symbolsBefore = run(nm.absolutePath, "-D", "--defined-only", blob.absolutePath).lineSequence().count { it.isNotBlank() }
+        val jniBefore = run(nm.absolutePath, "-D", "--defined-only", blob.absolutePath).lineSequence().count { it.contains(jniPrefix) }
+
+        run(objcopy.absolutePath, "--strip-debug", blob.absolutePath)
+
+        val symbolsAfter = run(nm.absolutePath, "-D", "--defined-only", blob.absolutePath).lineSequence().count { it.isNotBlank() }
+        val jniAfter = run(nm.absolutePath, "-D", "--defined-only", blob.absolutePath).lineSequence().count { it.contains(jniPrefix) }
+        check(symbolsAfter == symbolsBefore && jniAfter == jniBefore && jniAfter > 0) {
+            "Blender engine trim changed the dynamic symbol table ($symbolsBefore -> $symbolsAfter, JNI $jniBefore -> $jniAfter)"
+        }
+
+        logger.lifecycle(
+            "Blender engine trimmed: ${before / 1048576} MB -> ${blob.length() / 1048576} MB " +
+                "(dynamic symbols $symbolsAfter, JNI ${jniAfter})"
+        )
+    }
+}
+
+val blenderAssetsDir = layout.projectDirectory.dir("src/main/assets/blender")
+
+/**
+ * Drops data from the staged Blender assets that can never be used on Android:
+ *  - scripts/addons/cycles/lib, the CUDA kernels (cubin, ptx, hipfb, fatbin): CUDA/PTX/OptiX/HIP
+ *    kernels for desktop NVIDIA and AMD GPUs. Android has no CUDA/HIP runtime, so
+ *    Cycles keeps working through its CPU kernels.
+ *  - python/lib/python3.11/{venv,ensurepip} and numpy test suites: developer
+ *    scaffolding that nothing in the embedded interpreter runs.
+ * Set -PblenderKeepGpuKernels=true to keep the GPU kernels.
+ */
+val pruneBlenderAssets = tasks.register("pruneBlenderAssets") {
+    group = "build"
+    description = "Drops Blender assets that are unusable on Android (GPU kernels, dev scaffolding)"
+    outputs.upToDateWhen { false }
+
+    doLast {
+        val assets = blenderAssetsDir.asFile
+        if (!assets.isDirectory) {
+            logger.lifecycle("Blender assets are not staged; skipping the asset prune")
+            return@doLast
+        }
+
+        val keepGpuKernels = (project.findProperty("blenderKeepGpuKernels") as String?)?.toBoolean() ?: false
+        val targets = mutableListOf<File>()
+        if (!keepGpuKernels) {
+            val cyclesLib = File(assets, "scripts/addons/cycles/lib")
+            if (cyclesLib.isDirectory) {
+                targets += cyclesLib.listFiles { file: File ->
+                    file.isFile && file.extension.lowercase() in setOf("cubin", "ptx", "hipfb", "fatbin")
+                }?.toList().orEmpty()
+            }
+        }
+        targets += listOf(
+            File(assets, "python/lib/python3.11/venv"),
+            File(assets, "python/lib/python3.11/ensurepip"),
+        ).filter { it.exists() }
+        val numpyTests = File(assets, "python/lib/python3.11/site-packages/numpy")
+        if (numpyTests.isDirectory) {
+            numpyTests.walkTopDown().filter { it.isDirectory && it.name == "tests" }.forEach { targets += it }
+        }
+
+        var freed = 0L
+        var removed = 0
+        for (target in targets.distinct().sortedByDescending { it.path.length }) {
+            if (!target.exists()) continue
+            freed += if (target.isDirectory) {
+                target.walkTopDown().filter { it.isFile }.sumOf { it.length() }
+            } else {
+                target.length()
+            }
+            if (target.isDirectory) target.deleteRecursively() else target.delete()
+            removed++
+        }
+
+        if (removed == 0) {
+            logger.lifecycle("Blender assets already pruned")
+        } else {
+            logger.lifecycle("Blender assets pruned: ${removed} entries, ${freed / 1048576} MB freed")
+        }
+    }
+}
+
+tasks.named("preBuild") { dependsOn(trimBlenderEngine, pruneBlenderAssets) }
+
+val verifyDebugApkBlenderContents by tasks.registering {
+    group = "verification"
+    description = "Builds the debug APK and verifies the Blender MCP engine lib + assets are packaged"
+    dependsOn("verifyDebugApkPrusaContents")
+    doLast {
+        val apk = layout.buildDirectory.file("outputs/apk/debug/app-debug.apk").get().asFile
+        check(apk.isFile && apk.length() > 0L) { "Debug APK was not created" }
+        ZipFile(apk).use { zip ->
+            val engine = zip.getEntry("lib/arm64-v8a/libblender_exec.so")
+            check(engine != null && engine.size > 40L * 1024 * 1024) {
+                "Debug APK does not contain the ARM64 Blender engine (" + (engine?.size ?: 0L) + " bytes)"
+            }
+            val pythonCount = zip.entries().asSequence().count { it.name.startsWith("assets/blender/python/lib/python3.11/") }
+            check(pythonCount > 1000) {
+                "Debug APK does not contain the Blender python assets (found $pythonCount entries)"
+            }
+            val addon = zip.getEntry("assets/blender/scripts/startup/start_blender_mcp.py")
+            check(addon != null && addon.size > 0L) {
+                "Debug APK does not contain the Blender MCP addon"
+            }
+        }
+    }
+}
 val bumpMeshCommit = "a6ac179149b8a17c71a9469dd4cb6f866c0c01d1"
 val threeVersion = "r170"
 val fflateVersion = "0.8.2"

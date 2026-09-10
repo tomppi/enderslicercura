@@ -21,6 +21,14 @@ class EnderSlicerApplication : Application(), Application.ActivityLifecycleCallb
         super.onCreate()
         registerActivityLifecycleCallbacks(this)
         installCrashLog()
+        // Boot the embedded Blender MCP engine (arm64 devices). Extraction and
+        // engine start are idempotent and run on a background scope; this must
+        // not block first paint. The engine is torn down with the process.
+        com.tomppi.enderslicer.nativebridge.BlenderEngine.ensureStarted(this)
+        // Keep the engine process alive across screen-off/lock: without the
+        // foreground service the OS culls this process when the UI is not
+        // foregrounded, killing the in-process engine mid-generation.
+        com.tomppi.enderslicer.nativebridge.BlenderEngineService.start(this)
     }
 
     /**

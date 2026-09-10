@@ -37,8 +37,9 @@ class PrusaDefaultsDumpTest {
             "M140 S0 ; turn off heatbed\n" +
             "M107 ; turn off fan\n" +
             "M84 ; disable motors"
-        val config = PrusaConfigWriter.render(PrusaSliceSettings(), printer, start, end)
-        val out = File("build/app-defaults.ini")
+        val baseConfig = File("src/main/assets/prusa3-base.json").readText()
+        val config = PrusaConfigWriter.render(PrusaSliceSettings(), printer, start, end, baseConfig)
+        val out = File("build/app-defaults.json")
         out.parentFile?.mkdirs()
         out.writeText(config)
         println("DUMPED " + out.absolutePath)

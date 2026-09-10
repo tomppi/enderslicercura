@@ -716,11 +716,34 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
                     val wez = source[wlo + GcodeNozzlePath.Z2]
                     val wChord = sqrt((wex - wsx) * (wex - wsx) + (wey - wsy) * (wey - wsy))
                     val windowDeltaE = if (runChord > 1e-6f) runDeltaE * (wChord / runChord) else runDeltaE
+                    // Window boundaries are joints of the run: miter inside the
+                    // run so the closing and opening windows share their corner
+                    // coordinates, and a perpendicular cap where the run ends so
+                    // bead ends are never skewed by a neighbour.
+                    val currentDir = RibbonPathGeometry.unitDirection(wex - wsx, wey - wsy)
+                    val previousDir = if (windowStart > moveIndex) {
+                        val po = (windowStart - 1) * GcodeNozzlePath.VALUES_PER_MOVE
+                        RibbonPathGeometry.unitDirection(
+                            source[po + GcodeNozzlePath.X2] - source[po + GcodeNozzlePath.X1],
+                            source[po + GcodeNozzlePath.Y2] - source[po + GcodeNozzlePath.Y1],
+                        )
+                    } else null
+                    val nextDir = if (windowLast + 1 < runEnd) {
+                        val no = (windowLast + 1) * GcodeNozzlePath.VALUES_PER_MOVE
+                        RibbonPathGeometry.unitDirection(
+                            source[no + GcodeNozzlePath.X2] - source[no + GcodeNozzlePath.X1],
+                            source[no + GcodeNozzlePath.Y2] - source[no + GcodeNozzlePath.Y1],
+                        )
+                    } else null
+                    val startNormal = RibbonPathGeometry.jointNormal(previousDir, currentDir)
+                    val endNormal = RibbonPathGeometry.jointNormal(currentDir, nextDir)
                     addRibbonMove(
                         ribbonVertex, ribbonNormal, ribbonColor, ribbonAmbientValues,
                         wsx, wsy, wsz, wex, wey, wez,
                         windowDeltaE,
                         runHeight,
+                        startNormal.first, startNormal.second,
+                        endNormal.first, endNormal.second,
                         color,
                     )
                     extrusionMoves++
@@ -799,6 +822,8 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         ex: Float, ey: Float, ez: Float,
         deltaE: Float,
         parsedLayerHeight: Float,
+        startNx: Float, startNy: Float,
+        endNx: Float, endNy: Float,
         color: FloatArray,
     ) {
         val dx = ex - sx
@@ -813,86 +838,34 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
             filamentArea = filamentArea,
         )
         val height = if (parsedLayerHeight > 0.02f && parsedLayerHeight <= 2.0f) parsedLayerHeight else beadHeight
-        // A degenerate (sub-cutoff) window would leave a hole in the wall;
-        // draw it as a hairline bead so micro-layer prints stay solid. The
-        // inspector keeps the true zero via its own readout path.
+        // A degenerate (sub-cutoff) window would leave a hole in the wall; draw
+        // it as a hairline bead so micro-layer prints stay solid. The inspector
+        // keeps the true zero via its own readout path.
         val render = if (width <= 0f) beadLineWidth * HAIRLINE_WIDTH_RATIO else width
-        val half = render * 0.5f
-        val px = if (length > 1e-4f) -dy / length * half else 0f
-        val py = if (length > 1e-4f) dx / length * half else 0f
-        // Unit perpendicular of the move direction (outward right face).
-        val ux = if (length > 1e-4f) -dy / length else 1f
-        val uy = if (length > 1e-4f) dx / length else 0f
-        // Subtle per-layer tint: odd layers are a touch darker so stacked
-        // beads read as separate layers (the hue still follows speed/z).
+        // Subtle per-layer tint: odd layers are a touch darker so stacked beads
+        // read as separate layers (the hue still follows speed/z). On fine-layer
+        // prints the parity tint would band every micro-layer, so fade it out.
         val level = if (height > 0f) (ez / height).roundToInt() else 0
-        // On fine-layer prints (0.08-0.12 mm) the per-layer parity tint would
-        // band every micro-layer; fade it out so thin layers stack smoothly.
         val parity = if (level and 1 == 0) 1f else {
             if (height < THIN_LAYER_HEIGHT_MM) RIBBON_THIN_LAYER_TINT else RIBBON_LAYER_TINT
         }
-        // Quad corners: a/b on the start segment, c/d on the end segment,
-        // left face = a->d, right face = b->c (top face at + height).
-        val ax = sx - px; val ay = sy - py
-        val bx = sx + px; val by = sy + py
-        val cx = ex + px; val cy = ey + py
-        val dxd = ex - px; val dyd = ey - py
-        // Flat hue per face; the 3-light rig shades top vs sides.
-        fun push(vertexCount: Int) {
-            repeat(vertexCount) {
-                colors += color[0]
-                colors += color[1]
-                colors += color[2]
-                colors += color[3]
-            }
-        }
-
-        // --- Top face (z + height), two triangles; normal +Z.
-        vertex += ax; vertex += ay; vertex += sz + height
-        vertex += bx; vertex += by; vertex += sz + height
-        vertex += cx; vertex += cy; vertex += ez + height
-        vertex += ax; vertex += ay; vertex += sz + height
-        vertex += cx; vertex += cy; vertex += ez + height
-        vertex += dxd; vertex += dyd; vertex += ez + height
-        repeat(6) { normals += 0f; normals += 0f; normals += 1f }
-        push(6)
-        repeat(6) { ambient += parity * TOP_AMBIENT }
-
-        // --- Left side face (normal -u): base corners get contact occlusion.
         // On fine layers the side/top contrast at micro-layer scale creates
-        // scalloped "teeth" along curved rims and radiating streaks on sloped
-        // faces; soften it so micro-beads read as one continuous surface.
+        // scalloped "teeth" along curved rims; soften it so micro-beads read as
+        // one continuous surface.
         val fine = height <= FINE_LAYER_HEIGHT_MM
-        val sideBase = if (fine) FINE_SIDE_BASE_AMBIENT else SIDE_BASE_AMBIENT
-        val sideTop = if (fine) FINE_SIDE_TOP_AMBIENT else SIDE_TOP_AMBIENT
-        val leftBottomAmbient = parity * sideBase
-        val leftTopAmbient = parity * sideTop
-        vertex += ax; vertex += ay; vertex += sz
-        vertex += dxd; vertex += dyd; vertex += ez
-        vertex += dxd; vertex += dyd; vertex += ez + height
-        repeat(3) { normals += -ux; normals += -uy; normals += 0f }
-        push(3)
-        ambient += leftBottomAmbient; ambient += leftBottomAmbient; ambient += leftTopAmbient
-        vertex += ax; vertex += ay; vertex += sz
-        vertex += dxd; vertex += dyd; vertex += ez + height
-        vertex += ax; vertex += ay; vertex += sz + height
-        repeat(3) { normals += -ux; normals += -uy; normals += 0f }
-        push(3)
-        ambient += leftBottomAmbient; ambient += leftTopAmbient; ambient += leftTopAmbient
-
-        // --- Right side face (normal +u).
-        vertex += bx; vertex += by; vertex += sz
-        vertex += cx; vertex += cy; vertex += ez
-        vertex += cx; vertex += cy; vertex += ez + height
-        repeat(3) { normals += ux; normals += uy; normals += 0f }
-        push(3)
-        ambient += leftBottomAmbient; ambient += leftBottomAmbient; ambient += leftTopAmbient
-        vertex += bx; vertex += by; vertex += sz
-        vertex += cx; vertex += cy; vertex += ez + height
-        vertex += bx; vertex += by; vertex += sz + height
-        repeat(3) { normals += ux; normals += uy; normals += 0f }
-        push(3)
-        ambient += leftBottomAmbient; ambient += leftTopAmbient; ambient += leftTopAmbient
+        // Geometry is shared with the Prusa renderer: corners are offset by the
+        // boundary normals of the joint, so this window and its neighbours share
+        // their corner coordinates exactly and walls stay seamless.
+        RibbonPathGeometry.addStrip(
+            vertex, normals, colors, ambient,
+            sx, sy, sz, ex, ey, ez,
+            render, height,
+            startNx, startNy, endNx, endNy,
+            color,
+            parity * TOP_AMBIENT,
+            parity * (if (fine) FINE_SIDE_BASE_AMBIENT else SIDE_BASE_AMBIENT),
+            parity * (if (fine) FINE_SIDE_TOP_AMBIENT else SIDE_TOP_AMBIENT),
+        )
     }
 
     private fun buildGrid(value: GcodeNozzlePath) {

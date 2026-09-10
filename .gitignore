@@ -16,3 +16,24 @@ app/src/main/assets/bumpmesh/
 app/src/main/assets/filasim/
 app/src/main/assets/prusa/
 
+# Session scratch / local-only artifacts
+.fw-src/
+.venv-fw/
+cura/
+screenshot*.png
+scripts/_*.py
+scripts/_*.sh
+docs/suture-walls-concept.png
+docs/zipper-bond-concept.png
+docs/zipper-bond-v2.png
+
+# Blender MCP engine (arm64-only, staged by the engine build; not committed)
+app/src/main/assets/blender/
+native/blender/blender-jniLibs/
+native/blender/blender-gensrc/
+
+# DSH harness session artifacts (renders, STL pulls, APK checks) — never commit
+.dsh-build/
+
+# DSH harness local workspace config — keep local
+.dsh/*

@@ -23,6 +23,8 @@ import com.tomppi.enderslicer.engine.LayerEventType
 import com.tomppi.enderslicer.engine.PrinterEnvelope
 import com.tomppi.enderslicer.engine.SliceArtifactPublisher
 import com.tomppi.enderslicer.mesh.MeshTriangleLimits
+import com.tomppi.enderslicer.nativebridge.BlenderEngine
+import com.tomppi.enderslicer.nativebridge.BlenderEngineService
 import com.tomppi.enderslicer.model.ModelPlacement
 import com.tomppi.enderslicer.model.PrusaConfigImporter
 import com.tomppi.enderslicer.model.PrusaSliceSettings
@@ -183,6 +185,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         restorePersistedState()
+        BlenderEngine.onStlExported = { file -> importBlenderStl(file) }
+    }
+
+    override fun onCleared() {
+        BlenderEngine.shutdown()
+        BlenderEngineService.stop(app)
+        super.onCleared()
     }
 
     fun importStl(uri: Uri) {
@@ -344,6 +353,87 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         },
                         isBusy = false,
                         statusMessage = "Imported ${prepared.source.displayName} as a standalone Part Topo model; inspect and slice it",
+                    )
+                }
+                previousModelPath
+                    ?.takeIf { it != prepared.modelFile.absolutePath }
+                    ?.let(::File)
+                    ?.takeIf { it.parentFile == prepared.modelFile.parentFile }
+                    ?.delete()
+            }.onFailure(::showOperationFailure)
+        }
+    }
+
+    /**
+     * Imports the latest Blender MCP handoff STL (written by the embedded
+     * engine to <filesDir>/blender/exports/). Keeps the previous model on
+     * screen until this import succeeds, matching the generation-loop contract.
+     */
+    fun importBlenderStl(file: File) {
+        if (deferUntilRestoreCompletes { importBlenderStl(file) }) return
+        if (!beginOperation("Importing Blender model…")) return
+        val stateSnapshot = _uiState.value
+        val previousModelPath = stateSnapshot.modelPath
+        viewModelScope.launch {
+            runCatching {
+                val prepared = withContext(Dispatchers.IO) {
+                    val triangleLimit = MeshTriangleLimits.current()
+                    // Stage a private copy: the engine overwrites the export
+                    // file on the next iteration, and the workspace snapshot
+                    // must keep pointing at a stable model file.
+                    val staged = File(File(app.filesDir, "models"), "blender-" + System.nanoTime() + ".stl")
+                    staged.parentFile?.mkdirs()
+                    file.copyTo(staged, overwrite = true)
+                    val mesh = StlParser.parse(staged, file.name, triangleLimit)
+                    val placement = ModelPlacement.centeredOnBed(
+                        mesh = mesh,
+                        bedWidthMm = stateSnapshot.settings.machineWidthMm,
+                        bedDepthMm = stateSnapshot.settings.machineDepthMm,
+                        originAtCenter = stateSnapshot.settings.originAtCenter,
+                    )
+                    PreparedModelImport(
+                        source = mesh,
+                        transformed = placement.transformed(mesh),
+                        modelFile = staged,
+                        placement = placement,
+                        automaticImportedPlacement = false,
+                        mismatchWarning = null,
+                    )
+                }
+                withContext(Dispatchers.IO) {
+                    workspaceStore.save(
+                        workspaceSnapshot(
+                            modelFile = prepared.modelFile,
+                            displayName = prepared.source.displayName,
+                            placement = prepared.placement,
+                            state = stateSnapshot.copy(supportPaint = SupportPaintState()),
+                        ),
+                    )
+                }
+                prepared
+            }.onSuccess { prepared ->
+                sourceMesh = prepared.source
+                importedScene = null
+                _uiState.update { current ->
+                    current.copy(
+                        mesh = prepared.transformed,
+                        modelPath = prepared.modelFile.absolutePath,
+                        modelPlacement = prepared.placement,
+                        supportPaint = SupportPaintState(),
+                        paintMode = SupportPaintMode.NONE,
+                        importedSceneTransformAvailable = false,
+                        importedSceneModelName = null,
+                        sliceResultId = null,
+                        gcodePath = null,
+                        baseGcodePath = null,
+                        layerPreview = null,
+                        layerEvents = emptyList(),
+                        estimatedPrintSeconds = null,
+                        sliceLogPath = null,
+                        sliceDurationMilliseconds = null,
+                        warnings = current.warnings.filterNot { it.startsWith("Imported Cura transform is for") },
+                        isBusy = false,
+                        statusMessage = "Imported ${prepared.source.displayName} from the Blender engine",
                     )
                 }
                 previousModelPath

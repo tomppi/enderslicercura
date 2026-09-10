@@ -1,5 +1,8 @@
 package com.tomppi.enderslicer
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -27,6 +30,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         MeshTriangleLimits.initialize(this)
         enableEdgeToEdge()
+        requestNotificationPermission()
         setContent {
             val engineStore = remember { SlicerEngineStore(applicationContext) }
             var engine by remember { mutableStateOf(engineStore.load()) }
@@ -60,5 +64,18 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    /**
+     * The Blender engine keeper runs a foreground service whose persistent
+     * notification is visible only with the POST_NOTIFICATIONS runtime grant
+     * (Android 13+). Ask once at first launch so users SEE that the engine is
+     * alive with the screen locked; the service still runs (process pinned)
+     * even if the user declines.
+     */
+    private fun requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT < 33) return
+        if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) return
+        requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 0x4E01)
     }
 }
