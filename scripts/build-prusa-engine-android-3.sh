@@ -787,7 +787,16 @@ cmake --build "$BUILD/deps" -j 1 2>&1 | tee /tmp/prusa3-depbuild.log
 write_shims
 
 step "[4/5] console-only PrusaSlicer ($ABI)"
+# ccache keeps the long main-build compiles across CI runs (the checkout always
+# has fresh timestamps, so ninja alone would rebuild everything).
+CCACHE_ARGS=""
+if command -v ccache >/dev/null 2>&1; then
+  ccache --max-size=4G >/dev/null 2>&1 || true
+  CCACHE_ARGS="-DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache"
+  echo "ccache enabled: $(ccache --version | head -1)"
+fi
 cmake -S "$SRC" -B "$BUILD/main" -G Ninja \
+  $CCACHE_ARGS \
   -DCMAKE_TOOLCHAIN_FILE=$TC \
   -DANDROID_ABI=$ABI -DANDROID_PLATFORM=android-29 -DANDROID_STL=c++_static \
   -DCMAKE_BUILD_TYPE=Release \

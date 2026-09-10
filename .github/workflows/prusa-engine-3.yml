@@ -30,12 +30,21 @@ jobs:
           yes | sdkmanager --licenses >/dev/null
           sdkmanager 'ndk;28.2.13676358'
           sudo apt-get update
-          sudo apt-get install -y ninja-build cmake curl tar perl python3 autoconf automake libtool m4 make
+          sudo apt-get install -y ninja-build cmake curl tar perl python3 autoconf automake libtool m4 make ccache
           echo ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT
           echo ANDROID_HOME=$ANDROID_HOME
       # Reuse the (slow, ~50 min) dependency chain across runs. Bump the -vN
       # suffix whenever the deps-part of build-prusa-engine-android-3.sh
       # changes, otherwise a stale bundle is restored.
+      # ccache keeps the (long) main-build compiles across runs even though the
+      # checked-out sources always have fresh timestamps.
+      - name: Restore ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: prusa3-ccache-${{ matrix.abi }}-${{ github.run_id }}
+          restore-keys: |
+            prusa3-ccache-${{ matrix.abi }}-
       - name: Restore PrusaSlicer deps bundle
         uses: actions/cache@v4
         with:
@@ -47,6 +56,9 @@ jobs:
       - name: Build PrusaSlicer 3.0.0-alpha11 console for ${{ matrix.abi }}
         env:
           ANDROID_ABI: ${{ matrix.abi }}
+          CCACHE_DIR: /home/runner/.ccache
+          CCACHE_COMPRESS: "true"
+          CCACHE_MAXSIZE: 4G
           ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/28.2.13676358
           ANDROID_NDK_ROOT: ${{ env.ANDROID_HOME }}/ndk/28.2.13676358
           ANDROID_NDK: ${{ env.ANDROID_HOME }}/ndk/28.2.13676358
@@ -54,6 +66,12 @@ jobs:
           chmod +x scripts/build-prusa-engine-android-3.sh
           set -o pipefail
           scripts/build-prusa-engine-android-3.sh 2>&1 | tee prusa3-build.log
+      - name: Save ccache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.ccache
+          key: prusa3-ccache-${{ matrix.abi }}-${{ github.run_id }}
       - name: Save PrusaSlicer deps bundle
         if: always()
         uses: actions/cache/save@v4
