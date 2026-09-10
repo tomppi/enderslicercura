@@ -33,6 +33,18 @@ jobs:
           sudo apt-get install -y ninja-build cmake curl tar perl python3 autoconf automake libtool m4 make
           echo ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT
           echo ANDROID_HOME=$ANDROID_HOME
+      # Reuse the (slow, ~50 min) dependency chain across runs. Bump the -vN
+      # suffix whenever the deps-part of build-prusa-engine-android-3.sh
+      # changes, otherwise a stale bundle is restored.
+      - name: Cache PrusaSlicer deps bundle
+        uses: actions/cache@v4
+        with:
+          path: |
+            prusa3-build/PrusaSlicer
+            prusa3-build/build/deps/destdir
+            prusa3-build/build/deps/builds
+            prusa3-build/build/deps/dep_*
+          key: prusa3-deps-${{ matrix.abi }}-alpha11-v1
       - name: Build PrusaSlicer 3.0.0-alpha11 console for ${{ matrix.abi }}
         env:
           ANDROID_ABI: ${{ matrix.abi }}
