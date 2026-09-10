@@ -52,7 +52,9 @@ jobs:
             prusa3-build/build/deps/destdir
             prusa3-build/build/deps/builds
             prusa3-build/build/deps/dep_*
-          key: prusa3-deps-${{ matrix.abi }}-alpha11-v1
+          key: prusa3-deps-${{ matrix.abi }}-alpha11-v2
+          restore-keys: |
+            prusa3-deps-${{ matrix.abi }}-alpha11-v1
       - name: Build PrusaSlicer 3.0.0-alpha11 console for ${{ matrix.abi }}
         env:
           ANDROID_ABI: ${{ matrix.abi }}
@@ -80,7 +82,7 @@ jobs:
             prusa3-build/build/deps/destdir
             prusa3-build/build/deps/builds
             prusa3-build/build/deps/dep_*
-          key: prusa3-deps-${{ matrix.abi }}-alpha11-v1
+          key: prusa3-deps-${{ matrix.abi }}-alpha11-v2
       - name: Upload PrusaSlicer 3.0.0-alpha11 Android artifacts
         if: always()
         uses: actions/upload-artifact@v4

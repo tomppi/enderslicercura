@@ -332,6 +332,7 @@ cat > "$CONSOLE_DIR/main.cpp" <<'CEOF'
 #include <nlohmann/json.hpp>
 
 #include "Slic3r/App/Platform/StdMainThreadDispatcher.hpp"
+#include "Slic3r/App/DisplayStrings.hpp"
 #include "Slic3r/Biz/AppInstance/AppInstanceMessageHandlerFactory.hpp"
 #include "Slic3r/Biz/Config/ConfigLoad.hpp"
 #include "Slic3r/Biz/FileLoadingLogic.hpp"
@@ -392,6 +393,49 @@ public:
             }
         }
     }
+};
+
+/// Reports slicing progress the way the CLI does ("NN => stage"), which is what
+/// the Android app parses for its progress bar. The GUI reads the same cache.
+class SlicingProgressListener final : public IStatusCacheChangedListener
+{
+public:
+    explicit SlicingProgressListener(StatusCache& status_cache) :
+        m_status_cache(status_cache)
+    {}
+
+    void watch(const Domain::SlicingId id)
+    {
+        m_slicing_id    = id;
+        m_last_percent  = -1;
+    }
+
+    void on_status_cache_progress_changed(const Domain::SlicingId id) override
+    {
+        if (id != m_slicing_id) {
+            return;
+        }
+
+        const std::optional<Slicing::Status> status = m_status_cache.get_status(id);
+        if (!status.has_value() || !status->progress.has_value()) {
+            return;
+        }
+
+        const int percent = static_cast<int>(status->progress->progress.value);
+        if (percent == m_last_percent) {
+            return;
+        }
+        m_last_percent = percent;
+
+        std::cout << percent << " => "
+                  << App::to_display_string(status->progress->progress_info)
+                  << std::endl;
+    }
+
+private:
+    StatusCache&           m_status_cache;
+    Domain::SlicingId      m_slicing_id;
+    int                    m_last_percent{-1};
 };
 
 /// Mirrors Slic3r::App::init_paths() so the engine finds the bundled presets.
@@ -551,6 +595,10 @@ int main(int argc, char** argv)
     Slicing::SlicingInteractor& slicing_interactor = project_interactor.slicing_interactor();
     StatusCache& status_cache                      = project_interactor.status_cache();
     const Domain::SlicingId slicing_id             = project_interactor.selected_bed_slicing_id();
+
+    SlicingProgressListener progress_listener(status_cache);
+    progress_listener.watch(slicing_id);
+    status_cache.add_listener<IStatusCacheChangedListener>(&progress_listener);
 
     Domain::Project& project                        = project_interactor.selected_project();
     const Domain::ConfigContainer& config_container = project_interactor.selected_config_container();
@@ -955,8 +1003,17 @@ if grep -qE 'libc\+\+_shared|libz\.so|libz3\.so|libTK|libstdc\+\+\.so' "$OUT/nee
   sed 's/^/::error:: /' "$OUT/needed.txt"
   exit 1
 fi
+rm -rf "$OUT/resources"
 mkdir -p "$OUT/resources"
-cp -r "$SRC/resources/." "$OUT/resources/"
+# Slicing needs the profiles; the lua trees back the plugin API. Fonts, icons,
+# shaders, localizations, test data and the web UI belong to the GUI (the app
+# extracts the presets only, so shipping the rest would bloat every download).
+for _resource in presets lua lua_template; do
+  if [ -d "$SRC/resources/$_resource" ]; then
+    cp -r "$SRC/resources/$_resource" "$OUT/resources/"
+  fi
+done
+rm -f "$OUT/resources.tar.gz"
 tar -czf "$OUT/resources.tar.gz" -C "$OUT" resources
 echo "== resources =="
 ls "$OUT/resources" | tr '\n' ' '
