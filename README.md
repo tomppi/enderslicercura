@@ -15,14 +15,6 @@ DuoSlicer (formerly EnderSlicerCura) is an Android-first front end for **both Cu
 - One switcher in **Settings**; the app theme and accent (blue vs orange) follow the active engine, and per-engine profiles stay separate
 - Both engines are cross-compiled for Android from their pinned sources and validated on device: importing a model, slicing it and exporting G-code works on either engine, and both previews parse their G-code dialects
 
-## Comparing the engines
-
-Both engines produce valid G-code for the same printer. Where their previews look different, the cause is the profile rather than the engine:
-
-- **Layer height** drives how blocky a preview looks: the Cura default in the app is `0.2 mm`, a fine Prusa profile can be `0.08 mm`, so the same 48 mm model is drawn with 241 or 599 steps. Both are correct - 0.2 mm prints in a fraction of the time.
-- **Bead width** is known exactly on the Prusa side: PrusaSlicer writes `;WIDTH:` and `;HEIGHT:` per segment, and the preview uses those markers. Cura G-code has no such markers, so widths there are estimated from the extrusion delta and clamped to a band around the configured line width.
-- **Rendering is shared**: the nozzle-path view builds both dialects through the same ribbon geometry (mitred joints, corner-sealed walls, speed-colored beads), so a path that looks coarser is a coarser profile, not a coarser renderer.
-
 ## Importing
 
 The simplest way to reproduce your Cura setup is to save a **project** from Cura Desktop (**File → Save Project…**, a `.3mf`) and import it with **Menu → Import Cura project (.3mf)**. A project bundles the machine definition, quality/material settings and start/end G-code in one file, so DuoSlicer can resolve the same formulas and values Cura uses.
