@@ -121,6 +121,13 @@ rep(root / 'cmake/modules/FindBlosc.cmake',
     '  # zstd cross-build config-version rejects empty-version requests; resolve via -Dzstd_DIR\n  set(zstd_FOUND TRUE)\n  if(NOT TARGET zstd::libzstd)\n    add_library(zstd::libzstd INTERFACE IMPORTED)\n    set_target_properties(zstd::libzstd PROPERTIES INTERFACE_INCLUDE_DIRECTORIES "${Blosc_INCLUDE_DIR}")\n  message(STATUS "DBG-BLOSC INCDIR=[${Blosc_INCLUDE_DIR}] INCDIRS=[${Blosc_INCLUDE_DIRS}] PC=[${PC_Blosc_INCLUDE_DIRS}] PCO=[${PC_Blosc_CFLAGS_OTHER}] PRFX=[${CMAKE_INSTALL_PREFIX}]")\n  if(NOT EXISTS "${Blosc_INCLUDE_DIR}/blosc.h" AND DEFINED CMAKE_INSTALL_PREFIX)\n    set(Blosc_INCLUDE_DIR "${CMAKE_INSTALL_PREFIX}/include")\n    set(Blosc_INCLUDE_DIRS "${Blosc_INCLUDE_DIR}")\n  endif()\n  endif()',
     'FindBlosc: zstd shim + cross include clamp')
 
+# PNG is only source-built by the deps bundle on MSVC/APPLE/Emscripten; Android
+# has no system libpng, so include it in the source build as well.
+rep(root / 'deps/+PNG/PNG.cmake',
+    'if (MSVC OR APPLE OR EMSCRIPTEN)',
+    'if (MSVC OR APPLE OR EMSCRIPTEN OR ANDROID)',
+    'png: build from source on Android')
+
 # Sol2 v3.5.0 calls find_package(Lua 5.4 EXACT); module-mode FindLua ignores
 # CMAKE_PREFIX_PATH (same issue as Boost/Blosc), so point it at the stage dir.
 rep(root / 'deps/+Sol2/Sol2.cmake',
@@ -301,7 +308,7 @@ cmake -S "$SRC/deps" -B "$BUILD/deps" -G Ninja \
   -DCMAKE_TOOLCHAIN_FILE=$TC \
   -DANDROID_ABI=$ABI -DANDROID_PLATFORM=android-24 -DANDROID_STL=c++_shared \
   -DCMAKE_BUILD_TYPE=Release \
-  -DPrusaSlicer_deps_PACKAGE_EXCLUDES='wxWidgets|GLEW|GLFW|SDL2|SDL|OpenCSG|yoga|Tracy|WebView2|Trumpeloeil|libfyaml|yamlCpp|sentry' \
+  -DPrusaSlicer_deps_PACKAGE_EXCLUDES='wxWidgets|GLEW|GLFW|SDL2|SDL|OpenCSG|yoga|WebView2|Trumpeloeil|libfyaml|yamlCpp|sentry' \
   -DCMAKE_POSITION_INDEPENDENT_CODE=ON 2>&1 | tee /tmp/prusa3-depconf.log
 cmake --build "$BUILD/deps" -j 1 2>&1 | tee /tmp/prusa3-depbuild.log
 
