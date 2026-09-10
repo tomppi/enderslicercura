@@ -15,6 +15,24 @@ DuoSlicer (formerly EnderSlicerCura) is an Android-first front end for **both Cu
 - One switcher in **Settings**; the app theme and accent (blue vs orange) follow the active engine, and per-engine profiles stay separate
 - Both engines are cross-compiled for Android from their pinned sources and validated on device: importing a model, slicing it and exporting G-code works on either engine, and both previews parse their G-code dialects
 
+## Screenshots
+
+<p align="center">
+  <img src="docs/screenshots/plate.jpg" width="220" alt="Plate with a model loaded, ready to slice">
+  <img src="docs/screenshots/settings.jpg" width="220" alt="Print settings for the active engine">
+  <img src="docs/screenshots/octoprint.jpg" width="220" alt="OctoPrint setup">
+  <br>
+  <em>Plate &middot; print settings &middot; OctoPrint setup</em>
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/layer-first.jpg" width="220" alt="Layer preview at the first layer">
+  <img src="docs/screenshots/layer-mid.jpg" width="220" alt="Layer preview mid print, coloured by speed">
+  <img src="docs/screenshots/nozzle-path.jpg" width="220" alt="Nozzle path view with travel moves">
+  <br>
+  <em>Layer preview (first layer, mid print) &middot; nozzle path</em>
+</p>
+
 ## Importing
 
 The simplest way to reproduce your Cura setup is to save a **project** from Cura Desktop (**File → Save Project…**, a `.3mf`) and import it with **Menu → Import Cura project (.3mf)**. A project bundles the machine definition, quality/material settings and start/end G-code in one file, so DuoSlicer can resolve the same formulas and values Cura uses.
