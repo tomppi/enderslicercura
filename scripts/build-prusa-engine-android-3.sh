@@ -664,6 +664,8 @@ _headless_link(
     libpgcode
     slic3r-jthread
     libslic3r
+    imgui
+    yoga::yogacore
     fmt::fmt
     nlohmann_json::nlohmann_json
     magic_enum::magic_enum
@@ -779,7 +781,7 @@ cmake -S "$SRC/deps" -B "$BUILD/deps" -G Ninja \
   -DCMAKE_TOOLCHAIN_FILE=$TC \
   -DANDROID_ABI=$ABI -DANDROID_PLATFORM=android-24 -DANDROID_STL=c++_shared \
   -DCMAKE_BUILD_TYPE=Release \
-  -DPrusaSlicer_deps_PACKAGE_EXCLUDES='wxWidgets|GLEW|GLFW|SDL2|SDL|OpenCSG|yoga|WebView2|Trumpeloeil|libfyaml|yamlCpp|sentry' \
+  -DPrusaSlicer_deps_PACKAGE_EXCLUDES='wxWidgets|GLEW|GLFW|SDL2|SDL|OpenCSG|WebView2|Trumpeloeil|libfyaml|yamlCpp|sentry' \
   -DCMAKE_POSITION_INDEPENDENT_CODE=ON 2>&1 | tee /tmp/prusa3-depconf.log
 cmake --build "$BUILD/deps" -j 1 2>&1 | tee /tmp/prusa3-depbuild.log
 
