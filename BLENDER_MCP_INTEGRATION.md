@@ -170,14 +170,26 @@ it; keep the old model until replaced. That is the entire UI contract.
 
 ### 3.5 Build considerations
 
-- The APK grows by ~1.8 GB (1.34 GB lib + 480 MB assets). If the build chokes
-  on the big native lib, enable legacy packaging in `build.gradle.kts`:
-  `packaging { jniLibs { useLegacyPackaging = true } }`.
-- Do NOT strip/optimize `libblender_exec.so` unnecessarily; it is a 1.34 GB
-  blob (prebuilt linker kept all symbols). If size matters later, ask for a
-  release build of the engine wrapper.
-- `libblender_exec.so` was linked with **NDK 28.2** (your pinned NDK). Do not
-  recompile it; it is prebuilt and verified.
+- Two Gradle tasks keep the staged package small without touching behaviour;
+  both are wired into `preBuild` and are idempotent:
+  - `trimBlenderEngine` strips the DWARF sections from `libblender_exec.so`.
+    The blob is linked with `-g`, so ~91% of it is `.debug_*` data that no
+    runtime path reads: 1,369 MB -> 119 MB with the dynamic symbol table
+    (143,595 symbols, including the three `Java_..._BlenderBridge_*` JNI
+    entries) verified identical before/after.
+  - `pruneBlenderAssets` drops data that cannot be used on Android: the
+    CUDA/PTX/OptiX/HIP kernels in `scripts/addons/cycles/lib` (they target
+    desktop NVIDIA/AMD GPUs; Cycles keeps rendering through its CPU kernels),
+    the CPython `venv`/`ensurepip` scaffolding and the numpy test suites:
+    537 MB -> 178 MB.
+  Run `./gradlew :app:trimBlenderEngine :app:pruneBlenderAssets` after staging
+  a fresh engine; pass `-PblenderKeepGpuKernels=true` to keep the GPU kernels.
+- The packaged engine drops from ~1.9 GB to ~0.3 GB. If the build still chokes on
+  the native lib, legacy packaging is enabled in `build.gradle.kts`
+  (`packaging { jniLibs { useLegacyPackaging = true } }`).
+- `libblender_exec.so` was linked with **NDK 28.2** (the pinned NDK) and is
+  prebuilt: never recompile it. Stripping debug info is not a recompile - the
+  debug sections are pure metadata and the change is reversible by relinking.
 
 ### 3.6 What NOT to touch
 
