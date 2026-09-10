@@ -189,10 +189,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         BlenderEngine.onStlExported = { file -> importBlenderStl(file) }
     }
 
+    /**
+     * The Blender engine deliberately outlives the UI. Tearing down the UI used
+     * to shut the engine down and stop its keeper service, which left the two in
+     * states they could not recover from together: the engine kept running (it
+     * lives on a detached thread inside the process) while the keeper - the
+     * foreground service that pins the process so Android cannot cull it - was
+     * gone, and the notification with it. Now both survive, so the engine, its
+     * MCP socket and the loaded scene are still there when the app comes back.
+     * Use [stopBlenderEngine] to end it deliberately.
+     */
     override fun onCleared() {
+        super.onCleared()
+    }
+
+    /** Explicitly ends the Blender engine and its keeper service. */
+    fun stopBlenderEngine() {
         BlenderEngine.shutdown()
         BlenderEngineService.stop(app)
-        super.onCleared()
+        _uiState.update { it.copy(statusMessage = "Blender engine stopped") }
     }
 
     fun importStl(uri: Uri) {
@@ -1736,6 +1751,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             runCatching {
                 withContext(Dispatchers.IO) {
+                    // The engine may have been stopped explicitly, or the keeper
+                    // may have been reclaimed while the app was in the background.
+                    BlenderEngine.ensureStarted(app)
+                    BlenderEngineService.start(app)
                     BlenderModelHandoff.publish(
                         blenderRoot = File(app.filesDir, "blender"),
                         source = File(path),

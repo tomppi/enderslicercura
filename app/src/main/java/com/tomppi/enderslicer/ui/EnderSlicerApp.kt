@@ -33,6 +33,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Info
@@ -386,6 +387,15 @@ fun EnderSlicerApp(
                                         viewModel.sendModelToBlender()
                                     },
                                     enabled = state.mesh != null && !state.isBusy,
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Stop Blender engine") },
+                                    leadingIcon = { Icon(Icons.Filled.Close, contentDescription = null) },
+                                    onClick = {
+                                        plateOverflowExpanded = false
+                                        viewModel.stopBlenderEngine()
+                                    },
+                                    enabled = !state.isBusy,
                                 )
                                 HorizontalDivider()
                                 plateOverflowItems { plateOverflowExpanded = false }
