@@ -273,7 +273,7 @@ CEO
 set(PACKAGE_VERSION 1.0.4)
 set(PACKAGE_VERSION_COMPATIBLE TRUE)
 CEO
-  echo "SHIM-BEGIN"; ls -R "$LIBDWARF_PREFIX/lib/cmake" 2>&1 | head -40; echo "SHIM-END"
+  echo "SHIM-BEGIN"; ls -R "$LIBDWARF_PREFIX/lib/cmake" 2>&1 | head -40 || true; echo "SHIM-END"
   mkdir -p "$LIBDWARF_PREFIX/lib/cmake/zstd"
   cat > "$LIBDWARF_PREFIX/lib/cmake/zstd/zstdConfig.cmake" <<'CEO'
 include("${CMAKE_CURRENT_LIST_DIR}/zstd-targets.cmake" OPTIONAL)
@@ -293,7 +293,7 @@ CEO
 }
 write_shims
 
-echo "SHIM-BEGIN"; ls -R "$LIBDWARF_PREFIX/lib/cmake" 2>&1 | head -40; echo "SHIM-END"
+
 
 step "[3/5] dependency bundle (deps/ ExternalProject chain)"
 mkdir -p "$PREFIX"
@@ -353,4 +353,4 @@ echo "== resources =="
 ls "$OUT/resources" | tr '\n' ' '
 echo
 echo PRUSA-ENGINE-3-READY
-file "$OUT/prusa-slicer" | head -1
+file "$OUT/prusa-slicer" | head -1 || true
