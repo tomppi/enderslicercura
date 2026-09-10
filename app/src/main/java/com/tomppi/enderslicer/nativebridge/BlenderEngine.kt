@@ -127,7 +127,7 @@ object BlenderEngine {
     }
 
     /**
-     * Tailscale interface IPv4 (CGNAT 100.64.0.0/10, e.g. 100.72.208.101 on
+     * Tailscale interface IPv4 (CGNAT 100.64.0.0/10, e.g. 100.x.y.z on
      * tun1). When present, bind the MCP socket to this address so the host
      * (and any tailnet peer) can reach it directly -- no adb forward needed.
      * Falls back to null => localhost (adb forward flow).
