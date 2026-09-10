@@ -39,8 +39,10 @@ else
   fi
   echo "Using workflow run $RUN_ID"
 
-  ARTIFACT_ID=$(ARTIFACT_NAME="$ARTIFACT_NAME" api "https://api.github.com/repos/$REPO/actions/runs/$RUN_ID/artifacts" \
-    | python3 -c 'import json,os,sys; want=os.environ["ARTIFACT_NAME"]; matches=[a for a in json.load(sys.stdin)["artifacts"] if a["name"]==want]; print(matches[0]["id"] if matches else "")')
+  # The name is passed as an argument: an env assignment on the left of a pipe
+  # only applies to that command, so the reader would not see it.
+  ARTIFACT_ID=$(api "https://api.github.com/repos/$REPO/actions/runs/$RUN_ID/artifacts" \
+    | python3 -c 'import json,sys; want=sys.argv[1]; matches=[a for a in json.load(sys.stdin)["artifacts"] if a["name"]==want]; print(matches[0]["id"] if matches else "")' "$ARTIFACT_NAME")
   if [ -z "$ARTIFACT_ID" ]; then
     echo "::error::run $RUN_ID has no artifact named $ARTIFACT_NAME"
     exit 1
