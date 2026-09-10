@@ -164,12 +164,6 @@ rep(root / 'src/slic3r-shared/src/Slic3r/Biz/RemovableDrive/RemovableDriveServic
     '    return true;\n}\n} // namespace',
     '    return true;\n}\n#endif // __ANDROID__\n} // namespace',
     'removable drive: close the Android guard')
-# The GUI-free subset of slic3r-shared still includes Theme.hpp, which needs
-# imgui headers; the bundled target is otherwise only added for GUI builds.
-rep(root / 'bundled_deps/CMakeLists.txt',
-    'if (SLIC3R_GUI)\n    add_subdirectory(imgui)\nendif ()',
-    '# imgui is used by the GUI and by the headless console (Theme.hpp).\nadd_subdirectory(imgui)',
-    'bundled deps: imgui for the console')
 # PrusaSlicer 3.0 builds its CLI only when SLIC3R_GUI is on (slic3r-app-cli links
 # the ImGui/Plater slic3r-shared library). Build a headless console instead that
 # links the GUI-free engine layers; the platform layer is GUI-free apart from the
@@ -637,9 +631,20 @@ endforeach()
 # yoga ships a config package only (used by the Yoga UI headers).
 find_package(yoga CONFIG QUIET)
 
+# imgui headers are needed by Theme.hpp. Adding the bundled target would drag
+# glfw3/SDL2/OpenGL finds into this GUI-free configure, so expose the vendored
+# headers as an interface target instead (the console links no imgui symbols).
+set(_imgui_root "${CMAKE_SOURCE_DIR}/bundled_deps/imgui")
+if (EXISTS "${_imgui_root}/imgui/imgui.h" AND NOT TARGET imgui)
+    add_library(imgui INTERFACE IMPORTED)
+    set_target_properties(imgui PROPERTIES
+        INTERFACE_INCLUDE_DIRECTORIES "${_imgui_root};${_imgui_root}/imgui")
+endif ()
+
 add_executable(slic3r-console-headless ${_headless_sources})
 
 target_include_directories(slic3r-console-headless PRIVATE
+    "${CMAKE_SOURCE_DIR}/bundled_deps/imgui/imgui"
     "${CMAKE_SOURCE_DIR}/src/slic3r-shared/include"
     "${CMAKE_SOURCE_DIR}/src/slic3r-shared/src"
     "${CMAKE_SOURCE_DIR}/src/slic3r-platform/include"
