@@ -333,6 +333,7 @@ cat > "$CONSOLE_DIR/main.cpp" <<'CEOF'
 
 #include "Slic3r/App/Platform/StdMainThreadDispatcher.hpp"
 #include "Slic3r/App/DisplayStrings.hpp"
+#include "console_services.hpp"
 #include "Slic3r/Biz/AppInstance/AppInstanceMessageHandlerFactory.hpp"
 #include "Slic3r/Biz/Config/ConfigLoad.hpp"
 #include "Slic3r/Biz/FileLoadingLogic.hpp"
@@ -512,8 +513,7 @@ int main(int argc, char** argv)
 
     Platform::PlatformServices& platform_services = Platform::PlatformServices::instance();
     platform_services.set_secret_store(std::make_unique<SecretStoreDummy>());
-    platform_services.set_job_manager(nullptr);
-    platform_services.set_app_instance_message_handler(nullptr);
+    // Setting the dispatcher also creates the timer queue the engine expects.
     platform_services.set_main_thread_dispatcher(
         std::make_unique<App::Platform::StdMainThreadDispatcher>()
     );
@@ -527,6 +527,9 @@ int main(int argc, char** argv)
             platform_services.main_thread_dispatcher()
         )
     );
+    platform_services.set_single_instance_checker(Console::create_single_instance_checker());
+    platform_services.set_app_config_provider(Console::create_app_config_provider());
+    platform_services.set_render_request_handler(Console::create_render_request_handler());
 
     const auto wait_until = [&platform_services](const std::function<bool()>& predicate)
     {
@@ -663,27 +666,144 @@ int main(int argc, char** argv)
     return EXIT_SUCCESS;
 }
 CEOF
-cat > "$CONSOLE_DIR/app_instance_stub.cpp" <<'CEOF'
-// The headless console runs a single instance: no IPC handler is needed, so the
-// platform factories (Win32/Mac/dbus) are replaced by these no-op ones.
+cat > "$CONSOLE_DIR/console_services.hpp" <<'CEOF'
+#pragma once
+
+// Services the desktop app provides through its window / IPC layer. The console
+// supplies console-only implementations of them.
+
+#include "Slic3r/Biz/Platform/IAppConfigProvider.hpp"
+#include "Slic3r/Biz/Platform/IRenderRequestHandler.hpp"
+#include "Slic3r/Biz/Platform/ISingleInstanceChecker.hpp"
+
+#include <memory>
+
+namespace Slic3r::Console {
+
+std::unique_ptr<Biz::Platform::IAppConfigProvider> create_app_config_provider();
+std::unique_ptr<Biz::Platform::ISingleInstanceChecker> create_single_instance_checker();
+
+/// Owned by the process; the platform services only borrow it.
+Biz::Platform::IRenderRequestHandler* create_render_request_handler();
+
+} // namespace Slic3r::Console
+CEOF
+
+cat > "$CONSOLE_DIR/console_services.cpp" <<'CEOF'
+// The platform services hold a message handler, a config provider, a single
+// instance checker and a render handler. Their desktop implementations need
+// dbus / Win32 messages, a lock file and a window, and the accessors assert
+// when they are missing, so the console provides no-op counterparts that are
+// real objects. The engine calls into the message handler while it handles
+// projects and backups.
+#include "console_services.hpp"
+
 #include "Slic3r/Biz/AppInstance/AppInstanceMessageHandlerFactory.hpp"
+#include "Slic3r/Directories.hpp"
+
+#include <boost/filesystem.hpp>
+#include <boost/system/error_code.hpp>
 
 namespace Slic3r::Biz::AppInstance {
 
+namespace {
+
+class NullAppInstanceMessageSender final : public AbstractAppInstanceMessageSender
+{
+public:
+    void multicast_message(const std::string&, const std::string&, size_t, void*) override {}
+    void broadcast_message(const std::string&, const std::string&, size_t, void*) override {}
+};
+
+class NullAppInstanceMessageHandler final : public AbstractAppInstanceMessageHandler
+{
+public:
+    using AbstractAppInstanceMessageHandler::AbstractAppInstanceMessageHandler;
+
+    void init(void*) override {}
+    void multicast_message(const std::string&, const std::string&) override {}
+    void on_becoming_primary_instance() override {}
+};
+
+} // namespace
+
 std::unique_ptr<AbstractAppInstanceMessageSender> create_app_instance_message_sender()
 {
-    return nullptr;
+    return std::make_unique<NullAppInstanceMessageSender>();
 }
 
 std::unique_ptr<AbstractAppInstanceMessageHandler> create_app_instance_message_handler(
-    Platform::IMainThreadDispatcher&
+    Platform::IMainThreadDispatcher& dispatcher
 )
 {
-    return nullptr;
+    return std::make_unique<NullAppInstanceMessageHandler>(dispatcher);
 }
 
 } // namespace Slic3r::Biz::AppInstance
+
+namespace Slic3r::Console {
+
+namespace {
+
+/// The desktop implementation is backed by AppServices, which the console does
+/// not start. Only STEP import reads these values, so the schema defaults from
+/// AppConfig.cpp are reported and the setter side is a no-op.
+class ConsoleAppConfigProvider final : public Biz::Platform::IAppConfigProvider
+{
+public:
+    boost::filesystem::path download_dir() const override
+    {
+        namespace fs = boost::filesystem;
+        const fs::path dir = fs::path(Slic3r::data_dir()) / "downloads";
+        boost::system::error_code ec;
+        fs::create_directories(dir, ec);
+        return dir;
+    }
+
+    bool get_show_step_import_parameters() const override { return true; }
+    void set_show_step_import_parameters(bool) override {}
+    double get_step_linear_precision() const override { return 0.005; }
+    void set_step_linear_precision(double) override {}
+    double get_step_angle_precision() const override { return 1.; }
+    void set_step_angle_precision(double) override {}
+};
+
+/// Nothing is rendered, so nothing has to be repainted.
+class NullRenderRequestHandler final : public Biz::Platform::IRenderRequestHandler
+{
+public:
+    void request_render() override {}
+};
+
+/// One process is never competing with another instance of itself.
+class ConsoleSingleInstanceChecker final : public Biz::Platform::ISingleInstanceChecker
+{
+public:
+    bool is_another_running() override { return false; }
+    bool is_primary_instance() override { return true; }
+};
+
+} // namespace
+
+std::unique_ptr<Biz::Platform::IAppConfigProvider> create_app_config_provider()
+{
+    return std::make_unique<ConsoleAppConfigProvider>();
+}
+
+std::unique_ptr<Biz::Platform::ISingleInstanceChecker> create_single_instance_checker()
+{
+    return std::make_unique<ConsoleSingleInstanceChecker>();
+}
+
+Biz::Platform::IRenderRequestHandler* create_render_request_handler()
+{
+    static NullRenderRequestHandler handler;
+    return &handler;
+}
+
+} // namespace Slic3r::Console
 CEOF
+
 cat > "$CONSOLE_DIR/CMakeLists.txt" <<'CEOF'
 # Headless console for the Android bundle.
 #
@@ -691,7 +811,7 @@ cat > "$CONSOLE_DIR/CMakeLists.txt" <<'CEOF'
 # ImGui/Plater library, see src/CMakeLists.txt). This target links the GUI-free
 # engine layers instead, so the console can be cross-compiled for Android.
 
-set(_headless_sources main.cpp app_instance_stub.cpp)
+set(_headless_sources main.cpp console_services.cpp)
 
 # The business-logic layer (and the app services it uses) lives in slic3r-shared,
 # whose library target also carries the ImGui/Plater code. Compile the GUI-free
