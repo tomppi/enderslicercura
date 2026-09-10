@@ -26,6 +26,13 @@ if [ ! -d "$SRC/.git" ]; then
   for i in 1 2 3; do git clone --depth 1 --branch "$TAG" https://github.com/prusa3d/PrusaSlicer.git "$SRC" && break; rm -rf "$SRC"; done
 fi
 
+# The restored deps cache may carry a source tree with our patches applied (or an
+# older revision of them): reset to the pristine checkout before patching again.
+if [ -d "$SRC/.git" ]; then
+  git -C "$SRC" checkout -- .
+  git -C "$SRC" clean -fdq
+fi
+
 step "[2/5] patch deps system for Android"
 python3 - "$SRC" <<'PY'
 from pathlib import Path
