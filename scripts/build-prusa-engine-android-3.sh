@@ -3,7 +3,7 @@
 # Builds the full dependency chain through the upstream deps/ ExternalProject
 # system, then the console-only PrusaSlicer. ANDROID_ABI selects the target.
 set -euo pipefail
-trap 'rc=$?; echo "::error::prusa3 engine build failed (exit $rc)"; if [ -f /tmp/prusa3-ninja.log ]; then echo "::error::--- ninja tail ---"; tail -20 /tmp/prusa3-ninja.log | sed "s/^/::error::/"; fi; if [ -f /tmp/prusa3-depbuild.log ]; then echo "::error::--- deps tail ---"; tail -20 /tmp/prusa3-depbuild.log | sed "s/^/::error::/"; fi; exit $rc' ERR
+trap 'rc=$?; echo "::error::prusa3 engine build failed (exit $rc)"; if [ -f /tmp/prusa3-ninja.log ]; then echo "::error::--- ninja errors ---"; grep -E "fatal error|error generated|FAILED:|undefined reference|ld: error" /tmp/prusa3-ninja.log | head -60 | sed "s/^/::error::/"; echo "::error::--- ninja tail ---"; tail -25 /tmp/prusa3-ninja.log | sed "s/^/::error::/"; fi; if [ -f /tmp/prusa3-depbuild.log ]; then echo "::error::--- deps tail ---"; tail -20 /tmp/prusa3-depbuild.log | sed "s/^/::error::/"; fi; exit $rc' ERR
 
 ABI="${ANDROID_ABI:-arm64-v8a}"
 TAG="version_3.0.0-alpha11"
@@ -60,6 +60,25 @@ rep(root / 'deps/CMakeLists.txt',
     '    set(DEP_CMAKE_OPTS "-DCMAKE_POSITION_INDEPENDENT_CODE=ON")',
     '    set(DEP_CMAKE_OPTS "-DCMAKE_POSITION_INDEPENDENT_CODE=ON;-DANDROID_ABI=${ANDROID_ABI};-DANDROID_PLATFORM=${ANDROID_PLATFORM};-DANDROID_STL=${ANDROID_STL};-DCMAKE_FIND_ROOT_PATH=${${PROJECT_NAME}_DEP_INSTALL_PREFIX}")',
     'deps: forward ANDROID_ABI to dep projects')
+
+# Lua's makefile takes CC from the environment. The bare NDK clang defaults to
+# the host target, so hand it the arch specific NDK wrapper instead.
+rep(root / 'deps/+Lua/Lua.cmake',
+    '    list(APPEND LUA_ENV "CC=${CMAKE_C_COMPILER}")',
+    '''    if (ANDROID)
+        get_filename_component(_lua_ndk_bin "${CMAKE_C_COMPILER}" DIRECTORY)
+        if (ANDROID_ABI STREQUAL "arm64-v8a")
+            set(_lua_cc "${_lua_ndk_bin}/aarch64-linux-android24-clang")
+        elseif (ANDROID_ABI STREQUAL "x86_64")
+            set(_lua_cc "${_lua_ndk_bin}/x86_64-linux-android24-clang")
+        elseif (ANDROID_ABI STREQUAL "armeabi-v7a")
+            set(_lua_cc "${_lua_ndk_bin}/armv7a-linux-androideabi24-clang")
+        endif ()
+    else ()
+        set(_lua_cc "${CMAKE_C_COMPILER}")
+    endif ()
+    list(APPEND LUA_ENV "CC=${_lua_cc}")''',
+    'lua: android cc wrapper')
 
 # gmplib.org / mpfr.org are unreachable from GitHub runners; mirror on ftp.gnu.org.
 rep(root / 'deps/+GMP/GMP.cmake',
@@ -447,7 +466,7 @@ int main(int argc, char** argv)
         prepare_datadirs(datadir);
     }
 
-    PlatformServices& platform_services = PlatformServices::instance();
+    Platform::PlatformServices& platform_services = Platform::PlatformServices::instance();
     platform_services.set_secret_store(std::make_unique<SecretStoreDummy>());
     platform_services.set_job_manager(nullptr);
     platform_services.set_app_instance_message_handler(nullptr);
@@ -596,6 +615,27 @@ int main(int argc, char** argv)
     return EXIT_SUCCESS;
 }
 CEOF
+cat > "$CONSOLE_DIR/app_instance_stub.cpp" <<'CEOF'
+// The headless console runs a single instance: no IPC handler is needed, so the
+// platform factories (Win32/Mac/dbus) are replaced by these no-op ones.
+#include "Slic3r/Biz/AppInstance/AppInstanceMessageHandlerFactory.hpp"
+
+namespace Slic3r::Biz::AppInstance {
+
+std::unique_ptr<AbstractAppInstanceMessageSender> create_app_instance_message_sender()
+{
+    return nullptr;
+}
+
+std::unique_ptr<AbstractAppInstanceMessageHandler> create_app_instance_message_handler(
+    Platform::IMainThreadDispatcher&
+)
+{
+    return nullptr;
+}
+
+} // namespace Slic3r::Biz::AppInstance
+CEOF
 cat > "$CONSOLE_DIR/CMakeLists.txt" <<'CEOF'
 # Headless console for the Android bundle.
 #
@@ -603,19 +643,42 @@ cat > "$CONSOLE_DIR/CMakeLists.txt" <<'CEOF'
 # ImGui/Plater library, see src/CMakeLists.txt). This target links the GUI-free
 # engine layers instead, so the console can be cross-compiled for Android.
 
-set(_headless_sources main.cpp)
+set(_headless_sources main.cpp app_instance_stub.cpp)
 
 # The business-logic layer (and the app services it uses) lives in slic3r-shared,
-# whose library target also carries the ImGui/Plater code. Compile the sources
-# that do not reference the GUI libraries into this target directly.
-file(GLOB_RECURSE _headless_candidates
-    "${CMAKE_SOURCE_DIR}/src/slic3r-shared/src/Slic3r/Biz/*.cpp"
-    "${CMAKE_SOURCE_DIR}/src/slic3r-shared/src/Slic3r/App/*.cpp"
-)
+# whose library target also carries the ImGui/Plater code. Compile the GUI-free
+# part of that target's source list directly into this target instead.
+#
+# The list is read from the real target instead of globbing the directory: the
+# tree also holds sources upstream does not compile (disabled by commenting them
+# out) and variant specific ones that only build in their own configuration.
+file(READ "${CMAKE_SOURCE_DIR}/src/slic3r-shared/CMakeLists.txt" _shared_cmake)
+string(REGEX REPLACE "#[^\n]*" "" _shared_cmake "${_shared_cmake}")
+string(REGEX MATCHALL "src/Slic3r/[A-Za-z0-9_./+-]+\\.cpp" _headless_candidates "${_shared_cmake}")
+list(REMOVE_DUPLICATES _headless_candidates)
+list(TRANSFORM _headless_candidates PREPEND "${CMAKE_SOURCE_DIR}/src/slic3r-shared/")
 
 foreach(_candidate ${_headless_candidates})
-    file(READ "${_candidate}" _content)
-    if (_content MATCHES "imgui|<GL/|GLES|wx/|libvgcode|Slic3r/App/Render|Slic3r/App/Plater|Slic3r/App/Yoga|Slic3r/App/Imgui|Slic3r/App/Preview|Slic3r/App/View|Slic3r/App/ToolBar|Slic3r/App/Browser|Slic3r/App/Scene|Slic3r/App/Undo")
+    # Windows/macOS implementations and the desktop IPC factories are not part of
+    # this build. The Linux implementations are __ANDROID__ aware and compile as
+    # they are, so they stay in.
+    if (_candidate MATCHES "(Win32|Mac)\\.cpp$")
+        continue()
+    endif ()
+    if (_candidate MATCHES "AppInstanceMessageHandler(Factory)?(Linux|Win32|Mac)\\.cpp$")
+        continue()
+    endif ()
+
+    # The shared library picks exactly one YAML adapter via SLIC3R_YAML.
+    if (_candidate MATCHES "YamlAdapter(Libfyaml|YamlCpp)\\.cpp$")
+        continue()
+    endif ()
+
+    # Sources that include a GUI toolkit or a desktop only library cannot be part
+    # of this target. Only include directives are inspected: source text may
+    # mention e.g. "GLES" or "imgui" inside strings and comments.
+    file(STRINGS "${_candidate}" _gui_includes REGEX "^[ \\t]*#[ \\t]*include.*(<GL/|<GLES/|<wx/|<Windows[.]h|<dbus/|libvgcode|Slic3r/App/(Render|Plater|Yoga|Imgui|Preview|View|ToolBar|Browser|Scene|Undo)/)")
+    if (_gui_includes)
         continue()
     endif ()
 
@@ -624,12 +687,20 @@ endforeach()
 
 # Third-party dependencies of the business logic; the GUI libraries normally pull
 # these in, so this target resolves them itself.
-foreach(_package nlohmann_json magic_enum pugixml cereal expat CURL PNG JPEG TBB Boost ZLIB)
+foreach(_package nlohmann_json magic_enum pugixml cereal expat CURL PNG JPEG TBB Boost ZLIB libdeflate)
     find_package(${_package} QUIET)
 endforeach()
 
 # yoga ships a config package only (used by the Yoga UI headers).
 find_package(yoga CONFIG QUIET)
+
+# libassert (through slic3r-base) links cpptrace, which resolves DWARF symbols
+# from libdwarf. Both provide config packages; ask for them here so the imported
+# targets exist in this directory too.
+find_package(cpptrace CONFIG QUIET)
+# libdwarf's link interface references zstd::libzstd_static.
+find_package(zstd CONFIG QUIET)
+find_package(libdwarf CONFIG QUIET)
 
 # imgui headers are needed by Theme.hpp. Adding the bundled target would drag
 # glfw3/SDL2/OpenGL finds into this GUI-free configure, so expose the vendored
@@ -651,6 +722,37 @@ target_include_directories(slic3r-console-headless PRIVATE
     "${CMAKE_SOURCE_DIR}/src/slic3r-render/include"
     "$<TARGET_PROPERTY:libslic3r,SOURCE_DIR>/src"
 )
+
+# The shared library selects its YAML backend at configure time and passes the
+# matching define to its sources; this target compiles those sources itself.
+if ("${SLIC3R_YAML}" STREQUAL "ryml")
+    find_package(ryml CONFIG REQUIRED)
+    target_link_libraries(slic3r-console-headless PRIVATE ryml::ryml)
+    target_compile_definitions(slic3r-console-headless PRIVATE SLIC3R_YAML_RYML)
+else ()
+    message(FATAL_ERROR "The headless console expects SLIC3R_YAML=ryml, got '${SLIC3R_YAML}'.")
+endif ()
+
+# Option driven defines the shared library sets for the sources compiled here.
+if (SLIC3R_ENABLE_FORMAT_STEP)
+    target_compile_definitions(slic3r-console-headless PRIVATE SLIC3R_ENABLE_FORMAT_STEP=1)
+    get_target_property(OCCT_TYPE OCCTWrapper TYPE)
+    if (OCCT_TYPE STREQUAL "MODULE_LIBRARY")
+        add_dependencies(slic3r-console-headless OCCTWrapper)
+        # A MODULE library cannot be linked; the include directory is enough.
+        target_include_directories(slic3r-console-headless PRIVATE "${CMAKE_SOURCE_DIR}/src/occt_wrapper")
+    else ()
+        target_link_libraries(slic3r-console-headless PRIVATE OCCTWrapper)
+    endif ()
+endif ()
+
+if (SLIC3R_ENABLE_WIN10_MESH_REPAIR)
+    target_compile_definitions(slic3r-console-headless PRIVATE SLIC3R_ENABLE_WIN10_MESH_REPAIR=1)
+endif ()
+
+if (SLIC3R_DEBUG_PRESET_CACHE)
+    target_compile_definitions(slic3r-console-headless PRIVATE SLIC3R_DEBUG_PRESET_CACHE=1)
+endif ()
 
 slic3r_add_tracy(slic3r-console-headless)
 
@@ -679,6 +781,7 @@ _headless_link(
     slic3r-jthread
     libslic3r
     imgui
+    fastfloat
     yoga::yogacore
     fmt::fmt
     nlohmann_json::nlohmann_json
@@ -688,6 +791,9 @@ _headless_link(
     pugixml::pugixml
     range-v3::range-v3
     libcereal
+    libdeflate::libdeflate_static
+    cpptrace::cpptrace
+    libdwarf::dwarf
     TBB::tbb
     TBB::tbbmalloc
     ZLIB::ZLIB
@@ -795,7 +901,7 @@ cmake -S "$SRC/deps" -B "$BUILD/deps" -G Ninja \
   -DCMAKE_TOOLCHAIN_FILE=$TC \
   -DANDROID_ABI=$ABI -DANDROID_PLATFORM=android-24 -DANDROID_STL=c++_shared \
   -DCMAKE_BUILD_TYPE=Release \
-  -DPrusaSlicer_deps_PACKAGE_EXCLUDES='wxWidgets|GLEW|GLFW|SDL2|SDL|OpenCSG|WebView2|Trumpeloeil|libfyaml|yamlCpp|sentry' \
+  -DPrusaSlicer_deps_PACKAGE_EXCLUDES='wxWidgets|GLEW|GLFW|SDL2|SDL|OpenCSG|WebView2|Trumpeloeil|libfyaml|sentry' \
   -DCMAKE_POSITION_INDEPENDENT_CODE=ON 2>&1 | tee /tmp/prusa3-depconf.log
 cmake --build "$BUILD/deps" -j 1 2>&1 | tee /tmp/prusa3-depbuild.log
 
@@ -826,7 +932,7 @@ cmake -S "$SRC" -B "$BUILD/main" -G Ninja \
   "-DCMAKE_CXX_FLAGS=-isystem $DEST/include" \
   "-DCMAKE_EXE_LINKER_FLAGS=-nostdlib++ -Wl,-Bstatic -lz -lc++_static -lc++abi -Wl,-Bdynamic" \
   2>&1 | tee /tmp/prusa3-mainconf.log
-ninja -C "$BUILD/main" slic3r-console-headless -j8 2>&1 | tee /tmp/prusa3-ninja.log
+ninja -C "$BUILD/main" -k 0 slic3r-console-headless -j8 2>&1 | tee /tmp/prusa3-ninja.log
 # Link hygiene: the NDK sysroot provides libstdc++.so / libz.so stubs; the console
 # must not depend on them. Drop -lstdc++ (static libc++ is used) and force -lz to
 # resolve statically. The FIRST ninja invocation regenerates build.ninja.
@@ -835,7 +941,7 @@ sed -i 's/ -lstdc++ /  /g' "$BIN"
 sed -i 's/ -lz / -Wl,-Bstatic -lz -Wl,-Bdynamic /g' "$BIN"
 sed -i "s#${DEST}/lib/libz.so##g" "$BIN"
 rm -f "$BUILD/main/src/slic3r-console-headless/slic3r-console-headless"
-ninja -C "$BUILD/main" slic3r-console-headless -j8 2>&1 | tee /tmp/prusa3-ninja.log
+ninja -C "$BUILD/main" -k 0 slic3r-console-headless -j8 2>&1 | tee /tmp/prusa3-ninja.log
 
 step "[5/5] package $ABI"
 mkdir -p "$OUT"
