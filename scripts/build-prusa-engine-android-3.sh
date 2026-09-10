@@ -186,7 +186,7 @@ rep(root / 'src/slic3r-platform/CMakeLists.txt',
     'platform: no OpenGL canvas when headless')
 rep(root / 'src/slic3r-platform/CMakeLists.txt',
     'target_link_libraries(slic3r-platform PUBLIC slic3r-render slic3r-jthread)',
-    'target_link_libraries(slic3r-platform PUBLIC slic3r-jthread)\n\nif (SLIC3R_GUI)\n    target_link_libraries(slic3r-platform PUBLIC slic3r-render)\nendif ()',
+    'target_link_libraries(slic3r-platform PUBLIC slic3r-jthread)\n\nif (SLIC3R_GUI)\n    target_link_libraries(slic3r-platform PUBLIC slic3r-render)\nelse ()\n    # Headless: slic3r-render is GUI-only, but the platform layer still includes\n    # its headers (ScreenInfo) plus the base/domain layers it used to pull in.\n    target_link_libraries(slic3r-platform PUBLIC slic3r-base slic3r-domain)\n    target_include_directories(slic3r-platform PUBLIC ${CMAKE_SOURCE_DIR}/src/slic3r-render/include)\nendif ()',
     'platform: render link only for GUI')
 # OpenSSL ships no generic CMake config: its ./Configure must target android-*.
 rep(root / 'deps/+OpenSSL/OpenSSL.cmake',
@@ -634,6 +634,7 @@ target_include_directories(slic3r-console-headless PRIVATE
     "${CMAKE_SOURCE_DIR}/src/slic3r-shared/include"
     "${CMAKE_SOURCE_DIR}/src/slic3r-shared/src"
     "${CMAKE_SOURCE_DIR}/src/slic3r-platform/include"
+    "${CMAKE_SOURCE_DIR}/src/slic3r-render/include"
     "$<TARGET_PROPERTY:libslic3r,SOURCE_DIR>/src"
 )
 
