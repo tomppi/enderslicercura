@@ -34,6 +34,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -374,6 +375,17 @@ fun EnderSlicerApp(
                                         meshLimitOpen = true
                                     },
                                     enabled = !state.isBusy,
+                                )
+                                HorizontalDivider()
+                                MenuSectionLabel("Blender")
+                                DropdownMenuItem(
+                                    text = { Text("Upload model to Blender") },
+                                    leadingIcon = { Icon(Icons.Filled.Share, contentDescription = null) },
+                                    onClick = {
+                                        plateOverflowExpanded = false
+                                        viewModel.sendModelToBlender()
+                                    },
+                                    enabled = state.mesh != null && !state.isBusy,
                                 )
                                 HorizontalDivider()
                                 plateOverflowItems { plateOverflowExpanded = false }

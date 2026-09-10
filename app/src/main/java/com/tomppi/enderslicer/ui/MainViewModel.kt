@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.tomppi.enderslicer.engine.BlenderModelHandoff
 import com.tomppi.enderslicer.conical.ConicalRuntime
 import com.tomppi.enderslicer.data.AppStateStore
 import com.tomppi.enderslicer.data.BuiltInGcode
@@ -1719,6 +1720,36 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         workspaceMutationGeneration.incrementAndGet()
         _uiState.update { it.copy(isBusy = true, statusMessage = message) }
         return true
+    }
+
+        /**
+     * Copies the loaded model into the embedded Blender engine's import
+     * directory so it can be opened and modified there; the engine's existing
+     * export handoff brings the result back into the slicer.
+     */
+    fun sendModelToBlender() {
+        val path = _uiState.value.modelPath
+        if (path.isNullOrBlank()) {
+            showOperationFailure(IllegalStateException("Import a model first"))
+            return
+        }
+        viewModelScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    BlenderModelHandoff.publish(
+                        blenderRoot = File(app.filesDir, "blender"),
+                        source = File(path),
+                    )
+                }
+            }.onSuccess { target ->
+                _uiState.update {
+                    it.copy(
+                        statusMessage = "Sent " + File(path).name +
+                            " to Blender (" + target.parentFile?.name + "/" + target.name + ")",
+                    )
+                }
+            }.onFailure(::showOperationFailure)
+        }
     }
 
     private fun showOperationFailure(error: Throwable) {
