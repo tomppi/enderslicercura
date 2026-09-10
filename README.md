@@ -34,11 +34,24 @@ Imported values are kept as a persistent baseline: they stay in effect until you
 - Editable printer, quality, material, supports, travel, cooling and adhesion settings, per engine
 - Adaptive layers (layer heights step 0.01 mm between 0.14 and 0.26 mm against a 0.2 mm base in shipped G-code), estimated time and repaired G-code metadata; validated CRLF `.gcode` export
 
+### Automatic mesh leveling (AML)
+
+- Exports the mriscoc AML sequence instead of a full-bed probe: `C29 L.. R.. F.. B.. X.. Y..` (mesh inset and grid), then `G29 P1` and `M420 S1`
+- Grid density (3-9 points per axis, default 6) and inset margin (default 5 mm) are per-printer settings; the mesh covers the model footprint, so leveling takes seconds instead of minutes
+- Off by default; needs a printer running mriscoc Ender 3 V2 / S1 Professional firmware with AML2.0 (2026 or later)
+
 ### Model, viewer & texturing
 
 - Move, rotate, **scale by percentage**, center, lay flat and drop-to-bed; build-volume validation before slicing
 - OpenGL model viewer, layer preview and **nozzle-path view with speed-colored beads** (cyan slow → orange fast - the one color mode on both engines)
 - Offline BumpMesh displacement texturing (planar/triplanar/cubic or cylindrical mapping, 100k–8M triangle limit)
+
+### Blender MCP engine
+
+- Blender 3.6 runs in-process in the app (`libblender_exec.so`, arm64-v8a) in background mode with an MCP socket (default port `9876`), so an AI assistant can model and hand an STL straight to the slicer
+- The first run materializes `assets/blender/{python,scripts}` into app storage; new `.stl` files in the export directory are picked up and shown as the latest model
+- The packaged engine is trimmed: DWARF stripped and the GPU-kernel, virtualenv and numpy-test payload removed, with the Cycles CPU path and the MCP addon intact
+- Protocol, runbook and verification evidence: [`BLENDER_MCP_INTEGRATION.md`](BLENDER_MCP_INTEGRATION.md)
 
 ### Print editing
 
