@@ -183,6 +183,15 @@ rep(root / 'src/slic3r-shared/src/Slic3r/Biz/RemovableDrive/RemovableDriveServic
     '    return true;\n}\n} // namespace',
     '    return true;\n}\n#endif // __ANDROID__\n} // namespace',
     'removable drive: close the Android guard')
+# The monitor's worker blocks in wait_for on m_thread_stop_condition, but the
+# members are declared before m_thread, so the condition variable and its mutex
+# are destroyed while the worker is still waking up: bionic then aborts with
+# "pthread_mutex_lock called on a destroyed mutex" as the process exits. Join
+# while every member is still alive.
+rep(root / 'src/slic3r-shared/src/Slic3r/Biz/RemovableDrive/RemovableDriveMonitorLinux.hpp',
+    '        if (m_thread.joinable()) {\n            m_thread.request_stop();\n            m_thread_stop_condition.notify_all();\n        }',
+    '        if (m_thread.joinable()) {\n            m_thread.request_stop();\n            m_thread_stop_condition.notify_all();\n            // The worker waits in wait_for on the condition variable, and the members\n            // above it are destroyed first: join before that happens.\n            m_thread.join();\n        }',
+    'removable drive: join the monitor worker on teardown')
 # PrusaSlicer 3.0 builds its CLI only when SLIC3R_GUI is on (slic3r-app-cli links
 # the ImGui/Plater slic3r-shared library). Build a headless console instead that
 # links the GUI-free engine layers; the platform layer is GUI-free apart from the
@@ -339,6 +348,7 @@ cat > "$CONSOLE_DIR/main.cpp" <<'CEOF'
 #include "Slic3r/Biz/FileLoadingLogic.hpp"
 #include "Slic3r/Biz/Platform/JobManager/JobManager.hpp"
 #include "Slic3r/Biz/Platform/PlatformServices.hpp"
+#include "Slic3r/Biz/Preset/IO/BundlePaths.hpp"
 #include "Slic3r/Biz/ProjectInteractor.hpp"
 #include "Slic3r/Biz/SecretStoreDummy.hpp"
 #include "Slic3r/Biz/StatusCache.hpp"
@@ -366,6 +376,23 @@ public:
     }
 
     void handle_enqueued_requests() override {}
+};
+
+/// The interactor's background stores keep using the main thread dispatcher, so
+/// it has to be closed before the interactor is destroyed - the same order the
+/// reference CLI uses in its destructor. Declare the guard after the interactor
+/// so it is destroyed first.
+class DispatcherGuard
+{
+public:
+    explicit DispatcherGuard(Platform::PlatformServices& services) : m_services(services) {}
+    ~DispatcherGuard() { m_services.main_thread_dispatcher().close(); }
+
+    DispatcherGuard(const DispatcherGuard&)            = delete;
+    DispatcherGuard& operator=(const DispatcherGuard&) = delete;
+
+private:
+    Platform::PlatformServices& m_services;
 };
 
 /// Watches the export job so the console can block until the G-code was written.
@@ -551,7 +578,16 @@ int main(int argc, char** argv)
         thumbnail_generator
     );
 
-    // Configuration: the app passes a full "--save" document, so no preset bundle lookup.
+    // Load the vendor bundles from the datadir. Without them the workbench has no
+    // vendor configs and loading the selected preset dereferences an empty bundle.
+    project_interactor.preset_interactor().load_preset_bundle(
+        Preset::IO::BundlePaths::make_standard_runtime()
+    );
+
+    DispatcherGuard dispatcher_guard(platform_services);
+
+    // The app passes a full "--save" document; the bundles above resolve the
+    // vendor and printer it refers to.
     nlohmann::ordered_json config_document;
     try {
         std::ifstream config_stream(config_path);
