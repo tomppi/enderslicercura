@@ -36,7 +36,7 @@ jobs:
       # Reuse the (slow, ~50 min) dependency chain across runs. Bump the -vN
       # suffix whenever the deps-part of build-prusa-engine-android-3.sh
       # changes, otherwise a stale bundle is restored.
-      - name: Cache PrusaSlicer deps bundle
+      - name: Restore PrusaSlicer deps bundle
         uses: actions/cache@v4
         with:
           path: |
@@ -55,6 +55,16 @@ jobs:
           chmod +x scripts/build-prusa-engine-android-3.sh
           set -o pipefail
           scripts/build-prusa-engine-android-3.sh 2>&1 | tee prusa3-build.log
+      - name: Save PrusaSlicer deps bundle
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            prusa3-build/PrusaSlicer
+            prusa3-build/build/deps/destdir
+            prusa3-build/build/deps/builds
+            prusa3-build/build/deps/dep_*
+          key: prusa3-deps-${{ matrix.abi }}-alpha11-v1
       - name: Upload PrusaSlicer 3.0.0-alpha11 Android artifacts
         if: always()
         uses: actions/upload-artifact@v4

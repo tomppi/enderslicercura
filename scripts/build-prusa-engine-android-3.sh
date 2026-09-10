@@ -134,6 +134,29 @@ rep(root / 'deps/+Sol2/Sol2.cmake',
     '            -DSOL2_BUILD_LUA=OFF',
     '            -DSOL2_BUILD_LUA=OFF\n            -DLUA_INCLUDE_DIR=${${PROJECT_NAME}_DEP_INSTALL_PREFIX}/include\n            -DLUA_LIBRARY=${${PROJECT_NAME}_DEP_INSTALL_PREFIX}/lib/liblua.a',
     'sol2: explicit Lua paths')
+# Bionic has no wordexp(), so Boost.Process cannot be built for Android. Two
+# engine sources use it (post-processing scripts and drive ejection); stub them
+# out for the console build.
+rep(root / 'src/libslic3r/src/libslic3r/GCode/PostProcessor.cpp',
+    '#include <cstdlib>   // getenv()\n#include <sstream>\n#include <boost/process.hpp>\n\nnamespace process = boost::process;\n\nstatic int run_script(const std::string &script, const std::string &gcode, std::string &std_err)\n{',
+    '#include <cstdlib>   // getenv()\n#include <sstream>\n\n#if defined(__ANDROID__)\n// Post-processing scripts are unavailable without Boost.Process.\nstatic int run_script(const std::string &, const std::string &, std::string &std_err)\n{\n    std_err = "Post-processing scripts are not supported by the Android engine.";\n    return -1;\n}\n#else\n#include <boost/process.hpp>\n\nnamespace process = boost::process;\n\nstatic int run_script(const std::string &script, const std::string &gcode, std::string &std_err)\n{',
+    'postprocessor: no boost.process on Android')
+rep(root / 'src/libslic3r/src/libslic3r/GCode/PostProcessor.cpp',
+    '    child.wait();\n    return child.exit_code();\n}\n\n#endif',
+    '    child.wait();\n    return child.exit_code();\n}\n#endif // !__ANDROID__\n\n#endif',
+    'postprocessor: close the Android guard')
+rep(root / 'src/slic3r-shared/src/Slic3r/Biz/RemovableDrive/RemovableDriveServiceLinux.cpp',
+    '#include <boost/process.hpp>',
+    '#if !defined(__ANDROID__)\n#include <boost/process.hpp>\n#endif',
+    'removable drive: no boost.process on Android')
+rep(root / 'src/slic3r-shared/src/Slic3r/Biz/RemovableDrive/RemovableDriveServiceLinux.cpp',
+    'namespace {\nbool eject_inner(const boost::filesystem::path& path)\n{',
+    'namespace {\n#if defined(__ANDROID__)\nbool eject_inner(const boost::filesystem::path&)\n{\n    return true;\n}\n#else\nbool eject_inner(const boost::filesystem::path& path)\n{',
+    'removable drive: stub eject on Android')
+rep(root / 'src/slic3r-shared/src/Slic3r/Biz/RemovableDrive/RemovableDriveServiceLinux.cpp',
+    '    return true;\n}\n} // namespace',
+    '    return true;\n}\n#endif // __ANDROID__\n} // namespace',
+    'removable drive: close the Android guard')
 # PrusaSlicer 3.0 builds its CLI only when SLIC3R_GUI is on (slic3r-app-cli links
 # the ImGui/Plater slic3r-shared library). Build a headless console instead that
 # links the GUI-free engine layers; the platform layer is GUI-free apart from the
