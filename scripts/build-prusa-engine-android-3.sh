@@ -315,6 +315,7 @@ cat > "$CONSOLE_DIR/main.cpp" <<'CEOF'
 #include "Slic3r/Biz/SecretStoreDummy.hpp"
 #include "Slic3r/Biz/StatusCache.hpp"
 #include "Slic3r/Directories.hpp"
+#include "Slic3r/Domain/JobStatus.hpp"
 #include "Slic3r/Domain/Workbench.hpp"
 #include "libslic3r/IThumbnailImageGenerator.hpp"
 
