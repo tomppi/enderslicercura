@@ -7,6 +7,8 @@ import android.opengl.Matrix
 import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
+import com.tomppi.enderslicer.annotation.AnnotationGesture
+import com.tomppi.enderslicer.annotation.Point3
 import com.tomppi.enderslicer.model.PrinterDefinition
 import com.tomppi.enderslicer.supportpaint.SupportPaintMode
 import com.tomppi.enderslicer.supportpaint.SupportPaintState
@@ -48,6 +50,25 @@ class ModelSurfaceView(
     /** Invoked on the UI thread with the model triangle hit by a paint stroke. */
     var onPaintHit: ((MeshPicker.Hit) -> Unit)? = null
 
+    /**
+     * When true, a single-finger drag places or adjusts an annotation point
+     * instead of rotating the model. Two fingers still orbit and zoom, which is
+     * what lets a point be judged for depth while it is still unlocked.
+     */
+    var annotationActive: Boolean = false
+
+    /** Invoked on the UI thread with a resolved annotation gesture. */
+    var onAnnotationGesture: ((AnnotationGesture) -> Unit)? = null
+
+    private val pendingAnnotationCoordinates =
+        java.util.concurrent.atomic.AtomicReference<FloatArray?>(null)
+    private var annotationScheduled = false
+
+    fun setAnnotationOverlay(overlay: AnnotationOverlay?) {
+        queueEvent { modelRenderer.setAnnotationOverlay(overlay) }
+        requestRender()
+    }
+
     /** Invoked on the main thread whenever the turntable yaw/pitch changes. */
     var onOrientationChanged: ((ViewerOrientation) -> Unit)? = null
 
@@ -86,6 +107,7 @@ class ModelSurfaceView(
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
         val painting = paintMode != SupportPaintMode.NONE
+        val annotating = annotationActive && !painting
 
         gestureDetector.onTouchEvent(event)
         scaleDetector.onTouchEvent(event)
@@ -98,6 +120,9 @@ class ModelSurfaceView(
                 if (painting) {
                     pendingPaintCoordinates.set(floatArrayOf(event.x, event.y))
                     schedulePaintPick()
+                } else if (annotating) {
+                    pendingAnnotationCoordinates.set(floatArrayOf(event.x, event.y))
+                    scheduleAnnotationGesture()
                 }
             }
 
@@ -127,6 +152,9 @@ class ModelSurfaceView(
                     if (painting) {
                         pendingPaintCoordinates.set(floatArrayOf(event.x, event.y))
                         schedulePaintPick()
+                    } else if (annotating) {
+                        pendingAnnotationCoordinates.set(floatArrayOf(event.x, event.y))
+                        scheduleAnnotationGesture()
                     } else {
                         val dx = event.x - previousX
                         val dy = event.y - previousY
@@ -182,6 +210,33 @@ class ModelSurfaceView(
         }
     }
 
+    /**
+     * Resolves pending annotation gestures off the UI thread.
+     *
+     * Same shape as [schedulePaintPick]: at most one run is in flight, and
+     * coordinates that arrive during a run are picked up by the drain loop
+     * rather than queued as separate tasks.
+     */
+    private fun scheduleAnnotationGesture() {
+        synchronized(paintPickLock) {
+            if (annotationScheduled) return
+            annotationScheduled = true
+        }
+        paintPickExecutor.execute {
+            try {
+                while (true) {
+                    val coordinates = pendingAnnotationCoordinates.getAndSet(null) ?: break
+                    val gesture = modelRenderer.annotationGestureAt(coordinates[0], coordinates[1])
+                        ?: continue
+                    post { onAnnotationGesture?.invoke(gesture) }
+                }
+            } finally {
+                synchronized(paintPickLock) { annotationScheduled = false }
+                if (pendingAnnotationCoordinates.get() != null) scheduleAnnotationGesture()
+            }
+        }
+    }
+
     override fun onDetachedFromWindow() {
         paintPickExecutor.shutdown()
         super.onDetachedFromWindow()
@@ -230,6 +285,8 @@ private class ModelRenderer(
     @Volatile private var mesh: StlMesh? = null
     private var meshBuffer: FloatBuffer? = null
     private var paintColors: PaintColorBuffer? = null
+    private var annotationOverlay: AnnotationOverlay? = null
+    private var annotationBuffer: FloatBuffer? = null
     // GPU-side (VBO) copies of the mesh; the model renders from VRAM after a
     // single upload, like a game, instead of re-reading CPU memory per frame.
     private var meshVbo = 0
@@ -304,21 +361,60 @@ private class ModelRenderer(
         rebuildColorBuffer()
     }
 
+    private fun cameraSnapshot(currentMesh: StlMesh) = MeshPicker.CameraSnapshot(
+        viewportWidth = viewportWidth.toFloat(),
+        viewportHeight = viewportHeight.toFloat(),
+        yaw = yaw,
+        pitch = pitch,
+        zoom = zoom,
+        panX = panX,
+        panY = panY,
+        meshBounds = currentMesh.bounds,
+    )
+
     fun pickTriangle(screenX: Float, screenY: Float): MeshPicker.Hit? {
         val currentMesh = mesh ?: return null
         return MeshPicker.pick(
             mesh = currentMesh,
             printer = printer,
-            camera = MeshPicker.CameraSnapshot(
-                viewportWidth = viewportWidth.toFloat(),
-                viewportHeight = viewportHeight.toFloat(),
-                yaw = yaw,
-                pitch = pitch,
-                zoom = zoom,
-                panX = panX,
-                panY = panY,
-                meshBounds = currentMesh.bounds,
-            ),
+            camera = cameraSnapshot(currentMesh),
+            screenX = screenX,
+            screenY = screenY,
+        )
+    }
+
+    /**
+     * Resolves a screen position into an annotation placement.
+     *
+     * A hit gives an exact surface point and its triangle. A miss is not
+     * discarded: the ray is intersected with the plane through the model's
+     * centre that faces the camera, so a gesture in empty space still produces
+     * a real 3D position at a predictable depth. Either way the ray travels
+     * with the result, because a later depth-preserving move needs it.
+     */
+    fun annotationGestureAt(screenX: Float, screenY: Float): AnnotationGesture? {
+        val currentMesh = mesh ?: return null
+        val camera = cameraSnapshot(currentMesh)
+        val ray = MeshPicker.ray(printer, camera, screenX, screenY) ?: return null
+        val hit = MeshPicker.pick(currentMesh, printer, camera, screenX, screenY)
+        val bounds = currentMesh.bounds
+        val position = if (hit != null) {
+            Point3(hit.x, hit.y, hit.z)
+        } else {
+            val t = (bounds.centerX - ray.originX) * ray.dirX +
+                (bounds.centerY - ray.originY) * ray.dirY +
+                (bounds.centerZ - ray.originZ) * ray.dirZ
+            Point3(
+                ray.originX + ray.dirX * t,
+                ray.originY + ray.dirY * t,
+                ray.originZ + ray.dirZ * t,
+            )
+        }
+        return AnnotationGesture(
+            position = position,
+            faceIndex = hit?.triangleIndex,
+            rayOrigin = Point3(ray.originX, ray.originY, ray.originZ),
+            rayDirection = Point3(ray.dirX, ray.dirY, ray.dirZ),
             screenX = screenX,
             screenY = screenY,
         )
@@ -401,6 +497,61 @@ private class ModelRenderer(
 
         drawGrid()
         drawMesh()
+        drawAnnotation()
+    }
+
+    /**
+     * Draws the annotation overlay without depth testing.
+     *
+     * Annotation is an overlay on the model, not part of it: a point the user
+     * placed on the far side of the mesh must still be visible, otherwise
+     * orbiting to judge its depth would make it disappear.
+     */
+    private fun drawAnnotation() {
+        val overlay = annotationOverlay ?: return
+        val buffer = annotationBuffer ?: return
+        if (overlay.isEmpty) return
+
+        Matrix.multiplyMM(modelView, 0, view, 0, scene, 0)
+        Matrix.multiplyMM(mvp, 0, projection, 0, modelView, 0)
+
+        GLES20.glUseProgram(lineProgram)
+        val position = GLES20.glGetAttribLocation(lineProgram, "aPosition")
+        val matrix = GLES20.glGetUniformLocation(lineProgram, "uMvpMatrix")
+        val color = GLES20.glGetUniformLocation(lineProgram, "uColor")
+        GLES20.glUniformMatrix4fv(matrix, 1, false, mvp, 0)
+
+        GLES20.glDisable(GLES20.GL_DEPTH_TEST)
+        buffer.position(0)
+        GLES20.glEnableVertexAttribArray(position)
+        GLES20.glVertexAttribPointer(position, 3, GLES20.GL_FLOAT, false, 3 * 4, buffer)
+        if (overlay.lineVertexCount > 0) {
+            GLES20.glUniform4f(color, ANNOTATION_COLOR[0], ANNOTATION_COLOR[1], ANNOTATION_COLOR[2], 1f)
+            GLES20.glDrawArrays(GLES20.GL_LINES, 0, overlay.lineVertexCount)
+        }
+        if (overlay.markerVertexCount > 0) {
+            GLES20.glUniform4f(color, ANNOTATION_MARKER_COLOR[0], ANNOTATION_MARKER_COLOR[1], ANNOTATION_MARKER_COLOR[2], 1f)
+            GLES20.glDrawArrays(GLES20.GL_LINES, overlay.lineVertexCount, overlay.markerVertexCount)
+        }
+        GLES20.glDisableVertexAttribArray(position)
+        GLES20.glEnable(GLES20.GL_DEPTH_TEST)
+    }
+
+    /** Replaces the overlay geometry; null clears it. */
+    fun setAnnotationOverlay(value: AnnotationOverlay?) {
+        annotationOverlay = value
+        val vertices = value?.vertices
+        if (vertices == null || vertices.isEmpty()) {
+            annotationBuffer = null
+            return
+        }
+        val direct = java.nio.ByteBuffer
+            .allocateDirect(vertices.size * Float.SIZE_BYTES)
+            .order(java.nio.ByteOrder.nativeOrder())
+            .asFloatBuffer()
+        direct.put(vertices)
+        direct.position(0)
+        annotationBuffer = direct
     }
 
     private fun rebuildColorBuffer() {
@@ -659,6 +810,8 @@ private class ModelRenderer(
         val BASE_COLOR = floatArrayOf(0.14f, 0.58f, 0.86f)
         val ENFORCER_COLOR = floatArrayOf(0.20f, 0.85f, 0.32f)
         val BLOCKER_COLOR = floatArrayOf(0.90f, 0.25f, 0.22f)
+val ANNOTATION_COLOR = floatArrayOf(1.00f, 0.76f, 0.22f)
+val ANNOTATION_MARKER_COLOR = floatArrayOf(1.00f, 1.00f, 1.00f)
 
         const val MESH_VERTEX_SHADER = """
             uniform mat4 uMvpMatrix;

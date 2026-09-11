@@ -91,6 +91,9 @@ import com.tomppi.enderslicer.model.PrusaSliceSettings
 import com.tomppi.enderslicer.model.SlicerSettings
 import com.tomppi.enderslicer.model.withSettings
 import com.tomppi.enderslicer.nonplanar.NonPlanarSettingsStore
+import com.tomppi.enderslicer.annotation.AnnotationAnchor
+import com.tomppi.enderslicer.annotation.AnnotationGesture
+import com.tomppi.enderslicer.annotation.AnnotationKind
 import com.tomppi.enderslicer.supportpaint.SupportPaintMode
 import com.tomppi.enderslicer.texturizer.BumpMeshActivity
 import com.tomppi.enderslicer.viewer.MeshPicker
@@ -145,6 +148,7 @@ fun EnderSlicerApp(
     var printerChecklistDone by remember(printerChecklistStore) { mutableStateOf(printerChecklistStore.load()) }
     var modelToolsOpen by rememberSaveable { mutableStateOf(false) }
     var supportPaintUiOpen by rememberSaveable { mutableStateOf(false) }
+    var annotationUiOpen by rememberSaveable { mutableStateOf(false) }
     var layerEventsOpen by rememberSaveable { mutableStateOf(false) }
     var meshLimitOpen by rememberSaveable { mutableStateOf(false) }
     var nonPlanarOpen by rememberSaveable { mutableStateOf(false) }
@@ -447,6 +451,7 @@ fun EnderSlicerApp(
                             nonPlanarEnabled = nonPlanarSettings.enabled,
                             conicalEnabled = conicalSettings.enabled,
                             supportPaintUiOpen = supportPaintUiOpen,
+                            annotationUiOpen = annotationUiOpen,
                             onViewerMode = { viewerMode = it },
                             onLayerSelected = { selectedLayerIndex = it },
                             onEditLayerEvents = { layerEventsOpen = true },
@@ -455,6 +460,20 @@ fun EnderSlicerApp(
                             onCloseSupportPaintUi = {
                                 viewModel.setPaintMode(SupportPaintMode.NONE)
                                 supportPaintUiOpen = false
+                            },
+                            onAnnotationGesture = viewModel::onAnnotationGesture,
+                            annotationActions = AnnotationActions(
+                                onLock = viewModel::lockAnnotationPoint,
+                                onUndo = viewModel::undoAnnotation,
+                                onClear = viewModel::clearAnnotation,
+                                onFinish = viewModel::finishAnnotationChain,
+                                onCloseChain = viewModel::closeAnnotationChain,
+                                onSave = viewModel::saveAnnotation,
+                                onKind = viewModel::setAnnotationKind,
+                            ),
+                            onCloseAnnotationUi = {
+                                viewModel.setAnnotationActive(false)
+                                annotationUiOpen = false
                             },
                             modifier = Modifier.fillMaxSize(),
                         )
@@ -497,6 +516,7 @@ fun EnderSlicerApp(
                         nonPlanarEnabled = nonPlanarSettings.enabled,
                         conicalEnabled = conicalSettings.enabled,
                         supportPaintUiOpen = supportPaintUiOpen,
+                        annotationUiOpen = annotationUiOpen,
                         onViewerMode = { viewerMode = it },
                         onLayerSelected = { selectedLayerIndex = it },
                         onEditLayerEvents = { layerEventsOpen = true },
@@ -505,6 +525,20 @@ fun EnderSlicerApp(
                         onCloseSupportPaintUi = {
                             viewModel.setPaintMode(SupportPaintMode.NONE)
                             supportPaintUiOpen = false
+                        },
+                        onAnnotationGesture = viewModel::onAnnotationGesture,
+                        annotationActions = AnnotationActions(
+                            onLock = viewModel::lockAnnotationPoint,
+                            onUndo = viewModel::undoAnnotation,
+                            onClear = viewModel::clearAnnotation,
+                            onFinish = viewModel::finishAnnotationChain,
+                            onCloseChain = viewModel::closeAnnotationChain,
+                            onSave = viewModel::saveAnnotation,
+                            onKind = viewModel::setAnnotationKind,
+                        ),
+                        onCloseAnnotationUi = {
+                            viewModel.setAnnotationActive(false)
+                            annotationUiOpen = false
                         },
                         modifier = Modifier.fillMaxSize(),
                     )
@@ -787,6 +821,11 @@ fun EnderSlicerApp(
                 },
                 onBrushRadius = viewModel::setBrushRadius,
                 onClearPaint = viewModel::clearSupportPaint,
+                onOpenAnnotationUi = {
+                    modelToolsOpen = false
+                    viewModel.setAnnotationActive(true)
+                    annotationUiOpen = true
+                },
                 modifier = Modifier
                     .fillMaxHeight(0.5f)
                     .navigationBarsPadding(),
@@ -1194,12 +1233,16 @@ private fun ViewerPanel(
     nonPlanarEnabled: Boolean,
     conicalEnabled: Boolean,
     supportPaintUiOpen: Boolean,
+    annotationUiOpen: Boolean,
     onViewerMode: (ViewerMode) -> Unit,
     onLayerSelected: (Int) -> Unit,
     onEditLayerEvents: () -> Unit,
     onPaintHit: (MeshPicker.Hit) -> Unit,
     onPaintMode: (SupportPaintMode) -> Unit,
     onCloseSupportPaintUi: () -> Unit,
+    onAnnotationGesture: (AnnotationGesture) -> Unit,
+    annotationActions: AnnotationActions,
+    onCloseAnnotationUi: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val effectivePrinter = state.printer.withSettings(state.settings)
@@ -1279,6 +1322,9 @@ private fun ViewerPanel(
                         view.paintMode = state.paintMode
                         view.setPaintState(state.supportPaint)
                         view.onPaintHit = onPaintHit
+                        view.annotationActive = state.annotationActive
+                        view.onAnnotationGesture = onAnnotationGesture
+                        view.setAnnotationOverlay(state.annotationOverlay)
                         view.onOrientationChanged = onOrientationChanged
                     },
                 )
@@ -1290,6 +1336,17 @@ private fun ViewerPanel(
                 activeMode = state.paintMode,
                 onPaintMode = onPaintMode,
                 onClose = onCloseSupportPaintUi,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(12.dp),
+            )
+        }
+
+        if (annotationUiOpen && viewerMode == ViewerMode.MODEL) {
+            AnnotationToolbar(
+                state = state,
+                actions = annotationActions,
+                onClose = onCloseAnnotationUi,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .padding(12.dp),
@@ -1826,5 +1883,92 @@ private fun PaintModeButton(
         Button(onClick = { onPaintMode(SupportPaintMode.NONE) }, modifier = modifier) { Text(label) }
     } else {
         OutlinedButton(onClick = { onPaintMode(mode) }, modifier = modifier) { Text(label) }
+    }
+}
+
+/** Annotation tool callbacks, grouped so the viewer signature stays readable. */
+private class AnnotationActions(
+    val onLock: () -> Unit,
+    val onUndo: () -> Unit,
+    val onClear: () -> Unit,
+    val onFinish: () -> Unit,
+    val onCloseChain: () -> Unit,
+    val onSave: () -> Unit,
+    val onKind: (AnnotationKind) -> Unit,
+)
+
+/**
+ * Point-to-point annotation toolbar.
+ *
+ * The guidance line is the whole tutorial. The interaction has exactly one
+ * decision - is the point on the model or in space - and the app makes it, so
+ * the user only needs to know that Lock commits and two fingers still orbit.
+ */
+@Composable
+private fun AnnotationToolbar(
+    state: MainUiState,
+    actions: AnnotationActions,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    // Leaves annotation mode whenever the toolbar does, so a tab change cannot
+    // strand the viewer capturing single-finger drags that should rotate.
+    DisposableEffect(Unit) {
+        onDispose { onClose() }
+    }
+    Card(modifier = modifier) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text("Annotate", style = MaterialTheme.typography.titleSmall)
+            Text(
+                text = when {
+                    state.annotationPending && state.annotationAnchor == AnnotationAnchor.SURFACE ->
+                        "On the model. Orbit to check it from another angle, then Lock."
+                    state.annotationPending ->
+                        "In space. The depth is held while you orbit - drag to adjust, then Lock."
+                    state.annotationChainCount == 0 ->
+                        "Drag on the model to place a point. Two fingers rotate and zoom."
+                    else ->
+                        "Drag to place the next point, or Save when you are done."
+                },
+                style = MaterialTheme.typography.bodySmall,
+            )
+            state.annotationMeasureMm?.let { length ->
+                Text(
+                    text = "Length " + "%.1f".format(length) + " mm",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = actions.onLock,
+                    enabled = state.annotationPending,
+                    modifier = Modifier.weight(1f),
+                ) { Text("Lock") }
+                OutlinedButton(onClick = actions.onUndo, modifier = Modifier.weight(1f)) { Text("Undo") }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = actions.onFinish, modifier = Modifier.weight(1f)) { Text("New chain") }
+                OutlinedButton(onClick = actions.onCloseChain, modifier = Modifier.weight(1f)) { Text("Close") }
+                OutlinedButton(onClick = actions.onClear, modifier = Modifier.weight(1f)) { Text("Clear") }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = { actions.onKind(AnnotationKind.MEASURE) },
+                    modifier = Modifier.weight(1f),
+                ) { Text("Measure") }
+                OutlinedButton(
+                    onClick = { actions.onKind(AnnotationKind.PATH) },
+                    modifier = Modifier.weight(1f),
+                ) { Text("Path") }
+            }
+            OutlinedButton(onClick = actions.onSave) {
+                Text("Save " + state.annotationChainCount + " chain(s)")
+            }
+            OutlinedButton(onClick = onClose) { Text("Stop annotating") }
+        }
     }
 }

@@ -43,7 +43,12 @@ import com.tomppi.enderslicer.profile.CuraProjectSceneParser
 import com.tomppi.enderslicer.profile.ImportedCuraConfig
 import com.tomppi.enderslicer.supportpaint.SupportPaintBrush
 import com.tomppi.enderslicer.supportpaint.SupportPaintMode
+import com.tomppi.enderslicer.annotation.AnnotationCodec
+import com.tomppi.enderslicer.annotation.AnnotationGesture
+import com.tomppi.enderslicer.annotation.AnnotationKind
+import com.tomppi.enderslicer.annotation.AnnotationState
 import com.tomppi.enderslicer.supportpaint.SupportPaintState
+import com.tomppi.enderslicer.viewer.AnnotationOverlayBuilder
 import com.tomppi.enderslicer.viewer.MeshPicker
 import com.tomppi.enderslicer.viewer.StlMesh
 import com.tomppi.enderslicer.viewer.StlMeshWriter
@@ -795,6 +800,144 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setPaintMode(mode: SupportPaintMode) {
         _uiState.update { it.copy(paintMode = mode) }
+    }
+
+    // ---- Annotation -------------------------------------------------------
+    //
+    // Annotation editing is transient: unlike support paint it is not part of
+    // the saved workspace, because it describes intent for a modelling step
+    // rather than a slicing input.
+
+    private val annotation = AnnotationState()
+
+    /**
+     * Turns the annotation tool on or off.
+     *
+     * Enabling it starts from a clean slate. Points are indexed against the
+     * current model, so keeping them across a model change would leave geometry
+     * pointing at triangles that no longer exist.
+     */
+    fun setAnnotationActive(active: Boolean) {
+        if (_uiState.value.annotationActive == active) return
+        if (active) {
+            annotation.clear()
+            annotation.kind = AnnotationKind.PATH
+        }
+        _uiState.update { it.copy(annotationActive = active, annotationSavedPath = null) }
+        publishAnnotation()
+    }
+
+    fun setAnnotationKind(kind: AnnotationKind) {
+        annotation.kind = kind
+        _uiState.update { it.copy(statusMessage = "Annotation: " + kind.name.lowercase()) }
+    }
+
+    /**
+     * Applies one resolved gesture.
+     *
+     * Over the model the point follows the surface, which is what the user sees
+     * under their finger. In empty space there is no surface to follow, so the
+     * point keeps the depth it already had - that is what makes orbiting the
+     * camera a usable way to judge depth without the point drifting nearer or
+     * further.
+     */
+    fun onAnnotationGesture(gesture: AnnotationGesture) {
+        val current = annotation.active
+        when {
+            current == null ->
+                annotation.setActive(gesture.position, gesture.anchor, gesture.faceIndex)
+
+            gesture.faceIndex != null ->
+                annotation.snapActive(gesture.position, gesture.faceIndex)
+
+            else -> {
+                annotation.beginAdjustment(gesture.rayOrigin)
+                annotation.moveAlongRay(gesture.rayOrigin, gesture.rayDirection)
+                annotation.endAdjustment()
+            }
+        }
+        publishAnnotation()
+    }
+
+    fun lockAnnotationPoint() {
+        if (annotation.lock() == null) return
+        publishAnnotation()
+    }
+
+    fun undoAnnotation() {
+        if (!annotation.undo()) return
+        publishAnnotation()
+    }
+
+    fun finishAnnotationChain() {
+        annotation.finishChain()
+        publishAnnotation()
+    }
+
+    fun closeAnnotationChain() {
+        if (!annotation.closeActiveChain()) {
+            _uiState.update { it.copy(statusMessage = "A region needs at least three points") }
+            return
+        }
+        publishAnnotation()
+    }
+
+    fun clearAnnotation() {
+        annotation.clear()
+        publishAnnotation()
+    }
+
+    /** Writes the locked geometry to the app's files directory as JSON. */
+    fun saveAnnotation() {
+        val mesh = _uiState.value.mesh ?: return
+        if (annotation.chains.none { it.isComplete() }) {
+            _uiState.update { it.copy(statusMessage = "Nothing to save yet") }
+            return
+        }
+        val document = AnnotationCodec.encode(
+            state = annotation,
+            model = AnnotationCodec.ModelSummary(
+                name = mesh.displayName,
+                triangleCount = mesh.triangleCount,
+                sizeXMm = mesh.bounds.width,
+                sizeYMm = mesh.bounds.depth,
+                sizeZMm = mesh.bounds.height,
+            ),
+        )
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                val directory = File(getApplication<Application>().filesDir, "annotations")
+                directory.mkdirs()
+                val file = File(directory, "annotation-" + System.currentTimeMillis() + ".json")
+                file.writeText(document.toString(2))
+                file.absolutePath
+            }.onSuccess { path ->
+                _uiState.update {
+                    it.copy(annotationSavedPath = path, statusMessage = "Annotation saved")
+                }
+            }.onFailure { error ->
+                _uiState.update {
+                    it.copy(statusMessage = "Annotation save failed: " + error.message)
+                }
+            }
+        }
+    }
+
+    private fun publishAnnotation() {
+        val mesh = _uiState.value.mesh
+        _uiState.update {
+            it.copy(
+                annotationOverlay = AnnotationOverlayBuilder.build(
+                    state = annotation,
+                    markerSizeMm = AnnotationOverlayBuilder.markerSizeMm(mesh?.bounds),
+                ),
+                annotationPending = annotation.active != null,
+                annotationAnchor = annotation.active?.anchor,
+                annotationMeasureMm = annotation.pendingLengthMm(),
+                annotationChainMm = annotation.liveChainLengthMm(),
+                annotationChainCount = annotation.chains.size,
+            )
+        }
     }
 
     fun setBrushRadius(mm: Double) {

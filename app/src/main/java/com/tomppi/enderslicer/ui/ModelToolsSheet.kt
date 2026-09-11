@@ -43,6 +43,7 @@ fun ModelToolsSheet(
     onOpenSupportPaintUi: () -> Unit,
     onBrushRadius: (Double) -> Unit,
     onClearPaint: () -> Unit,
+    onOpenAnnotationUi: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val placement = state.modelPlacement
@@ -207,6 +208,16 @@ fun ModelToolsSheet(
         }
         OutlinedButton(onClick = onClearPaint, modifier = Modifier.fillMaxWidth()) {
             Text("Clear painted supports")
+        }
+
+        HorizontalDivider()
+        Text("Annotate the model", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "Place points to describe what you want changed, or to measure the model. Drag to place a point, use two fingers to orbit and judge its depth, then Lock to commit it. Only locked points count, and they can be saved as JSON.",
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Button(onClick = onOpenAnnotationUi, modifier = Modifier.fillMaxWidth()) {
+            Text("Open annotation tool")
         }
 
         if (state.importedSceneTransformAvailable) {

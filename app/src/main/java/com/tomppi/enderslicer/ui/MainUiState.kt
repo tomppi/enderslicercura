@@ -1,5 +1,6 @@
 package com.tomppi.enderslicer.ui
 
+import com.tomppi.enderslicer.annotation.AnnotationAnchor
 import com.tomppi.enderslicer.engine.GcodeLayerPreview
 import com.tomppi.enderslicer.engine.LayerEvent
 import com.tomppi.enderslicer.engine.SliceArtifactPublisher
@@ -10,6 +11,7 @@ import com.tomppi.enderslicer.model.SlicerSettings
 import com.tomppi.enderslicer.profile.CuraEngineProfile
 import com.tomppi.enderslicer.supportpaint.SupportPaintMode
 import com.tomppi.enderslicer.supportpaint.SupportPaintState
+import com.tomppi.enderslicer.viewer.AnnotationOverlay
 import com.tomppi.enderslicer.viewer.StlMesh
 import java.io.File
 
@@ -27,6 +29,19 @@ data class MainUiState(
     val modelPlacement: ModelPlacement? = null,
     val supportPaint: SupportPaintState = SupportPaintState(),
     val paintMode: SupportPaintMode = SupportPaintMode.NONE,
+    /** True while the annotation tool owns single-finger gestures. */
+    val annotationActive: Boolean = false,
+    /** Line geometry for the annotation overlay, or null when there is none. */
+    val annotationOverlay: AnnotationOverlay? = null,
+    /** True when a point is placed but not yet locked. */
+    val annotationPending: Boolean = false,
+    val annotationAnchor: AnnotationAnchor? = null,
+    /** Distance from the last locked point to the one being placed. */
+    val annotationMeasureMm: Float? = null,
+    /** Total length of the chain being edited, including the active point. */
+    val annotationChainMm: Float? = null,
+    val annotationChainCount: Int = 0,
+    val annotationSavedPath: String? = null,
     val importedSceneTransformAvailable: Boolean = false,
     val importedSceneModelName: String? = null,
     val sliceResultId: String? = null,
