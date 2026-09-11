@@ -38,6 +38,16 @@ object MeshPicker {
         val z: Float,
     )
 
+    /** A ray under a screen point, in model space. [dir] is unit length. */
+    data class ScreenRay(
+        val originX: Float,
+        val originY: Float,
+        val originZ: Float,
+        val dirX: Float,
+        val dirY: Float,
+        val dirZ: Float,
+    )
+
     private val lock = Any()
 
     private var cachedMesh: StlMesh? = null
@@ -54,6 +64,7 @@ object MeshPicker {
     private val worldScratch = FloatArray(4)
     private val nearPoint = FloatArray(3)
     private val farPoint = FloatArray(3)
+    private val direction = FloatArray(3)
 
     /** Drops the per-mesh hierarchy; call when the model is replaced or released. */
     fun invalidate() {
@@ -76,23 +87,55 @@ object MeshPicker {
             val hierarchy = hierarchyFor(mesh) ?: return null
             updateCamera(printer, camera)
 
-            val ndcX = (2f * screenX) / camera.viewportWidth - 1f
-            val ndcY = 1f - (2f * screenY) / camera.viewportHeight
-            unprojectInto(ndcX, ndcY, -1f, nearPoint)
-            unprojectInto(ndcX, ndcY, 1f, farPoint)
-
-            val dx = farPoint[0] - nearPoint[0]
-            val dy = farPoint[1] - nearPoint[1]
-            val dz = farPoint[2] - nearPoint[2]
-            val length = sqrt(dx * dx + dy * dy + dz * dz)
-            if (length <= 1e-6f) return null
-
+            if (!fillRay(camera, screenX, screenY)) return null
             val hit = hierarchy.raycast(
                 nearPoint[0], nearPoint[1], nearPoint[2],
-                dx / length, dy / length, dz / length,
+                direction[0], direction[1], direction[2],
             ) ?: return null
             return Hit(hit.triangleIndex, hit.x, hit.y, hit.z)
         }
+    }
+
+    /**
+     * The ray under a screen point, in model space.
+     *
+     * Exposed for callers that need a position *along* the ray rather than the
+     * first surface hit: a depth-preserving annotation drag slides a point at a
+     * fixed distance instead of intersecting the mesh.
+     */
+    fun ray(
+        printer: PrinterDefinition,
+        camera: CameraSnapshot,
+        screenX: Float,
+        screenY: Float,
+    ): ScreenRay? {
+        if (camera.viewportWidth <= 0f || camera.viewportHeight <= 0f) return null
+        synchronized(lock) {
+            updateCamera(printer, camera)
+            if (!fillRay(camera, screenX, screenY)) return null
+            return ScreenRay(
+                nearPoint[0], nearPoint[1], nearPoint[2],
+                direction[0], direction[1], direction[2],
+            )
+        }
+    }
+
+    /** Fills [nearPoint] and [direction] for a screen position. */
+    private fun fillRay(camera: CameraSnapshot, screenX: Float, screenY: Float): Boolean {
+        val ndcX = (2f * screenX) / camera.viewportWidth - 1f
+        val ndcY = 1f - (2f * screenY) / camera.viewportHeight
+        unprojectInto(ndcX, ndcY, -1f, nearPoint)
+        unprojectInto(ndcX, ndcY, 1f, farPoint)
+
+        val dx = farPoint[0] - nearPoint[0]
+        val dy = farPoint[1] - nearPoint[1]
+        val dz = farPoint[2] - nearPoint[2]
+        val length = sqrt(dx * dx + dy * dy + dz * dz)
+        if (length <= 1e-6f) return false
+        direction[0] = dx / length
+        direction[1] = dy / length
+        direction[2] = dz / length
+        return true
     }
 
     private fun hierarchyFor(mesh: StlMesh): MeshBvh? {
