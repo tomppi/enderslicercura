@@ -24,8 +24,15 @@ data class SupportPaintState(
 ) {
     init {
         require(brushRadiusMm.isFinite() && brushRadiusMm > 0.0) { "Paint brush radius must be positive" }
-        require((enforcerTriangles intersect blockerTriangles).isEmpty()) {
-            "A triangle cannot be both a support enforcer and a support blocker"
+        // Walk the smaller set instead of allocating an intersection: the
+        // mutators below maintain this invariant, so the check only has to catch
+        // a malformed constructed or decoded state, and it runs on every copy.
+        val smaller = if (enforcerTriangles.size <= blockerTriangles.size) enforcerTriangles else blockerTriangles
+        val larger = if (enforcerTriangles.size <= blockerTriangles.size) blockerTriangles else enforcerTriangles
+        if (smaller.isNotEmpty()) {
+            require(smaller.none { it in larger }) {
+                "A triangle cannot be both a support enforcer and a support blocker"
+            }
         }
     }
 

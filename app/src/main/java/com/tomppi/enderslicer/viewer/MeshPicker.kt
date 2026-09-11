@@ -4,7 +4,21 @@ import android.opengl.Matrix
 import com.tomppi.enderslicer.model.PrinterDefinition
 import kotlin.math.sqrt
 
-/** CPU ray-cast from a screen point against the displayed model triangles. */
+/**
+ * CPU ray-cast from a screen point against the displayed model triangles.
+ *
+ * Two caches keep this cheap enough to call per paint sample:
+ *
+ *  - the [MeshBvh] hierarchy is built once per mesh, so a pick visits a handful
+ *    of nodes instead of running a triangle test per triangle in the model;
+ *  - the camera fit and MVP matrices are recomputed only when the
+ *    [CameraSnapshot] changes, instead of allocating five matrices and
+ *    inverting the MVP on every call.
+ *
+ * Picks run on the viewer's paint executor while the GL thread mutates the
+ * camera, so the cached state is guarded, and steady-state picks allocate
+ * nothing.
+ */
 object MeshPicker {
     data class CameraSnapshot(
         val viewportWidth: Float,
@@ -24,6 +38,32 @@ object MeshPicker {
         val z: Float,
     )
 
+    private val lock = Any()
+
+    private var cachedMesh: StlMesh? = null
+    private var cachedBvh: MeshBvh? = null
+    private var cachedCamera: CameraSnapshot? = null
+
+    private val inverseMvp = FloatArray(16)
+    private val projectionScratch = FloatArray(16)
+    private val viewScratch = FloatArray(16)
+    private val sceneScratch = FloatArray(16)
+    private val viewSceneScratch = FloatArray(16)
+    private val mvpScratch = FloatArray(16)
+    private val clipScratch = FloatArray(4)
+    private val worldScratch = FloatArray(4)
+    private val nearPoint = FloatArray(3)
+    private val farPoint = FloatArray(3)
+
+    /** Drops the per-mesh hierarchy; call when the model is replaced or released. */
+    fun invalidate() {
+        synchronized(lock) {
+            cachedMesh = null
+            cachedBvh = null
+            cachedCamera = null
+        }
+    }
+
     fun pick(
         mesh: StlMesh,
         printer: PrinterDefinition,
@@ -32,6 +72,42 @@ object MeshPicker {
         screenY: Float,
     ): Hit? {
         if (camera.viewportWidth <= 0f || camera.viewportHeight <= 0f) return null
+        synchronized(lock) {
+            val hierarchy = hierarchyFor(mesh) ?: return null
+            updateCamera(printer, camera)
+
+            val ndcX = (2f * screenX) / camera.viewportWidth - 1f
+            val ndcY = 1f - (2f * screenY) / camera.viewportHeight
+            unprojectInto(ndcX, ndcY, -1f, nearPoint)
+            unprojectInto(ndcX, ndcY, 1f, farPoint)
+
+            val dx = farPoint[0] - nearPoint[0]
+            val dy = farPoint[1] - nearPoint[1]
+            val dz = farPoint[2] - nearPoint[2]
+            val length = sqrt(dx * dx + dy * dy + dz * dz)
+            if (length <= 1e-6f) return null
+
+            val hit = hierarchy.raycast(
+                nearPoint[0], nearPoint[1], nearPoint[2],
+                dx / length, dy / length, dz / length,
+            ) ?: return null
+            return Hit(hit.triangleIndex, hit.x, hit.y, hit.z)
+        }
+    }
+
+    private fun hierarchyFor(mesh: StlMesh): MeshBvh? {
+        val existing = cachedBvh
+        if (existing != null && cachedMesh === mesh) return existing
+        if (mesh.triangleCount <= 0) return null
+        val built = MeshBvh.build(mesh)
+        cachedMesh = mesh
+        cachedBvh = built
+        return built
+    }
+
+    /** Recomputes the fit and matrices only when the camera actually moved. */
+    private fun updateCamera(printer: PrinterDefinition, camera: CameraSnapshot) {
+        if (cachedCamera == camera) return
         val aspect = camera.viewportWidth / camera.viewportHeight
         val fit = SceneCameraFit.calculate(
             printer = printer,
@@ -41,100 +117,44 @@ object MeshPicker {
             verticalFieldOfViewDegrees = FIELD_OF_VIEW_DEGREES,
         )
 
-        val projection = FloatArray(16)
-        val view = FloatArray(16)
-        val scene = FloatArray(16)
-        val viewScene = FloatArray(16)
-        val mvp = FloatArray(16)
-        val inverse = FloatArray(16)
-
-        Matrix.perspectiveM(projection, 0, FIELD_OF_VIEW_DEGREES, aspect, fit.nearPlane, fit.farPlane)
-        Matrix.setLookAtM(view, 0, 0f, -fit.distance, fit.distance * CAMERA_ELEVATION_RATIO, 0f, 0f, 0f, 0f, 0f, 1f)
-        Matrix.translateM(view, 0, camera.panX, camera.panY, 0f)
-        Matrix.setIdentityM(scene, 0)
-        Matrix.rotateM(scene, 0, camera.pitch, 1f, 0f, 0f)
-        Matrix.rotateM(scene, 0, camera.yaw, 0f, 0f, 1f)
-        Matrix.translateM(scene, 0, -fit.centerX, -fit.centerY, -fit.centerZ)
-        Matrix.multiplyMM(viewScene, 0, view, 0, scene, 0)
-        Matrix.multiplyMM(mvp, 0, projection, 0, viewScene, 0)
-        if (!Matrix.invertM(inverse, 0, mvp, 0)) return null
-
-        val ndcX = (2f * screenX) / camera.viewportWidth - 1f
-        val ndcY = 1f - (2f * screenY) / camera.viewportHeight
-        val near = unproject(inverse, ndcX, ndcY, -1f)
-        val far = unproject(inverse, ndcX, ndcY, 1f)
-        val dx = far[0] - near[0]
-        val dy = far[1] - near[1]
-        val dz = far[2] - near[2]
-        val length = sqrt(dx * dx + dy * dy + dz * dz)
-        if (length <= 1e-6f) return null
-        val rx = dx / length
-        val ry = dy / length
-        val rz = dz / length
-
-        val vertices = mesh.interleavedVertices
-        val count = mesh.triangleCount
-        var bestT = Float.POSITIVE_INFINITY
-        var bestIndex = -1
-        var bestX = 0f
-        var bestY = 0f
-        var bestZ = 0f
-        for (triangle in 0 until count) {
-            val base = triangle * 18
-            val t = rayTriangle(
-                near[0], near[1], near[2], rx, ry, rz,
-                vertices[base], vertices[base + 1], vertices[base + 2],
-                vertices[base + 6], vertices[base + 7], vertices[base + 8],
-                vertices[base + 12], vertices[base + 13], vertices[base + 14],
-            ) ?: continue
-            if (t > 0f && t < bestT) {
-                bestT = t
-                bestIndex = triangle
-                bestX = near[0] + rx * t
-                bestY = near[1] + ry * t
-                bestZ = near[2] + rz * t
-            }
+        Matrix.perspectiveM(projectionScratch, 0, FIELD_OF_VIEW_DEGREES, aspect, fit.nearPlane, fit.farPlane)
+        Matrix.setLookAtM(
+            viewScratch, 0,
+            0f, -fit.distance, fit.distance * CAMERA_ELEVATION_RATIO,
+            0f, 0f, 0f,
+            0f, 0f, 1f,
+        )
+        Matrix.translateM(viewScratch, 0, camera.panX, camera.panY, 0f)
+        Matrix.setIdentityM(sceneScratch, 0)
+        Matrix.rotateM(sceneScratch, 0, camera.pitch, 1f, 0f, 0f)
+        Matrix.rotateM(sceneScratch, 0, camera.yaw, 0f, 0f, 1f)
+        Matrix.translateM(sceneScratch, 0, -fit.centerX, -fit.centerY, -fit.centerZ)
+        Matrix.multiplyMM(viewSceneScratch, 0, viewScratch, 0, sceneScratch, 0)
+        Matrix.multiplyMM(mvpScratch, 0, projectionScratch, 0, viewSceneScratch, 0)
+        if (!Matrix.invertM(inverseMvp, 0, mvpScratch, 0)) {
+            // Singular MVP: fall back to the identity so a pick simply misses
+            // rather than reading stale matrix state.
+            Matrix.setIdentityM(inverseMvp, 0)
         }
-        if (bestIndex < 0) return null
-        return Hit(bestIndex, bestX, bestY, bestZ)
+        cachedCamera = camera
     }
 
-    private fun unproject(inverse: FloatArray, x: Float, y: Float, z: Float): FloatArray {
-        val clip = floatArrayOf(x, y, z, 1f)
-        val world = FloatArray(4)
-        Matrix.multiplyMV(world, 0, inverse, 0, clip, 0)
-        val w = world[3]
-        return if (w == 0f) {
-            floatArrayOf(world[0], world[1], world[2])
+    private fun unprojectInto(ndcX: Float, ndcY: Float, ndcZ: Float, out: FloatArray) {
+        clipScratch[0] = ndcX
+        clipScratch[1] = ndcY
+        clipScratch[2] = ndcZ
+        clipScratch[3] = 1f
+        Matrix.multiplyMV(worldScratch, 0, inverseMvp, 0, clipScratch, 0)
+        val w = worldScratch[3]
+        if (w == 0f) {
+            out[0] = worldScratch[0]
+            out[1] = worldScratch[1]
+            out[2] = worldScratch[2]
         } else {
-            floatArrayOf(world[0] / w, world[1] / w, world[2] / w)
+            out[0] = worldScratch[0] / w
+            out[1] = worldScratch[1] / w
+            out[2] = worldScratch[2] / w
         }
-    }
-
-    private fun rayTriangle(
-        ox: Float, oy: Float, oz: Float,
-        rx: Float, ry: Float, rz: Float,
-        ax: Float, ay: Float, az: Float,
-        bx: Float, by: Float, bz: Float,
-        cx: Float, cy: Float, cz: Float,
-    ): Float? {
-        val e1x = bx - ax; val e1y = by - ay; val e1z = bz - az
-        val e2x = cx - ax; val e2y = cy - ay; val e2z = cz - az
-        val px = ry * e2z - rz * e2y
-        val py = rz * e2x - rx * e2z
-        val pz = rx * e2y - ry * e2x
-        val det = e1x * px + e1y * py + e1z * pz
-        if (det > -EPSILON && det < EPSILON) return null
-        val invDet = 1f / det
-        val tx = ox - ax; val ty = oy - ay; val tz = oz - az
-        val u = (tx * px + ty * py + tz * pz) * invDet
-        if (u < 0f || u > 1f) return null
-        val qx = ty * e1z - tz * e1y
-        val qy = tz * e1x - tx * e1z
-        val qz = tx * e1y - ty * e1x
-        val v = (rx * qx + ry * qy + rz * qz) * invDet
-        if (v < 0f || u + v > 1f) return null
-        return (e2x * qx + e2y * qy + e2z * qz) * invDet
     }
 
     private const val FIELD_OF_VIEW_DEGREES = 42f

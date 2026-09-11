@@ -229,7 +229,7 @@ private class ModelRenderer(
 ) : GLSurfaceView.Renderer {
     @Volatile private var mesh: StlMesh? = null
     private var meshBuffer: FloatBuffer? = null
-    private var colorBuffer: FloatBuffer? = null
+    private var paintColors: PaintColorBuffer? = null
     // GPU-side (VBO) copies of the mesh; the model renders from VRAM after a
     // single upload, like a game, instead of re-reading CPU memory per frame.
     private var meshVbo = 0
@@ -268,6 +268,7 @@ private class ModelRenderer(
         }
         uploadedMesh = null
         colorUploaded = false
+        paintColors = null
         rebuildColorBuffer()
         if (isNewModel) resetCamera()
     }
@@ -276,6 +277,25 @@ private class ModelRenderer(
         if (paintState == value) return
         paintState = value
         rebuildColorBuffer()
+    }
+
+    /**
+     * Applies a single paint edit, rewriting only the triangles in [changed].
+     *
+     * A stroke expands to a bounded set of triangles, so this keeps the update
+     * O(brush) instead of rebuilding a colour buffer sized by the whole mesh.
+     * Falls back to a full rebuild when the buffer is missing or the mesh
+     * changed underneath it.
+     */
+    fun applyPaintEdit(value: SupportPaintState, changed: Set<Int>) {
+        if (paintState == value) return
+        paintState = value
+        val buffer = paintColors
+        if (buffer == null || buffer.triangleCount != mesh?.triangleCount) {
+            rebuildColorBuffer()
+            return
+        }
+        buffer.apply(value, changed)
     }
 
     fun setPaintActive(value: Boolean) {
@@ -384,34 +404,33 @@ private class ModelRenderer(
     }
 
     private fun rebuildColorBuffer() {
-        colorUploaded = false
         val currentMesh = mesh ?: run {
-            colorBuffer = null
+            paintColors = null
+            colorUploaded = false
             return
         }
         // A uniform base colour needs no buffer: the shader constant path in
         // drawMesh covers it, keeping dense meshes off the direct-memory heap
         // until painting actually starts.
         if (!paintActive && paintState.isEmpty) {
-            colorBuffer = null
+            paintColors = null
+            colorUploaded = false
             return
         }
-        val count = currentMesh.triangleCount
-        val colors = FloatArray(count * 9)
-        for (triangle in 0 until count) {
-            val color = when {
-                triangle in paintState.enforcerTriangles -> ENFORCER_COLOR
-                triangle in paintState.blockerTriangles -> BLOCKER_COLOR
-                else -> BASE_COLOR
-            }
-            for (vertex in 0 until 3) {
-                val offset = triangle * 9 + vertex * 3
-                colors[offset] = color[0]
-                colors[offset + 1] = color[1]
-                colors[offset + 2] = color[2]
-            }
+        var buffer = paintColors
+        if (buffer == null || buffer.triangleCount != currentMesh.triangleCount) {
+            buffer = PaintColorBuffer(
+                triangleCount = currentMesh.triangleCount,
+                baseColor = BASE_COLOR,
+                enforcerColor = ENFORCER_COLOR,
+                blockerColor = BLOCKER_COLOR,
+            )
+            paintColors = buffer
+            // A fresh buffer has no GPU-side copy yet, so force a full upload.
+            colorUploaded = false
         }
-        colorBuffer = floatBuffer(colors)
+        // Only triangles whose classification changed are rewritten.
+        buffer.resync(paintState)
     }
 
     private fun cameraDistance(): Float = sceneFit(
@@ -504,33 +523,51 @@ private class ModelRenderer(
             GLES20.glVertexAttribPointer(normal, 3, GLES20.GL_FLOAT, false, 6 * 4, buffer)
         }
 
-        val colors = colorBuffer
+        val colors = paintColors
         if (colors != null) {
             if (colorVbo == 0) {
                 val ids = IntArray(1)
                 GLES20.glGenBuffers(1, ids, 0)
                 colorVbo = ids[0]
             }
-            if (colorVbo != 0 && !colorUploaded) {
-                colors.position(0)
-                GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, colorVbo)
-                GLES20.glBufferData(
-                    GLES20.GL_ARRAY_BUFFER,
-                    colors.remaining() * Float.SIZE_BYTES,
-                    colors,
-                    GLES20.GL_STREAM_DRAW,
-                )
-                GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, 0)
-                colorUploaded = true
-            }
+            val data = colors.buffer
             if (colorVbo != 0) {
                 GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, colorVbo)
+                if (!colorUploaded) {
+                    // First upload after the buffer was built: send everything once.
+                    data.position(0)
+                    data.limit(data.capacity())
+                    GLES20.glBufferData(
+                        GLES20.GL_ARRAY_BUFFER,
+                        data.capacity() * Float.SIZE_BYTES,
+                        data,
+                        GLES20.GL_DYNAMIC_DRAW,
+                    )
+                    colorUploaded = true
+                    colors.takeDirtyRange()
+                } else {
+                    // Steady state: send only the float range the last edit touched.
+                    val dirty = colors.takeDirtyRange()
+                    if (dirty != null) {
+                        val from = dirty.first
+                        val length = dirty.last - dirty.first + 1
+                        data.position(from)
+                        data.limit(from + length)
+                        GLES20.glBufferSubData(
+                            GLES20.GL_ARRAY_BUFFER,
+                            from * Float.SIZE_BYTES,
+                            length * Float.SIZE_BYTES,
+                            data,
+                        )
+                        data.limit(data.capacity())
+                    }
+                }
                 GLES20.glEnableVertexAttribArray(color)
                 GLES20.glVertexAttribPointer(color, 3, GLES20.GL_FLOAT, false, 3 * 4, 0)
             } else {
-                colors.position(0)
+                data.position(0)
                 GLES20.glEnableVertexAttribArray(color)
-                GLES20.glVertexAttribPointer(color, 3, GLES20.GL_FLOAT, false, 3 * 4, colors)
+                GLES20.glVertexAttribPointer(color, 3, GLES20.GL_FLOAT, false, 3 * 4, data)
             }
         } else {
             GLES20.glDisableVertexAttribArray(color)
