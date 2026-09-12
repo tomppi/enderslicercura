@@ -76,6 +76,13 @@ Imported values are kept as a persistent baseline: they stay in effect until you
   <img src="docs/screenshots/blender-menu.jpg" width="260" alt="Plate menu showing the Blender section: Upload model to Blender and Stop Blender engine">
 </p>
 
+### AI assistant
+
+- A floating chat on the **Plate** tab talks to a **DeepSeek harness** over a tailnet: ask about the model, paint a region to show what should change, or press **Build from image** to have a photograph turned into a printable STL
+- Photo-to-3D runs on a remote GPU box with **Hunyuan3D-2mini at DMC 512³**, checks the mesh is watertight, and hands it back through the same export directory the Blender engine uses - so it arrives on the plate with no interaction
+- **Stop** cancels the running turn *and* the work it started; the chat rebuilds itself after a rotation or a process restart instead of coming up empty
+- Architecture, the harness protocol, the generation runbook and the power management: [`AI_ASSISTANT.md`](AI_ASSISTANT.md), with the assistant's own skill files published under [`docs/skills/`](docs/skills/)
+
 ### Print editing
 
 - Non-destructive layer events — pause, filament change, temperature, fan, speed, flow, retraction, camera, message and guarded custom G-code — without re-slicing
@@ -104,6 +111,7 @@ Imported values are kept as a persistent baseline: they stay in effect until you
 - OctoPrint needs broader real-server validation; printer-specific firmware commands must be checked against the installed firmware
 - The PrusaSlicer engine is packaged for **arm64-v8a** only; the x86_64 build was dropped because the shipped ABI is what device validation covers
 - Cura previews estimate bead widths from the extrusion delta (Cura G-code carries no width markers), so a previewed width can differ slightly from what the engine planned
+- The AI assistant is a client to a DeepSeek harness you run yourself, and photo-to-3D additionally needs a GPU box; neither is bundled, and replies are read from a polling projection rather than streamed
 
 ## Increasing the Java heap
 
