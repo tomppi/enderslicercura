@@ -37,6 +37,14 @@ That split is the whole design. It also means the assistant's capabilities are b
 
 The harness is addressed by its **tailnet name** (`https://harness-host.example.ts.net`), not a raw address: the app reaches it over TLS, and a bare `100.x` address fails certificate validation. A harness on the same LAN can be addressed directly.
 
+## The harness has its own interface
+
+The harness serves a complete web UI, and the app's chat overlay is deliberately only a slice of it - enough to ask for a model and watch it arrive, without reimplementing a whole chat client on a phone.
+
+For everything else - browsing sessions, reading a full transcript, watching a long turn stream live - [`webviewdp`](https://github.com/tomppi/webviewdp) wraps that UI in a minimal Android WebView app. It handles the same `auth.json` token exchange described below, keeps navigation inside the WebView, and reloads itself when Android reclaims the renderer process in the background.
+
+Two views of one harness: the overlay for the task at hand, the wrapper for everything else.
+
 ---
 
 # The app side

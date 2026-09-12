@@ -81,6 +81,7 @@ Imported values are kept as a persistent baseline: they stay in effect until you
 - A floating chat on the **Plate** tab talks to a **DeepSeek harness** over a tailnet: ask about the model, paint a region to show what should change, or press **Build from image** to have a photograph turned into a printable STL
 - Photo-to-3D runs on a remote GPU box with **Hunyuan3D-2mini at DMC 512³**, checks the mesh is watertight, and hands it back through the same export directory the Blender engine uses - so it arrives on the plate with no interaction
 - **Stop** cancels the running turn *and* the work it started; the chat rebuilds itself after a rotation or a process restart instead of coming up empty
+- The harness serves its own full web UI, for when the overlay is too narrow: [`webviewdp`](https://github.com/tomppi/webviewdp) wraps it in a minimal Android WebView app for the same phone
 - Architecture, the harness protocol, the generation runbook and the power management: [`AI_ASSISTANT.md`](AI_ASSISTANT.md), with the assistant's own skill files published under [`docs/skills/`](docs/skills/)
 
 ### Print editing
