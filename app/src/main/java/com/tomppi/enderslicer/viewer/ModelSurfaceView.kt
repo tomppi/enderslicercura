@@ -9,6 +9,7 @@ import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import com.tomppi.enderslicer.annotation.AnnotationGesture
 import com.tomppi.enderslicer.annotation.Point3
+import com.tomppi.enderslicer.annotation.SegmentEnd
 import com.tomppi.enderslicer.model.PrinterDefinition
 import com.tomppi.enderslicer.supportpaint.SupportPaintMode
 import com.tomppi.enderslicer.supportpaint.SupportPaintState
@@ -51,18 +52,65 @@ class ModelSurfaceView(
     var onPaintHit: ((MeshPicker.Hit) -> Unit)? = null
 
     /**
-     * When true, a single-finger drag places or adjusts an annotation point
-     * instead of rotating the model. Two fingers still orbit and zoom, which is
-     * what lets a point be judged for depth while it is still unlocked.
+     * When true, taps place annotation points and drags may move a handle.
+     *
+     * A drag that does not begin on a handle still orbits the camera - that is
+     * the whole point of the mode. Consuming every drag for placing is what made
+     * the model impossible to turn while annotating.
      */
     var annotationActive: Boolean = false
 
-    /** Invoked on the UI thread with a resolved annotation gesture. */
-    var onAnnotationGesture: ((AnnotationGesture) -> Unit)? = null
+    /** Invoked on the UI thread when a tap places an annotation point. */
+    var onAnnotationTap: ((AnnotationGesture) -> Unit)? = null
+
+    /** Invoked on the UI thread while a handle drag moves, to slide that handle. */
+    var onAnnotationAdjust: ((SegmentEnd, AnnotationGesture) -> Unit)? = null
+
+    /** Invoked once when holding a handle starts a height-only adjustment. */
+    var onAnnotationZAdjustStart: ((SegmentEnd) -> Unit)? = null
+
+    /** Invoked on the UI thread while a height adjustment drags. */
+    var onAnnotationZAdjust: ((AnnotationGesture) -> Unit)? = null
+
+    /** Invoked when a height adjustment ends. */
+    var onAnnotationZAdjustEnd: (() -> Unit)? = null
 
     private val pendingAnnotationCoordinates =
         java.util.concurrent.atomic.AtomicReference<FloatArray?>(null)
     private var annotationScheduled = false
+
+    private val pendingAnnotationProbe =
+        java.util.concurrent.atomic.AtomicReference<FloatArray?>(null)
+    private var annotationProbeScheduled = false
+
+    /** True between ACTION_DOWN and the handle probe answering. */
+    private var annotationDeciding = false
+    private var annotationGrabbed: SegmentEnd? = null
+    private var annotationDownX = 0f
+    private var annotationDownY = 0f
+    private var annotationMoved = false
+    private var annotationAccumDx = 0f
+    private var annotationAccumDy = 0f
+
+    /** A tap whose UP arrived before the handle probe answered. */
+    private var annotationPendingTap: FloatArray? = null
+
+    /** True once a hold on a handle has switched to height-only adjustment. */
+    private var annotationZMode = false
+
+    /**
+     * Switches a held handle to height adjustment.
+     *
+     * Deliberately a hold rather than a second control: height is changed
+     * rarely and per point, so it does not deserve permanent screen space on a
+     * phone. Cancelled by any movement, so it never fights an ordinary drag.
+     */
+    private val annotationHold = Runnable {
+        val end = annotationGrabbed ?: return@Runnable
+        if (annotationMoved) return@Runnable
+        annotationZMode = true
+        onAnnotationZAdjustStart?.invoke(end)
+    }
 
     fun setAnnotationOverlay(overlay: AnnotationOverlay?) {
         queueEvent { modelRenderer.setAnnotationOverlay(overlay) }
@@ -121,8 +169,18 @@ class ModelSurfaceView(
                     pendingPaintCoordinates.set(floatArrayOf(event.x, event.y))
                     schedulePaintPick()
                 } else if (annotating) {
-                    pendingAnnotationCoordinates.set(floatArrayOf(event.x, event.y))
-                    scheduleAnnotationGesture()
+                    // Whether this becomes a handle drag or an orbit is decided
+                    // by a hit test that runs off the UI thread, so hold the
+                    // touch until it answers rather than guessing.
+                    annotationDownX = event.x
+                    annotationDownY = event.y
+                    annotationMoved = false
+                    annotationGrabbed = null
+                    annotationDeciding = true
+                    annotationAccumDx = 0f
+                    annotationAccumDy = 0f
+                    pendingAnnotationProbe.set(floatArrayOf(event.x, event.y))
+                    scheduleAnnotationProbe()
                 }
             }
 
@@ -152,7 +210,21 @@ class ModelSurfaceView(
                     if (painting) {
                         pendingPaintCoordinates.set(floatArrayOf(event.x, event.y))
                         schedulePaintPick()
-                    } else if (annotating) {
+                    } else if (annotating && annotationDeciding) {
+                        // Accumulate until the probe answers; the movement is
+                        // applied as an orbit if it turns out not to be a handle.
+                        annotationAccumDx += event.x - previousX
+                        annotationAccumDy += event.y - previousY
+                        previousX = event.x
+                        previousY = event.y
+                    } else if (annotating && annotationGrabbed != null) {
+                        if (!annotationZMode) {
+                            // Movement means this is a placement drag, not a hold.
+                            removeCallbacks(annotationHold)
+                            annotationMoved = true
+                        }
+                        previousX = event.x
+                        previousY = event.y
                         pendingAnnotationCoordinates.set(floatArrayOf(event.x, event.y))
                         scheduleAnnotationGesture()
                     } else {
@@ -179,6 +251,24 @@ class ModelSurfaceView(
             MotionEvent.ACTION_UP -> {
                 performClick()
                 panning = false
+                if (annotationActive && !painting && !annotationMoved && annotationGrabbed == null) {
+                    val coordinates = floatArrayOf(event.x, event.y)
+                    if (annotationDeciding) {
+                        // The probe has not answered yet; hold the tap so a touch
+                        // that turns out to be on a handle does not also place a point.
+                        annotationPendingTap = coordinates
+                    } else {
+                        pendingAnnotationCoordinates.set(coordinates)
+                        scheduleAnnotationGesture()
+                    }
+                }
+                removeCallbacks(annotationHold)
+                if (annotationZMode) {
+                    annotationZMode = false
+                    onAnnotationZAdjustEnd?.invoke()
+                }
+                annotationDeciding = false
+                annotationGrabbed = null
             }
 
             MotionEvent.ACTION_CANCEL -> panning = false
@@ -228,12 +318,80 @@ class ModelSurfaceView(
                     val coordinates = pendingAnnotationCoordinates.getAndSet(null) ?: break
                     val gesture = modelRenderer.annotationGestureAt(coordinates[0], coordinates[1])
                         ?: continue
-                    post { onAnnotationGesture?.invoke(gesture) }
+                    // Read the grab state on the UI thread, at delivery: the same
+                    // queue carries taps and handle drags, and which one this is
+                    // depends on whether a handle is held when it lands.
+                    post {
+                        val end = annotationGrabbed
+                        when {
+                            end == null -> onAnnotationTap?.invoke(gesture)
+                            annotationZMode -> onAnnotationZAdjust?.invoke(gesture)
+                            else -> onAnnotationAdjust?.invoke(end, gesture)
+                        }
+                    }
                 }
             } finally {
                 synchronized(paintPickLock) { annotationScheduled = false }
                 if (pendingAnnotationCoordinates.get() != null) scheduleAnnotationGesture()
             }
+        }
+    }
+
+    /**
+     * Resolves whether a touch landed on an annotation handle.
+     *
+     * Same shape as [scheduleAnnotationGesture]: one run in flight, drained
+     * rather than queued. The answer decides whether the touch becomes a handle
+     * drag or an orbit, so movement is held until it arrives.
+     */
+    private fun scheduleAnnotationProbe() {
+        synchronized(paintPickLock) {
+            if (annotationProbeScheduled) return
+            annotationProbeScheduled = true
+        }
+        paintPickExecutor.execute {
+            try {
+                while (true) {
+                    val coordinates = pendingAnnotationProbe.getAndSet(null) ?: break
+                    val handle = modelRenderer.annotationHandleAt(
+                        coordinates[0],
+                        coordinates[1],
+                        HANDLE_TOUCH_RADIUS_PX,
+                    )
+                    post { applyAnnotationProbe(handle) }
+                }
+            } finally {
+                synchronized(paintPickLock) { annotationProbeScheduled = false }
+                if (pendingAnnotationProbe.get() != null) scheduleAnnotationProbe()
+            }
+        }
+    }
+
+    private fun applyAnnotationProbe(handle: SegmentEnd?) {
+        annotationDeciding = false
+        annotationGrabbed = handle
+        if (handle != null) {
+            // A handle is held, so the held movement is not an orbit. The first
+            // MOVE delivers the ray that slides it, unless the finger stays put
+            // long enough to mean height instead.
+            annotationAccumDx = 0f
+            annotationAccumDy = 0f
+            postDelayed(annotationHold, HANDLE_LONG_PRESS_MILLIS)
+            return
+        }
+        // Not a handle, so the movement the user already made becomes an orbit.
+        if (annotationAccumDx != 0f || annotationAccumDy != 0f) {
+            modelRenderer.rotate(annotationAccumDx * 0.35f, annotationAccumDy * 0.35f)
+            annotationAccumDx = 0f
+            annotationAccumDy = 0f
+            notifyOrientation()
+            requestRender()
+        }
+        // A tap that completed before this answer is still a tap.
+        annotationPendingTap?.let { coordinates ->
+            annotationPendingTap = null
+            pendingAnnotationCoordinates.set(coordinates)
+            scheduleAnnotationGesture()
         }
     }
 
@@ -277,6 +435,25 @@ class ModelSurfaceView(
             return true
         }
     }
+
+    private companion object {
+        /**
+         * Touch slop for grabbing an end handle, in pixels.
+         *
+         * Comfortably larger than the drawn marker because a finger is wider
+         * than a cross, and small enough that it cannot swallow a tap meant for
+         * the model behind it.
+         */
+        const val HANDLE_TOUCH_RADIUS_PX = 44f
+
+        /**
+         * How long a handle must be held to switch to height adjustment.
+         *
+         * Long because it is a mode change rather than a tap, and it must not
+         * fire while the user is simply resting a finger before dragging.
+         */
+        const val HANDLE_LONG_PRESS_MILLIS = 2_000L
+    }
 }
 
 private class ModelRenderer(
@@ -297,6 +474,14 @@ private class ModelRenderer(
     private var paintActive = false
     private var meshProgram = 0
     private var lineProgram = 0
+
+    /**
+     * Widest line this driver will actually draw.
+     *
+     * GLES only guarantees 1px, so a requested annotation thickness has to be
+     * clamped or it silently draws at 1px on some devices and not others.
+     */
+    private var maxLineWidth = 1f
     private var gridBuffer: FloatBuffer? = null
     private var gridVertexCount = 0
     private var viewportWidth = 1
@@ -466,6 +651,9 @@ private class ModelRenderer(
         GLES20.glDisable(GLES20.GL_CULL_FACE)
         meshProgram = createProgram(MESH_VERTEX_SHADER, MESH_FRAGMENT_SHADER)
         lineProgram = createProgram(LINE_VERTEX_SHADER, LINE_FRAGMENT_SHADER)
+        val widthRange = FloatArray(2)
+        GLES20.glGetFloatv(GLES20.GL_ALIASED_LINE_WIDTH_RANGE, widthRange, 0)
+        maxLineWidth = widthRange[1].takeIf { it.isFinite() && it > 0f } ?: 1f
         // A new GL context invalidates old VBO ids.
         meshVbo = 0
         colorVbo = 0
@@ -525,6 +713,7 @@ private class ModelRenderer(
         buffer.position(0)
         GLES20.glEnableVertexAttribArray(position)
         GLES20.glVertexAttribPointer(position, 3, GLES20.GL_FLOAT, false, 3 * 4, buffer)
+        GLES20.glLineWidth(overlay.thicknessPx.coerceIn(1f, maxLineWidth))
         if (overlay.lineVertexCount > 0) {
             GLES20.glUniform4f(color, ANNOTATION_COLOR[0], ANNOTATION_COLOR[1], ANNOTATION_COLOR[2], 1f)
             GLES20.glDrawArrays(GLES20.GL_LINES, 0, overlay.lineVertexCount)
@@ -533,8 +722,38 @@ private class ModelRenderer(
             GLES20.glUniform4f(color, ANNOTATION_MARKER_COLOR[0], ANNOTATION_MARKER_COLOR[1], ANNOTATION_MARKER_COLOR[2], 1f)
             GLES20.glDrawArrays(GLES20.GL_LINES, overlay.lineVertexCount, overlay.markerVertexCount)
         }
+        GLES20.glLineWidth(1f)
         GLES20.glDisableVertexAttribArray(position)
         GLES20.glEnable(GLES20.GL_DEPTH_TEST)
+    }
+
+    /**
+     * Which annotation handle a screen point is on, if any.
+     *
+     * Runs on the GL thread where the camera is consistent. Handles are drawn at
+     * a fixed world size, so their touch target is a fixed pixel radius rather
+     * than a projected size - a marker far from the camera is small on screen
+     * but must still be grabbable.
+     */
+    fun annotationHandleAt(screenX: Float, screenY: Float, radiusPx: Float): SegmentEnd? {
+        val currentMesh = mesh ?: return null
+        val overlay = annotationOverlay ?: return null
+        if (overlay.handles.isEmpty()) return null
+        val camera = cameraSnapshot(currentMesh)
+        var best: SegmentEnd? = null
+        var bestDistance = radiusPx
+        for ((end, position) in overlay.handles) {
+            val screen = MeshPicker.project(printer, camera, position.x, position.y, position.z)
+                ?: continue
+            val dx = screen[0] - screenX
+            val dy = screen[1] - screenY
+            val distance = kotlin.math.sqrt(dx * dx + dy * dy)
+            if (distance <= bestDistance) {
+                bestDistance = distance
+                best = end
+            }
+        }
+        return best
     }
 
     /** Replaces the overlay geometry; null clears it. */

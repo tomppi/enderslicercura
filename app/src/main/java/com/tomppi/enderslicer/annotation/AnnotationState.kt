@@ -16,15 +16,12 @@ data class Point3(val x: Float, val y: Float, val z: Float) {
  * How a point's depth was established.
  *
  * A point placed where the ray hit the model is [SURFACE] and remembers the
- * triangle, so it stays meaningful if the intent was "on this face". A point
- * dropped where the ray missed the model is projected onto the drawing plane
- * and is [PLANE] - it has a depth, but that depth is a convention rather than
- * something the geometry confirms. Keeping the distinction explicit means the
- * receiving side never has to guess which points are trustworthy in depth.
+ * triangle. A point dropped where the ray missed is [PLANE] - it has a depth,
+ * but that depth is a convention rather than something the geometry confirms.
  */
 enum class AnnotationAnchor { SURFACE, PLANE }
 
-/** What a chain is for. */
+/** What a series is for. */
 enum class AnnotationKind {
     /** Two points; the distance between them is the point of the annotation. */
     MEASURE,
@@ -67,18 +64,23 @@ data class AnnotationChain(
     }
 }
 
+/** Which end of the segment on screen is being addressed. */
+enum class SegmentEnd { START, END }
+
 /**
- * Point-to-point annotation editing.
+ * Point-to-point annotation, edited a segment at a time.
  *
- * The interaction is deliberately discrete rather than freehand: a point is
- * placed, stays adjustable, and is only committed when the user locks it. That
- * gives three things freehand cannot:
+ * The interaction is tap-to-place and drag-to-adjust, not drag-to-place: a
+ * drag across the model is how the camera orbits, so consuming it for placing
+ * would make the model impossible to turn while annotating. Only a drag that
+ * begins on an end handle moves geometry; every other drag belongs to the
+ * camera.
  *
- *  - precision, because a point can be nudged after it is placed;
- *  - *depth*, because the point lives in world space while it is unlocked, so
- *    orbiting the camera reveals whether it is floating or buried and the user
- *    can slide it until it sits right from every angle;
- *  - a clean contract, because only locked geometry is ever sent anywhere.
+ * A **series** is an ordered run of segments. Placing a point fills the start
+ * of the first segment, then its end; locking a segment commits both and lets
+ * the next one begin at the point just committed, so a run of segments costs
+ * one tap each after the first. Locking the series ends it, and the next point
+ * placed starts a new one from scratch.
  *
  * This type is pure: it holds no camera and does no picking. The caller
  * resolves screen positions to rays and 3D points, which keeps every rule here
@@ -89,65 +91,183 @@ class AnnotationState {
     private val chainList = mutableListOf<AnnotationChain>()
     private var nextChainId = 1
 
-    /** Locked chains, in creation order. */
+    /** Locked series, in creation order. This is what gets serialised. */
     val chains: List<AnnotationChain> get() = chainList.toList()
 
-    /** The unlocked point currently being placed or adjusted, if any. */
-    var active: AnnotationPoint? = null
+    /** Points already locked into the series being drawn. */
+    private val seriesPoints = mutableListOf<AnnotationPoint>()
+
+    /** Locked points of the series in progress, oldest first. */
+    val currentSeries: List<AnnotationPoint> get() = seriesPoints.toList()
+
+    /** Start of the segment being placed; only set for the first segment of a series. */
+    var pendingStart: AnnotationPoint? = null
         private set
 
-    /** The chain the next lock will extend, or null when starting a new one. */
-    var activeChainId: Int? = null
+    /** End of the segment being placed, once the user has tapped it. */
+    var pendingEnd: AnnotationPoint? = null
         private set
 
-    /** Kind applied to a chain created by the next lock. */
+    /**
+     * Rendered line width in **screen pixels**, not model millimetres.
+     *
+     * This is presentation only - the geometry sent on for modelling is the
+     * centreline. Pixels because it is drawn with glLineWidth, which takes
+     * pixels and is clamped to the driver's supported range at draw time.
+     */
+    var thicknessPx: Float = DEFAULT_THICKNESS_PX
+        set(value) {
+            field = value.coerceIn(MIN_THICKNESS_PX, MAX_THICKNESS_PX)
+        }
+
     var kind: AnnotationKind = AnnotationKind.PATH
 
     /**
-     * Distance from the camera captured when an adjustment began.
+     * Distance from the camera captured when a handle drag began.
      *
-     * Holding this for the duration of a drag is what makes orbiting safe: the
+     * Holding this for the duration of the drag is what makes orbiting safe: a
      * point keeps its depth while the camera moves, so a lateral correction
      * never silently changes how far away the point is.
      */
     private var capturedDepth: Float? = null
 
-    val isEmpty: Boolean get() = chainList.isEmpty() && active == null
+    /** Which end a drag in progress is moving, if any. */
+    var adjusting: SegmentEnd? = null
+        private set
 
-    val activeIsModified: Boolean get() = capturedDepth != null
+    /**
+     * Height of the plane points are placed on, in model millimetres.
+     *
+     * Tapping resolves to a ray, and a ray does not say where along itself the
+     * point belongs. Pinning the height removes that ambiguity: the point lands
+     * where the ray crosses this plane, which is exactly under the finger.
+     */
+    var workPlaneZ: Float = 0f
 
-    /** Places or replaces the unlocked point, anchoring it as given. */
-    fun setActive(position: Point3, anchor: AnnotationAnchor, faceIndex: Int? = null) {
-        active = AnnotationPoint(position, anchor, faceIndex)
+    /** Which end is having its height adjusted on its own, if any. */
+    var zAdjusting: SegmentEnd? = null
+        private set
+
+    /**
+     * Starts a height-only adjustment of [end].
+     *
+     * X and Y are left exactly as they are, so raising a point never nudges it
+     * sideways - the reason this is a separate mode from a normal drag.
+     */
+    fun beginZAdjust(end: SegmentEnd): Boolean {
+        if (handle(end) == null) return false
+        zAdjusting = end
+        adjusting = null
+        capturedDepth = null
+        return true
+    }
+
+    fun endZAdjust() {
+        zAdjusting = null
+    }
+
+    /** Moves [end] to an exact model position, as chosen by the working plane. */
+    fun moveHandleTo(end: SegmentEnd, position: Point3): Boolean {
+        if (handle(end) == null) return false
+        if (!position.x.isFinite() || !position.y.isFinite() || !position.z.isFinite()) return false
+        put(end, AnnotationPoint(position, AnnotationAnchor.PLANE, faceIndex = null))
+        return true
+    }
+
+    /** Moves [end] to [z], keeping its X and Y. */
+    fun setHandleZ(end: SegmentEnd, z: Float): Boolean {
+        val current = handle(end) ?: return false
+        if (!z.isFinite()) return false
+        put(
+            end,
+            AnnotationPoint(
+                position = Point3(current.position.x, current.position.y, z),
+                anchor = AnnotationAnchor.PLANE,
+                faceIndex = null,
+            ),
+        )
+        return true
+    }
+
+    val isEmpty: Boolean get() = chainList.isEmpty() && seriesPoints.isEmpty() &&
+        pendingStart == null && pendingEnd == null
+
+    /** True when a segment is complete but not yet committed. */
+    val canLockSegment: Boolean get() = pendingEnd != null
+
+    /** True when there is a series worth committing. */
+    val canLockSeries: Boolean get() = seriesPoints.size >= 2
+
+    /**
+     * Where the segment being placed begins, for drawing.
+     *
+     * This is the user's own first point, or the committed point the series has
+     * reached. It is not necessarily grabbable - see [startHandle].
+     */
+    val segmentStart: AnnotationPoint?
+        get() = pendingStart ?: seriesPoints.lastOrNull()
+
+    /**
+     * The start of the segment that the user may actually drag, or null.
+     *
+     * Only the first segment of a series owns its start. Once a segment is
+     * locked, its start belongs to the series and is no longer adjustable, which
+     * is what "adjustable until we lock them" means.
+     */
+    val startHandle: AnnotationPoint? get() = pendingStart
+
+    /** The end handle, once placed. */
+    val endHandle: AnnotationPoint? get() = pendingEnd
+
+    /** Both addresses that a drag may grab, in the order the UI draws them. */
+    fun handles(): List<Pair<SegmentEnd, AnnotationPoint>> = buildList {
+        startHandle?.let { add(SegmentEnd.START to it) }
+        endHandle?.let { add(SegmentEnd.END to it) }
     }
 
     /**
-     * Captures the active point's depth from [camera] so subsequent moves
-     * preserve it. Call once at the start of an adjustment drag.
+     * Places one tap.
+     *
+     * The first tap of a series sets the segment start; every later tap sets
+     * its end. Returns true when the tap was consumed, false when the segment
+     * already has both ends and the user must lock before placing another.
      */
-    fun beginAdjustment(camera: Point3) {
-        val current = active ?: return
+    fun tap(position: Point3, anchor: AnnotationAnchor, faceIndex: Int? = null): Boolean {
+        val point = AnnotationPoint(position, anchor, faceIndex)
+        if (pendingEnd != null) return false
+        if (seriesPoints.isEmpty() && pendingStart == null) {
+            pendingStart = point
+            return true
+        }
+        pendingEnd = point
+        return true
+    }
+
+    /**
+     * Captures the depth of the handle being dragged from [camera], so the drag
+     * slides the point at constant distance rather than through the model.
+     */
+    fun beginAdjust(end: SegmentEnd, camera: Point3) {
+        val current = handle(end) ?: return
+        adjusting = end
         capturedDepth = camera.distanceTo(current.position)
     }
 
     /**
-     * Slides the active point along a screen ray at the captured depth.
+     * Slides the dragged handle along a screen ray at the captured depth.
      *
      * Sliding is a lateral correction, so the point detaches from any surface
-     * triangle it was on - it is no longer necessarily on that face. Use
-     * [snapActive] to put it back on the model.
-     *
-     * Returns false when there is nothing to move or no depth was captured.
+     * triangle it was on. Use [snap] to put it back on the model.
      */
     fun moveAlongRay(origin: Point3, direction: Point3): Boolean {
         val depth = capturedDepth ?: return false
-        val current = active ?: return false
+        val end = adjusting ?: return false
         val length = sqrt(
             direction.x * direction.x + direction.y * direction.y + direction.z * direction.z,
         )
         if (length <= 1e-6f) return false
         val unit = Point3(direction.x / length, direction.y / length, direction.z / length)
-        active = AnnotationPoint(
+        val moved = AnnotationPoint(
             position = Point3(
                 origin.x + unit.x * depth,
                 origin.y + unit.y * depth,
@@ -156,150 +276,130 @@ class AnnotationState {
             anchor = AnnotationAnchor.PLANE,
             faceIndex = null,
         )
+        put(end, moved)
         return true
     }
 
-    /** Ends an adjustment; the captured depth no longer applies. */
-    fun endAdjustment() {
+    /** Ends a handle drag; the captured depth no longer applies. */
+    fun endAdjust() {
         capturedDepth = null
+        adjusting = null
+        zAdjusting = null
     }
 
-    /** Re-anchors the active point onto the model surface. */
-    fun snapActive(position: Point3, faceIndex: Int) {
-        if (active == null) return
-        active = AnnotationPoint(position, AnnotationAnchor.SURFACE, faceIndex)
+    /** Re-anchors a handle onto the model surface. */
+    fun snap(end: SegmentEnd, position: Point3, faceIndex: Int) {
+        if (handle(end) == null) return
+        put(end, AnnotationPoint(position, AnnotationAnchor.SURFACE, faceIndex))
         // A snap fixes the depth deliberately, so a later orbit must not undo it.
         capturedDepth = null
     }
 
-    /** Nudges the active point by an explicit model-space delta. */
-    fun nudge(dx: Float, dy: Float, dz: Float) {
-        val current = active ?: return
-        active = AnnotationPoint(
-            position = Point3(
-                current.position.x + dx,
-                current.position.y + dy,
-                current.position.z + dz,
-            ),
-            anchor = AnnotationAnchor.PLANE,
-            faceIndex = null,
-        )
-        capturedDepth = null
+    /**
+     * Commits the segment being placed and starts the next one from its end.
+     *
+     * Returns true when something was committed.
+     */
+    fun lockSegment(): Boolean {
+        val end = pendingEnd ?: return false
+        pendingStart?.let { seriesPoints += it }
+        seriesPoints += end
+        pendingStart = null
+        pendingEnd = null
+        endAdjust()
+        return true
     }
 
     /**
-     * Commits the active point into a chain and clears it, ready for the next.
+     * Ends the series in progress, so the next point placed starts a new one.
      *
-     * The first lock of a sequence creates the chain; later locks extend it,
-     * which is what makes the interaction point-to-point rather than
-     * point-per-chain. Returns the affected chain, or null when there was
-     * nothing to lock.
+     * A series of fewer than two points has no geometry, so it is discarded
+     * rather than stored as a degenerate chain.
      */
-    fun lock(): AnnotationChain? {
-        val point = active ?: return null
-        val existingIndex = chainList.indexOfFirst { it.id == activeChainId }
-        val chain = if (existingIndex >= 0) {
-            val existing = chainList[existingIndex]
-            existing.copy(points = existing.points + point)
-        } else {
-            AnnotationChain(id = nextChainId++, kind = kind, points = listOf(point))
+    fun lockSeries(): AnnotationChain? {
+        lockSegment()
+        if (seriesPoints.size < 2) {
+            // A series of fewer than two points has no geometry, so it is
+            // discarded completely - including a start that was never paired.
+            seriesPoints.clear()
+            pendingStart = null
+            pendingEnd = null
+            endAdjust()
+            return null
         }
-        if (existingIndex >= 0) {
-            chainList[existingIndex] = chain
-        } else {
-            chainList += chain
-            activeChainId = chain.id
-        }
-        active = null
-        capturedDepth = null
+        val chain = AnnotationChain(
+            id = nextChainId++,
+            kind = kind,
+            points = seriesPoints.toList(),
+        )
+        chainList += chain
+        seriesPoints.clear()
+        endAdjust()
         return chain
     }
 
-    /** Removes the newest locked point, or clears the active one when unlocked. */
+    /** Removes the most recent uncommitted point, then the last committed one. */
     fun undo(): Boolean {
-        if (active != null) {
-            active = null
-            capturedDepth = null
-            return true
+        endAdjust()
+        when {
+            pendingEnd != null -> {
+                pendingEnd = null
+                return true
+            }
+            pendingStart != null -> {
+                pendingStart = null
+                return true
+            }
+            seriesPoints.isNotEmpty() -> {
+                seriesPoints.removeAt(seriesPoints.size - 1)
+                return true
+            }
+            chainList.isNotEmpty() -> {
+                val last = chainList.removeAt(chainList.size - 1)
+                seriesPoints += last.points
+                return true
+            }
         }
-        if (chainList.isEmpty()) return false
-        val last = chainList.last()
-        if (last.points.size <= 1) {
-            chainList.removeAt(chainList.size - 1)
-            activeChainId = null
-        } else {
-            chainList[chainList.size - 1] = last.copy(
-                points = last.points.subList(0, last.points.size - 1),
-            )
-        }
-        return true
-    }
-
-    /** Closes the active chain into a region, if it has enough points. */
-    fun closeActiveChain(): Boolean {
-        val index = chainList.indexOfFirst { it.id == activeChainId }
-        if (index < 0) return false
-        val chain = chainList[index]
-        if (chain.points.size < 3) return false
-        chainList[index] = chain.copy(kind = AnnotationKind.REGION, closed = true)
-        activeChainId = null
-        return true
-    }
-
-    /** Ends the current chain so the next lock starts a fresh one. */
-    fun finishChain() {
-        activeChainId = null
-    }
-
-    /**
-     * Replaces all content, used when restoring a persisted document.
-     *
-     * The active point is never restored: an unlocked point is transient editing
-     * state, not something worth persisting.
-     */
-    fun restore(restored: List<AnnotationChain>) {
-        chainList.clear()
-        chainList += restored
-        active = null
-        activeChainId = null
-        capturedDepth = null
-        nextChainId = (restored.maxOfOrNull { it.id } ?: 0) + 1
+        return false
     }
 
     fun clear() {
         chainList.clear()
-        active = null
-        activeChainId = null
-        capturedDepth = null
-        nextChainId = 1
+        seriesPoints.clear()
+        pendingStart = null
+        pendingEnd = null
+        endAdjust()
     }
 
     /**
-     * Live distance from the last locked point to the active one.
+     * Replaces everything with [chains] from a saved document.
      *
-     * This is what the measure mode shows while a point is being placed, and it
-     * is the value that makes a 2D gesture carry a real millimetre dimension.
+     * Ids are kept as given so a re-save is stable, and the next id continues
+     * past the highest restored one rather than colliding with it.
      */
-    fun pendingLengthMm(): Float? {
-        val point = active ?: return null
-        val index = chainList.indexOfFirst { it.id == activeChainId }
-        if (index < 0) return null
-        val previous = chainList[index].points.lastOrNull() ?: return null
-        return previous.position.distanceTo(point.position)
+    fun restore(chains: List<AnnotationChain>) {
+        clear()
+        chainList += chains
+        nextChainId = (chains.maxOfOrNull { it.id } ?: 0) + 1
     }
 
-    /** Total length of the chain being edited, including the active point. */
-    fun liveChainLengthMm(): Float? {
-        val point = active ?: return null
-        val index = chainList.indexOfFirst { it.id == activeChainId }
-        if (index < 0) return null
-        val chain = chainList[index]
-        if (chain.points.isEmpty()) return null
-        var total = 0f
-        for (i in 0 until chain.points.size - 1) {
-            total += chain.points[i].position.distanceTo(chain.points[i + 1].position)
+    private fun handle(end: SegmentEnd): AnnotationPoint? = when (end) {
+        SegmentEnd.START -> startHandle
+        SegmentEnd.END -> endHandle
+    }
+
+    private fun put(end: SegmentEnd, point: AnnotationPoint) {
+        when (end) {
+            // A start handle only exists before the first segment is committed;
+            // afterwards the start is a locked series point and not movable.
+            SegmentEnd.START -> if (pendingStart != null) pendingStart = point
+            SegmentEnd.END -> if (pendingEnd != null) pendingEnd = point
         }
-        total += chain.points.last().position.distanceTo(point.position)
-        return total
+    }
+
+    companion object {
+        const val DEFAULT_THICKNESS_PX = 6f
+        const val MIN_THICKNESS_PX = 2f
+        const val MAX_THICKNESS_PX = 24f
     }
 }

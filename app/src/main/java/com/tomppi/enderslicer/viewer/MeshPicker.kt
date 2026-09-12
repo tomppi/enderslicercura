@@ -120,6 +120,38 @@ object MeshPicker {
         }
     }
 
+    /**
+     * Projects a model-space point to screen pixels, or null when it is behind
+     * the camera.
+     *
+     * Uses the same matrices as [ray], so a handle projected to the screen and
+     * the pick that placed it cannot disagree about where it is - which is what
+     * makes grabbing a handle by touch land where the user sees it.
+     */
+    fun project(
+        printer: PrinterDefinition,
+        camera: CameraSnapshot,
+        x: Float,
+        y: Float,
+        z: Float,
+    ): FloatArray? {
+        if (camera.viewportWidth <= 0f || camera.viewportHeight <= 0f) return null
+        synchronized(lock) {
+            updateCamera(printer, camera)
+            // Column-major: m[0..3] is column 0, so the translation is at 12..14.
+            val w = mvpScratch[3] * x + mvpScratch[7] * y + mvpScratch[11] * z + mvpScratch[15]
+            if (w <= 1e-6f) return null
+            val cx = mvpScratch[0] * x + mvpScratch[4] * y + mvpScratch[8] * z + mvpScratch[12]
+            val cy = mvpScratch[1] * x + mvpScratch[5] * y + mvpScratch[9] * z + mvpScratch[13]
+            val ndcX = cx / w
+            val ndcY = cy / w
+            return floatArrayOf(
+                (ndcX * 0.5f + 0.5f) * camera.viewportWidth,
+                (1f - (ndcY * 0.5f + 0.5f)) * camera.viewportHeight,
+            )
+        }
+    }
+
     /** Fills [nearPoint] and [direction] for a screen position. */
     private fun fillRay(camera: CameraSnapshot, screenX: Float, screenY: Float): Boolean {
         val ndcX = (2f * screenX) / camera.viewportWidth - 1f

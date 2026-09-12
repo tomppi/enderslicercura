@@ -20,10 +20,9 @@ class AnnotationCodecTest {
     private fun measuredState(): AnnotationState {
         val state = AnnotationState()
         state.kind = AnnotationKind.MEASURE
-        state.setActive(Point3(0f, 0f, 0f), AnnotationAnchor.SURFACE, faceIndex = 5)
-        state.lock()
-        state.setActive(Point3(30f, 40f, 0f), AnnotationAnchor.PLANE)
-        state.lock()
+        state.tap(Point3(0f, 0f, 0f), AnnotationAnchor.SURFACE, faceIndex = 5)
+        state.tap(Point3(30f, 40f, 0f), AnnotationAnchor.PLANE)
+        state.lockSeries()
         return state
     }
 
@@ -57,9 +56,8 @@ class AnnotationCodecTest {
     @Test
     fun incompleteChainsAreNotEncoded() {
         val state = AnnotationState()
-        state.setActive(Point3(1f, 2f, 3f), AnnotationAnchor.PLANE)
-        state.lock()
-        // A single-point PATH cannot mean anything, so it must not travel.
+        state.tap(Point3(1f, 2f, 3f), AnnotationAnchor.PLANE)
+        // A single-point series cannot mean anything, so it must not travel.
         val document = AnnotationCodec.encode(state, summary)
         assertEquals(0, document.getJSONArray("chains").length())
     }

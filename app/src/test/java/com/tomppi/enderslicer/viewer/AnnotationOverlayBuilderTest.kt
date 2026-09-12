@@ -1,23 +1,29 @@
 package com.tomppi.enderslicer.viewer
 
 import com.tomppi.enderslicer.annotation.AnnotationAnchor
+import com.tomppi.enderslicer.annotation.AnnotationChain
 import com.tomppi.enderslicer.annotation.AnnotationKind
+import com.tomppi.enderslicer.annotation.AnnotationPoint
 import com.tomppi.enderslicer.annotation.AnnotationState
 import com.tomppi.enderslicer.annotation.Point3
+import com.tomppi.enderslicer.annotation.SegmentEnd
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * The overlay is a GL_LINES buffer split into two ranges: the chain and pending
- * segments, then the marker cross. The split indices are what the renderer uses
- * to colour each half, so an off-by-one there draws the marker in the chain
- * colour or drops it entirely.
+ * The overlay is a GL_LINES buffer split into two ranges: the committed and
+ * pending segments, then the handle crosses. The split index is what the
+ * renderer uses to colour each half, so an off-by-one there draws the markers
+ * in the line colour or drops them entirely.
  */
 class AnnotationOverlayBuilderTest {
 
     private fun build(state: AnnotationState, marker: Float = 1f) =
         AnnotationOverlayBuilder.build(state, marker)
+
+    private fun AnnotationState.tapAt(x: Float, y: Float, z: Float) =
+        tap(Point3(x, y, z), AnnotationAnchor.PLANE)
 
     @Test
     fun emptyStateProducesNothingToDraw() {
@@ -26,93 +32,106 @@ class AnnotationOverlayBuilderTest {
         assertEquals(0, overlay.lineVertexCount)
         assertEquals(0, overlay.markerVertexCount)
         assertEquals(0, overlay.totalVertexCount)
+        assertTrue(overlay.handles.isEmpty())
     }
 
     @Test
-    fun aTwoPointChainIsOneSegment() {
+    fun aLockedTwoPointSeriesIsOneSegmentWithNoHandles() {
         val state = AnnotationState()
-        state.setActive(Point3(0f, 0f, 0f), AnnotationAnchor.PLANE)
-        state.lock()
-        state.setActive(Point3(10f, 0f, 0f), AnnotationAnchor.PLANE)
-        state.lock()
+        state.tapAt(0f, 0f, 0f)
+        state.tapAt(10f, 0f, 0f)
+        state.lockSeries()
 
         val overlay = build(state)
         assertEquals("one segment is two vertices", 2, overlay.lineVertexCount)
-        assertEquals("nothing is being placed, so no marker", 0, overlay.markerVertexCount)
+        assertEquals("a committed series has nothing to grab", 0, overlay.markerVertexCount)
         assertEquals(6, overlay.vertices.size)
     }
 
     @Test
-    fun aClosedRegionAddsTheClosingSegment() {
+    fun aLockedThreePointSeriesIsTwoSegments() {
         val state = AnnotationState()
-        state.setActive(Point3(0f, 0f, 0f), AnnotationAnchor.PLANE)
-        state.lock()
-        state.setActive(Point3(10f, 0f, 0f), AnnotationAnchor.PLANE)
-        state.lock()
-        state.setActive(Point3(10f, 10f, 0f), AnnotationAnchor.PLANE)
-        state.lock()
-        val open = build(state)
-        assertEquals(4, open.lineVertexCount)
+        state.tapAt(0f, 0f, 0f)
+        state.tapAt(10f, 0f, 0f)
+        state.lockSegment()
+        state.tapAt(10f, 10f, 0f)
+        state.lockSeries()
 
-        assertTrue(state.closeActiveChain())
-        val closed = build(state)
-        assertEquals("closing adds one more segment", 6, closed.lineVertexCount)
+        val overlay = build(state)
+        assertEquals(4, overlay.lineVertexCount)
     }
 
     @Test
-    fun theActivePointAddsAPendingSegmentAndAMarker() {
+    fun aPendingSegmentDrawsTheLineAndBothHandles() {
         val state = AnnotationState()
-        state.setActive(Point3(0f, 0f, 0f), AnnotationAnchor.PLANE)
-        state.lock()
-        state.setActive(Point3(10f, 0f, 0f), AnnotationAnchor.SURFACE, faceIndex = 3)
+        state.tapAt(0f, 0f, 0f)
+        state.tapAt(10f, 0f, 0f)
 
         val overlay = build(state, marker = 2f)
-        // Segment from the locked point to the active one, plus the cross.
-        assertEquals(
-            "the marker must come last so the ranges do not overlap",
-            8,
-            overlay.totalVertexCount,
-        )
-        assertEquals(8, overlay.lineVertexCount + overlay.markerVertexCount)
-        assertEquals(6, overlay.markerVertexCount)
-        assertEquals(2, overlay.lineVertexCount)
+        assertEquals("the segment itself", 2, overlay.lineVertexCount)
+        assertEquals("both ends are grabbable, three axes each", 12, overlay.markerVertexCount)
+        assertEquals(14, overlay.totalVertexCount)
+        assertEquals(2, overlay.handles.size)
+        assertEquals(SegmentEnd.START, overlay.handles[0].first)
+        assertEquals(SegmentEnd.END, overlay.handles[1].first)
     }
 
     @Test
-    fun anActivePointWithNoPreviousPointStillGetsAMarker() {
+    fun onlyTheStartHandleExistsUntilTheSecondTap() {
         val state = AnnotationState()
-        state.setActive(Point3(1f, 2f, 3f), AnnotationAnchor.SURFACE, faceIndex = 9)
+        state.tapAt(1f, 2f, 3f)
+
         val overlay = build(state)
-        assertEquals(0, overlay.lineVertexCount)
-        assertEquals(6, overlay.markerVertexCount)
-        assertTrue(!overlay.isEmpty)
+        assertEquals("no line yet, only one point", 0, overlay.lineVertexCount)
+        assertEquals("the placed end is still grabbable", 6, overlay.markerVertexCount)
+        assertEquals(1, overlay.handles.size)
+        assertEquals(SegmentEnd.START, overlay.handles[0].first)
     }
 
     @Test
-    fun theMarkerCrossIsCentredOnTheActivePoint() {
+    fun theSeriesBeingDrawnIsVisibleWhileItIsExtended() {
         val state = AnnotationState()
-        state.setActive(Point3(5f, 6f, 7f), AnnotationAnchor.PLANE)
-        val overlay = build(state, marker = 1f)
-        val values = overlay.vertices
-        // First marker segment runs from (4,6,7) to (6,6,7).
-        assertEquals(4f, values[0], 1e-4f)
-        assertEquals(6f, values[1], 1e-4f)
-        assertEquals(7f, values[2], 1e-4f)
-        assertEquals(6f, values[3], 1e-4f)
-        assertEquals(6f, values[4], 1e-4f)
-        assertEquals(7f, values[5], 1e-4f)
+        state.tapAt(0f, 0f, 0f)
+        state.tapAt(10f, 0f, 0f)
+        state.lockSegment()
+        state.tapAt(10f, 10f, 0f)
+
+        val overlay = build(state)
+        // The committed run plus the segment in progress.
+        assertEquals(4, overlay.lineVertexCount)
+        // Only the end is grabbable: the start is a committed series point.
+        assertEquals(6, overlay.markerVertexCount)
+        assertEquals(1, overlay.handles.size)
+        assertEquals(SegmentEnd.END, overlay.handles[0].first)
     }
 
     @Test
-    fun markerSizeScalesWithTheModelAndIsClamped() {
-        val small = MeshBounds(0f, 0f, 0f, 1f, 1f, 1f)
-        val large = MeshBounds(0f, 0f, 0f, 300f, 300f, 300f)
-        assertTrue(
-            "a bigger model gets a bigger marker",
-            AnnotationOverlayBuilder.markerSizeMm(large) > AnnotationOverlayBuilder.markerSizeMm(small),
+    fun aClosedRestoredChainDrawsItsClosingSegment() {
+        val state = AnnotationState()
+        state.restore(
+            listOf(
+                AnnotationChain(
+                    id = 1,
+                    kind = AnnotationKind.REGION,
+                    points = listOf(
+                        AnnotationPoint(Point3(0f, 0f, 0f), AnnotationAnchor.PLANE),
+                        AnnotationPoint(Point3(10f, 0f, 0f), AnnotationAnchor.PLANE),
+                        AnnotationPoint(Point3(10f, 10f, 0f), AnnotationAnchor.PLANE),
+                    ),
+                    closed = true,
+                ),
+            ),
         )
-        assertTrue(AnnotationOverlayBuilder.markerSizeMm(null) > 0f)
-        assertTrue("clamped at the upper bound", AnnotationOverlayBuilder.markerSizeMm(large) <= 4f)
-        assertTrue("clamped at the lower bound", AnnotationOverlayBuilder.markerSizeMm(small) >= 0.4f)
+
+        val overlay = build(state)
+        assertEquals("three sides of a triangle", 6, overlay.lineVertexCount)
+    }
+
+    @Test
+    fun thicknessTravelsWithTheGeometry() {
+        val state = AnnotationState()
+        state.thicknessPx = 11f
+
+        assertEquals(11f, build(state).thicknessPx, 1e-4f)
     }
 }
