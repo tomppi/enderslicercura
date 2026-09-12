@@ -68,7 +68,7 @@ If the prompt does not arrive with an image attached, ask for one rather than gu
 | GPU box `GPU box` | `192.0.2.30`, ssh `<user>`, venv `/home/<user>/img2mesh/venv` |
 | Scripts (PC copy) | `C:\Users\<you>\Documents\img2mesh\blender-mcp\` |
 | Scripts (box copy) | `/home/<user>/img2mesh/`, Hunyuan clone at `/home/<user>/hy3d` |
-| Phone | `192.0.2.20:5555` via `C:\Android\platform-tools\adb.exe` |
+| Phone | `192.0.2.20:5555` via `C:\Android\platform-tools\adb.exe`, or its tailnet address when it is off the LAN |
 
 Transport is `box.py` — `--put`, `--get`, `--sudo`, credentials in `box-credentials.json`.
 
@@ -102,6 +102,17 @@ Generation runs `rembg` (U²-Net saliency segmentation) on the input before enco
 So the best inputs are one subject, generous framing, and a background that contrasts with it. If a result is inexplicably wrong, suspect `rembg` before suspecting the generator.
 
 **Look at the mask before you spend GPU time on it.** Running `rembg` alone on the candidate input costs seconds and shows exactly what the generator will be given; a full generation costs minutes. A run that skipped this check fed the generator a full frame and got a **detached finger fragment** left in the mask - the clean-but-wrong failure above, caught only because the mask was examined first. When the frame is ambiguous, prepare both a full-frame and a cropped version, using `prep_photo.py --box x0,y0,x1,y1` to isolate the subject.
+
+**Check which object it picked, not just whether the mask is clean.** On a hose clamp photographed in a hand, `rembg` on the full frame returned **the hand** - foreground 0.70, bounding box spanning the whole image - and the pipeline would have produced a confident, watertight model of a hand with nothing downstream flagging it. Pruning the largest connected component did not help, because the stray palm was bonded to the clamp. What worked was preparing several crops and choosing between them:
+
+| input | mask |
+|---|---|
+| full frame | the hand |
+| cleaned composite | clamp plus a bonded palm wedge |
+| crop A | clamp plus an edge fragment |
+| **crop B** | **clamp alone**, and larger in frame than crop A |
+
+So when the subject is held, or sits against a busy background, generate two or three crops rather than one, and pick the mask that is both clean *and* largest in frame. Reach for `prep_photo.py --box x0,y0,x1,y1` to produce them.
 
 ### 2. Wake the box
 
@@ -143,9 +154,15 @@ The model is `tencent/Hunyuan3D-2mini`, `subfolder='hunyuan3d-dit-v2-mini'`, `va
 ./venv/bin/python prep_mesh.py <generated.stl> <final.stl> --height-mm 200 --from-y-up
 ```
 
-**`--from-y-up` is required for Hunyuan output.** TripoSR and Hunyuan disagree about up-axis; skipping it prints the model lying on its back.
+**`--from-y-up` is required for Hunyuan output - but as written it inverts the model.** TripoSR and Hunyuan disagree about up-axis, and skipping the flag leaves the model lying on its back.
+
+The rotation itself has the wrong sign. `prep_mesh.py` applies `rotation_matrix(-pi/2, X)`, and at that angle a point at `+Y` lands on `-Z` - it sends "up" to "down". A Y-up source therefore comes out **upside down**, every time, not intermittently. Confirmed visually on a screw (its tip sat at `+Y` in the raw mesh, matching the photograph, and the finished model was inverted) and then by the same axis arithmetic on a second subject too symmetric for the render to show it.
+
+Two ways out, and **pick exactly one**: rotate the finished mesh 180 degrees about X, or fix the sign in `prep_mesh.py` (`-np.pi / 2.0` to `np.pi / 2.0`, which maps `+Y` to `+Z`). Applying the manual flip on top of a fixed script inverts it the other way, and that failure looks identical.
 
 **`--height-mm` is a decision about the print, not a fixed value.** The 200 above is an example, not a default: on an earbud that is roughly **7x life size**. Scale to the part's real dimensions unless the user asked for something else, and say which you chose - a 200 mm default silently turns a small object into a large print.
+
+**It scales the Z extent specifically** (`scale = height_mm / extent[2]`, applied *after* the rotation), so "height" means whatever ends up on Z. For a flat object that is the **smallest** dimension: a hose clamp measuring 0.98 x 0.86 x 0.48 in the raw frame would have come out **202 mm long** at `--height-mm 100`. Size flat parts by the dimension you actually care about and back out the height - that clamp was given `--height-mm 55` to land at 111 mm overall.
 
 ### 5. Validate before it ever reaches the phone
 
@@ -156,6 +173,10 @@ node verify-stl.mjs <final.stl>
 Expect **watertight**, with 0 degenerate / open / over edges. A model that fails here will fail in the slicer, and it is far cheaper to catch now than after the handoff.
 
 ### 6. Deliver to the phone
+
+**If the phone has left the WiFi, reach it over the tailnet.** adbd listens on every interface, so `adb connect <phone-tailnet-ip>:5555` works when the LAN address does not answer — a phone that is out of the house is still reachable, and the whole delivery goes over the tunnel. (The Tailscale caveat elsewhere in these skills is about the *app's* inbound sockets, such as the Blender MCP port; it does not apply to adb.)
+
+The app must be **running** for the import to dispatch — check for its pid before delivering rather than after, and remember the adb server does not survive between shell invocations, so connect and use it in one command.
 
 The app hot-loads from its own private directory, so the file must be copied in there — the sdcard alone is not enough:
 
@@ -216,6 +237,7 @@ That makes rendering and looking at the result a required step, not a nicety. Th
 | `spreader-dmc-print.stl` | *same* diffuser photo | **DMC 512³** | **644,596** | 71.78 × 65.37 × 200 mm |
 | `airpod-1789207049003.stl` | earbud photo | **DMC 512³**, 50 steps, guidance 5.0 | **1,044,576** | 146.01 × 102.39 × 200 mm |
 | `screw-glide-1789210076129.stl` | screw photo | **DMC 512³** | **677,544** | 35.20 × 35.48 × 100 mm |
+| `hose-clamp-1789216861083.stl` | hose clamp in a hand | **DMC 512³** | **1,640,128** | 111.06 × 97.74 × 55 mm |
 
 All watertight.
 
