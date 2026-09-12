@@ -146,4 +146,37 @@ object AppIcons {
             "M12 2l8 3.1V11c0 5.1-3.42 9.9-8 11-4.58-1.1-8-5.9-8-11V5.1L12 2zm-1.2 14.4l5.0-5.2-1.4-1.5-3.6 3.7-1.7-1.7-1.4 1.5 3.1 3.2z",
         )
     }
+
+    /** Blender engine: AI assistant. Two sparkles, main and satellite. */
+    val Sparkle: ImageVector by lazy {
+        glyph(
+            "Sparkle",
+            "M11 3l1.7 4.6L17.3 9l-4.6 1.7L11 15.3 9.3 10.7 4.7 9l4.6-1.4L11 3z" +
+                "M18 13.5l.9 2.4 2.4.9-2.4.9-.9 2.4-.9-2.4-2.4-.9 2.4-.9.9-2.4z",
+        )
+    }
+
+    /** Blender engine: upload an image. Arrow into a tray. */
+    val ImageUpload: ImageVector by lazy {
+        glyph(
+            "ImageUpload",
+            "M9 16h6v-6h4l-7-7-7 7h4v6zM5 18h14v2H5v-2z",
+        )
+    }
+
+    /** Blender engine: send a chat message. */
+    val Send: ImageVector by lazy {
+        glyph(
+            "Send",
+            "M2.01 21L23 12 2.01 3 2 10l15 2-15 2z",
+        )
+    }
+
+    /** Blender engine: collapse the floating chat to its bubble. */
+    val Minimise: ImageVector by lazy {
+        glyph(
+            "Minimise",
+            "M19 13H5v-2h14v2z",
+        )
+    }
 }

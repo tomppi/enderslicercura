@@ -176,15 +176,34 @@ object BlenderEngine {
         val exports = File(configDir, "exports")
         exports.mkdirs()
         runCatching {
-            exports.listFiles { f -> f.isFile && f.name.endsWith(".stl", ignoreCase = true) }
-                ?.forEach { file ->
-                    val signature = signatureOf(file)
-                    synchronized(stateLock) {
-                        if (!delivered.contains(signature) && pendingExports.none { it.absolutePath == file.absolutePath }) {
+            // Everything already here is history from a previous run, not a new
+            // arrival. [delivered] lives in memory, so without this the first
+            // poll of every launch treats the whole backlog as freshly exported
+            // and hands the UI one model after another before it settles.
+            val existing = exports
+                .listFiles { f -> f.isFile && f.name.endsWith(".stl", ignoreCase = true) }
+                ?.sortedBy { it.lastModified() }
+                .orEmpty()
+            val newest = existing.lastOrNull()
+            synchronized(stateLock) {
+                existing.forEach { delivered.add(signatureOf(it)) }
+            }
+            // The newest still belongs to the UI: an export that finished while
+            // the app was dead is exactly the one being waited for. Handed over
+            // directly when a listener is attached, queued for the setter when
+            // it is not - the same replay the setter already implements.
+            newest?.let { file ->
+                val listener = onStlExported
+                if (listener == null) {
+                    synchronized(pendingExports) {
+                        if (pendingExports.none { it.absolutePath == file.absolutePath }) {
                             pendingExports.add(file)
                         }
                     }
+                } else {
+                    listener.invoke(file)
                 }
+            }
             val observer = object : FileObserver(
                 exports.absolutePath,
                 FileObserver.CREATE or FileObserver.MOVED_TO or FileObserver.CLOSE_WRITE,

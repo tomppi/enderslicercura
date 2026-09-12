@@ -43,10 +43,13 @@ import com.tomppi.enderslicer.profile.CuraProjectSceneParser
 import com.tomppi.enderslicer.profile.ImportedCuraConfig
 import com.tomppi.enderslicer.supportpaint.SupportPaintBrush
 import com.tomppi.enderslicer.supportpaint.SupportPaintMode
+import com.tomppi.enderslicer.annotation.AnnotationAnchor
 import com.tomppi.enderslicer.annotation.AnnotationCodec
 import com.tomppi.enderslicer.annotation.AnnotationGesture
 import com.tomppi.enderslicer.annotation.AnnotationKind
 import com.tomppi.enderslicer.annotation.AnnotationState
+import com.tomppi.enderslicer.annotation.SegmentEnd
+import com.tomppi.enderslicer.annotation.WorkPlane
 import com.tomppi.enderslicer.supportpaint.SupportPaintState
 import com.tomppi.enderslicer.viewer.AnnotationOverlayBuilder
 import com.tomppi.enderslicer.viewer.MeshPicker
@@ -822,6 +825,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (active) {
             annotation.clear()
             annotation.kind = AnnotationKind.PATH
+            // Seed the working height at the middle of the model, so the first
+            // tap lands somewhere sensible rather than on the build plate.
+            _uiState.value.mesh?.bounds?.let { bounds ->
+                annotation.workPlaneZ = bounds.centerZ
+            }
         }
         _uiState.update { it.copy(annotationActive = active, annotationSavedPath = null) }
         publishAnnotation()
@@ -841,44 +849,120 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * camera a usable way to judge depth without the point drifting nearer or
      * further.
      */
-    fun onAnnotationGesture(gesture: AnnotationGesture) {
-        val current = annotation.active
-        when {
-            current == null ->
-                annotation.setActive(gesture.position, gesture.anchor, gesture.faceIndex)
-
-            gesture.faceIndex != null ->
-                annotation.snapActive(gesture.position, gesture.faceIndex)
-
-            else -> {
-                annotation.beginAdjustment(gesture.rayOrigin)
-                annotation.moveAlongRay(gesture.rayOrigin, gesture.rayDirection)
-                annotation.endAdjustment()
+    /**
+     * A tap places one end of the line being drawn.
+     *
+     * The first tap of a series sets the start; later ones set the end, and
+     * once a segment has both ends it has to be locked before another can
+     * begin. That is what keeps the lock meaningful rather than decorative.
+     */
+    fun onAnnotationTap(gesture: AnnotationGesture) {
+        // Placed on the working plane, not wherever the ray happened to hit.
+        // A ray gives a direction but no depth; the plane supplies the missing
+        // one, so the point lands exactly under the finger at a known height.
+        val point = WorkPlane.intersectHorizontal(
+            origin = gesture.rayOrigin,
+            direction = gesture.rayDirection,
+            planeZ = annotation.workPlaneZ,
+        )
+        if (point == null) {
+            _uiState.update {
+                it.copy(statusMessage = "Tilt the view to place a point on this plane")
             }
+            return
+        }
+        if (!annotation.tap(point, AnnotationAnchor.PLANE)) {
+            _uiState.update { it.copy(statusMessage = "Lock the line before starting the next") }
+            return
         }
         publishAnnotation()
     }
 
-    fun lockAnnotationPoint() {
-        if (annotation.lock() == null) return
+    /**
+     * A drag that began on a handle moves that end across the working plane.
+     *
+     * Constrained to the plane rather than the view ray, so the end tracks the
+     * finger instead of drifting nearer or further as the camera moves.
+     */
+    fun onAnnotationAdjust(end: SegmentEnd, gesture: AnnotationGesture) {
+        val point = WorkPlane.intersectHorizontal(
+            origin = gesture.rayOrigin,
+            direction = gesture.rayDirection,
+            planeZ = annotation.workPlaneZ,
+        ) ?: return
+        if (!annotation.moveHandleTo(end, point)) return
+        publishAnnotation()
+    }
+
+    /** Begins a height-only adjustment of [end]; X and Y are left alone. */
+    fun beginAnnotationZAdjust(end: SegmentEnd) {
+        if (!annotation.beginZAdjust(end)) return
+        publishAnnotation()
+    }
+
+    /**
+     * A drag during a height adjustment changes Z and nothing else.
+     *
+     * The ray is crossed with a vertical plane through the point that faces the
+     * camera, so dragging up raises the point rather than sliding it around.
+     */
+    fun onAnnotationZAdjust(gesture: AnnotationGesture) {
+        val end = annotation.zAdjusting ?: return
+        val current = annotation.handles().firstOrNull { it.first == end }?.second ?: return
+        val z = WorkPlane.intersectVerticalForZ(
+            origin = gesture.rayOrigin,
+            direction = gesture.rayDirection,
+            anchor = current.position,
+        ) ?: return
+        if (!annotation.setHandleZ(end, z.coerceIn(zRangeMin(), zRangeMax()))) return
+        publishAnnotation()
+    }
+
+    fun endAnnotationZAdjust() {
+        annotation.endZAdjust()
+        publishAnnotation()
+    }
+
+    fun setAnnotationWorkPlaneZ(z: Float) {
+        if (!z.isFinite()) return
+        annotation.workPlaneZ = z.coerceIn(zRangeMin(), zRangeMax())
+        publishAnnotation()
+    }
+
+    private fun zRangeMin(): Float = _uiState.value.mesh?.bounds?.minZ ?: 0f
+
+    private fun zRangeMax(): Float = _uiState.value.mesh?.bounds?.maxZ ?: 100f
+
+    /**
+     * A drag that began on a handle moves that end.
+     *
+     * Over the model the end follows the surface; in empty space it keeps the
+     * depth the drag started at, so orbiting to judge a point does not drag it
+     * nearer or further.
+     */
+    /** Commits the line being drawn; the next one starts where this one ended. */
+    fun lockAnnotationSegment() {
+        if (!annotation.lockSegment()) return
+        publishAnnotation()
+    }
+
+    /** Ends the series, so the next point placed starts a new one from scratch. */
+    fun lockAnnotationSeries() {
+        if (annotation.lockSeries() == null) {
+            _uiState.update { it.copy(statusMessage = "A line needs two points") }
+            return
+        }
+        publishAnnotation()
+    }
+
+    fun setAnnotationThickness(px: Float) {
+        if (!px.isFinite()) return
+        annotation.thicknessPx = px
         publishAnnotation()
     }
 
     fun undoAnnotation() {
         if (!annotation.undo()) return
-        publishAnnotation()
-    }
-
-    fun finishAnnotationChain() {
-        annotation.finishChain()
-        publishAnnotation()
-    }
-
-    fun closeAnnotationChain() {
-        if (!annotation.closeActiveChain()) {
-            _uiState.update { it.copy(statusMessage = "A region needs at least three points") }
-            return
-        }
         publishAnnotation()
     }
 
@@ -925,19 +1009,48 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun publishAnnotation() {
         val mesh = _uiState.value.mesh
+        val start = annotation.segmentStart
+        val end = annotation.endHandle
         _uiState.update {
             it.copy(
                 annotationOverlay = AnnotationOverlayBuilder.build(
                     state = annotation,
                     markerSizeMm = AnnotationOverlayBuilder.markerSizeMm(mesh?.bounds),
                 ),
-                annotationPending = annotation.active != null,
-                annotationAnchor = annotation.active?.anchor,
-                annotationMeasureMm = annotation.pendingLengthMm(),
-                annotationChainMm = annotation.liveChainLengthMm(),
+                annotationCanLockSegment = annotation.canLockSegment,
+                annotationCanLockSeries = annotation.canLockSeries,
+                annotationAwaitingSecondPoint = start != null && end == null,
+                annotationAnchor = end?.anchor,
+                annotationMeasureMm = if (start != null && end != null) {
+                    start.position.distanceTo(end.position)
+                } else {
+                    null
+                },
+                annotationChainMm = liveSeriesLengthMm(),
                 annotationChainCount = annotation.chains.size,
+                annotationSeriesPoints = annotation.currentSeries.size,
+                annotationThicknessPx = annotation.thicknessPx,
+                annotationWorkPlaneZ = annotation.workPlaneZ,
+                annotationZAdjusting = annotation.zAdjusting != null,
+                annotationZMin = mesh?.bounds?.minZ ?: 0f,
+                annotationZMax = mesh?.bounds?.maxZ ?: 100f,
             )
         }
+    }
+
+    /** Length of the series being drawn, including the segment in progress. */
+    private fun liveSeriesLengthMm(): Float {
+        val series = annotation.currentSeries
+        var total = 0f
+        for (i in 0 until series.size - 1) {
+            total += series[i].position.distanceTo(series[i + 1].position)
+        }
+        val start = annotation.segmentStart
+        val end = annotation.endHandle
+        if (start != null && end != null) {
+            total += start.position.distanceTo(end.position)
+        }
+        return total
     }
 
     fun setBrushRadius(mm: Double) {

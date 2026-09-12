@@ -33,14 +33,29 @@ data class MainUiState(
     val annotationActive: Boolean = false,
     /** Line geometry for the annotation overlay, or null when there is none. */
     val annotationOverlay: AnnotationOverlay? = null,
-    /** True when a point is placed but not yet locked. */
-    val annotationPending: Boolean = false,
+    /** True when the segment being placed has both ends and can be committed. */
+    val annotationCanLockSegment: Boolean = false,
+    /** True when the series so far has enough points to commit. */
+    val annotationCanLockSeries: Boolean = false,
+    /** True when a point has been placed but the segment still needs its other end. */
+    val annotationAwaitingSecondPoint: Boolean = false,
     val annotationAnchor: AnnotationAnchor? = null,
-    /** Distance from the last locked point to the one being placed. */
+    /** Length of the segment being placed. */
     val annotationMeasureMm: Float? = null,
-    /** Total length of the chain being edited, including the active point. */
+    /** Total length of the series being drawn, including the segment in progress. */
     val annotationChainMm: Float? = null,
+    /** Locked series. */
     val annotationChainCount: Int = 0,
+    /** Points already committed to the series in progress. */
+    val annotationSeriesPoints: Int = 0,
+    /** Line width in screen pixels. */
+    val annotationThicknessPx: Float = 6f,
+    /** Height of the plane points are placed on, in model millimetres. */
+    val annotationWorkPlaneZ: Float = 0f,
+    /** True while a handle is having its height adjusted on its own. */
+    val annotationZAdjusting: Boolean = false,
+    val annotationZMin: Float = 0f,
+    val annotationZMax: Float = 100f,
     val annotationSavedPath: String? = null,
     val importedSceneTransformAvailable: Boolean = false,
     val importedSceneModelName: String? = null,

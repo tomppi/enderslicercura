@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.rememberScrollState
@@ -52,6 +53,7 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -91,9 +93,15 @@ import com.tomppi.enderslicer.model.PrusaSliceSettings
 import com.tomppi.enderslicer.model.SlicerSettings
 import com.tomppi.enderslicer.model.withSettings
 import com.tomppi.enderslicer.nonplanar.NonPlanarSettingsStore
+import com.tomppi.enderslicer.harness.HarnessChat
+import com.tomppi.enderslicer.harness.HarnessClient
+import com.tomppi.enderslicer.harness.HarnessConfig
+import com.tomppi.enderslicer.harness.HarnessConfigStore
 import com.tomppi.enderslicer.annotation.AnnotationAnchor
 import com.tomppi.enderslicer.annotation.AnnotationGesture
 import com.tomppi.enderslicer.annotation.AnnotationKind
+import com.tomppi.enderslicer.annotation.AnnotationState
+import com.tomppi.enderslicer.annotation.SegmentEnd
 import com.tomppi.enderslicer.supportpaint.SupportPaintMode
 import com.tomppi.enderslicer.texturizer.BumpMeshActivity
 import com.tomppi.enderslicer.viewer.MeshPicker
@@ -103,6 +111,7 @@ import com.tomppi.enderslicer.viewer.ViewerOrientation
 import com.tomppi.enderslicer.viewer.ViewerOrientationMath
 import java.io.File
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -155,6 +164,241 @@ fun EnderSlicerApp(
     var allSettingsOpen by rememberSaveable { mutableStateOf(false) }
     var modelUiCollapsed by rememberSaveable { mutableStateOf(false) }
     var conicalOpen by rememberSaveable { mutableStateOf(false) }
+    var blenderMenuExpanded by rememberSaveable { mutableStateOf(false) }
+    var blenderFilesOpen by rememberSaveable { mutableStateOf(false) }
+    var aiChatOpen by rememberSaveable { mutableStateOf(false) }
+    // Conversation is session-scoped on purpose: the harness owns the real
+    // transcript, and a half-sent turn must not survive a process restart.
+    var aiMessages by remember { mutableStateOf(listOf<AiChatMessage>()) }
+    var aiStatus by remember { mutableStateOf<String?>(null) }
+    var aiBusy by remember { mutableStateOf(false) }
+    var aiAddress by remember { mutableStateOf("") }
+    var aiWorkspace by remember { mutableStateOf("") }
+    var aiConfigured by remember { mutableStateOf(false) }
+    // Twenty minutes. Generating a model means waking a machine, running a
+    // diffusion model and delivering a file, so a two-minute window gave up
+    // long before the work finished and reported it as a failure.
+    val harnessReplyPolls = 600
+    val harnessPollMs = 2_000L
+    // A queued turn is briefly neither running nor answered, so "not running"
+    // only means "ended without a reply" once it has held still for a while.
+    // Twenty seconds is comfortably longer than the queue latency seen against
+    // the live harness and far shorter than the twenty-minute poll ceiling.
+    val harnessSettlePolls = 10
+    // Spells out the order rather than just the goal, because the failure modes
+    // are ordering failures: generating before the box is awake looks like a
+    // hang, and hibernating early loses the model.
+    val imageModelPrompt = buildString {
+        append("Build a 3D model from the image I just attached. ")
+        append("Use the image-to-3d-model skill, in its documented order: ")
+        append("wake the GPU box first (gpu-box-power), generate with ")
+        append("Hunyuan3D-2mini using DMC, post-process to a printable scale, ")
+        append("validate that it is watertight, deliver the STL into the app's ")
+        append("blender/exports folder with a fresh unique filename so the ")
+        append("hot-load picks it up, confirm it landed, then hibernate the box.")
+    }
+    val harnessStore = remember(context) { HarnessConfigStore(context.applicationContext) }
+    val harnessChat = remember { java.util.concurrent.atomic.AtomicReference<HarnessChat?>(null) }
+    val aiScope = rememberCoroutineScope()
+
+    // Adopt a stored address on first composition, so an install that was
+    // configured once comes up ready rather than asking again.
+    LaunchedEffect(Unit) {
+        val stored = harnessStore.load()
+        aiAddress = stored.baseUrl
+        aiWorkspace = stored.workspace
+        aiConfigured = stored.isConfigured
+    }
+
+    /**
+     * One round trip: prompt, then poll the projection until the turn is
+     * answered. The harness acknowledges a prompt without carrying the reply,
+     * so the answer is read back from the session list.
+     */
+    // Shared by the text and image paths: the harness acknowledges a prompt
+    // without carrying the reply, so the answer is read back from the session
+    // projection until the newest turn has one.
+    suspend fun pollForReply(chat: HarnessChat) {
+        var attempts = 0
+        var idle = 0
+        while (attempts < harnessReplyPolls) {
+            delay(harnessPollMs)
+            val state = withContext(Dispatchers.IO) { chat.state() }
+            if (!state.exists) {
+                // Blanking the conversation on a failed lookup would erase a
+                // chat that is working perfectly well, so this only reports.
+                aiStatus = "Session not in the harness list — reconnecting may help"
+            } else {
+                // The projection is enough while a turn is running, and it is
+                // cheap enough to re-read twice a second. The full log is read
+                // once the answer is in, because it is a far larger response.
+                val shown = if (state.answered) {
+                    withContext(Dispatchers.IO) { chat.messages() }
+                } else {
+                    HarnessChat.toMessages(state.turns)
+                }
+                aiMessages = shown.map { AiChatMessage(fromUser = it.fromUser, text = it.text) }
+                if (state.answered) {
+                    aiStatus = null
+                    return
+                }
+                if (state.running) {
+                    idle = 0
+                } else if (++idle >= harnessSettlePolls) {
+                    // Idle and never answered: the turn ended without a reply.
+                    // A cancelled or failed turn looks exactly like this, and
+                    // waiting for a response that will never arrive is what
+                    // kept the composer busy until its own timeout.
+                    aiStatus = "No reply — the turn ended"
+                    return
+                }
+            }
+            attempts++
+        }
+        aiStatus = "Still running after 20 minutes — open the chat again to check"
+    }
+
+    fun askHarness(text: String) {
+        aiScope.launch {
+            aiBusy = true
+            aiStatus = null
+            try {
+                val chat = harnessChat.get() ?: error("Connect to the harness first")
+                withContext(Dispatchers.IO) { chat.send(text) }
+                aiMessages = aiMessages + AiChatMessage(fromUser = true, text = text)
+                pollForReply(chat)
+            } catch (error: Throwable) {
+                aiStatus = error.message?.take(160) ?: "Harness call failed"
+            } finally {
+                aiBusy = false
+            }
+        }
+    }
+
+    /**
+     * Uploads the picked image, then asks the harness to model it.
+     *
+     * Upload first, prompt second: the prompt refers to the staged attachment,
+     * so sending it the other way round would ask about an image the harness
+     * does not have yet.
+     *
+     * Nothing is read back. The model arrives through the export folder like
+     * any other export, so the app never has to poll for a file.
+     */
+    fun sendImageToHarness(uri: Uri) {
+        aiScope.launch {
+            aiBusy = true
+            aiStatus = null
+            try {
+                val chat = harnessChat.get() ?: error("Connect to the harness first")
+                val bytes = withContext(Dispatchers.IO) {
+                    context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                        ?: error("Could not read that image")
+                }
+                val name = "model-source-" + System.currentTimeMillis() + ".jpg"
+                withContext(Dispatchers.IO) {
+                    val id = chat.ensureSession()
+                    // Upload first, prompt second, and carry the receipt into
+                    // the prompt: staging the bytes is not the same as sending
+                    // them, and without the receipt block the agent receives a
+                    // text-only message.
+                    val receipt = chat.attach(id, name, bytes)
+                    chat.send(imageModelPrompt, receipt)
+                }
+                aiMessages = aiMessages + AiChatMessage(
+                    fromUser = true,
+                    text = "Build a 3D model from this image",
+                )
+                pollForReply(chat)
+            } catch (error: Throwable) {
+                aiStatus = error.message?.take(200) ?: "Image upload failed"
+            } finally {
+                aiBusy = false
+            }
+        }
+    }
+
+    /** Connects to the harness at [aiAddress] and adopts its session. */
+    fun connectHarness() {
+        // Guarded before the launch rather than inside it: tapping Connect twice
+        // used to run two connect attempts against the same stored id, and an
+        // empty stored id made each of them create its own session.
+        if (aiBusy) return
+        aiBusy = true
+        aiScope.launch {
+            aiStatus = null
+            try {
+                val workspace = aiWorkspace.trim()
+                val parsed = HarnessConfig.parseLaunchUrl(aiAddress)
+                val stored = harnessStore.load()
+                val client = HarnessClient(parsed.baseUrl)
+                withContext(Dispatchers.IO) { client.authenticate() }
+                // Rooted where the skills are. A session created without a
+                // workspace lands in the harness process's own directory, where
+                // the prompt's skill names resolve to nothing.
+                val chat = HarnessChat(client, workspace)
+                val adopted = withContext(Dispatchers.IO) { chat.connect(stored.sessionId) }
+                harnessChat.set(chat)
+                // Merged over what was stored, never over what was typed: the
+                // address field is a bare URL, and saving its empty token would
+                // throw away the credential the harness just handed us.
+                harnessStore.save(stored.mergedWith(parsed, workspace, adopted.sessionId))
+                aiConfigured = true
+                aiMessages = withContext(Dispatchers.IO) { chat.messages() }.map {
+                    AiChatMessage(fromUser = it.fromUser, text = it.text)
+                }
+                aiStatus = when {
+                    !adopted.reused -> "Started a new conversation"
+                    workspace.isBlank() -> "No workspace set — the agent cannot see your skills"
+                    else -> null
+                }
+            } catch (error: Throwable) {
+                aiStatus = error.message?.take(200) ?: "Could not reach the harness"
+                aiConfigured = false
+            } finally {
+                aiBusy = false
+            }
+        }
+    }
+
+    /**
+     * Stops the conversation.
+     *
+     * Cancels the turn and then tells the agent to drop the work that cancel
+     * does not reach: a background job survives it, and its completion notice
+     * starts a fresh turn on its own.
+     */
+    fun stopHarness() {
+        val chat = harnessChat.get() ?: return
+        aiScope.launch {
+            try {
+                withContext(Dispatchers.IO) { chat.stop() }
+                aiStatus = "Stopped"
+            } catch (error: Throwable) {
+                aiStatus = error.message?.take(160) ?: "Could not stop the session"
+            } finally {
+                // The poll loop may be waiting on a turn that will now never
+                // answer, so the composer has to be released here too.
+                aiBusy = false
+            }
+        }
+    }
+
+    // Rebuilds the conversation when the chat is opened with no live client.
+    //
+    // Rotating the phone recreates this activity, and with it every `remember`
+    // above: the chat object and the message list both go, while
+    // `aiConfigured` comes back true from the store. That left an empty chat
+    // with the setup panel already dismissed and nothing left that could
+    // reconnect it - the conversation looked reset. The same happens on any
+    // configuration change and after Android kills the process.
+    //
+    // Everything needed to recover is already persisted, so reconnect rather
+    // than making the user do it. Declared here because a local function
+    // cannot be called before it is defined.
+    LaunchedEffect(aiConfigured, aiChatOpen) {
+        if (aiConfigured && aiChatOpen && harnessChat.get() == null) connectHarness()
+    }
 
     // Android-style back navigation: back closes any open layer instead of exiting.
     // The menu-unfold handler is composed FIRST so it has the LOWEST priority (the
@@ -169,6 +413,8 @@ fun EnderSlicerApp(
     BackHandler(enabled = meshLimitOpen) { meshLimitOpen = false }
     BackHandler(enabled = profilesOpen) { profilesOpen = false }
     BackHandler(enabled = layerEventsOpen) { layerEventsOpen = false }
+    BackHandler(enabled = aiChatOpen) { aiChatOpen = false }
+    BackHandler(enabled = blenderFilesOpen) { blenderFilesOpen = false }
     var viewerMode by rememberSaveable { mutableStateOf(ViewerMode.MODEL) }
     var selectedLayerIndex by rememberSaveable { mutableStateOf(0) }
     var modelOrientation by rememberSaveable(stateSaver = ViewerOrientationSaver) {
@@ -210,6 +456,12 @@ fun EnderSlicerApp(
     }
     val projectPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let(viewModel::importCuraProject)
+    }
+    // Image -> model is a harness job, not an on-device one: the harness wakes
+    // the GPU box over Wake-on-LAN, runs the generator, and hibernates it again.
+    // The upload path is not wired yet, so this reports rather than pretends.
+    val aiImagePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) sendImageToHarness(uri)
     }
     val textureLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
@@ -382,12 +634,35 @@ fun EnderSlicerApp(
                                     enabled = !state.isBusy,
                                 )
                                 HorizontalDivider()
-                                MenuSectionLabel("Blender")
+                                MenuSectionLabel("Storage")
+                                DropdownMenuItem(
+                                    text = { Text("Blender files") },
+                                    leadingIcon = { Icon(AppIcons.Cube, contentDescription = null) },
+                                    onClick = {
+                                        plateOverflowExpanded = false
+                                        blenderFilesOpen = true
+                                    },
+                                )
+                                HorizontalDivider()
+                                plateOverflowItems { plateOverflowExpanded = false }
+                            }
+                        }
+                        Box {
+                            TopBarTextAction(
+                                label = "Blender",
+                                onClick = { blenderMenuExpanded = true },
+                            )
+                            DropdownMenu(
+                                expanded = blenderMenuExpanded,
+                                onDismissRequest = { blenderMenuExpanded = false },
+                                modifier = Modifier.widthIn(min = 280.dp, max = 340.dp),
+                            ) {
+                                MenuSectionLabel("Model")
                                 DropdownMenuItem(
                                     text = { Text("Upload model to Blender") },
                                     leadingIcon = { Icon(Icons.Filled.Share, contentDescription = null) },
                                     onClick = {
-                                        plateOverflowExpanded = false
+                                        blenderMenuExpanded = false
                                         viewModel.sendModelToBlender()
                                     },
                                     enabled = state.mesh != null && !state.isBusy,
@@ -396,13 +671,34 @@ fun EnderSlicerApp(
                                     text = { Text("Stop Blender engine") },
                                     leadingIcon = { Icon(Icons.Filled.Close, contentDescription = null) },
                                     onClick = {
-                                        plateOverflowExpanded = false
+                                        blenderMenuExpanded = false
                                         viewModel.stopBlenderEngine()
                                     },
                                     enabled = !state.isBusy,
                                 )
                                 HorizontalDivider()
-                                plateOverflowItems { plateOverflowExpanded = false }
+                                MenuSectionLabel("Paint")
+                                DropdownMenuItem(
+                                    text = { Text("Start point-to-point paint") },
+                                    leadingIcon = { Icon(Icons.Filled.Edit, contentDescription = null) },
+                                    onClick = {
+                                        blenderMenuExpanded = false
+                                        viewModel.setAnnotationActive(true)
+                                        annotationUiOpen = true
+                                    },
+                                    enabled = state.mesh != null && !state.isBusy,
+                                )
+                                HorizontalDivider()
+                                MenuSectionLabel("Assistant")
+                                DropdownMenuItem(
+                                    text = { Text("Ask AI") },
+                                    leadingIcon = { Icon(AppIcons.Sparkle, contentDescription = null) },
+                                    onClick = {
+                                        blenderMenuExpanded = false
+                                        aiChatOpen = true
+                                    },
+                                    enabled = !state.isBusy,
+                                )
                             }
                         }
                     }
@@ -431,7 +727,16 @@ fun EnderSlicerApp(
             }
         },
     ) { padding ->
-        when (selectedTab) {
+        // Outside the tab switch on purpose: the Plate menu is what opens this,
+        // so tying it to the More tab meant the tap set a flag and nothing drew.
+        if (blenderFilesOpen) {
+            BlenderFilesScreen(
+                onBack = { blenderFilesOpen = false },
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding),
+            )
+        } else when (selectedTab) {
             AppTab.PLATE -> BoxWithConstraints(
                 modifier = Modifier
                     .fillMaxSize()
@@ -461,15 +766,19 @@ fun EnderSlicerApp(
                                 viewModel.setPaintMode(SupportPaintMode.NONE)
                                 supportPaintUiOpen = false
                             },
-                            onAnnotationGesture = viewModel::onAnnotationGesture,
+                            onAnnotationTap = viewModel::onAnnotationTap,
+                            onAnnotationAdjust = viewModel::onAnnotationAdjust,
+                            onAnnotationZAdjustStart = viewModel::beginAnnotationZAdjust,
+                            onAnnotationZAdjust = viewModel::onAnnotationZAdjust,
+                            onAnnotationZAdjustEnd = viewModel::endAnnotationZAdjust,
                             annotationActions = AnnotationActions(
-                                onLock = viewModel::lockAnnotationPoint,
+                                onLockSegment = viewModel::lockAnnotationSegment,
+                                onLockSeries = viewModel::lockAnnotationSeries,
                                 onUndo = viewModel::undoAnnotation,
                                 onClear = viewModel::clearAnnotation,
-                                onFinish = viewModel::finishAnnotationChain,
-                                onCloseChain = viewModel::closeAnnotationChain,
                                 onSave = viewModel::saveAnnotation,
-                                onKind = viewModel::setAnnotationKind,
+                                onThickness = viewModel::setAnnotationThickness,
+                                onPlaneZ = viewModel::setAnnotationWorkPlaneZ,
                             ),
                             onCloseAnnotationUi = {
                                 viewModel.setAnnotationActive(false)
@@ -526,15 +835,19 @@ fun EnderSlicerApp(
                             viewModel.setPaintMode(SupportPaintMode.NONE)
                             supportPaintUiOpen = false
                         },
-                        onAnnotationGesture = viewModel::onAnnotationGesture,
+                        onAnnotationTap = viewModel::onAnnotationTap,
+                        onAnnotationAdjust = viewModel::onAnnotationAdjust,
+                        onAnnotationZAdjustStart = viewModel::beginAnnotationZAdjust,
+                        onAnnotationZAdjust = viewModel::onAnnotationZAdjust,
+                        onAnnotationZAdjustEnd = viewModel::endAnnotationZAdjust,
                         annotationActions = AnnotationActions(
-                            onLock = viewModel::lockAnnotationPoint,
+                            onLockSegment = viewModel::lockAnnotationSegment,
+                            onLockSeries = viewModel::lockAnnotationSeries,
                             onUndo = viewModel::undoAnnotation,
                             onClear = viewModel::clearAnnotation,
-                            onFinish = viewModel::finishAnnotationChain,
-                            onCloseChain = viewModel::closeAnnotationChain,
                             onSave = viewModel::saveAnnotation,
-                            onKind = viewModel::setAnnotationKind,
+                            onThickness = viewModel::setAnnotationThickness,
+                            onPlaneZ = viewModel::setAnnotationWorkPlaneZ,
                         ),
                         onCloseAnnotationUi = {
                             viewModel.setAnnotationActive(false)
@@ -831,6 +1144,32 @@ fun EnderSlicerApp(
                     .navigationBarsPadding(),
             )
         }
+    }
+
+    // Plate only: the other tabs have no viewer for the user to paint on, and
+    // the chat's whole point is describing painted regions.
+    if (aiChatOpen && selectedTab == AppTab.PLATE) {
+        AiChatOverlay(
+            messages = aiMessages,
+            onSend = ::askHarness,
+            onUploadImage = { aiImagePicker.launch(arrayOf("image/*")) },
+            onStop = ::stopHarness,
+            onClose = { aiChatOpen = false },
+            setup = if (aiConfigured) {
+                null
+            } else {
+                ChatSetup(
+                    address = aiAddress,
+                    onAddressChange = { aiAddress = it },
+                    onConnect = ::connectHarness,
+                    workspace = aiWorkspace,
+                    onWorkspaceChange = { aiWorkspace = it },
+                )
+            },
+            busy = aiBusy,
+            status = aiStatus,
+            modifier = Modifier.fillMaxSize(),
+        )
     }
 }
 
@@ -1240,7 +1579,11 @@ private fun ViewerPanel(
     onPaintHit: (MeshPicker.Hit) -> Unit,
     onPaintMode: (SupportPaintMode) -> Unit,
     onCloseSupportPaintUi: () -> Unit,
-    onAnnotationGesture: (AnnotationGesture) -> Unit,
+    onAnnotationTap: (AnnotationGesture) -> Unit,
+    onAnnotationAdjust: (SegmentEnd, AnnotationGesture) -> Unit,
+    onAnnotationZAdjustStart: (SegmentEnd) -> Unit,
+    onAnnotationZAdjust: (AnnotationGesture) -> Unit,
+    onAnnotationZAdjustEnd: () -> Unit,
     annotationActions: AnnotationActions,
     onCloseAnnotationUi: () -> Unit,
     modifier: Modifier = Modifier,
@@ -1323,7 +1666,11 @@ private fun ViewerPanel(
                         view.setPaintState(state.supportPaint)
                         view.onPaintHit = onPaintHit
                         view.annotationActive = state.annotationActive
-                        view.onAnnotationGesture = onAnnotationGesture
+                        view.onAnnotationTap = onAnnotationTap
+        view.onAnnotationAdjust = onAnnotationAdjust
+        view.onAnnotationZAdjustStart = onAnnotationZAdjustStart
+        view.onAnnotationZAdjust = onAnnotationZAdjust
+        view.onAnnotationZAdjustEnd = onAnnotationZAdjustEnd
                         view.setAnnotationOverlay(state.annotationOverlay)
                         view.onOrientationChanged = onOrientationChanged
                     },
@@ -1888,21 +2235,21 @@ private fun PaintModeButton(
 
 /** Annotation tool callbacks, grouped so the viewer signature stays readable. */
 private class AnnotationActions(
-    val onLock: () -> Unit,
+    val onLockSegment: () -> Unit,
+    val onLockSeries: () -> Unit,
     val onUndo: () -> Unit,
     val onClear: () -> Unit,
-    val onFinish: () -> Unit,
-    val onCloseChain: () -> Unit,
     val onSave: () -> Unit,
-    val onKind: (AnnotationKind) -> Unit,
+    val onThickness: (Float) -> Unit,
+    val onPlaneZ: (Float) -> Unit,
 )
 
 /**
  * Point-to-point annotation toolbar.
  *
- * The guidance line is the whole tutorial. The interaction has exactly one
- * decision - is the point on the model or in space - and the app makes it, so
- * the user only needs to know that Lock commits and two fingers still orbit.
+ * Tap to place an end, drag an end to adjust it, and drag anywhere else to
+ * orbit. Keeping one-finger orbit available is the point: judging whether a
+ * point sits on the surface is impossible without turning the model.
  */
 @Composable
 private fun AnnotationToolbar(
@@ -1918,57 +2265,129 @@ private fun AnnotationToolbar(
     }
     Card(modifier = modifier) {
         Column(
-            modifier = Modifier.padding(12.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.padding(
+                horizontal = EnderSlicerDimens.SheetPadding,
+                vertical = EnderSlicerDimens.Space8,
+            ),
+            verticalArrangement = Arrangement.spacedBy(EnderSlicerDimens.Space4),
         ) {
-            Text("Annotate", style = MaterialTheme.typography.titleSmall)
-            Text(
-                text = when {
-                    state.annotationPending && state.annotationAnchor == AnnotationAnchor.SURFACE ->
-                        "On the model. Orbit to check it from another angle, then Lock."
-                    state.annotationPending ->
-                        "In space. The depth is held while you orbit - drag to adjust, then Lock."
-                    state.annotationChainCount == 0 ->
-                        "Drag on the model to place a point. Two fingers rotate and zoom."
-                    else ->
-                        "Drag to place the next point, or Save when you are done."
-                },
-                style = MaterialTheme.typography.bodySmall,
-            )
-            state.annotationMeasureMm?.let { length ->
+            // One dense line carries the state, the measurements and the way out.
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = "Length " + "%.1f".format(length) + " mm",
-                    style = MaterialTheme.typography.bodyMedium,
+                    text = when {
+                        state.annotationCanLockSegment -> "Drag an end, then Lock"
+                        state.annotationAwaitingSecondPoint -> "Tap the other end"
+                        state.annotationSeriesPoints > 0 -> "Tap to continue"
+                        else -> "Tap to start"
+                    },
+                    style = MaterialTheme.typography.labelLarge,
                 )
+                Spacer(Modifier.width(EnderSlicerDimens.Space8))
+                Text(
+                    text = buildString {
+                        state.annotationMeasureMm?.let { append("%.1f".format(it) + " mm") }
+                        state.annotationChainMm?.takeIf { it > 0f }?.let {
+                            if (isNotEmpty()) append("  ·  ")
+                            append("series %.1f".format(it))
+                        }
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f),
+                    maxLines = 1,
+                )
+                TextButton(
+                    onClick = onClose,
+                    contentPadding = PaddingValues(horizontal = EnderSlicerDimens.Space8),
+                ) { Text("Stop") }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+
+            CompactSliderRow(
+                label = "Width",
+                value = state.annotationThicknessPx,
+                range = AnnotationState.MIN_THICKNESS_PX..AnnotationState.MAX_THICKNESS_PX,
+                onValueChange = actions.onThickness,
+            )
+            CompactSliderRow(
+                label = "Height",
+                value = state.annotationWorkPlaneZ,
+                range = state.annotationZMin..state.annotationZMax.coerceAtLeast(state.annotationZMin + 1f),
+                onValueChange = actions.onPlaneZ,
+                valueText = if (state.annotationZAdjusting) {
+                    "%.1f".format(state.annotationWorkPlaneZ)
+                } else {
+                    null
+                },
+            )
+
+            Row(horizontalArrangement = Arrangement.spacedBy(EnderSlicerDimens.Space6)) {
                 Button(
-                    onClick = actions.onLock,
-                    enabled = state.annotationPending,
+                    onClick = actions.onLockSegment,
+                    enabled = state.annotationCanLockSegment,
+                    contentPadding = PaddingValues(vertical = EnderSlicerDimens.Space4),
                     modifier = Modifier.weight(1f),
-                ) { Text("Lock") }
-                OutlinedButton(onClick = actions.onUndo, modifier = Modifier.weight(1f)) { Text("Undo") }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = actions.onFinish, modifier = Modifier.weight(1f)) { Text("New chain") }
-                OutlinedButton(onClick = actions.onCloseChain, modifier = Modifier.weight(1f)) { Text("Close") }
-                OutlinedButton(onClick = actions.onClear, modifier = Modifier.weight(1f)) { Text("Clear") }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ) { Text("Lock line", maxLines = 1) }
                 OutlinedButton(
-                    onClick = { actions.onKind(AnnotationKind.MEASURE) },
+                    onClick = actions.onLockSeries,
+                    enabled = state.annotationCanLockSeries,
+                    contentPadding = PaddingValues(vertical = EnderSlicerDimens.Space4),
                     modifier = Modifier.weight(1f),
-                ) { Text("Measure") }
+                ) { Text("End series", maxLines = 1) }
                 OutlinedButton(
-                    onClick = { actions.onKind(AnnotationKind.PATH) },
+                    onClick = actions.onUndo,
+                    contentPadding = PaddingValues(vertical = EnderSlicerDimens.Space4),
                     modifier = Modifier.weight(1f),
-                ) { Text("Path") }
+                ) { Text("Undo", maxLines = 1) }
+                OutlinedButton(
+                    onClick = actions.onSave,
+                    enabled = state.annotationChainCount > 0,
+                    contentPadding = PaddingValues(vertical = EnderSlicerDimens.Space4),
+                    modifier = Modifier.weight(1f),
+                ) { Text("Save", maxLines = 1) }
             }
-            OutlinedButton(onClick = actions.onSave) {
-                Text("Save " + state.annotationChainCount + " chain(s)")
-            }
-            OutlinedButton(onClick = onClose) { Text("Stop annotating") }
+        }
+    }
+}
+
+/**
+ * A labelled slider on one dense line.
+ *
+ * Material's Slider carries 48dp of vertical padding for a comfortable target,
+ * which is most of a toolbar when two of them stack. The touch target is kept
+ * here by the row height rather than by the slider's own padding.
+ */
+@Composable
+private fun CompactSliderRow(
+    label: String,
+    value: Float,
+    range: ClosedFloatingPointRange<Float>,
+    onValueChange: (Float) -> Unit,
+    valueText: String? = null,
+) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.width(52.dp),
+        )
+        Slider(
+            value = value.coerceIn(range.start, range.endInclusive),
+            onValueChange = onValueChange,
+            valueRange = range,
+            modifier = Modifier
+                .weight(1f)
+                .height(32.dp),
+        )
+        valueText?.let {
+            Text(
+                text = it,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier
+                    .width(44.dp)
+                    .padding(start = EnderSlicerDimens.Space6),
+                maxLines = 1,
+            )
         }
     }
 }
