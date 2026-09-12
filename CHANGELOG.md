@@ -6,6 +6,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-09-12
+
 ### Removed
 
 
@@ -128,6 +130,40 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (relief-field flatten for CurviSlicer, cone warp around the model centre for
   conical slicing) so CuraEngine generates supports against the warped solid
   and the G-code transform restores both together.
+
+- **AI assistant:** a floating chat on the Plate tab that talks to a
+  [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) over a
+  tailnet. The harness protocol (auth bootstrap from `auth.json`, the
+  double-wrapped request envelope, session lifecycle) lives in `harness/` and
+  was verified against a live server rather than inferred. Sessions are rooted
+  at the configured workspace, because skills are discovered from the session's
+  working directory and one created elsewhere cannot load them; a stored id is
+  checked against the session list before it is adopted, because prompting an
+  id the harness has forgotten is accepted and then answers nothing; and the
+  conversation is rebuilt when a rotation or process death drops the in-memory
+  client, which otherwise leaves an empty chat with the setup panel already
+  dismissed. Replies are read from the session log rather than the list
+  projection, which clips every turn to about a hundred characters.
+- **Photo to 3D:** *Build from image* uploads a photograph and asks the harness
+  to model it. The upload is staged and then named in the prompt as a file
+  part, which is the only way staged bytes reach the agent - uploading without
+  it leaves the agent with a message that merely mentions an image. The
+  finished STL arrives through the same export directory as any other Blender
+  export, so it reaches the plate with no interaction.
+- **Point-to-point annotation:** paint a line, or a chain of them, onto the
+  model to show the assistant what to work on. Points are placed on a
+  horizontal work plane, which removes the depth ambiguity of a flat tap, and
+  can be dragged in z alone without disturbing the other two axes. Handles stay
+  grabbable independently of where a segment was drawn from, so an existing
+  point can be adjusted without starting a new one, and marker size follows
+  perspective so nearer points read larger.
+- **Blender export folder manager** (Plate menu, Storage, Blender files): lists
+  what the engine has delivered, distinguishes what the app can actually read
+  from what it cannot, and clears the folder.
+- **Stop** in the chat cancels the running turn *and* tells the agent to drop
+  the work a cancel does not reach: `session/cancel` stops the agent, never
+  the processes it started, and a background job that finishes afterwards
+  delivers a notice that starts a fresh turn on its own.
 
 ### Fixed
 

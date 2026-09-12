@@ -4,7 +4,7 @@
 
 # DuoSlicer
 
-DuoSlicer (formerly EnderSlicerCura) is an Android-first front end for **both CuraEngine and PrusaSlicer** - importing, preparing, slicing, previewing and sending 3D prints from a phone or foldable. It is **1.0.0**, targets Android 10+ on **ARM64**, and bundles the CuraEngine ARM64 binary with Cura resources from **5.14.0-alpha.0** plus a native **PrusaSlicer 3.0.0-alpha11** engine with its resources. Its most-tested baseline is a modified Creality Ender 3 V2.
+DuoSlicer (formerly EnderSlicerCura) is an Android-first front end for **both CuraEngine and PrusaSlicer** - importing, preparing, slicing, previewing and sending 3D prints from a phone or foldable. It is **1.1.0**, targets Android 10+ on **ARM64**, and bundles the CuraEngine ARM64 binary with Cura resources from **5.14.0-alpha.0** plus a native **PrusaSlicer 3.0.0-alpha11** engine with its resources. Its most-tested baseline is a modified Creality Ender 3 V2.
 
 > This is development software, not a complete Cura or PrusaSlicer replacement. Inspect every model, setting and generated G-code before printing.
 

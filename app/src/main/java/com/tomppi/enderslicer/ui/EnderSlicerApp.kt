@@ -85,6 +85,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.tomppi.enderslicer.BuildConfig
 import com.tomppi.enderslicer.conical.ConicalSettingsStore
 import com.tomppi.enderslicer.engine.GcodeDialect
 import com.tomppi.enderslicer.mesh.MeshTriangleLimits
@@ -1409,7 +1410,9 @@ private fun MoreScreen(
             MoreRow(
                 icon = AppIcons.Info,
                 title = "DuoSlicer",
-                subtitle = "Version 1.0.0 · AGPL-3.0-or-later",
+                // From the build, not typed: a hardcoded version goes stale
+                // in the one place a user checks it.
+                subtitle = "Version " + BuildConfig.VERSION_NAME + " · AGPL-3.0-or-later",
                 onClick = {},
             )
             MoreDivider()
