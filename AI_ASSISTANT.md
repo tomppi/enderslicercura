@@ -99,6 +99,8 @@ GET  that token URL          303 -> Set-Cookie, valid 30 days
 
 The cookie outlives harness restarts. It is stored on the phone encrypted with an Android Keystore key (AES/GCM), the same treatment the OctoPrint API key gets.
 
+**`auth.json` is not something the harness produces by itself.** The server mints a launch token and prints a `?token=` URL, but it writes nothing into its served directory - so a harness started directly leaves every client at a 401. The bridge is a small launcher that wraps the server start, catches the printed token and publishes one authenticated URL per authority: [`dsh-launch.ps1`](https://github.com/tomppi/webviewdp/blob/main/dsh-launch.ps1), kept beside the [webviewdp](https://github.com/tomppi/webviewdp) client because both apps consume the same file.
+
 ## The request envelope
 
 Every call, without exception:
