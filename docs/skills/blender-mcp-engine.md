@@ -123,6 +123,42 @@ scene.cycles.use_denoising = False
 **The first GPU render of a process costs about 34 ms instead of 10** while the
 Workbench shaders compile. That is not a hang, and it happens once.
 
+#### Render big enough to see what you are looking at
+
+A render is only evidence if the feature you are judging covers enough pixels.
+Work out the scale before you trust the picture:
+
+```python
+import math
+d = (cam.matrix_world.translation - target).length
+frame_mm = 2 * d * math.tan(cam.data.angle / 2)        # width the frame covers
+mm_per_px = frame_mm / scene.render.resolution_x
+px_per_line = 0.4 / mm_per_px                          # 0.4 mm is one nozzle line
+```
+
+At the app's default framing - about 2.9x the model's radius - a 512 px render
+puts **2.3 pixels on a 0.4 mm nozzle line**. Anything at nozzle scale is a smear
+at that size, which is how a real defect stays invisible: it is not that the
+render is small, it is that the feature is smaller than the render can resolve.
+
+- **For detail work render at 1024, not 512.** Workbench is a rasteriser on an
+  Adreno 740: 512 costs ~56 ms and 1024 about four times that. It is worth it.
+- **Frame the region, not the part.** Nobody inspects a 60 mm boat by rendering
+  60 mm of it. The camera is shared, so when the user zooms into something they
+  are pointing at it - read `camera.json`, keep their `target` and `distanceMm`,
+  and your render is of the thing they are looking at.
+- **Turn cavity on for surface detail.** `scene.display.shading.show_cavity = True`
+  with `cavity_type = 'BOTH'` makes shallow steps and ridges read; a flat studio
+  shading hides exactly the defects worth finding.
+
+**And remember a sawtooth is geometry, not an image.** A render rasterises, and
+anti-aliasing (this build runs 8 samples) both stops the renderer inventing
+staircase edges that are not there and softens real ones. Measure before you
+conclude: vertex spacing along the suspect edge, the distribution of edge
+lengths, the normal discontinuity between neighbouring faces. Let the picture
+confirm what the numbers found - it cannot find it for you, and at the wrong
+scale it will show you a defect that is not there, or hide one that is.
+
 Note that this engine build is patched; a stock epai build of the same sources
 still dies here. The skill and the engine go together - if renders start killing
 the app again, the engine binary is not the patched one.
