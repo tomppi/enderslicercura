@@ -137,7 +137,7 @@ fun ModellingScreen(
             blenderDir = blenderDir,
             initialCamera = incomingCamera,
             interactive = owner == CameraOwner.USER,
-            measureFrame = chatExpanded,
+
             onScene = { scene = it },
             onCameraChanged = onCameraMoved,
             modifier = Modifier

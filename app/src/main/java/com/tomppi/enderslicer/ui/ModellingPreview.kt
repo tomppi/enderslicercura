@@ -101,16 +101,6 @@ fun ModellingPreview(
     initialCamera: ModellingCamera?,
     /** False while the agent owns the camera: gestures are refused, not queued. */
     interactive: Boolean,
-    /**
-     * True while the chat is expanded, which is when the frame is measured.
-     *
-     * Collapsing the chat must not change the picture, and it does not - but the
-     * height it gains is not a signal to re-measure either, and keying on width
-     * alone meant an early, transient layout was captured once and never
-     * corrected. Measuring only in the expanded state is what makes the answer
-     * stable in both.
-     */
-    measureFrame: Boolean,
     /** What the engine is holding, so the bar can name the real thing. */
     onScene: (SceneSummary) -> Unit = {},
     onCameraChanged: (ModellingCamera) -> Unit,
@@ -357,8 +347,8 @@ fun ModellingPreview(
     // different shape, which reframed the camera: the same model, moved, because
     // a panel was hidden. The chat only changes the height, so keying on the
     // width is what leaves the picture alone.
-    LaunchedEffect(viewSize, measureFrame) {
-        if (!measureFrame || viewSize.width <= 0 || viewSize.height <= 0) return@LaunchedEffect
+    LaunchedEffect(viewSize) {
+        if (viewSize.width <= 0 || viewSize.height <= 0) return@LaunchedEffect
         val (width, height) = renderSize(viewSize, MaxPreviewEdge)
         if (width == renderWidth && height == renderHeight) return@LaunchedEffect
         renderWidth = width
@@ -471,13 +461,13 @@ fun ModellingPreview(
             Image(
                 bitmap = bitmap.asImageBitmap(),
                 contentDescription = "The engine's view of the model",
-                // 1:1, not Fit. Fit rescales the picture whenever the box
-                // changes, so showing or hiding the chat resized the model on
-                // screen even though the camera had not moved. At 1:1 the frame
-                // is drawn at exactly the pixels it was rendered at, and
-                // collapsing the chat reveals more background around it and
-                // nothing else.
-                contentScale = ContentScale.None,
+                // Fit, so the frame fills whatever the view is. Drawing it at
+                // its pixel size instead does not mean "1:1" here - the painter
+                // draws at density-scaled size, so a fixed-pixel frame came out
+                // a third of the size it was rendered at and collapsing the chat
+                // left it in a small box. Filling the view is worth the frame
+                // following the view's shape; the camera does not follow it.
+                contentScale = ContentScale.Fit,
                 modifier = Modifier.fillMaxSize(),
             )
         }
@@ -513,16 +503,13 @@ fun ModellingPreview(
  * means no letterboxing and no wasted pixels; scaling to a common longest edge
  * means a fold or a rotation changes the count of pixels rather than the framing.
  */
-private fun renderSize(view: IntSize, maxWidth: Int): Pair<Int, Int> {
+private fun renderSize(view: IntSize, longest: Int): Pair<Int, Int> {
     val width = view.width.coerceAtLeast(1)
     val height = view.height.coerceAtLeast(1)
-    // Capped by width, not by the longest edge, so the frame keeps the view's own
-    // width and can be drawn at 1:1 - a frame narrower than its box would sit
-    // with bars down the sides.
-    val scale = (maxWidth.toFloat() / width).coerceAtMost(1f)
+    val scale = (longest.toFloat() / maxOf(width, height)).coerceAtMost(1f)
     return Pair(
-        (width * scale).roundToInt().coerceIn(MinPreviewEdge, maxWidth),
-        (height * scale).roundToInt().coerceAtLeast(MinPreviewEdge),
+        (width * scale).roundToInt().coerceIn(MinPreviewEdge, longest),
+        (height * scale).roundToInt().coerceIn(MinPreviewEdge, longest),
     )
 }
 
