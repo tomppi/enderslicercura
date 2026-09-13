@@ -82,9 +82,16 @@ class HarnessChat(
      */
     fun send(text: String, receiptId: String? = null): String {
         val session = ensureSession()
+        // Remember how much conversation existed before asking. The projection
+        // takes a moment to publish the new turn, and until it does, the newest
+        // turn it reports is the *previous* one - which is answered.
+        turnsAtPrompt = runCatching { stateOf(session).turns.size }.getOrDefault(-1)
         client.prompt(session, text, receiptId)
         return session
     }
+
+    /** Turns published when the last prompt was sent; -1 when unknown. */
+    private var turnsAtPrompt = -1
 
     /**
      * Stops the conversation.
@@ -131,6 +138,12 @@ class HarnessChat(
     /** The harness's current view of this session. */
     fun state(): SessionState = stateOf(sessionId ?: "")
 
+    /** True once the reply to the last [send] has arrived. */
+    fun replyIsIn(state: SessionState): Boolean = replyIsIn(state, turnsAtPrompt)
+
+    /** True once the projection carries a turn newer than the last [send]. */
+    fun hasNewTurn(state: SessionState): Boolean = hasNewTurn(state, turnsAtPrompt)
+
     /**
      * The conversation so far, oldest first.
      */
@@ -174,6 +187,27 @@ class HarnessChat(
     companion object {
         /** Messages pulled back from the log when a reply is rendered in full. */
         const val MESSAGE_PAGE_SIZE = 40
+
+        /**
+         * True once the reply to a prompt is in.
+         *
+         * Deliberately not just "the newest turn has a response". For a moment
+         * after a prompt is accepted the projection still shows the previous
+         * turn - which *is* answered - so that test reports a brand-new turn as
+         * already finished. The caller then clears its busy state and stops
+         * polling before any work has begun: the reply never appears, the
+         * spinner and the Stop button vanish, and nothing says why.
+         *
+         * @param turnsAtPrompt turn count captured before the prompt was sent,
+         *   or -1 when unknown (after a reconnect, say), in which case the
+         *   looser test is the best available.
+         */
+        fun replyIsIn(state: SessionState, turnsAtPrompt: Int): Boolean =
+            state.exists && state.answered && hasNewTurn(state, turnsAtPrompt)
+
+        /** True once the projection carries a turn newer than the prompt. */
+        fun hasNewTurn(state: SessionState, turnsAtPrompt: Int): Boolean =
+            turnsAtPrompt < 0 || state.turns.size > turnsAtPrompt
 
         /**
          * The closing text of each turn, keyed by turn number.

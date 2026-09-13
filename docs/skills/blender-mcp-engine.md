@@ -51,12 +51,21 @@ Errors: `{"status": "error", "message": "<exc>"}`. A command run in `blender -b`
 
 1. Export to the handoff dir: `/data/user/0/com.tomppi.enderslicercura/files/blender/exports/<name>.stl` — either via `export_stl` or inside `execute_code`:
    ```python
-   import blender_mcp_slim as bm
-   n = bm._mesh_to_binary_stl(bpy.context.active_object.data, "/data/user/0/com.tomppi.enderslicercura/files/blender/exports/model.stl")
+   import os, blender_mcp_slim as bm
+   base  = "/data/user/0/com.tomppi.enderslicercura/files/blender/exports"
+   final = base + "/model.stl"
+   n = bm._mesh_to_binary_stl(bpy.context.active_object.data, final + ".part")
+   os.replace(final + ".part", final)   # the rename is what publishes it
    print(n, "tris")
    ```
+
+   **Export through a temporary name and rename into place.** A `.part` suffix is invisible to the poller, so nothing is published until the rename - which is atomic. Writing straight to `.stl` instead exposes the file while it is still being written, and a 67 MB mesh took seconds to write.
    (helper `_export_scene_stl(path)` exports every scene mesh; header is `enderslicercura MCP STL`, little-endian binary STL.)
-2. The app **polls** the exports dir every 500 ms (authoritative; FileObserver kept as accelerator) and imports any new revision, deduped by `path|size|mtime` signature. A `0`-byte or failed export file is never dispatched — write complete files only.
+2. The app **polls** the exports dir every 500 ms (authoritative; FileObserver kept as accelerator) and imports any new revision, deduped by `path|size|mtime` signature.
+
+   It refuses anything that is not a **whole** STL, because a binary STL declares its own length: it reads the triangle count from the header and requires `84 + 50 x triangles == filesize`, with an ASCII export required to end in `endsolid`. So a half-written file can no longer be imported.
+
+   That guard is a safety net, not a licence to write carelessly. Growing a file in place still costs a probe on every poll and, before the guard existed, dispatched **eleven revisions of one export - seven of them truncated mid-triangle - and left 486 MB of staged copies** in `files/models/`. Write atomically (step 1).
 3. On dispatch the app stages a private copy `files/models/blender-<nanoTime>.stl` and swaps it into the UI ("Imported … from the Blender engine"). **Always export a fresh unique/canonical filename per generation** — size+mtime signature means a rewrite of the same path only re-fires if mtime changes.
 4. Verify: `adb shell su -c 'ls -la /data/user/0/com.tomppi.enderslicercura/files/models/'` — a new `blender-*.stl` proves the full chain.
 

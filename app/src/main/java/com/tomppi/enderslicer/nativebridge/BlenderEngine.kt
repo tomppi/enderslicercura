@@ -7,6 +7,7 @@ import java.net.Inet4Address
 import java.net.NetworkInterface
 import java.util.Collections
 import com.tomppi.enderslicer.engine.AssetTreeExtractor
+import com.tomppi.enderslicer.viewer.StlParser
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -43,6 +44,10 @@ object BlenderEngine {
 
     /** Scan cadence of the authoritative exports-dir poller. */
     private const val EXPORT_POLL_MS = 500L
+
+    /** How long to wait for an export to become a whole STL: 40 x 250 ms. */
+    private const val SETTLE_PROBES = 40
+    private const val SETTLE_PROBE_MS = 250L
 
     @Volatile private var started = false
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -250,17 +255,20 @@ object BlenderEngine {
             if (delivered.contains(signature) || !inFlight.add(signature)) return
         }
         scope.launch {
+            var complete = false
             try {
-                settle(file)
+                complete = settle(file)
             } catch (error: Throwable) {
                 Log.e(TAG, "export settle failed for " + file.name, error)
             }
-            val ready = file.isFile && file.length() > 0L
             synchronized(stateLock) {
                 inFlight.remove(signature)
                 inFlight.remove(signatureOf(file))
             }
-            if (!ready) return@launch
+            // Still incomplete: leave it UNCLAIMED so the next poll (or the
+            // CLOSE_WRITE event) picks the finished file up. Claiming here would
+            // import a truncated mesh once and never revisit it.
+            if (!complete) return@launch
             // Claim BEFORE invoking the listener: a failed parse is a
             // one-shot delivery, never a poll-loop retry storm.
             if (!claimDelivered(file)) return@launch
@@ -277,14 +285,24 @@ object BlenderEngine {
         }
     }
 
-    /** Waits until the STL size is stable for two consecutive probes. */
-    private suspend fun settle(file: File) {
-        var previous = -1L
-        repeat(8) {
-            delay(250)
-            val size = file.length()
-            if (size == previous && size > 0L) return
-            previous = size
+    /**
+     * Waits until the export is a whole STL, and reports whether it is.
+     *
+     * Waiting for the size to hold still - which is what this used to do - is
+     * not enough. A writer that pauses for a fraction of a second mid-file
+     * looks settled, so the handoff imported meshes cut off part-way through a
+     * triangle, and staged a copy of each one: eleven revisions of a single
+     * export, seven of them truncated, 486 MB.
+     *
+     * An STL states its own completeness, so wait for that instead of guessing
+     * from timing. Returning false leaves the file unclaimed and the poller
+     * simply tries again.
+     */
+    private suspend fun settle(file: File): Boolean {
+        repeat(SETTLE_PROBES) {
+            if (StlParser.isComplete(file)) return true
+            delay(SETTLE_PROBE_MS)
         }
+        return StlParser.isComplete(file)
     }
 }

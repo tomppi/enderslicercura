@@ -48,6 +48,41 @@ object StlParser {
         }.getOrNull()
     }
 
+    /**
+     * True when [file] is a whole STL rather than one still being written.
+     *
+     * A binary STL states its own length - an 84-byte header plus 50 bytes per
+     * triangle, with the count at offset 80 - which makes [binaryTriangleCount]
+     * a completeness proof rather than a guess: it returns null the moment the
+     * length disagrees. An ASCII export has no such arithmetic, so it counts as
+     * whole once it carries its `endsolid` terminator.
+     *
+     * **A size that held still is not a substitute.** A writer pausing for a
+     * fraction of a second mid-file looks settled, and the reader then gets a
+     * mesh cut off part-way through a triangle. That is worth a dedicated check
+     * because the caller cannot tell a truncated mesh from a small one.
+     */
+    fun isComplete(file: File): Boolean {
+        if (!file.isFile || file.length() < MIN_STL_BYTES) return false
+        if (binaryTriangleCount(file) != null) return true
+        return asciiIsTerminated(file)
+    }
+
+    /** An ASCII STL ends with `endsolid`; a truncated one never does. */
+    private fun asciiIsTerminated(file: File): Boolean = runCatching {
+        RandomAccessFile(file, "r").use { input ->
+            val start = maxOf(0L, file.length() - ASCII_TAIL_BYTES)
+            input.seek(start)
+            val tail = ByteArray((file.length() - start).toInt())
+            input.readFully(tail)
+            tail.toString(Charsets.UTF_8)
+                .lineSequence()
+                .map(String::trim)
+                .lastOrNull(String::isNotEmpty)
+                ?.startsWith("endsolid", ignoreCase = true) == true
+        }
+    }.getOrDefault(false)
+
     private fun parseBinary(name: String, file: File, triangleCount: Int): StlMesh {
         // Large meshes are parsed straight into a direct native buffer: the
         // vertex data stops counting against the app Java heap cap.
@@ -436,6 +471,12 @@ object StlParser {
     private const val BINARY_BLOCK_TRIANGLES = 4_096
     private const val STL_HEADER_BYTES = 84L
     private const val STL_TRIANGLE_BYTES = 50L
+
+    /** Shorter than this cannot be an STL at all: `solid x\nendsolid\n`. */
+    private const val MIN_STL_BYTES = 15L
+
+    /** How much of an ASCII file's tail is searched for its terminator. */
+    private const val ASCII_TAIL_BYTES = 1024L
     private const val NORMAL_EPSILON = 1e-12f
     private const val NORMAL_EPSILON_DOUBLE = 1e-18
     private val WHITESPACE = Regex("\\s+")

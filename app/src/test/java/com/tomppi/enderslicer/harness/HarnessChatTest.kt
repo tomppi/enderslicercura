@@ -159,6 +159,58 @@ class HarnessChatTest {
         assertTrue(messages[2].fromUser)
     }
 
+    @Test
+    fun aReplyIsNotInWhileTheProjectionStillShowsThePreviousTurn() {
+        // The race that made the spinner and the Stop button vanish: right
+        // after a prompt is accepted, the newest published turn is still the
+        // previous one - and it is answered.
+        val list = listOfSessions(
+            session("session-app", turns = listOf("first" to "answered")),
+        )
+
+        val state = HarnessChat.stateOf(list, "session-app")
+
+        assertFalse(HarnessChat.hasNewTurn(state, turnsAtPrompt = 1))
+        assertFalse(HarnessChat.replyIsIn(state, turnsAtPrompt = 1))
+    }
+
+    @Test
+    fun aReplyIsInOnceANewerTurnIsAnswered() {
+        val list = listOfSessions(
+            session("session-app", turns = listOf("first" to "answered", "second" to "done")),
+        )
+
+        val state = HarnessChat.stateOf(list, "session-app")
+
+        assertTrue(HarnessChat.hasNewTurn(state, turnsAtPrompt = 1))
+        assertTrue(HarnessChat.replyIsIn(state, turnsAtPrompt = 1))
+    }
+
+    @Test
+    fun aPublishedButUnansweredTurnIsNotAReply() {
+        val list = listOfSessions(
+            session("session-app", running = true, turns = listOf("first" to "answered", "second" to "")),
+        )
+
+        val state = HarnessChat.stateOf(list, "session-app")
+
+        assertTrue(HarnessChat.hasNewTurn(state, turnsAtPrompt = 1))
+        assertFalse(HarnessChat.replyIsIn(state, turnsAtPrompt = 1))
+    }
+
+    @Test
+    fun anUnknownBaselineFallsBackToTheLooserTest() {
+        // After a reconnect there is nothing to compare against, and never
+        // calling a turn answered would be worse than being early.
+        val list = listOfSessions(
+            session("session-app", turns = listOf("only" to "answered")),
+        )
+
+        val state = HarnessChat.stateOf(list, "session-app")
+
+        assertTrue(HarnessChat.replyIsIn(state, turnsAtPrompt = -1))
+    }
+
     private fun page(vararg events: JSONObject): JSONObject =
         JSONObject().put(
             "records",

@@ -239,11 +239,14 @@ fun EnderSlicerApp(
                     HarnessChat.toMessages(state.turns)
                 }
                 aiMessages = shown.map { AiChatMessage(fromUser = it.fromUser, text = it.text) }
-                if (state.answered) {
+                if (chat.replyIsIn(state)) {
                     aiStatus = null
                     return
                 }
-                if (state.running) {
+                // "Not running" is only meaningful once the new turn has been
+                // published. Before that the session may simply not have picked
+                // the prompt up yet.
+                if (state.running || !chat.hasNewTurn(state)) {
                     idle = 0
                 } else if (++idle >= harnessSettlePolls) {
                     // Idle and never answered: the turn ended without a reply.
