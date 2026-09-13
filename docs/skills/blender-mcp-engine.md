@@ -15,7 +15,7 @@ The app bundle (package `com.tomppi.enderslicercura`) runs Blender 3.6 **inside 
 ## 1. Connect
 
 - Device: `192.0.2.20:5555` (`adb -s 192.0.2.20:5555 ...`); root shell via `su -c`.
-- **Do not use the device as a camera.** `adb shell screencap` and `exec-out screencap -p` photograph the user's own screen, while they are using the phone, and tell you nothing about the mesh. To look at a model, render it in the engine and read the PNG back - that is the camera for this job. Verify geometry from renders plus measurements computed in bpy (ring-band vertex counts, z extents, non-manifold edge counts). Leave the app's UI alone generally: it is the user's device, not an observation port.
+- **Never drive the device's UI.** No `input swipe`, `input tap`, `input keyevent`, no `screencap`. The phone is the user's; it is not an observation port. Looking at your model is section 4, and it happens inside Blender.
 - **Do not invent directories inside the app's private storage.** Two directories exist for handoff - `files/blender/imports/` (model into the engine) and `files/blender/exports/` (engine out to the app) - and nothing else belongs there. An agent once made up `files/blender/incoming/` with `su`, copied a 67 MB mesh into it and left it behind: a root-owned directory, in a place the app cannot write, that no code had ever heard of. If you need somewhere to put a file first, that is what the drop box is for.
 - **Drop box: anything you push to the device goes in `/sdcard/Download/dsh-agent/`, never the Download root.** Models stay there - it is the copy the user can find; probe scripts and screenshots are scaffolding and come back out.
 - Forward (required): `adb -s 192.0.2.20:5555 forward tcp:9876 tcp:9876`. The MCP socket MUST bind `localhost` (the addon's default; app passes `BLENDER_MCP_HOST` via the C++ wrapper). **Do NOT bind the Tailscale/CGNAT IP** (100.64.0.0/10): Tailscale Android does not deliver inbound TCP to app sockets (SYN times out / ports RST from tailscaled's userspace stack; verified 2026-09-09), so a tailnet-bound socket breaks the adb-forward loopback path and is unreachable anyway.
@@ -71,7 +71,38 @@ Errors: `{"status": "error", "message": "<exc>"}`. A command run in `blender -b`
 3. On dispatch the app stages a private copy `files/models/blender-<nanoTime>.stl` and swaps it into the UI ("Imported … from the Blender engine"). **Always export a fresh unique/canonical filename per generation** — size+mtime signature means a rewrite of the same path only re-fires if mtime changes.
 4. Verify: `adb shell su -c 'ls -la /data/user/0/com.tomppi.enderslicercura/files/models/'` — a new `blender-*.stl` proves the full chain.
 
-## 4. Debugging
+## 4. Look at your model - required, and do it freely
+
+**Rendering is a required part of this job, not a nicety and not something to ration.** Modification is iterative: change the mesh, look at it, decide, change it again. An agent that edits blind produces confident, plausible, wrong geometry - the sawtooth, the wall with no vertices in it. Render as often as you need, from as many angles as you need, and do not hesitate over the cost.
+
+**Use the Workbench engine.** It is Blender's solid-shading renderer - no ray tracing, no lights, no global illumination - which is exactly what inspecting geometry wants, and it costs a fraction of the memory:
+
+```python
+import bpy
+scene = bpy.context.scene
+scene.render.engine = 'BLENDER_WORKBENCH'      # NOT Cycles
+scene.render.resolution_x = scene.render.resolution_y = 512
+scene.render.resolution_percentage = 100
+scene.render.image_settings.file_format = 'PNG'
+scene.render.filepath = "/data/data/com.tomppi.enderslicercura/files/blender/exports/look-iso.png"
+bpy.ops.render.render(write_still=True)
+```
+
+Fit a camera to the object's bounding box for the angle you want (front, side, top, iso, and a low tilt to inspect a wall), and reuse one camera-fitting block rather than rewriting it each time.
+
+**Cycles is what has crashed this engine on device, even on a decimated mesh** - it needs far more memory than the device has free. If Workbench also fails, report the exact error and the face count, and stop; do not look for another way to see the screen.
+
+Write the PNG into `files/blender/exports/`. The poller only watches `.stl`, so an image there is inert - it will not be imported. Pull it back and read it.
+
+**Verify with both eyes.** Renders show shape; bpy measurements show numbers, and the numbers are what catch the failure a render hides:
+
+| what to measure | why |
+|---|---|
+| ring-band vertex counts by z | a wall with no vertices between two heights cannot be deformed, however it renders |
+| z extents of down-facing vs up-facing faces | is the base actually flat, and on the plate |
+| non-manifold and degenerate edges | the checks that matter before delivery |
+
+## 5. Debugging
 
 - App-side tags: `BlenderEngine` (resources materialization, watch/poll lines, export dispatch), `BlenderBridge` (`started=true port=9876`).
 - Engine-side: `adb logcat -d -v threadtime | grep app_process64` (works only when the wrap property is set; note the wrap wrapper occasionally causes a one-shot start race — relaunch to clear).
