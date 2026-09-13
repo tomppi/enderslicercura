@@ -3,7 +3,8 @@ package com.tomppi.enderslicer.ui
 import android.graphics.Bitmap
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,8 +22,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.style.TextAlign
@@ -39,7 +42,11 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.concurrent.atomic.AtomicLong
+import kotlin.math.abs
+import kotlin.math.cos
 import kotlin.math.roundToInt
+import kotlin.math.sin
+import kotlin.math.tan
 
 /**
  * Rendered at the size the view actually occupies, so the frame is as sharp as
@@ -103,6 +110,7 @@ fun ModellingPreview(
     var pitch by remember { mutableStateOf(initialCamera?.pitchDeg ?: 22f) }
     // Replaced by a framing derived from the engine's scene as soon as we know it.
     var distance by remember { mutableStateOf(initialCamera?.distanceMm ?: 0f) }
+    var fov by remember { mutableStateOf(initialCamera?.fovDeg ?: ModellingCamera.DEFAULT_FOV_DEGREES) }
     var target by remember {
         mutableStateOf(
             floatArrayOf(
@@ -130,6 +138,72 @@ fun ModellingPreview(
     )
 
     val requested = remember { mutableStateOf<ModellingCamera?>(null) }
+
+    /**
+     * Millimetres, on the plane through the target, of a point [pixel] from the
+     * centre of the view.
+     *
+     * The screen basis for a turntable has a closed form, so there is no matrix
+     * to build: with azimuth a and elevation e,
+     *   right = (cos a, sin a, 0)
+     *   up    = (-sin a sin e, cos a sin e, cos e)
+     * and the visible half-height at the target is `distance * tan(fov / 2)`.
+     */
+    fun worldOffsetOf(pixel: Offset): FloatArray {
+        val a = Math.toRadians(yaw.toDouble())
+        val e = Math.toRadians(pitch.toDouble())
+        val rx = cos(a).toFloat()
+        val ry = sin(a).toFloat()
+        val ux = (-sin(a) * sin(e)).toFloat()
+        val uy = (cos(a) * sin(e)).toFloat()
+        val uz = cos(e).toFloat()
+
+        val width = viewSize.width.coerceAtLeast(1)
+        val height = viewSize.height.coerceAtLeast(1)
+        val halfHeight = (distance * tan(Math.toRadians(fov / 2.0))).toFloat()
+        val halfWidth = halfHeight * (width.toFloat() / height)
+
+        // Screen y grows downwards; the view's up does not.
+        val right = (pixel.x / (width / 2f)) * halfWidth
+        val up = (-pixel.y / (height / 2f)) * halfHeight
+        return floatArrayOf(
+            rx * right + ux * up,
+            ry * right + uy * up,
+            0f * right + uz * up,
+        )
+    }
+
+    fun applyTarget(offset: FloatArray) {
+        target = floatArrayOf(target[0] + offset[0], target[1] + offset[1], target[2] + offset[2])
+    }
+
+    /** One finger: turn the model. Drag down looks from higher up. */
+    fun orbitBy(delta: Offset) {
+        yaw = wrapDegrees(yaw - delta.x * DegreesPerPixel)
+        pitch = (pitch + delta.y * DegreesPerPixel).coerceIn(-89f, 89f)
+    }
+
+    /** Two fingers, moving together: carry the orbit point with them. */
+    fun applyPan(delta: Offset) {
+        val world = worldOffsetOf(delta)
+        applyTarget(floatArrayOf(-world[0], -world[1], -world[2]))
+    }
+
+    /**
+     * Two fingers, moving apart: close in on what is under them.
+     *
+     * Zooming alone converges on whatever the target is, so a pinch over the bow
+     * of a boat would still end up looking at the middle of it. Moving the target
+     * by `w * (1 - 1/factor)` keeps the point under the fingers where it is -
+     * that is the point you asked to look at.
+     */
+    fun applyZoom(factor: Float, centroid: Offset) {
+        if (!factor.isFinite() || factor <= 0f || abs(factor - 1f) < 1e-4f) return
+        val world = worldOffsetOf(centroid)
+        val shift = 1f - 1f / factor
+        applyTarget(floatArrayOf(world[0] * shift, world[1] * shift, world[2] * shift))
+        distance = (distance / factor).coerceIn(MinDistanceMm, MaxDistanceMm)
+    }
 
     // Ask the engine what it is holding, once, and frame that. The app does not
     // derive this from the mesh it happens to have: the engine is the scene.
@@ -229,19 +303,42 @@ fun ModellingPreview(
             .onSizeChanged { viewSize = it }
             .pointerInput(interactive) {
                 if (!interactive) return@pointerInput
-                detectTransformGestures { _, pan, zoom, _ ->
-                    yaw = wrapDegrees(yaw - pan.x * DegreesPerPixel)
-                    // Drag down to look from higher up, which is what the app's
-                    // own viewer has always done.
-                    pitch = (pitch + pan.y * DegreesPerPixel).coerceIn(-89f, 89f)
-                    if (zoom.isFinite() && zoom > 0f) {
-                        distance = (distance / zoom).coerceIn(MinDistanceMm, MaxDistanceMm)
+                // One finger turns the model; two fingers move the point it turns
+                // around and the distance to it. Without the pan the orbit is
+                // pinned to the model's centre, so zooming in always converges on
+                // the middle of the part and a detail at the bow cannot be
+                // examined at all - which is the whole reason to zoom in.
+                awaitEachGesture {
+                    awaitFirstDown(requireUnconsumed = false)
+                    var previous: Offset? = null
+                    var previousSpread = 0f
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val pressed = event.changes.filter { it.pressed }
+                        if (pressed.isEmpty()) break
+                        val centroid = pressed.fold(Offset.Zero) { sum, c -> sum + c.position } /
+                            pressed.size.toFloat()
+
+                        if (pressed.size >= 2) {
+                            val spread = (pressed[0].position - pressed[1].position).getDistance()
+                            if (previousSpread > 0f && spread > 0f) {
+                                applyZoom(spread / previousSpread, centroid)
+                            }
+                            previous?.let { applyPan(centroid - it) }
+                            previousSpread = spread
+                        } else {
+                            previous?.let { orbitBy(it - centroid) }
+                            previousSpread = 0f
+                        }
+                        previous = centroid
+                        event.changes.forEach { if (it.positionChanged()) it.consume() }
+
+                        interacting = true
+                        lastGestureAt.set(System.currentTimeMillis())
+                        val next = snapshot()
+                        requested.value = next
+                        onCameraChanged(next)
                     }
-                    interacting = true
-                    lastGestureAt.set(System.currentTimeMillis())
-                    val next = snapshot()
-                    requested.value = next
-                    onCameraChanged(next)
                 }
             },
     ) {

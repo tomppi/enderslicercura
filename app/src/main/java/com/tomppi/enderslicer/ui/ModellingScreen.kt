@@ -82,8 +82,16 @@ fun ModellingScreen(
     incomingCamera: ModellingCamera?,
     modifier: Modifier = Modifier,
 ) {
+    // Collapsible: the model is the point of the screen, and half of it is a lot
+    // to give up when you are only looking.
+    var chatExpanded by rememberSaveable { mutableStateOf(true) }
+
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
-    val chatHeight = (maxHeight * ChatHeightFraction).coerceIn(ChatHeightMin, ChatHeightMax)
+    val chatHeight = if (chatExpanded) {
+        (maxHeight * ChatHeightFraction).coerceIn(ChatHeightMin, ChatHeightMax)
+    } else {
+        0.dp
+    }
 
     Column(modifier = Modifier.fillMaxSize()) {
         Surface(tonalElevation = 3.dp) {
@@ -107,6 +115,9 @@ fun ModellingScreen(
                 ) {
                     Text(if (owner == CameraOwner.USER) "Hand back" else "Take camera")
                 }
+                TextButton(onClick = { chatExpanded = !chatExpanded }) {
+                    Text(if (chatExpanded) "Hide chat" else "Chat")
+                }
             }
         }
 
@@ -120,7 +131,7 @@ fun ModellingScreen(
                 .weight(1f),
         )
 
-        Surface(tonalElevation = 6.dp) {
+        if (chatExpanded) Surface(tonalElevation = 6.dp) {
             Column(modifier = Modifier.fillMaxWidth().height(chatHeight)) {
                 HorizontalDivider()
                 if (owner == CameraOwner.USER) {
