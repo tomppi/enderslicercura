@@ -160,10 +160,19 @@ class HarnessChat(
     fun messages(maxMessages: Int = MESSAGE_PAGE_SIZE): List<ChatMessage> {
         val state = state()
         if (!state.exists) return emptyList()
-        val full = fullResponses(state, maxMessages)
+        val page = pageOf(state, maxMessages)
+        val full = fullResponsesOf(page)
+        // The projection clips prompts as well as replies, and there is no full
+        // text for a prompt anywhere except the log. The log carries no turn
+        // number on a user message, so they are paired in order - and only when
+        // the counts agree, because a mis-paired prompt is worse than a clipped
+        // one.
+        val prompts = fullPromptsOf(page)
+        val promptsAlign = prompts.size == state.turns.size
         return buildList {
             state.turns.forEachIndexed { index, turn ->
-                if (turn.prompt.isNotBlank()) add(ChatMessage(fromUser = true, text = turn.prompt))
+                val prompt = if (promptsAlign) prompts[index] else turn.prompt
+                if (prompt.isNotBlank()) add(ChatMessage(fromUser = true, text = prompt))
                 // Only answered turns get a reply line, so an in-flight turn
                 // does not show half a step's narration as if it were the
                 // answer.
@@ -174,19 +183,19 @@ class HarnessChat(
         }
     }
 
-    private fun fullResponses(state: SessionState, maxMessages: Int): Map<Int, String> = try {
-        fullResponsesOf(client.pageMessages(state.sessionId, state.asOfSeq, maxMessages))
+    private fun pageOf(state: SessionState, maxMessages: Int): JSONObject? = try {
+        client.pageMessages(state.sessionId, state.asOfSeq, maxMessages)
     } catch (error: Exception) {
         // A chat that can only show previews is still a chat. Losing the whole
         // conversation because one log read failed would be worse.
-        emptyMap()
+        null
     }
 
     private fun stateOf(id: String): SessionState = stateOf(client.listSessions(), id)
 
     companion object {
         /** Messages pulled back from the log when a reply is rendered in full. */
-        const val MESSAGE_PAGE_SIZE = 40
+        const val MESSAGE_PAGE_SIZE = 120
 
         /**
          * True once the reply to a prompt is in.
@@ -220,8 +229,8 @@ class HarnessChat(
          *  - Later messages for a turn replace earlier ones, so what surfaces is
          *    the turn's final answer rather than its intermediate narration.
          */
-        fun fullResponsesOf(page: JSONObject): Map<Int, String> {
-            val records = page.optJSONArray("records") ?: return emptyMap()
+        fun fullResponsesOf(page: JSONObject?): Map<Int, String> {
+            val records = page?.optJSONArray("records") ?: return emptyMap()
             val byTurn = HashMap<Int, String>()
             for (index in 0 until records.length()) {
                 val event = records.optJSONObject(index)?.optJSONObject("event") ?: continue
@@ -231,6 +240,30 @@ class HarnessChat(
                 if (text.isNotBlank()) byTurn[data.optInt("turn")] = text
             }
             return byTurn
+        }
+
+        /**
+         * The user's own messages, in order, as the log holds them.
+         *
+         * A prompt is stored under `data.content`, not `data.message.content`
+         * like an assistant reply, and carries no turn number - hence position
+         * rather than a key.
+         */
+        fun fullPromptsOf(page: JSONObject?): List<String> {
+            val records = page?.optJSONArray("records") ?: return emptyList()
+            val prompts = ArrayList<String>()
+            for (index in 0 until records.length()) {
+                val event = records.optJSONObject(index)?.optJSONObject("event") ?: continue
+                if (event.optString("type") != "user/message") continue
+                val data = event.optJSONObject("data") ?: continue
+                // The harness also writes plugin-sourced messages into the log;
+                // those are not the conversation and must not be paired with a
+                // turn.
+                if (data.optJSONObject("source")?.optString("kind") != "user") continue
+                val text = textOf(data.optJSONArray("content"))
+                if (text.isNotBlank()) prompts += text
+            }
+            return prompts
         }
 
         /** Concatenates the `text` blocks of one message, skipping the rest. */

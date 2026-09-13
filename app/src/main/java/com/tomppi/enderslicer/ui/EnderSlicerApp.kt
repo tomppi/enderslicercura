@@ -252,14 +252,14 @@ fun EnderSlicerApp(
                 // chat that is working perfectly well, so this only reports.
                 report("Session not in the harness list — reconnecting may help")
             } else {
-                // The projection is enough while a turn is running, and it is
-                // cheap enough to re-read twice a second. The full log is read
-                // once the answer is in, because it is a far larger response.
-                val shown = if (state.answered) {
-                    withContext(Dispatchers.IO) { chat.messages() }
-                } else {
-                    HarnessChat.toMessages(state.turns)
-                }
+                // Always the log, never the projection. The projection clips
+                // every turn to about a hundred characters, so falling back to
+                // it while a turn ran collapsed the *entire* transcript to
+                // ellipses the moment you sent anything - past answers included,
+                // which had not changed and had no reason to be re-read as
+                // previews. The page is a little larger; it is one request every
+                // two seconds and it is worth it.
+                val shown = withContext(Dispatchers.IO) { chat.messages() }
                 publish(shown.map { AiChatMessage(fromUser = it.fromUser, text = it.text) })
                 if (chat.replyIsIn(state)) {
                     report(null)
