@@ -73,32 +73,66 @@ Errors: `{"status": "error", "message": "<exc>"}`. A command run in `blender -b`
 
 ## 4. Look at your model - required, and do it freely
 
-**Looking at your model is a required part of this job, not a nicety and not something to ration.** Modification is iterative: change the mesh, look at it, decide, change it again. An agent that edits blind produces confident, plausible, wrong geometry - the sawtooth, the wall with no vertices in it. Render as often as you need, from as many angles as you need, and do not hesitate over the cost.
+**Looking at your model is a required part of this job, not a nicety and not something to ration.** This works in the engine - see the Cycles recipe below - and a view costs well under a second. Modification is iterative: change the mesh, look at it, decide, change it again. An agent that edits blind produces confident, plausible, wrong geometry - the sawtooth, the wall with no vertices in it. Render as often as you need, from as many angles as you need, and do not hesitate over the cost.
 
-### Rendering inside the engine is FATAL - do not do it
+### Render with CYCLES - the GPU engines kill the process
 
-**`bpy.ops.render.render()` kills the process.** Measured on a default 6-face cube at 256x256 with Workbench: the engine dies in **143 ms** with no reply, no log line, no tombstone and no crash report. Blender runs in-process, so the whole app goes with it, and the foreground service has to bring it back. It is not memory, not the mesh and not the engine choice - the call itself is fatal in this build. Ten app deaths in one afternoon were exactly this.
+**Cycles CPU renders fine, in the engine, on the device.** Verified on the default scene:
 
-`bpy.ops.render.opengl()` does not crash, but it cannot help either - it returns cleanly with:
+| resolution | samples | time |
+|---|---|---|
+| 128 | 8 | **0.17 s** |
+| 256 | 16 | **0.43 s** |
+| 512 | 32 | **2.5 s** |
+
+It needs no GPU context, which is exactly why it works.
+
+**`BLENDER_WORKBENCH` and `EEVEE` terminate the process.** They require an OpenGL context a headless engine does not have, and `bpy.ops.render.render()` then kills the app outright - dead in ~150 ms, no reply, no log line, no tombstone, no crash report. Blender runs in-process, so the whole app goes with it and the foreground service has to restart it. That cost ten app deaths in one afternoon. Never set a GPU engine.
+
+`bpy.ops.render.opengl()` is safe - it reports the same condition cleanly - but it cannot render anything:
 
 ```text
 Error: Cannot use OpenGL render in background mode (no OpenGL context)
 ```
 
-The engine is headless with no GL context. `render.render()` terminates on the same condition instead of reporting it.
+```python
+import bpy
+from mathutils import Vector
 
-### Render outside the engine instead
+scene = bpy.context.scene
+obj = <the mesh object you want to look at>
 
-Take the geometry out and draw it on the PC - the approach `render_numpy.py` already uses:
+for o in list(bpy.data.objects):
+    if o.type in {'CAMERA', 'LIGHT'}:
+        bpy.data.objects.remove(o, do_unlink=True)
 
-1. **Export the mesh** with `export_stl` (or `_mesh_to_binary_stl`) into `files/blender/exports/`.
-2. **Pull it** to the PC.
-3. **Render it there** - `render_numpy.py <file.stl> <prefix>` writes front/side/top/iso PNGs from the vertices and faces, no GL involved.
-4. **Read the PNGs** and look.
+cam = bpy.data.objects.new('look', bpy.data.cameras.new('look'))
+scene.collection.objects.link(cam)
+scene.camera = cam
+bb = [obj.matrix_world @ Vector(c) for c in obj.bound_box]
+centre = sum(bb, Vector()) / 8.0
+radius = max((v - centre).length for v in bb)
+cam.location = centre + Vector((radius * 1.6, -radius * 1.6, radius * 1.3))
+cam.rotation_euler = (centre - cam.location).to_track_quat('-Z', 'Y').to_euler()
 
-Pull a **decimated copy** rather than the full mesh when you only need to see the shape: `execute_code` can decimate in bpy and export that, which keeps a check to a few megabytes instead of seventy.
+light = bpy.data.objects.new('sun', bpy.data.lights.new('sun', type='SUN'))
+light.data.energy = 3.0
+scene.collection.objects.link(light)
+light.rotation_euler = (0.9, 0.2, 0.6)
 
-Inspect from as many angles as you need, as often as you need - this is the required part, and it is cheap. The only thing that is off limits is the user's screen.
+scene.render.engine = 'CYCLES'        # NOT workbench, NOT eevee
+scene.cycles.device = 'CPU'
+scene.cycles.samples = 16
+scene.cycles.use_denoising = False
+scene.render.resolution_x = scene.render.resolution_y = 512
+scene.render.image_settings.file_format = 'PNG'
+scene.render.filepath = "/data/data/com.tomppi.enderslicercura/files/blender/exports/look-iso.png"
+bpy.ops.render.render(write_still=True)
+```
+
+Move `cam.location` around the bounding box for front / side / top / iso / a low tilt at a wall, and re-render - a view costs well under a second at 256. **Look as often as you like; this is the required part of the job.** The PNG lands in `exports/`, where the poller ignores it because it only watches `.stl`; read it back and look at it.
+
+Two PC-side renderers also exist as a second opinion - `render_numpy.py` (fast silhouette, no shading) and `render_stl.py` under full Blender - but they are no longer the only way to see, and nothing needs exporting for a routine check.
 
 Write the PNG into `files/blender/exports/`. The poller only watches `.stl`, so an image there is inert - it will not be imported. Pull it back and read it.
 
