@@ -14,11 +14,16 @@ The app bundle (package `com.tomppi.enderslicercura`) runs Blender 3.6 **inside 
 
 ## 1. Connect
 
-- Device: `192.0.2.20:5555` (`adb -s 192.0.2.20:5555 ...`); root shell via `su -c`.
+- **Device: `100.64.0.20:5555` - the tailnet address, and the one to use.** It works from
+  anywhere the tailnet is up, which the LAN address does not: that one needs the phone and the
+  host on the same WiFi, so it disappears the moment either moves. Connect once with
+  `adb connect 100.64.0.20:5555`, then address it as `adb -s 100.64.0.20:5555 ...`.
+  (`192.0.2.20:5555` still works on the LAN and is a fine fallback when the tailnet is down.)
+  Root shell via `su -c`. Verified: SM-F946B, shell context `u:r:shell:s0`.
 - **Never drive the device's UI.** No `input swipe`, `input tap`, `input keyevent`, no `screencap`. The phone is the user's; it is not an observation port. Looking at your model is section 4, and it happens inside Blender.
 - **Do not invent directories inside the app's private storage.** Two directories exist for handoff - `files/blender/imports/` (model into the engine) and `files/blender/exports/` (engine out to the app) - and nothing else belongs there. An agent once made up `files/blender/incoming/` with `su`, copied a 67 MB mesh into it and left it behind: a root-owned directory, in a place the app cannot write, that no code had ever heard of. If you need somewhere to put a file first, that is what the drop box is for.
 - **Drop box: anything you push to the device goes in `/sdcard/Download/dsh-agent/`, never the Download root.** Models stay there - it is the copy the user can find; probe scripts and screenshots are scaffolding and come back out.
-- Forward (required): `adb -s 192.0.2.20:5555 forward tcp:9876 tcp:9876`. The MCP socket MUST bind `localhost` (the addon's default; app passes `BLENDER_MCP_HOST` via the C++ wrapper). **Do NOT bind the Tailscale/CGNAT IP** (100.64.0.0/10): Tailscale Android does not deliver inbound TCP to app sockets (SYN times out / ports RST from tailscaled's userspace stack; verified 2026-09-09), so a tailnet-bound socket breaks the adb-forward loopback path and is unreachable anyway.
+- Forward (required): `adb -s 100.64.0.20:5555 forward tcp:9876 tcp:9876`. The MCP socket MUST bind `localhost` (the addon's default; app passes `BLENDER_MCP_HOST` via the C++ wrapper). **Do NOT bind the Tailscale/CGNAT IP** (100.64.0.0/10): Tailscale Android does not deliver inbound TCP to app sockets (SYN times out / ports RST from tailscaled's userspace stack; verified 2026-09-09), so a tailnet-bound socket breaks the adb-forward loopback path and is unreachable anyway.
 - The engine lives only while the app process runs. Relaunch: `adb shell am start -n com.tomppi.enderslicercura/com.tomppi.enderslicer.MainActivity`. First launch after an install can hit a transient wrapper/zygote race ("start timeout", signal 9) — just launch again.
 - Quick liveness: `adb shell su -c 'ss -tlnp | grep 9876'` (owner pid should be the app).
 
@@ -218,7 +223,10 @@ Write the PNG into `files/blender/exports/`. The poller only watches `.stl`, so 
 - Engine-side: `adb logcat -d -v threadtime | grep app_process64` (works only when the wrap property is set; note the wrap wrapper occasionally causes a one-shot start race — relaunch to clear).
 - Structure checks (root shell): `ls -la /data/user/0/com.tomppi.enderslicercura/files/blender/` — `python/lib/python3.11/` must exist (stdlib), plus `scripts/`, `exports/`, and `.resources-version` marker. Bumping `RESOURCES_VERSION` in `BlenderEngine.kt` forces re-extraction on next launch.
 - `files/blender/exports/` has the handoff files; `files/models/` has staged imported copies.
-- **adb reaches the phone over the tailnet: `adb connect 100.64.0.20:5555`.** Verified working (SM-F946B, shell context `u:r:shell:s0`). The LAN address `192.0.2.20:5555` only works while on the same WiFi; the tailnet one works from anywhere, so prefer it and keep both connected when you can. Inbound TCP *to app ports* still does not traverse the tailnet - the engine's MCP socket stays on loopback plus `adb forward`.
+- **adb goes over the tailnet: `adb connect 100.64.0.20:5555`** - see section 1. The LAN
+  address `192.0.2.20:5555` is the fallback and needs both machines on the same WiFi.
+  Inbound TCP *to app ports* still does not traverse the tailnet, so the engine's MCP socket
+  stays on loopback plus `adb forward`; adb itself is what rides the tailnet.
 - The app drives the engine itself over loopback for the modelling preview, so no forward and no adb is needed for that path. Use adb only for inspection.
 
 ### When the engine dies mid-command
