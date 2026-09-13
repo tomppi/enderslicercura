@@ -1,10 +1,14 @@
 ---
 name: blender-mcp-engine
 description: Drive the Blender MCP socket engine embedded in the enderslicercura Android app (JSON protocol on 127.0.0.1:9876 via adb forward), including the STL export + hot-load handoff into the slicer UI.
-whenToUse: When generating 3D models through the phone's embedded Blender engine, writing STL handoff files, debugging MCP command responses, or checking that an exported model reached the app.
+whenToUse: When asked to modify, reshape, deepen or otherwise edit an existing model on the device - this is the only modelling environment there is, and the GPU box is not a substitute. Also when generating 3D models through the phone's embedded Blender engine, writing STL handoff files, debugging MCP command responses, or checking that an exported model reached the app.
 ---
 
 # Blender MCP Engine (enderslicercura embedded)
+
+**This is the device's modelling environment, and the only one.** Anything that *changes* an existing model - reshaping a profile, deepening a dish, adding or subtracting material, fixing a wall - belongs here, in bpy, over the MCP socket.
+
+The pipeline in [image-to-3d-model](../image-to-3d-model/SKILL.md) does exactly one thing: turn a photograph into a mesh on the GPU box. It is not a modelling tool. Reaching for it to edit a model means reimplementing, badly and with whatever Python happens to be installed there, mesh surgery the embedded Blender already does properly - and the box's `/usr/bin/blender` is broken besides.
 
 The app bundle (package `com.tomppi.enderslicercura`) runs Blender 3.6 **inside the app process** via `libblender_exec.so` (in-process wrapper, `mainBlenderInitial` on a detached thread), with a slim MCP addon serving on **localhost:9876**. Blender stdout/stderr appear in logcat as `I app_process64` when the `wrap.com.tomppi.enderslicercura` property is set to `logwrapper` (capture with `adb logcat -d -s app_process64`).
 
