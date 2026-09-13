@@ -8,6 +8,21 @@ whenToUse: When you need to stop a running agent, stop work an agent started els
 
 The harness serves its whole RPC surface over HTTP. These shapes were verified against a running harness rather than inferred, because no part of them is guessable.
 
+## Use the tool rather than a hand-rolled client
+
+`scripts/harness-session.mjs` wraps all of it - the auth bootstrap, the envelope, and the backwards pagination:
+
+```bash
+node scripts/harness-session.mjs list [--all]       # what is running
+node scripts/harness-session.mjs tail <id> [n]      # the last n events, full fidelity
+node scripts/harness-session.mjs grep <id> <text>   # search one session
+node scripts/harness-session.mjs find <text>        # which recent session mentions it
+node scripts/harness-session.mjs cancel <id>|--others
+node scripts/harness-session.mjs steer <id> <text>
+```
+
+**Never read the session journal off disk to answer "what is it doing".** It is a concatenation of zstd frames, and *most frames hold more than one record* - on one real session, 270 of 413. A reader that assumes one record per frame parses the single-record frames, fails on the rest, and **silently drops them**: that mistake read 129 of 1043 records and reported a busy log as quiet for an entire afternoon. `session/page` returns the same log already parsed, which is why the tool uses it.
+
 ## Stopping a running agent - do it in this order
 
 **The order is the whole point.** A live agent will simply re-do whatever you undo behind it.
@@ -68,6 +83,7 @@ Three things that are easy to get wrong and produce unhelpful errors:
 | `session/cancel` | `request` | `{ sessionId }` | `{ accepted: true }` |
 | `session/create` | `request` | `{ cwd? }` | `{ sessionId, agentPreset }` |
 | `session/prompt` | `request` | see below | `{ accepted: true }` |
+| `session/page` | `request` | `{ address: {kind:'session', sessionId}, throughSeq, maxMessages? }` | `{ records, hasMore }` - the full event log |
 
 ### Stopping a session
 
