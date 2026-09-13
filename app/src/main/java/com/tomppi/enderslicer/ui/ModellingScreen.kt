@@ -1,6 +1,7 @@
 package com.tomppi.enderslicer.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -38,7 +39,17 @@ import com.tomppi.enderslicer.modelling.CameraOwner
 import com.tomppi.enderslicer.modelling.ModellingCamera
 import java.io.File
 
-private val ChatHeight = 260.dp
+/**
+ * The chat takes a little under half the screen.
+ *
+ * It was a fixed 260 dp strip, which is shorter than one of this agent's answers:
+ * the replies here run to several paragraphs, so most of one sat below the fold
+ * in a window with room to spare. A share of the height rather than a constant
+ * keeps that true on a phone and on an unfolded foldable alike.
+ */
+private const val ChatHeightFraction = 0.46f
+private val ChatHeightMin = 240.dp
+private val ChatHeightMax = 560.dp
 private val BarPadding = 10.dp
 
 /**
@@ -71,7 +82,10 @@ fun ModellingScreen(
     incomingCamera: ModellingCamera?,
     modifier: Modifier = Modifier,
 ) {
-    Column(modifier = modifier.fillMaxSize()) {
+    BoxWithConstraints(modifier = modifier.fillMaxSize()) {
+    val chatHeight = (maxHeight * ChatHeightFraction).coerceIn(ChatHeightMin, ChatHeightMax)
+
+    Column(modifier = Modifier.fillMaxSize()) {
         Surface(tonalElevation = 3.dp) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -107,7 +121,7 @@ fun ModellingScreen(
         )
 
         Surface(tonalElevation = 6.dp) {
-            Column(modifier = Modifier.fillMaxWidth().height(ChatHeight)) {
+            Column(modifier = Modifier.fillMaxWidth().height(chatHeight)) {
                 HorizontalDivider()
                 if (owner == CameraOwner.USER) {
                     Text(
@@ -127,6 +141,7 @@ fun ModellingScreen(
             }
         }
     }
+    }
 }
 
 @Composable
@@ -144,7 +159,7 @@ private fun ChatTranscript(
 
     Column(modifier = modifier.padding(horizontal = BarPadding)) {
         Column(
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
@@ -155,14 +170,17 @@ private fun ChatTranscript(
                 Text(
                     text = "Describe the part you want, or just say hello. " +
                         "The agent works on the model you can see.",
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             messages.forEach { message ->
                 Text(
                     text = message.text,
-                    style = MaterialTheme.typography.bodySmall,
+                    // bodyMedium, not bodySmall: these replies run to several
+                    // paragraphs and bodySmall made them a wall of small print
+                    // in a window that has the room.
+                    style = MaterialTheme.typography.bodyMedium,
                     textAlign = if (message.fromUser) TextAlign.End else TextAlign.Start,
                     color = if (message.fromUser) {
                         MaterialTheme.colorScheme.primary
