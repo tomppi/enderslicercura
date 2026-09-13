@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import com.tomppi.enderslicer.modelling.CameraOwner
 import com.tomppi.enderslicer.modelling.EnginePreviewClient
 import com.tomppi.enderslicer.modelling.ModellingCamera
+import com.tomppi.enderslicer.modelling.SceneSummary
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
@@ -100,6 +101,18 @@ fun ModellingPreview(
     initialCamera: ModellingCamera?,
     /** False while the agent owns the camera: gestures are refused, not queued. */
     interactive: Boolean,
+    /**
+     * True while the chat is expanded, which is when the frame is measured.
+     *
+     * Collapsing the chat must not change the picture, and it does not - but the
+     * height it gains is not a signal to re-measure either, and keying on width
+     * alone meant an early, transient layout was captured once and never
+     * corrected. Measuring only in the expanded state is what makes the answer
+     * stable in both.
+     */
+    measureFrame: Boolean,
+    /** What the engine is holding, so the bar can name the real thing. */
+    onScene: (SceneSummary) -> Unit = {},
     onCameraChanged: (ModellingCamera) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -266,25 +279,42 @@ fun ModellingPreview(
         // showing a cube after the user has sent one reads as a bug, and the
         // engine cannot tell them apart on its own. Anything the agent has built
         // means a real mesh is present, and that is never overwritten.
-        val handoff = File(blenderDir, "imports/current.stl")
-        if (handoff.isFile) {
+        // Restore the newest thing the engine *produced* in preference to the
+        // file the user sent in. A restarted engine comes back on its default
+        // scene and this puts something back; putting back the original upload
+        // throws away everything done to it since. That happened: the engine was
+        // restarted holding a capped roof and came back holding the uncapped
+        // boat, so the app showed the finished model and the engine showed the
+        // one it started from.
+        val sent = File(blenderDir, "imports/current.stl").takeIf { it.isFile }
+        val produced = File(blenderDir, "exports").listFiles()
+            ?.filter { it.isFile && it.name.endsWith(".stl", ignoreCase = true) }
+            ?.maxByOrNull { it.lastModified() }
+        val handoff = when {
+            produced == null -> sent
+            sent == null -> produced
+            produced.lastModified() > sent.lastModified() -> produced
+            else -> sent
+        }
+        if (handoff != null) {
             val untouched = withContext(Dispatchers.IO) {
                 runCatching { client.isOnDefaultScene() }.getOrDefault(false)
             }
             if (untouched) {
-                status = "Loading your model into the engine..."
+                status = "Loading " + handoff.name + " into the engine..."
                 val loaded = withContext(Dispatchers.IO) {
                     runCatching { client.importModel(handoff, blenderDir) }.getOrDefault(false)
                 }
                 if (!loaded) status = "Could not load the model into the engine"
             }
         }
-        val bounds = withContext(Dispatchers.IO) {
-            runCatching { client.sceneBounds() }.getOrNull()
+        val summary = withContext(Dispatchers.IO) {
+            runCatching { client.sceneSummary() }.getOrNull()
         }
-        if (bounds != null) {
-            val centre = floatArrayOf(bounds[0], bounds[1], bounds[2])
-            val radius = bounds[3]
+        if (summary != null) {
+            onScene(summary)
+            val centre = floatArrayOf(summary.centreX, summary.centreY, summary.centreZ)
+            val radius = summary.radius
             // A target far outside the model means the view was lost - a runaway
             // pan, or a camera written for a scene that no longer exists. Recover
             // instead of opening somewhere the model is not, because there is no
@@ -327,9 +357,10 @@ fun ModellingPreview(
     // different shape, which reframed the camera: the same model, moved, because
     // a panel was hidden. The chat only changes the height, so keying on the
     // width is what leaves the picture alone.
-    LaunchedEffect(viewSize.width) {
-        if (viewSize.width <= 0) return@LaunchedEffect
+    LaunchedEffect(viewSize, measureFrame) {
+        if (!measureFrame || viewSize.width <= 0 || viewSize.height <= 0) return@LaunchedEffect
         val (width, height) = renderSize(viewSize, MaxPreviewEdge)
+        if (width == renderWidth && height == renderHeight) return@LaunchedEffect
         renderWidth = width
         renderHeight = height
         requested.value = requested.value?.copy()

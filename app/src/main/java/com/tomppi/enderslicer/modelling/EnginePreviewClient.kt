@@ -9,6 +9,20 @@ import java.io.File
 import java.net.InetSocketAddress
 import java.net.Socket
 
+/** What the engine's scene holds, as opposed to what the app last sent it. */
+data class SceneSummary(
+    val centreX: Float,
+    val centreY: Float,
+    val centreZ: Float,
+    val radius: Float,
+    val mesh: String,
+    val vertices: Int,
+    val faces: Int,
+) {
+    /** Short label for the modelling bar: the name and how big it is. */
+    val label: String get() = mesh + " · " + faces / 1000 + "k faces"
+}
+
 /**
  * Renders the modelling preview *in* the Blender engine and brings the pixels
  * back.
@@ -128,12 +142,33 @@ class EnginePreviewClient(
      * which is the mistake that aimed the first agent render at the print bed
      * instead of at the model.
      */
-    fun sceneBounds(): FloatArray? {
+    fun sceneBounds(): FloatArray? = sceneSummary()?.let {
+        floatArrayOf(it.centreX, it.centreY, it.centreZ, it.radius)
+    }
+
+    /**
+     * What the engine is actually holding, not what the app last sent it.
+     *
+     * The app's own model name is the file on the plate, and the two can differ:
+     * the engine works on what it was given and the app on what came back. The
+     * modelling screen names the engine's scene from here so the two are never
+     * confused for one another.
+     */
+    fun sceneSummary(): SceneSummary? {
         val reply = command("execute_code", JSONObject().put("code", BOUNDS_SCRIPT))
         if (reply.optString("status") != "success") return null
         val text = reply.optJSONObject("result")?.optString("result").orEmpty().trim()
-        val parts = text.split(" ").mapNotNull { it.toFloatOrNull() }
-        return if (parts.size == 4) parts.toFloatArray() else null
+        val json = runCatching { JSONObject(text) }.getOrNull() ?: return null
+        if (json.optBoolean("empty", false)) return null
+        return SceneSummary(
+            centreX = json.optDouble("cx", 0.0).toFloat(),
+            centreY = json.optDouble("cy", 0.0).toFloat(),
+            centreZ = json.optDouble("cz", 0.0).toFloat(),
+            radius = json.optDouble("radius", 0.0).toFloat(),
+            mesh = json.optString("mesh"),
+            vertices = json.optInt("verts", 0),
+            faces = json.optInt("faces", 0),
+        )
     }
 
     /**
@@ -276,24 +311,30 @@ print('imported %d mesh(es)' % len(meshes))
 """.trimIndent()
 
         private val BOUNDS_SCRIPT = """
-import bpy
+import bpy, json
 from mathutils import Vector
 lo = Vector((1e18, 1e18, 1e18))
 hi = Vector((-1e18, -1e18, -1e18))
-found = False
+meshes = []
 for o in bpy.context.scene.objects:
     if o.type != 'MESH':
         continue
+    meshes.append(o)
     for corner in o.bound_box:
         w = o.matrix_world @ Vector(corner)
         lo = Vector((min(lo.x, w.x), min(lo.y, w.y), min(lo.z, w.z)))
         hi = Vector((max(hi.x, w.x), max(hi.y, w.y), max(hi.z, w.z)))
-        found = True
-if found:
-    c = (lo + hi) * 0.5
-    print('%f %f %f %f' % (c.x, c.y, c.z, (hi - lo).length * 0.5))
+if not meshes:
+    print(json.dumps({'empty': True}))
 else:
-    print('')
+    c = (lo + hi) * 0.5
+    print(json.dumps({
+        'cx': c.x, 'cy': c.y, 'cz': c.z,
+        'radius': (hi - lo).length * 0.5,
+        'mesh': meshes[0].name if len(meshes) == 1 else '%d meshes' % len(meshes),
+        'verts': sum(len(o.data.vertices) for o in meshes),
+        'faces': sum(len(o.data.polygons) for o in meshes),
+    }))
 """.trimIndent()
 
         private val PREVIEW_SCRIPT = """

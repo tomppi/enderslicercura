@@ -678,7 +678,12 @@ fun EnderSlicerApp(
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val expandedLayout = maxWidth >= 600.dp
         Scaffold(
+        // No app chrome while modelling. The modelling screen is a whole
+        // destination with its own bar, and stacking the Plate header above it
+        // spent a strip of the screen saying "Plate" about a tab that is not
+        // what you are looking at.
         topBar = {
+            if (modellingOpen) return@Scaffold
             TopAppBar(
                 navigationIcon = {
                     if (printerScreenOpen) {

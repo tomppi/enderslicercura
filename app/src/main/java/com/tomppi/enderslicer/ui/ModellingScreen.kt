@@ -28,15 +28,18 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.tomppi.enderslicer.modelling.CameraOwner
 import com.tomppi.enderslicer.modelling.ModellingCamera
+import com.tomppi.enderslicer.modelling.SceneSummary
 import java.io.File
 
 /**
@@ -85,6 +88,10 @@ fun ModellingScreen(
     // Collapsible: the model is the point of the screen, and half of it is a lot
     // to give up when you are only looking.
     var chatExpanded by rememberSaveable { mutableStateOf(true) }
+    // The engine's own scene, not the app's plate. The two can hold different
+    // models - the app has whatever came out, the engine whatever it was given -
+    // so the bar names the one actually on screen here.
+    var scene by remember { mutableStateOf<SceneSummary?>(null) }
 
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
     val chatHeight = if (chatExpanded) {
@@ -107,7 +114,12 @@ fun ModellingScreen(
                     Text("Exit")
                 }
                 Spacer(Modifier.weight(1f))
-                Text(text = "Modelling", style = MaterialTheme.typography.titleSmall)
+                Text(
+                    text = scene?.label ?: "Modelling",
+                    style = MaterialTheme.typography.titleSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
                 Spacer(Modifier.weight(1f))
                 TextButton(
                     onClick = { if (owner == CameraOwner.USER) onHandBackCamera() else onTakeCamera() },
@@ -125,6 +137,8 @@ fun ModellingScreen(
             blenderDir = blenderDir,
             initialCamera = incomingCamera,
             interactive = owner == CameraOwner.USER,
+            measureFrame = chatExpanded,
+            onScene = { scene = it },
             onCameraChanged = onCameraMoved,
             modifier = Modifier
                 .fillMaxWidth()
