@@ -317,6 +317,23 @@ cam.data.angle = radians(fovDeg)
 Do **not** use `to_track_quat('-Z', 'Y')` here. The shared up vector is not global
 Y, so the roll - and therefore the image - would not match what the user sees.
 
+**`width` and `height` are the size the user is looking at the model at.** Render at
+exactly those and your picture is theirs, pixel for pixel - not merely the same
+camera, the same image. Use them rather than a size of your own choosing:
+
+```python
+scene.render.resolution_x = spec["width"]
+scene.render.resolution_y = spec["height"]
+```
+
+They follow the view, so they are not a constant: they change with the device,
+the orientation, and whether the chat is expanded. Read them, do not remember
+them. Zero means the field was not published - pick your own size then.
+
+**For detail work, go larger than the user's view, never smaller.** These are the
+pixels on their screen; a feature finer than they can see is one they cannot
+discuss with you.
+
 **`target` and `eye` are in the model's own coordinates** - the same coordinates as
 the STL the engine exported. They are *not* printer-bed coordinates. The app draws
 the model sitting on the print bed, but that placement is a display concern and

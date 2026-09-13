@@ -127,15 +127,23 @@ fun ModellingPreview(
     var interacting by remember { mutableStateOf(false) }
     val lastGestureAt = remember { AtomicLong(0L) }
 
-    fun snapshot(): ModellingCamera = ModellingCamera(
-        yawDeg = yaw,
-        pitchDeg = pitch,
-        distanceMm = distance,
-        targetX = target[0],
-        targetY = target[1],
-        targetZ = target[2],
-        owner = if (interactive) CameraOwner.USER else CameraOwner.AGENT,
-    )
+    fun snapshot(): ModellingCamera {
+        // The *settled* size, never the interactive one: the agent is being told
+        // what the user's view actually is, and during a drag that is a temporary
+        // 512-pixel compromise, not the picture on the screen.
+        val (width, height) = renderSize(viewSize, MaxPreviewEdge)
+        return ModellingCamera(
+            yawDeg = yaw,
+            pitchDeg = pitch,
+            distanceMm = distance,
+            targetX = target[0],
+            targetY = target[1],
+            targetZ = target[2],
+            width = width,
+            height = height,
+            owner = if (interactive) CameraOwner.USER else CameraOwner.AGENT,
+        )
+    }
 
     val requested = remember { mutableStateOf<ModellingCamera?>(null) }
 

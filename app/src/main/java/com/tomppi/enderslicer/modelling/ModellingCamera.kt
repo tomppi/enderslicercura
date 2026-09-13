@@ -39,6 +39,16 @@ data class ModellingCamera(
     val targetY: Float,
     val targetZ: Float,
     val fovDeg: Float = DEFAULT_FOV_DEGREES,
+    /**
+     * The size the app is rendering this view at, so the agent's render and the
+     * user's screen can be the same picture rather than merely the same camera.
+     *
+     * Published rather than fixed because it follows the view: it changes with
+     * the device, the orientation, and whether the chat is expanded. Zero means
+     * unknown, and a reader should pick its own size.
+     */
+    val width: Int = 0,
+    val height: Int = 0,
     val owner: CameraOwner = CameraOwner.AGENT,
     /** Bumped on every write, so a reader can tell a new camera from a stale one. */
     val rev: Long = 0L,
@@ -79,6 +89,10 @@ data class ModellingCamera(
 
     fun withOwner(owner: CameraOwner): ModellingCamera = copy(owner = owner, rev = rev + 1)
 
+    /** The published frame size, or null when this camera predates it. */
+    fun frameSize(): Pair<Int, Int>? =
+        if (width > 0 && height > 0) width to height else null
+
     fun toJson(): JSONObject {
         val eye = eyeOffset()
         val up = upVector()
@@ -87,6 +101,8 @@ data class ModellingCamera(
             .put("pitchDeg", pitchDeg.toDouble())
             .put("distanceMm", distanceMm.toDouble())
             .put("fovDeg", fovDeg.toDouble())
+            .put("width", width)
+            .put("height", height)
             .put("target", doubleArrayOf(targetX.toDouble(), targetY.toDouble(), targetZ.toDouble()).toJson())
             .put("eye", eye.map(::toDouble).toJson())
             .put("up", up.map(::toDouble).toJson())
@@ -107,6 +123,8 @@ data class ModellingCamera(
                 targetY = target?.optDouble(1, 0.0)?.toFloat() ?: 0f,
                 targetZ = target?.optDouble(2, 0.0)?.toFloat() ?: 0f,
                 fovDeg = json.optDouble("fovDeg", DEFAULT_FOV_DEGREES.toDouble()).toFloat(),
+                width = json.optInt("width", 0),
+                height = json.optInt("height", 0),
                 owner = if (json.optString("owner") == CameraOwner.USER.wire) CameraOwner.USER else CameraOwner.AGENT,
                 rev = json.optLong("rev", 0L),
             )
