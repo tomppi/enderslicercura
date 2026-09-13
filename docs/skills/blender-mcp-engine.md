@@ -153,3 +153,27 @@ Write the PNG into `files/blender/exports/`. The poller only watches `.stl`, so 
 - Structure checks (root shell): `ls -la /data/user/0/com.tomppi.enderslicercura/files/blender/` — `python/lib/python3.11/` must exist (stdlib), plus `scripts/`, `exports/`, and `.resources-version` marker. Bumping `RESOURCES_VERSION` in `BlenderEngine.kt` forces re-extraction on next launch.
 - `files/blender/exports/` has the handoff files; `files/models/` has staged imported copies.
 - Nightly/off-WiFi note: the phone (phone-host, `100.64.0.20`) is reachable via tailscale ICMP, but no inbound TCP to apps; all device IO goes through `adb -s 192.0.2.20:5555` while on the same WiFi.
+
+### When the engine dies mid-command
+
+The socket just goes quiet - no reply, no error - and the app is back a few seconds later, because the foreground service restarts it. To find out what killed it, capture the engine's own output *before* the fatal call; the report written afterwards is useless:
+
+```python
+import os, faulthandler
+home = os.environ['HOME']
+fd = os.open(os.path.join(home, 'gpu-crash.log'), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+os.dup2(fd, 1); os.dup2(fd, 2)   # catches Blender's C-level output, which bypasses Python
+faulthandler.enable()            # catches the segfault and dumps every thread
+```
+
+Read it back with `su -c 'cat /data/user/0/com.tomppi.enderslicercura/files/blender-home/gpu-crash.log'`. Blender also writes `cache/blender.crash.txt`, but this is a release build with no symbols, so its backtrace is always empty. There is no tombstone either: Blender installs its own signal handler and exits, so Android never sees the crash.
+
+### Why the GPU engines segfault - and why it cannot be configured away
+
+Blender is started as `blender -b` (see `native/blender/blender_exec.cpp`), and background mode has no GPU. The binary does contain the machinery - `GHOST_SystemAndroid`, `GHOST_ContextEGL`, `GHOST_SystemHeadless::createOffscreenContext`, the Workbench GLSL - but nothing initialises a GPU backend in background mode, and `GHOST_SystemHeadless` is upstream's stub that creates no context. Blender's own API says so plainly:
+
+```text
+SystemError: GPU API is not available in background mode
+```
+
+`bpy.ops.render.render()` does not go through that guarded API, so with `BLENDER_WORKBENCH` it dereferences an uninitialised GPU backend and dies by SIGSEGV. Making it work means changing the engine build itself - not a setting, and nothing the app or the addon can reach from the outside.
