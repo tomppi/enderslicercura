@@ -143,12 +143,46 @@ class EnginePreviewClient(
      * directory", which left the engine still holding its default cube and the
      * preview correctly showing a cube. Sending a model now loads it.
      */
-    fun importModel(model: File): Boolean {
+    fun importModel(model: File, sceneDir: File? = null): Boolean {
         val script = IMPORT_SCRIPT.replace("__PATH__", model.absolutePath)
         val reply = command("execute_code", JSONObject().put("code", script), IMPORT_TIMEOUT_MS)
         val ok = reply.optString("status") == "success"
         Log.i(TAG, "import " + model.name + " -> " + (if (ok) "ok" else reply.toString().take(160)))
+        if (ok && sceneDir != null) {
+            val summary = reply.optJSONObject("result")?.optString("result").orEmpty().trim()
+            writeSceneMarker(sceneDir, model, summary)
+        }
         return ok
+    }
+
+    /**
+     * Records that the scene was replaced from outside the engine.
+     *
+     * The app loads a model whenever the user uploads one, which deletes whatever
+     * was in the scene - including objects an agent was mid-way through working
+     * on. That happened: an agent's close-up failed with "'NoneType' object has
+     * no attribute 'data'" because its Cube had been replaced underneath it
+     * mid-turn. The marker is what lets a reader notice instead of discovering it
+     * through a crash.
+     */
+    private fun writeSceneMarker(dir: File, model: File, summary: String) {
+        runCatching {
+            dir.mkdirs()
+            val file = File(dir, SCENE_MARKER)
+            val temp = File(dir, "$SCENE_MARKER.tmp")
+            temp.writeText(
+                JSONObject()
+                    .put("rev", System.currentTimeMillis())
+                    .put("source", "app-import")
+                    .put("file", model.name)
+                    .put("note", summary)
+                    .toString(),
+            )
+            if (!temp.renameTo(file)) {
+                file.writeText(temp.readText())
+                temp.delete()
+            }
+        }
     }
 
     /**
@@ -159,10 +193,14 @@ class EnginePreviewClient(
      * usually loses - and losing it is silent. Importing a 125 MB STL took 14.6
      * seconds on the device, which is also well past a render's patience.
      */
-    fun importModelWhenReady(model: File, timeoutMs: Long = IMPORT_WAIT_MS): Boolean {
+    fun importModelWhenReady(
+        model: File,
+        sceneDir: File? = null,
+        timeoutMs: Long = IMPORT_WAIT_MS,
+    ): Boolean {
         val deadline = System.currentTimeMillis() + timeoutMs
         while (true) {
-            val ok = runCatching { importModel(model) }.getOrDefault(false)
+            val ok = runCatching { importModel(model, sceneDir) }.getOrDefault(false)
             if (ok) return true
             if (System.currentTimeMillis() >= deadline) {
                 Log.w(TAG, "import gave up after " + timeoutMs + " ms")
@@ -198,6 +236,9 @@ class EnginePreviewClient(
 
     companion object {
         private const val TAG = "EnginePreview"
+
+        /** Shared-state file recording the last time the app replaced the scene. */
+        const val SCENE_MARKER = "scene.json"
         const val DEFAULT_PORT = 9876
         private const val CONNECT_TIMEOUT_MS = 2_000
         private const val READ_TIMEOUT_MS = 20_000

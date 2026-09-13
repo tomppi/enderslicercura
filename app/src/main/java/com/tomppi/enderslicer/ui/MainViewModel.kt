@@ -2027,7 +2027,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     // then swallows: the import failed silently, which is how it
                     // behaved the first time.
                     val loaded = runCatching {
-                        EnginePreviewClient().use { it.importModelWhenReady(target) }
+                        val blenderDir = File(app.filesDir, "blender")
+                        EnginePreviewClient().use { it.importModelWhenReady(target, blenderDir) }
                     }.getOrDefault(false)
                     target to loaded
                 }

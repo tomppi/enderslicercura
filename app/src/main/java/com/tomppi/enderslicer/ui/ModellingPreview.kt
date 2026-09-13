@@ -147,7 +147,7 @@ fun ModellingPreview(
             if (untouched) {
                 status = "Loading your model into the engine..."
                 val loaded = withContext(Dispatchers.IO) {
-                    runCatching { client.importModel(handoff) }.getOrDefault(false)
+                    runCatching { client.importModel(handoff, blenderDir) }.getOrDefault(false)
                 }
                 if (!loaded) status = "Could not load the model into the engine"
             }

@@ -293,6 +293,26 @@ direction is parallel to the up vector and the camera matrix is degenerate.
 **A blank or empty render means the camera is not on the model.** Check before you
 reply: a blank render reported as success is worse than no render at all.
 
+### The app can replace the scene underneath you
+
+The user can load a model into this engine at any moment - that is what
+**Upload model to Blender** does, and it deletes every mesh already there. This
+is not hypothetical: an agent's close-up render failed with `'NoneType' object
+has no attribute 'data'` because the `Cube` it was working on had been replaced
+mid-turn.
+
+`files/blender/scene.json` says when that last happened:
+
+```json
+{"rev": 1789310186499, "source": "app-import", "file": "current.stl", "note": "imported 1 mesh(es)"}
+```
+
+**Read it at the start of every turn, and re-read the scene before acting on an
+object you remember from a previous turn.** `rev` is a millisecond timestamp; if
+it is newer than the one you last saw, everything you knew about the scene's
+objects is void. Never assume last turn's cube, mesh or selection still exists -
+look, then act.
+
 ### Ownership: whose camera it is
 
 `owner` is `agent` or `user`, and it is the whole protocol:

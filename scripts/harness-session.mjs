@@ -79,6 +79,9 @@ async function events(cookie, sessionId, maxPages = 40) {
 
 const stamp = (ms) => new Date(ms).toISOString().replace("T", " ").slice(0, 19);
 
+/** Assistant text is clipped to this many characters; override with DSH_TAIL_CHARS. */
+const TAIL_CHARS = Number(process.env.DSH_TAIL_CHARS ?? 150);
+
 /** One line describing an event, with the payload that matters. */
 function describe(event) {
   const d = event.data ?? {};
@@ -95,7 +98,10 @@ function describe(event) {
     }
     case "assistant/message": {
       const text = (d.message?.content ?? []).filter((c) => c.type === "text").map((c) => c.text).join("");
-      return text ? text.replace(/\s+/g, " ").slice(0, 150) : "(reasoning only)";
+      // 150 characters is enough to see that something happened and not enough
+      // to read what was said; DSH_TAIL_CHARS raises it when the answer itself
+      // is the thing being looked at.
+      return text ? text.replace(/\s+/g, " ").slice(0, TAIL_CHARS) : "(reasoning only)";
     }
     default:
       return JSON.stringify(d).slice(0, 150);
