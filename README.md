@@ -71,7 +71,13 @@ Imported values are kept as a persistent baseline: they stay in effect until you
 - **All three render engines work in the engine, on the device.** Workbench is the fast one - about 10 ms for a 128x128 frame, 22 ms at 256 - which makes looking at the model cheap enough to do constantly. Cycles CPU costs about 50 ms at the same size and is the one to use when materials or lighting matter; EEVEE renders too but is not a preview engine
 - The packaged engine is trimmed: DWARF stripped and the Cycles GPU-kernel, virtualenv and numpy-test payload removed, with the Cycles CPU path, the GPU render path and the MCP addon intact
 - **Plate ▸ Blender ▸ Model from scratch** opens a full-screen modelling destination: the model, a chat, an exit button, and nothing else. It runs its own harness conversation, separate from the photo-to-3D chat
-- The view is the engine's own render, not a second viewport, so there is one camera and the user and the agent are looking at the same picture. The camera is the agent's; **Take camera** hands it to the user (locked while the agent is working) and sending a message hands it back. Drag to orbit, pinch to move in on a detail, two fingers to move the point being orbited
+- The view is the engine's own render, not a second viewport, so there is one camera and the user and the agent are looking at the same picture. Drag to orbit, pinch to close in on a detail - the point under your fingers stays under your fingers - and two fingers to move the point being orbited
+- The camera belongs to the agent: **Take camera** hands it over and is locked while the agent is working, and sending a message hands it back. The frame size is published with the camera, so the agent renders your exact picture rather than merely pointing at the same place
+- The chat takes a share of the screen and collapses when the model wants the room
+
+<p align="center">
+  <img src="docs/screenshots/modelling.jpg" width="300" alt="Modelling screen: the model filling the view, with the agent's report in the chat below it">
+</p>
 - Protocol, runbook and verification evidence: [`BLENDER_MCP_INTEGRATION.md`](BLENDER_MCP_INTEGRATION.md)
 - **Plate ▸ Blender ▸ Upload model to Blender** copies the loaded model into the engine's import directory so it can be opened and modified there; the result returns through the export handoff above. **Stop Blender engine** ends the engine and its keeper service deliberately
 
