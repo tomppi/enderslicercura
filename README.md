@@ -68,7 +68,10 @@ Imported values are kept as a persistent baseline: they stay in effect until you
 
 - Blender 3.6 runs in-process in the app (`libblender_exec.so`, arm64-v8a) in background mode with an MCP socket (default port `9876`), so an AI assistant can model and hand an STL straight to the slicer
 - The first run materializes `assets/blender/{python,scripts}` into app storage; new `.stl` files in the export directory are picked up and shown as the latest model
-- The packaged engine is trimmed: DWARF stripped and the GPU-kernel, virtualenv and numpy-test payload removed, with the Cycles CPU path and the MCP addon intact
+- **All three render engines work in the engine, on the device.** Workbench is the fast one - about 10 ms for a 128x128 frame, 22 ms at 256 - which makes looking at the model cheap enough to do constantly. Cycles CPU costs about 50 ms at the same size and is the one to use when materials or lighting matter; EEVEE renders too but is not a preview engine
+- The packaged engine is trimmed: DWARF stripped and the Cycles GPU-kernel, virtualenv and numpy-test payload removed, with the Cycles CPU path, the GPU render path and the MCP addon intact
+- **Plate ▸ Blender ▸ Model from scratch** opens a full-screen modelling destination: the model, a chat, an exit button, and nothing else. It runs its own harness conversation, separate from the photo-to-3D chat
+- The view is the engine's own render, not a second viewport, so there is one camera and the user and the agent are looking at the same picture. The camera is the agent's; **Take camera** hands it to the user (locked while the agent is working) and sending a message hands it back. Drag to orbit, pinch to move in on a detail, two fingers to move the point being orbited
 - Protocol, runbook and verification evidence: [`BLENDER_MCP_INTEGRATION.md`](BLENDER_MCP_INTEGRATION.md)
 - **Plate ▸ Blender ▸ Upload model to Blender** copies the loaded model into the engine's import directory so it can be opened and modified there; the result returns through the export handoff above. **Stop Blender engine** ends the engine and its keeper service deliberately
 

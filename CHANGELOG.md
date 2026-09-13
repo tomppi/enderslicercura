@@ -4,6 +4,28 @@ All notable changes to EnderSlicerCura are documented here. The format is based
 on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-09-13
+
+### Added
+
+- **Modelling from scratch**: a full-screen destination reached from Plate ▸ Blender, holding the model, a chat and an exit button. It runs its own harness conversation with its own session, split away from the photo-to-3D chat. The engine starts on its default scene, so a first visit loads the cube it already has.
+- **One camera, shared with the agent.** The view is the engine's own render rather than a second viewport, so what the user sees is what the agent sees - same scene, same camera, same shading - and there is no coordinate frame to translate between. Orbit with one finger, pinch to close in on a detail, two fingers to move the point being orbited. The camera belongs to the agent; **Take camera** is locked while it works, and sending a message hands it back.
+- The frame size is published alongside the camera, so the agent renders the user's exact picture rather than merely pointing at the same place.
+- **Workbench and EEVEE render in the embedded engine.** They never could before; see Fixed.
+
+### Changed
+
+- The chat takes a share of the screen rather than a fixed 260 dp strip, and collapses entirely when the model wants the room.
+- The user's own messages are read from the session log, so long prompts are shown in full rather than clipped to a hundred characters.
+- `adb` reaches the phone over the tailnet, which works anywhere, rather than only on the same WiFi.
+
+### Fixed
+
+- **GPU rendering in the embedded engine.** Any render with a GPU engine killed the app outright - no reply, no log, no tombstone, and a crash report with an empty backtrace. Five faults sat in a row, each hiding the next: `GHOST_SystemAndroid` dereferenced a null `android_app` in its constructor, before EGL was reached at all; `GHOST_ContextEGL` never pushed the `EGL_RENDERABLE_TYPE` its own comment required and pushed `EGL_SURFACE_TYPE` twice; all three Android context factories asked for desktop GL 4.x, which no Android EGL can bind; `WM_init_opengl()` reported no GPU backend because nothing on that path runs backend detection; and the first GPU render then aborted in Boost.Locale, which falls back to ICU data this engine does not ship. Workbench now renders at about 10 ms a frame. The patches and the reasoning are in `native/blender/patches/`.
+- Blender's crash handler writes a crash file with an empty backtrace and then exits, so Android never wrote a tombstone either; the wrapper now passes `--disable-crash-handler`, which is what made the above findable.
+- Uploading a model to the engine only copied the file into the import directory, so the engine kept whatever it already held; it now loads it.
+- A restarted engine put back the file the user sent rather than the newest thing the engine produced, discarding everything done to it since.
+
 ## [Unreleased]
 
 ### Added
