@@ -24,6 +24,7 @@ import com.tomppi.enderslicer.engine.LayerEventType
 import com.tomppi.enderslicer.engine.PrinterEnvelope
 import com.tomppi.enderslicer.engine.SliceArtifactPublisher
 import com.tomppi.enderslicer.mesh.MeshTriangleLimits
+import com.tomppi.enderslicer.modelling.EnginePreviewClient
 import com.tomppi.enderslicer.nativebridge.BlenderEngine
 import com.tomppi.enderslicer.nativebridge.BlenderEngineService
 import com.tomppi.enderslicer.model.ModelPlacement
@@ -2017,10 +2018,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 }
             }.onSuccess { target ->
+                // Copying a file into the import directory is not the same as
+                // opening it: the engine went on holding whatever it had - its
+                // default cube - and the modelling view, which shows the
+                // engine's own scene, quite correctly kept showing a cube after
+                // the user had uploaded a model. Load it.
+                val loaded = runCatching {
+                    EnginePreviewClient().use { it.importModel(target) }
+                }.getOrDefault(false)
                 _uiState.update {
                     it.copy(
                         statusMessage = "Sent " + File(path).name +
-                            " to Blender (" + target.parentFile?.name + "/" + target.name + ")",
+                            " to Blender (" + target.parentFile?.name + "/" + target.name + ")" +
+                            if (loaded) ", loaded into the engine" else "",
                     )
                 }
             }.onFailure(::showOperationFailure)

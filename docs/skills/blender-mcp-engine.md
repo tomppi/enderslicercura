@@ -285,6 +285,11 @@ camera at empty space and every render comes back blank.
 `distanceMm` alone unless you have actually measured the mesh and know why they
 are wrong.
 
+`yawDeg` is the azimuth around the model's vertical axis and `pitchDeg` is the
+**elevation above its horizon**, so `pitchDeg: 0` is level with the model and
+`90` is directly overhead. Keep pitch inside -89..89: at exactly +/-90 the view
+direction is parallel to the up vector and the camera matrix is degenerate.
+
 **A blank or empty render means the camera is not on the model.** Check before you
 reply: a blank render reported as success is worse than no render at all.
 

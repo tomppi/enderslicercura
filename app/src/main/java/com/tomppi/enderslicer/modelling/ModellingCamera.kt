@@ -47,34 +47,35 @@ data class ModellingCamera(
     /**
      * Camera position relative to the model centre, in the model's own frame.
      *
-     * The viewport does not orbit a camera: it holds one at
-     * `(0, -d, 0.62d)` looking at the origin with +Z up, and rotates the model
-     * in front of it (pitch about X, then yaw about Z). The equivalent camera
-     * for an *unrotated* model is that same eye carried through the same
-     * rotation - which is what a renderer that moves the camera instead needs.
+     * Spherical, because that is what a turntable *is*: [yawDeg] is the azimuth
+     * around the model's vertical axis and [pitchDeg] is the elevation above its
+     * horizon, so pitch always means "look from higher up" no matter which way
+     * the model is turned.
+     *
+     * This started out as the app viewport's model rotation (`Rx(pitch) *
+     * Rz(yaw)`) applied to a fixed eye, which is *not* the same thing: that
+     * pitches about the world X axis, so once the azimuth is off zero, dragging
+     * up and down swings the camera sideways instead of raising it. It also
+     * inverted the control - positive pitch lowered the eye.
      */
     fun eyeOffset(): FloatArray {
-        val yaw = Math.toRadians(yawDeg.toDouble())
-        val pitch = Math.toRadians(pitchDeg.toDouble())
-        // Eye in viewport space.
-        val x = 0.0
-        val y = -distanceMm.toDouble()
-        val z = distanceMm.toDouble() * EYE_HEIGHT_RATIO
-        return rotate(x, y, z, yaw, pitch)
+        val azimuth = Math.toRadians(yawDeg.toDouble())
+        val elevation = Math.toRadians(pitchDeg.toDouble())
+        val horizontal = distanceMm.toDouble() * cos(elevation)
+        return floatArrayOf(
+            (horizontal * sin(azimuth)).toFloat(),
+            (-horizontal * cos(azimuth)).toFloat(),
+            (distanceMm.toDouble() * sin(elevation)).toFloat(),
+        )
     }
 
-    /** Viewport up vector, carried into the same frame. */
-    fun upVector(): FloatArray = rotate(0.0, 0.0, 1.0, Math.toRadians(yawDeg.toDouble()), Math.toRadians(pitchDeg.toDouble()))
-
-    private fun rotate(x: Double, y: Double, z: Double, yaw: Double, pitch: Double): FloatArray {
-        // Yaw about Z first, then pitch about X - the order the viewport applies.
-        val x1 = x * cos(yaw) - y * sin(yaw)
-        val y1 = x * sin(yaw) + y * cos(yaw)
-        val z1 = z
-        val y2 = y1 * cos(pitch) - z1 * sin(pitch)
-        val z2 = y1 * sin(pitch) + z1 * cos(pitch)
-        return floatArrayOf(x1.toFloat(), y2.toFloat(), z2.toFloat())
-    }
+    /**
+     * World up, always.
+     *
+     * A turntable keeps the horizon level; tilting the up vector as the camera
+     * rose is what would roll the view instead.
+     */
+    fun upVector(): FloatArray = floatArrayOf(0f, 0f, 1f)
 
     fun withOwner(owner: CameraOwner): ModellingCamera = copy(owner = owner, rev = rev + 1)
 
@@ -95,9 +96,6 @@ data class ModellingCamera(
 
     companion object {
         const val DEFAULT_FOV_DEGREES = 42f
-
-        /** Eye height as a fraction of the orbit distance; matches the viewport. */
-        const val EYE_HEIGHT_RATIO = 0.62
 
         fun fromJson(json: JSONObject): ModellingCamera {
             val target = json.optJSONArray("target")

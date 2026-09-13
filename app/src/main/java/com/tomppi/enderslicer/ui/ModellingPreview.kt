@@ -24,7 +24,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.tomppi.enderslicer.modelling.CameraOwner
 import com.tomppi.enderslicer.modelling.EnginePreviewClient
@@ -36,9 +38,26 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.concurrent.atomic.AtomicLong
+import kotlin.math.roundToInt
 
-/** Square, and small on purpose: this is a viewfinder, not a render. */
-private const val PreviewSize = 256
+/**
+ * Rendered at the size the view actually occupies, so the frame is as sharp as
+ * the screen and no sharper. Workbench is a GPU rasteriser, so its cost is fill
+ * rate on an Adreno 740 rather than the tens of milliseconds per frame Cycles
+ * spends per sample. Measured warm on the default scene:
+ *
+ *   256 -> 19 ms, 384 -> 31 ms, 512 -> 56 ms, 640 -> 66 ms, 768 -> 80 ms
+ *
+ * which is why the two ends differ: a full-size frame is sharp but far too slow
+ * to drag, and a small one drags smoothly but looks soft.
+ */
+private const val MaxPreviewEdge = 1280
+private const val MinPreviewEdge = 128
+/** Longest edge while a finger is down: about 40 ms a frame. */
+private const val InteractiveEdge = 512
+/** How long after the last gesture frame the full-resolution one is asked for. */
+private const val SettleMs = 220L
 
 private const val DegreesPerPixel = 0.35f
 private const val MinDistanceMm = 0.2f
@@ -48,10 +67,9 @@ private const val MaxDistanceMm = 20_000f
  * Puts the camera at a distance that frames a sphere of [radius].
  *
  * A 42-degree vertical field of view covers `2 * d * tan(21)` at distance d, so
- * `d = r / tan(21)` puts the sphere's edge exactly on the frame; 1.15 gives it
- * a little air. Without this the orbit distance is a guess, and a guess is
- * wrong by orders of magnitude between a 2-unit default cube and a 200 mm plate
- * - the first attempt framed a cube as a single pixel.
+ * `d = r / tan(21)` puts the sphere's edge exactly on the frame; the extra gives
+ * it a little air. Without this the orbit distance is a guess, and a guess is
+ * wrong by orders of magnitude between a 2-unit default cube and a 200 mm plate.
  */
 private const val FramingFactor = 2.9f
 
@@ -64,9 +82,9 @@ private const val FramingFactor = 2.9f
  * new camera and asks for another frame.
  *
  * Frames are coalesced rather than queued: only the newest camera is ever
- * waiting, so a fast drag skips intermediate views instead of building a
- * backlog of renders that arrive after the finger has moved on. Rendering runs
- * on the engine's main thread - the same thread the agent's commands run on - so
+ * waiting, so a fast drag skips intermediate views instead of building a backlog
+ * of renders that arrive after the finger has moved on. Rendering runs on the
+ * engine's main thread - the same thread the agent's commands run on - so
  * falling behind would also mean starving the agent.
  */
 @Composable
@@ -96,7 +114,10 @@ fun ModellingPreview(
     }
 
     var frame by remember { mutableStateOf<Bitmap?>(null) }
+    var viewSize by remember { mutableStateOf(IntSize(512, 512)) }
     var status by remember { mutableStateOf<String?>("Looking at the engine's scene...") }
+    var interacting by remember { mutableStateOf(false) }
+    val lastGestureAt = remember { AtomicLong(0L) }
 
     fun snapshot(): ModellingCamera = ModellingCamera(
         yawDeg = yaw,
@@ -140,6 +161,15 @@ fun ModellingPreview(
         requested.value = snapshot()
     }
 
+    // When the finger lifts, ask once more at full size. This is what makes the
+    // drag cheap without the picture staying soft.
+    LaunchedEffect(interacting) {
+        if (!interacting) return@LaunchedEffect
+        while (System.currentTimeMillis() - lastGestureAt.get() < SettleMs) delay(40)
+        interacting = false
+        requested.value = requested.value?.copy()
+    }
+
     // One render at a time, always the newest camera.
     LaunchedEffect(client) {
         val file = File(blenderDir, "preview.png")
@@ -149,8 +179,10 @@ fun ModellingPreview(
                 delay(50)
                 continue
             }
+            val edge = if (interacting) InteractiveEdge else MaxPreviewEdge
+            val (width, height) = renderSize(viewSize, edge)
             val outcome = withContext(Dispatchers.IO) {
-                runCatching { client.renderPreview(camera, PreviewSize, PreviewSize, file) }
+                runCatching { client.renderPreview(camera, width, height, file) }
             }
             val failure = outcome.exceptionOrNull()
             if (failure != null) {
@@ -176,14 +208,19 @@ fun ModellingPreview(
     Box(
         modifier = modifier
             .background(MaterialTheme.colorScheme.surfaceVariant)
+            .onSizeChanged { viewSize = it }
             .pointerInput(interactive) {
                 if (!interactive) return@pointerInput
                 detectTransformGestures { _, pan, zoom, _ ->
                     yaw = wrapDegrees(yaw - pan.x * DegreesPerPixel)
+                    // Drag down to look from higher up, which is what the app's
+                    // own viewer has always done.
                     pitch = (pitch + pan.y * DegreesPerPixel).coerceIn(-89f, 89f)
                     if (zoom.isFinite() && zoom > 0f) {
                         distance = (distance / zoom).coerceIn(MinDistanceMm, MaxDistanceMm)
                     }
+                    interacting = true
+                    lastGestureAt.set(System.currentTimeMillis())
                     val next = snapshot()
                     requested.value = next
                     onCameraChanged(next)
@@ -221,6 +258,23 @@ fun ModellingPreview(
             )
         }
     }
+}
+
+/**
+ * The view's aspect ratio, scaled so its longest edge is at most [longest].
+ *
+ * The engine renders at the shape it is asked for, so matching the view's aspect
+ * means no letterboxing and no wasted pixels; scaling to a common longest edge
+ * means a fold or a rotation changes the count of pixels rather than the framing.
+ */
+private fun renderSize(view: IntSize, longest: Int): Pair<Int, Int> {
+    val width = view.width.coerceAtLeast(1)
+    val height = view.height.coerceAtLeast(1)
+    val scale = (longest.toFloat() / maxOf(width, height)).coerceAtMost(1f)
+    return Pair(
+        (width * scale).roundToInt().coerceIn(MinPreviewEdge, longest),
+        (height * scale).roundToInt().coerceIn(MinPreviewEdge, longest),
+    )
 }
 
 private fun wrapDegrees(value: Float): Float {

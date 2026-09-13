@@ -132,6 +132,19 @@ class EnginePreviewClient(
         return if (parts.size == 4) parts.toFloatArray() else null
     }
 
+    /**
+     * Loads [model] into the engine, replacing whatever meshes it holds.
+     *
+     * "Send to Blender" used to mean "copy a file into the engine's import
+     * directory", which left the engine still holding its default cube and the
+     * preview correctly showing a cube. Sending a model now loads it.
+     */
+    fun importModel(model: File): Boolean {
+        val script = IMPORT_SCRIPT.replace("__PATH__", model.absolutePath)
+        val reply = command("execute_code", JSONObject().put("code", script))
+        return reply.optString("status") == "success"
+    }
+
     /** Reads the frame [renderPreview] wrote. Null when it is unreadable. */
     fun readPreview(file: File): Bitmap? = runCatching {
         if (!file.isFile) null else BitmapFactory.decodeFile(file.absolutePath)
@@ -158,6 +171,17 @@ class EnginePreviewClient(
          * difference between a view that updates under your finger and one that
          * does not.
          */
+        private val IMPORT_SCRIPT = """
+import bpy
+path = r'__PATH__'
+for obj in list(bpy.data.objects):
+    if obj.type == 'MESH':
+        bpy.data.objects.remove(obj, do_unlink=True)
+bpy.ops.import_mesh.stl(filepath=path)
+meshes = [o for o in bpy.context.scene.objects if o.type == 'MESH']
+print('imported %d mesh(es)' % len(meshes))
+""".trimIndent()
+
         private val BOUNDS_SCRIPT = """
 import bpy
 from mathutils import Vector
