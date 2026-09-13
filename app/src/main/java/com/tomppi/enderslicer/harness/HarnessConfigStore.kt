@@ -101,6 +101,24 @@ class HarnessConfigStore(context: Context) {
         ) { "Unable to persist the harness configuration" }
     }
 
+    /**
+     * Session id for the modelling conversation.
+     *
+     * Kept apart from [HarnessConfig.sessionId] because the two chats are two
+     * conversations with two agents: modelling a part from scratch and turning
+     * a photograph into one share nothing but the harness they run on, and
+     * letting them share a session meant the modelling agent inherited a
+     * transcript about somebody's photograph.
+     */
+    fun loadModellingSession(): String =
+        preferences.getString(KEY_MODELLING_SESSION_ID, "").orEmpty()
+
+    fun saveModellingSession(sessionId: String) {
+        check(
+            preferences.edit().putString(KEY_MODELLING_SESSION_ID, sessionId).commit(),
+        ) { "Unable to persist the modelling session" }
+    }
+
     fun clear() {
         check(preferences.edit().clear().commit()) { "Unable to clear the harness configuration" }
         runCatching { keyStore().deleteEntry(KEY_ALIAS) }
@@ -165,6 +183,7 @@ class HarnessConfigStore(context: Context) {
         private const val KEY_BASE_URL = "base_url"
         private const val KEY_WORKSPACE = "workspace"
         private const val KEY_SESSION_ID = "session_id"
+    private const val KEY_MODELLING_SESSION_ID = "modelling_session_id"
         private const val KEY_ENCRYPTED_TOKEN = "encrypted_token"
         private const val KEY_ALIAS = "enderslicer_harness_token"
         private const val ANDROID_KEY_STORE = "AndroidKeyStore"

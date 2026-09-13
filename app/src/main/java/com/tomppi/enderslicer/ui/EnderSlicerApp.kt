@@ -38,6 +38,9 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Info
+import com.tomppi.enderslicer.modelling.CameraOwner
+import com.tomppi.enderslicer.modelling.ModellingCamera
+import com.tomppi.enderslicer.modelling.ModellingCameraStore
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
@@ -176,6 +179,21 @@ fun EnderSlicerApp(
     var aiAddress by remember { mutableStateOf("") }
     var aiWorkspace by remember { mutableStateOf("") }
     var aiConfigured by remember { mutableStateOf(false) }
+
+    // Modelling from scratch is its own conversation with its own agent: it
+    // shares the harness, the Blender engine and nothing else with the
+    // image-to-model chat, whose transcript is about somebody's photograph.
+    var modellingOpen by rememberSaveable { mutableStateOf(false) }
+    var modellingMessages by remember { mutableStateOf(listOf<AiChatMessage>()) }
+    var modellingStatus by remember { mutableStateOf<String?>(null) }
+    var modellingBusy by remember { mutableStateOf(false) }
+    var modellingOwner by remember { mutableStateOf(CameraOwner.AGENT) }
+    var modellingCamera by remember { mutableStateOf<ModellingCamera?>(null) }
+    var modellingBootstrapped by remember { mutableStateOf(false) }
+    val modellingChat = remember { java.util.concurrent.atomic.AtomicReference<HarnessChat?>(null) }
+    // Revision this app last wrote or read. The file is the handover point, so
+    // writes bump it and an adoption takes the agent's value verbatim.
+    var modellingCameraRev by remember { mutableStateOf(0L) }
     // Twenty minutes. Generating a model means waking a machine, running a
     // diffusion model and delivering a file, so a two-minute window gave up
     // long before the work finished and reported it as a failure.
@@ -219,7 +237,11 @@ fun EnderSlicerApp(
     // Shared by the text and image paths: the harness acknowledges a prompt
     // without carrying the reply, so the answer is read back from the session
     // projection until the newest turn has one.
-    suspend fun pollForReply(chat: HarnessChat) {
+    suspend fun pollForReply(
+        chat: HarnessChat,
+        publish: (List<AiChatMessage>) -> Unit,
+        report: (String?) -> Unit,
+    ) {
         var attempts = 0
         var idle = 0
         while (attempts < harnessReplyPolls) {
@@ -228,7 +250,7 @@ fun EnderSlicerApp(
             if (!state.exists) {
                 // Blanking the conversation on a failed lookup would erase a
                 // chat that is working perfectly well, so this only reports.
-                aiStatus = "Session not in the harness list — reconnecting may help"
+                report("Session not in the harness list — reconnecting may help")
             } else {
                 // The projection is enough while a turn is running, and it is
                 // cheap enough to re-read twice a second. The full log is read
@@ -238,9 +260,9 @@ fun EnderSlicerApp(
                 } else {
                     HarnessChat.toMessages(state.turns)
                 }
-                aiMessages = shown.map { AiChatMessage(fromUser = it.fromUser, text = it.text) }
+                publish(shown.map { AiChatMessage(fromUser = it.fromUser, text = it.text) })
                 if (chat.replyIsIn(state)) {
-                    aiStatus = null
+                    report(null)
                     return
                 }
                 // "Not running" is only meaningful once the new turn has been
@@ -253,13 +275,13 @@ fun EnderSlicerApp(
                     // A cancelled or failed turn looks exactly like this, and
                     // waiting for a response that will never arrive is what
                     // kept the composer busy until its own timeout.
-                    aiStatus = "No reply — the turn ended"
+                    report("No reply — the turn ended")
                     return
                 }
             }
             attempts++
         }
-        aiStatus = "Still running after 20 minutes — open the chat again to check"
+        report("Still running after 20 minutes — open the chat again to check")
     }
 
     fun askHarness(text: String) {
@@ -270,7 +292,7 @@ fun EnderSlicerApp(
                 val chat = harnessChat.get() ?: error("Connect to the harness first")
                 withContext(Dispatchers.IO) { chat.send(text) }
                 aiMessages = aiMessages + AiChatMessage(fromUser = true, text = text)
-                pollForReply(chat)
+                pollForReply(chat, { aiMessages = it }, { aiStatus = it })
             } catch (error: Throwable) {
                 aiStatus = error.message?.take(160) ?: "Harness call failed"
             } finally {
@@ -313,7 +335,7 @@ fun EnderSlicerApp(
                     fromUser = true,
                     text = "Build a 3D model from this image",
                 )
-                pollForReply(chat)
+                pollForReply(chat, { aiMessages = it }, { aiStatus = it })
             } catch (error: Throwable) {
                 aiStatus = error.message?.take(200) ?: "Image upload failed"
             } finally {
@@ -343,6 +365,16 @@ fun EnderSlicerApp(
                 val chat = HarnessChat(client, workspace)
                 val adopted = withContext(Dispatchers.IO) { chat.connect(stored.sessionId) }
                 harnessChat.set(chat)
+                // A second conversation with its own session id, so modelling
+                // never inherits the image-to-model transcript.
+                val modelling = HarnessChat(client, workspace)
+                val adoptedModelling = withContext(Dispatchers.IO) {
+                    modelling.connect(harnessStore.loadModellingSession())
+                }
+                modellingChat.set(modelling)
+                harnessStore.saveModellingSession(adoptedModelling.sessionId)
+                modellingMessages = withContext(Dispatchers.IO) { modelling.messages() }
+                    .map { AiChatMessage(fromUser = it.fromUser, text = it.text) }
                 // Merged over what was stored, never over what was typed: the
                 // address field is a bare URL, and saving its empty token would
                 // throw away the credential the harness just handed us.
@@ -388,6 +420,113 @@ fun EnderSlicerApp(
         }
     }
 
+    // ------------------------------------------------------------------
+    // Modelling from scratch
+    // ------------------------------------------------------------------
+
+    /** Handoff directory shared with the engine, and where the camera lives. */
+    val blenderDir = java.io.File(context.filesDir, "blender")
+
+    /**
+     * The standing brief for the modelling agent.
+     *
+     * Spelled out because the failure mode is an ordering failure again: the
+     * camera file has to be read *before* the render, or the agent renders a
+     * view the user is not looking at and the two drift apart inside one turn.
+     */
+    val modellingIntroPrompt = buildString {
+        append("We are modelling a part from scratch in the embedded Blender engine. ")
+        append("If the engine still holds its default scene, export that default cube to ")
+        append("files/blender/exports/ under a fresh unique filename so it hot-loads and I can see it. ")
+        append("Before every render, read files/blender/camera.json in the engine's files/blender ")
+        append("directory: it carries the camera we share (target, eye, up, fov). Place the render ")
+        append("camera from those values so your render and my view agree. Its \"owner\" field says ")
+        append("who has the camera - while it says user I am looking at something and you must not ")
+        append("move it. Render with CYCLES and cycles.device = 'CPU'; the GPU engines kill the ")
+        append("process on this device. Look at your work with renders as you go, and export to ")
+        append("files/blender/exports/ whenever there is something worth looking at.")
+    }
+
+    /**
+     * Moves the camera between the two owners.
+     *
+     * The file is the handover, not just a note: the agent reads `owner` to
+     * decide whether it may move the camera, so taking it has to be published.
+     */
+    fun setModellingOwner(owner: CameraOwner) {
+        modellingOwner = owner
+        val current = modellingCamera ?: return
+        val next = current.copy(owner = owner, rev = modellingCameraRev + 1)
+        modellingCameraRev = next.rev
+        modellingCamera = next
+        ModellingCameraStore.write(blenderDir, next)
+    }
+
+    fun askModellingAgent(text: String) {
+        aiScope.launch {
+            // Sending hands the camera back: the user has said what to look at,
+            // so the agent has to be free to move in order to look at it.
+            setModellingOwner(CameraOwner.AGENT)
+            modellingBusy = true
+            modellingStatus = null
+            try {
+                val chat = modellingChat.get() ?: error("Connect to the harness first")
+                withContext(Dispatchers.IO) { chat.send(text) }
+                modellingMessages = modellingMessages + AiChatMessage(fromUser = true, text = text)
+                pollForReply(chat, { modellingMessages = it }, { modellingStatus = it })
+            } catch (error: Throwable) {
+                modellingStatus = error.message?.take(160) ?: "Harness call failed"
+            } finally {
+                modellingBusy = false
+            }
+        }
+    }
+
+    /** Publishes the camera the user is looking through, so the agent can adopt it. */
+    fun publishModellingCamera(orientation: ViewerOrientation, distanceMm: Float) {
+        val bounds = state.mesh?.bounds
+        val next = ModellingCamera(
+            yawDeg = orientation.yawDegrees,
+            pitchDeg = orientation.pitchDegrees,
+            distanceMm = distanceMm,
+            targetX = bounds?.centerX ?: 0f,
+            targetY = bounds?.centerY ?: 0f,
+            targetZ = bounds?.centerZ ?: 0f,
+            owner = modellingOwner,
+            rev = modellingCameraRev + 1,
+        )
+        modellingCameraRev = next.rev
+        modellingCamera = next
+        ModellingCameraStore.write(blenderDir, next)
+    }
+
+    fun openModelling() {
+        modellingOpen = true
+        if (modellingChat.get() == null && aiConfigured) connectHarness()
+        // The engine starts on its default scene, so a first visit has nothing
+        // to show until the agent exports the cube it already has.
+        if (!modellingBootstrapped && state.mesh == null) {
+            modellingBootstrapped = true
+            askModellingAgent(modellingIntroPrompt)
+        }
+    }
+
+    // The agent writes the same camera file. Poll it while the modelling screen
+    // is open so its moves land here too - that is what makes the camera shared
+    // rather than one-way.
+    LaunchedEffect(modellingOpen) {
+        if (!modellingOpen) return@LaunchedEffect
+        while (true) {
+            delay(700)
+            val onDisk = withContext(Dispatchers.IO) { ModellingCameraStore.read(blenderDir) }
+                ?: continue
+            if (onDisk.rev <= modellingCameraRev) continue
+            modellingCameraRev = onDisk.rev
+            modellingOwner = onDisk.owner
+            if (onDisk.owner == CameraOwner.AGENT) modellingCamera = onDisk
+        }
+    }
+
     // Rebuilds the conversation when the chat is opened with no live client.
     //
     // Rotating the phone recreates this activity, and with it every `remember`
@@ -418,7 +557,8 @@ fun EnderSlicerApp(
     BackHandler(enabled = profilesOpen) { profilesOpen = false }
     BackHandler(enabled = layerEventsOpen) { layerEventsOpen = false }
     BackHandler(enabled = aiChatOpen) { aiChatOpen = false }
-    BackHandler(enabled = blenderFilesOpen) { blenderFilesOpen = false }
+    BackHandler(enabled = modellingOpen) { modellingOpen = false }
+    BackHandler(enabled = blenderFilesOpen && !modellingOpen) { blenderFilesOpen = false }
     var viewerMode by rememberSaveable { mutableStateOf(ViewerMode.MODEL) }
     var selectedLayerIndex by rememberSaveable { mutableStateOf(0) }
     var modelOrientation by rememberSaveable(stateSaver = ViewerOrientationSaver) {
@@ -663,6 +803,15 @@ fun EnderSlicerApp(
                             ) {
                                 MenuSectionLabel("Model")
                                 DropdownMenuItem(
+                                    text = { Text("Model from scratch") },
+                                    leadingIcon = { Icon(AppIcons.Cube, contentDescription = null) },
+                                    onClick = {
+                                        blenderMenuExpanded = false
+                                        openModelling()
+                                    },
+                                    enabled = !state.isBusy,
+                                )
+                                DropdownMenuItem(
                                     text = { Text("Upload model to Blender") },
                                     leadingIcon = { Icon(Icons.Filled.Share, contentDescription = null) },
                                     onClick = {
@@ -733,7 +882,27 @@ fun EnderSlicerApp(
     ) { padding ->
         // Outside the tab switch on purpose: the Plate menu is what opens this,
         // so tying it to the More tab meant the tap set a flag and nothing drew.
-        if (blenderFilesOpen) {
+        if (modellingOpen) {
+            ModellingScreen(
+                state = state,
+                messages = modellingMessages,
+                busy = modellingBusy,
+                status = modellingStatus,
+                owner = modellingOwner,
+                // Locked while the agent works: the camera is the agent's until
+                // it stops, which is the whole point of the lock.
+                canTakeCamera = !modellingBusy,
+                onSend = ::askModellingAgent,
+                onExit = { modellingOpen = false },
+                onTakeCamera = { setModellingOwner(CameraOwner.USER) },
+                onHandBackCamera = { setModellingOwner(CameraOwner.AGENT) },
+                onCameraMoved = ::publishModellingCamera,
+                incomingCamera = modellingCamera,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding),
+            )
+        } else if (blenderFilesOpen) {
             BlenderFilesScreen(
                 onBack = { blenderFilesOpen = false },
                 modifier = Modifier

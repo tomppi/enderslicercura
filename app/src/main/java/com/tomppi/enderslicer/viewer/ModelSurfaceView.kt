@@ -120,6 +120,15 @@ class ModelSurfaceView(
     /** Invoked on the main thread whenever the turntable yaw/pitch changes. */
     var onOrientationChanged: ((ViewerOrientation) -> Unit)? = null
 
+    /**
+     * Whether the user may move the camera.
+     *
+     * The modelling screen shares one camera with the agent, and the agent owns
+     * it by default: gestures are dropped outright while it does, rather than
+     * being accepted and then overwritten by the next camera the agent sets.
+     */
+    var cameraInteractive: Boolean = true
+
     init {
         setEGLContextClientVersion(2)
         setEGLConfigChooser(8, 8, 8, 8, 24, 0)
@@ -148,12 +157,29 @@ class ModelSurfaceView(
         requestRender()
     }
 
+    /**
+     * The camera's eye distance in world units (millimetres).
+     *
+     * This is the part of the view that can be handed to another renderer: yaw
+     * and pitch alone say which way the model is turned, but not how close the
+     * eye is, and distance is what makes a zoom-in on a problem mean the same
+     * thing to both sides.
+     */
+    fun currentDistanceMm(): Float = modelRenderer.currentDistanceMm()
+
+    /** Moves the camera to [distanceMm] by solving for the zoom that produces it. */
+    fun restoreDistanceMm(distanceMm: Float) {
+        queueEvent { modelRenderer.setDistanceMm(distanceMm) }
+        requestRender()
+    }
+
     fun setPaintState(paint: SupportPaintState) {
         queueEvent { modelRenderer.setPaintState(paint) }
         requestRender()
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (!cameraInteractive) return false
         val painting = paintMode != SupportPaintMode.NONE
         val annotating = annotationActive && !painting
 
@@ -639,6 +665,28 @@ private class ModelRenderer(
     fun setOrientation(orientation: ViewerOrientation) {
         yaw = wrapDegrees(orientation.yawDegrees)
         pitch = wrapDegrees(orientation.pitchDegrees)
+    }
+
+    /** `cameraDistance()` re-derives the fit, so expose it as the shared value. */
+    fun currentDistanceMm(): Float = cameraDistance()
+
+    /**
+     * Solves for the zoom that puts the eye at [target] millimetres out.
+     *
+     * Distance falls as zoom rises, so a bisection over the legal zoom range
+     * finds it without anyone having to mirror `SceneCameraFit`'s arithmetic
+     * here - a duplicated formula would drift the moment that one changed.
+     */
+    fun setDistanceMm(target: Float) {
+        if (!target.isFinite() || target <= 0f) return
+        var low = MIN_ZOOM
+        var high = MAX_ZOOM
+        repeat(24) {
+            val mid = (low + high) / 2f
+            zoom = mid
+            if (cameraDistance() > target) low = mid else high = mid
+        }
+        zoom = ((low + high) / 2f).coerceIn(MIN_ZOOM, MAX_ZOOM)
     }
 
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {

@@ -177,3 +177,71 @@ SystemError: GPU API is not available in background mode
 ```
 
 `bpy.ops.render.render()` does not go through that guarded API, so with `BLENDER_WORKBENCH` it dereferences an uninitialised GPU backend and dies by SIGSEGV. Making it work means changing the engine build itself - not a setting, and nothing the app or the addon can reach from the outside.
+
+## 6. The modelling session (model from scratch)
+
+When the user picks **Model from scratch** in the app's Blender menu they get a
+full-screen view of the model, a chat window, an exit button, and a **camera
+they share with you**. The engine starts on its default scene, so a first visit
+has nothing to show until you export the default cube to `files/blender/exports/`
+under a fresh unique filename.
+
+### The shared camera
+
+`files/blender/camera.json` - beside `imports/` and `exports/` in the engine's
+own directory tree - is the handover. **Read it before every render** and place
+the render camera from it. Skipping this is the failure that matters: you render
+a view the user is not looking at, and the two of you drift apart inside a
+single turn.
+
+```json
+{
+  "yawDeg": 0.0, "pitchDeg": 0.0, "distanceMm": 210.5, "fovDeg": 42.0,
+  "target": [0.0, 0.0, 0.0],
+  "eye":    [0.0, -210.5, 130.5],
+  "up":     [0.0, 0.0, 1.0],
+  "owner":  "agent",
+  "rev":    7
+}
+```
+
+`eye` is the camera position **relative to `target`**, already resolved into the
+model's own frame; `up` is the matching up vector. Place the camera with them
+directly:
+
+```python
+from math import radians
+from mathutils import Matrix, Vector
+
+loc = Vector(target) + Vector(eye)
+fwd = (Vector(target) - loc).normalized()        # a Blender camera looks along -Z
+up = Vector(up_vec).normalized()
+right = fwd.cross(up).normalized()
+up2 = right.cross(fwd)
+cam.matrix_world = (
+    Matrix.Translation(loc) @ Matrix((right, up2, -fwd)).transposed().to_4x4()
+)
+cam.data.angle = radians(fovDeg)
+```
+
+Do **not** use `to_track_quat('-Z', 'Y')` here. The shared up vector is not global
+Y, so the roll - and therefore the image - would not match what the user sees.
+
+### Ownership: whose camera it is
+
+`owner` is `agent` or `user`, and it is the whole protocol:
+
+- **`agent`** - the camera is yours. Move it freely: render, look, decide, move again.
+- **`user`** - the user has paused the camera to study something, usually a
+  defect they want you to see. **Do not move the camera while it says `user`.**
+  Render from the camera as it stands if you need to see what they are pointing at.
+
+The app writes the file whenever the user orbits or zooms, and hands ownership
+back to you the moment they send a message - you never have to claim it. To move
+the camera yourself, write the file back in the same shape with `owner: "agent"`
+and `rev` incremented, keeping `target` unless you actually mean to move what
+the view is centred on.
+
+The user cannot move the camera at all while you are working: the app locks it
+until your turn ends. So a long silent turn is also a user who cannot look
+around - render, export, and reply rather than working for minutes in silence.
