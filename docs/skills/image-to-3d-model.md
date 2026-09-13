@@ -202,6 +202,21 @@ adb shell "su -c 'chown u0_a123:u0_a123 <exports>/<file>.stl && \
 
 Check with `ls -la`: the owner must read `u0_a123`, the same uid as the directory, not `root`.
 
+**Ownership is only half of it - the SELinux context is the other half.** The app's data directory carries a per-app context with its own categories:
+
+```text
+/data/data/com.tomppi.enderslicercura/files/...   u:object_r:app_data_file:s0:c234,c258,c512,c768
+/sdcard/... (where files are staged)              u:object_r:fuse:s0
+```
+
+A file created inside the exports directory normally inherits the directory's context, so the plain `cp` above is usually enough - but *usually* is the operative word, and a file carrying `fuse:s0` is invisible to the app no matter who owns it. Verify with `ls -laZ` rather than `ls -la`, and fix with `chcon` if the context is wrong (the binary is present on the device):
+
+```bash
+adb shell "su -c 'chcon u:object_r:app_data_file:s0:c234,c258,c512,c768 <exports>/<file>.stl'"
+```
+
+Both halves of this have bitten: the run that produced a root-owned file failed with **nothing reported anywhere** - no app error, no log line, just a model that never appeared.
+
 ### 7. Hibernate the box
 
 Only once the model is confirmed on the phone. Follow [gpu-box-power](../gpu-box-power/SKILL.md).
