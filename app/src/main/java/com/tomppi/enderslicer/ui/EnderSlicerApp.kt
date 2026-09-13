@@ -485,13 +485,32 @@ fun EnderSlicerApp(
     /** Publishes the camera the user is looking through, so the agent can adopt it. */
     fun publishModellingCamera(orientation: ViewerOrientation, distanceMm: Float) {
         val bounds = state.mesh?.bounds
+        val targetX = bounds?.centerX ?: 0f
+        val targetY = bounds?.centerY ?: 0f
+        val targetZ = bounds?.centerZ ?: 0f
+        // The agent writes this file too, and bumps the same counter. Republishing
+        // an unchanged camera - which `setMesh` does on every recomposition -
+        // burns a revision number that the agent may be about to use, and one of
+        // the two cameras is then silently ignored by the other side.
+        val current = modellingCamera
+        if (current != null &&
+            current.owner == modellingOwner &&
+            kotlin.math.abs(current.yawDeg - orientation.yawDegrees) < 0.01f &&
+            kotlin.math.abs(current.pitchDeg - orientation.pitchDegrees) < 0.01f &&
+            kotlin.math.abs(current.distanceMm - distanceMm) < 0.01f &&
+            kotlin.math.abs(current.targetX - targetX) < 0.01f &&
+            kotlin.math.abs(current.targetY - targetY) < 0.01f &&
+            kotlin.math.abs(current.targetZ - targetZ) < 0.01f
+        ) {
+            return
+        }
         val next = ModellingCamera(
             yawDeg = orientation.yawDegrees,
             pitchDeg = orientation.pitchDegrees,
             distanceMm = distanceMm,
-            targetX = bounds?.centerX ?: 0f,
-            targetY = bounds?.centerY ?: 0f,
-            targetZ = bounds?.centerZ ?: 0f,
+            targetX = targetX,
+            targetY = targetY,
+            targetZ = targetZ,
             owner = modellingOwner,
             rev = modellingCameraRev + 1,
         )

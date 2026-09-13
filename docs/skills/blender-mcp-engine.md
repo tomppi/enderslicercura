@@ -227,6 +227,21 @@ cam.data.angle = radians(fovDeg)
 Do **not** use `to_track_quat('-Z', 'Y')` here. The shared up vector is not global
 Y, so the roll - and therefore the image - would not match what the user sees.
 
+**`target` and `eye` are in the model's own coordinates** - the same coordinates as
+the STL the engine exported. They are *not* printer-bed coordinates. The app draws
+the model sitting on the print bed, but that placement is a display concern and
+does not exist in the engine's scene: the engine's default cube is centred on the
+**origin**, not on the bed. Substituting a bed centre for `target` points the
+camera at empty space and every render comes back blank.
+
+**Use the camera as you find it.** It already frames the model. Move `yawDeg` /
+`pitchDeg` to look from another side if you need to, and leave `target` and
+`distanceMm` alone unless you have actually measured the mesh and know why they
+are wrong.
+
+**A blank or empty render means the camera is not on the model.** Check before you
+reply: a blank render reported as success is worse than no render at all.
+
 ### Ownership: whose camera it is
 
 `owner` is `agent` or `user`, and it is the whole protocol:
