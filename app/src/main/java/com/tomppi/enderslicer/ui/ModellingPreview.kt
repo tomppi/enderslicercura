@@ -149,7 +149,17 @@ fun ModellingPreview(
      *   up    = (-sin a sin e, cos a sin e, cos e)
      * and the visible half-height at the target is `distance * tan(fov / 2)`.
      */
-    fun worldOffsetOf(pixel: Offset): FloatArray {
+    /**
+     * World displacement of a screen *displacement*.
+     *
+     * Kept separate from [worldOffsetOf] because the two are not
+     * interchangeable: a delta has no origin, so subtracting the centre of the
+     * view from one injects a constant offset of half the view's size. Doing
+     * that turned every pan event into a jump of half the visible extent, and a
+     * few thousand of them left the camera aimed a hundred metres from the
+     * model.
+     */
+    fun worldDeltaOf(dx: Float, dy: Float): FloatArray {
         val a = Math.toRadians(yaw.toDouble())
         val e = Math.toRadians(pitch.toDouble())
         val rx = cos(a).toFloat()
@@ -163,22 +173,21 @@ fun ModellingPreview(
         val halfHeight = (distance * tan(Math.toRadians(fov / 2.0))).toFloat()
         val halfWidth = halfHeight * (width.toFloat() / height)
 
-        // Measured from the middle of the view, which is where the camera is
-        // aimed. Using the raw position put the origin at the top-left corner
-        // instead, so a pinch asked to keep the wrong point still - the model's
-        // centre sits at the corner, not the middle, in those coordinates. Pan
-        // was unaffected because it passes a difference, where it cancels.
-        val dx = pixel.x - width / 2f
-        val dy = pixel.y - height / 2f
         // Screen y grows downwards; the view's up does not.
         val right = (dx / (width / 2f)) * halfWidth
         val up = (-dy / (height / 2f)) * halfHeight
         return floatArrayOf(
             rx * right + ux * up,
             ry * right + uy * up,
-            0f * right + uz * up,
+            uz * up,
         )
     }
+
+    /** World offset of a point in the view, measured from its middle. */
+    fun worldOffsetOf(pixel: Offset): FloatArray = worldDeltaOf(
+        pixel.x - viewSize.width / 2f,
+        pixel.y - viewSize.height / 2f,
+    )
 
     fun applyTarget(offset: FloatArray) {
         target = floatArrayOf(target[0] + offset[0], target[1] + offset[1], target[2] + offset[2])
@@ -192,7 +201,7 @@ fun ModellingPreview(
 
     /** Two fingers, moving together: carry the orbit point with them. */
     fun applyPan(delta: Offset) {
-        val world = worldOffsetOf(delta)
+        val world = worldDeltaOf(delta.x, delta.y)
         applyTarget(floatArrayOf(-world[0], -world[1], -world[2]))
     }
 
@@ -239,9 +248,24 @@ fun ModellingPreview(
             runCatching { client.sceneBounds() }.getOrNull()
         }
         if (bounds != null) {
-            target = floatArrayOf(bounds[0], bounds[1], bounds[2])
-            if (initialCamera == null && bounds[3] > 0f) {
-                distance = (bounds[3] * FramingFactor).coerceIn(MinDistanceMm, MaxDistanceMm)
+            val centre = floatArrayOf(bounds[0], bounds[1], bounds[2])
+            val radius = bounds[3]
+            // A target far outside the model means the view was lost - a runaway
+            // pan, or a camera written for a scene that no longer exists. Recover
+            // instead of opening somewhere the model is not, because there is no
+            // way back from a camera aimed into empty space.
+            val drift = floatArrayOf(
+                target[0] - centre[0],
+                target[1] - centre[1],
+                target[2] - centre[2],
+            ).let { (it[0] * it[0] + it[1] * it[1] + it[2] * it[2]) }
+            val lost = radius > 0f &&
+                (drift > radius * radius * 16f || distance > radius * 60f)
+            if (initialCamera == null || lost) {
+                target = centre
+                if (radius > 0f) {
+                    distance = (radius * FramingFactor).coerceIn(MinDistanceMm, MaxDistanceMm)
+                }
             }
         }
         if (distance <= 0f) distance = 120f
@@ -349,7 +373,7 @@ fun ModellingPreview(
                             previous?.let { applyPan(centroid - it) }
                             previousSpread = spread
                         } else {
-                            previous?.let { orbitBy(it - centroid) }
+                            previous?.let { orbitBy(centroid - it) }
                             previousSpread = 0f
                         }
                         previous = centroid
