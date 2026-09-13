@@ -182,7 +182,8 @@ Write the PNG into `files/blender/exports/`. The poller only watches `.stl`, so 
 - Engine-side: `adb logcat -d -v threadtime | grep app_process64` (works only when the wrap property is set; note the wrap wrapper occasionally causes a one-shot start race — relaunch to clear).
 - Structure checks (root shell): `ls -la /data/user/0/com.tomppi.enderslicercura/files/blender/` — `python/lib/python3.11/` must exist (stdlib), plus `scripts/`, `exports/`, and `.resources-version` marker. Bumping `RESOURCES_VERSION` in `BlenderEngine.kt` forces re-extraction on next launch.
 - `files/blender/exports/` has the handoff files; `files/models/` has staged imported copies.
-- Nightly/off-WiFi note: the phone (phone-host, `100.64.0.20`) is reachable via tailscale ICMP, but no inbound TCP to apps; all device IO goes through `adb -s 192.0.2.20:5555` while on the same WiFi.
+- **adb reaches the phone over the tailnet: `adb connect 100.64.0.20:5555`.** Verified working (SM-F946B, shell context `u:r:shell:s0`). The LAN address `192.0.2.20:5555` only works while on the same WiFi; the tailnet one works from anywhere, so prefer it and keep both connected when you can. Inbound TCP *to app ports* still does not traverse the tailnet - the engine's MCP socket stays on loopback plus `adb forward`.
+- The app drives the engine itself over loopback for the modelling preview, so no forward and no adb is needed for that path. Use adb only for inspection.
 
 ### When the engine dies mid-command
 

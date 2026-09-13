@@ -1,0 +1,211 @@
+package com.tomppi.enderslicer.modelling
+
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.util.Log
+import org.json.JSONObject
+import java.io.Closeable
+import java.io.File
+import java.net.InetSocketAddress
+import java.net.Socket
+
+/**
+ * Renders the modelling preview *in* the Blender engine and brings the pixels
+ * back.
+ *
+ * The engine runs inside this process and listens on loopback for the MCP
+ * protocol, so the app can drive it exactly like the external agent does. That
+ * is what makes one camera possible: what the user sees is the engine's own
+ * render of its own scene through its own camera, so there is no second camera
+ * to keep in step and no coordinate frame to translate between.
+ *
+ * Pixels come back through a file rather than the socket. The command channel
+ * returns whatever the Python printed as one string, and base64-ing a PNG into
+ * it would trade a small file write for a larger copy through an 8 KB receive
+ * buffer. The file is in the app's own private directory and the engine runs as
+ * the same uid, so neither side needs a permission to reach it.
+ */
+class EnginePreviewClient(
+    private val host: String = "127.0.0.1",
+    private val port: Int = DEFAULT_PORT,
+) : Closeable {
+
+    private var socket: Socket? = null
+
+    /**
+     * One command, one JSON reply.
+     *
+     * The engine's reader accumulates bytes until they parse as JSON and
+     * answers with a single object per command, so there is no framing to agree
+     * on beyond "read until it parses".
+     */
+    @Synchronized
+    private fun command(type: String, params: JSONObject): JSONObject {
+        val payload = JSONObject()
+            .put("type", type)
+            .put("params", params)
+            .toString()
+            .toByteArray(Charsets.UTF_8)
+
+        repeat(2) { attempt ->
+            val active = ensureSocket()
+            try {
+                active.getOutputStream().apply { write(payload); flush() }
+                return JSONObject(readJson(active))
+            } catch (error: Throwable) {
+                // A dead socket is expected whenever the engine restarts with
+                // the app, so drop it and reconnect once before giving up.
+                discardSocket()
+                if (attempt == 1) throw error
+            }
+        }
+        error("unreachable")
+    }
+
+    private fun ensureSocket(): Socket {
+        socket?.let { if (!it.isClosed && it.isConnected) return it }
+        val created = Socket()
+        created.tcpNoDelay = true
+        created.connect(InetSocketAddress(host, port), CONNECT_TIMEOUT_MS)
+        // Generous: the first GPU render of a process compiles the Workbench
+        // shaders and can take a few hundred milliseconds.
+        created.soTimeout = READ_TIMEOUT_MS
+        socket = created
+        return created
+    }
+
+    private fun discardSocket() {
+        runCatching { socket?.close() }
+        socket = null
+    }
+
+    private fun readJson(active: Socket): String {
+        val input = active.getInputStream()
+        val buffer = StringBuilder()
+        val chunk = ByteArray(16 * 1024)
+        while (true) {
+            val read = input.read(chunk)
+            if (read < 0) error("Engine closed the connection")
+            buffer.append(String(chunk, 0, read, Charsets.UTF_8))
+            // The reply is a complete JSON object with no terminator, so the
+            // only way to know it has all arrived is that it parses.
+            if (runCatching { JSONObject(buffer.toString()) }.isSuccess) return buffer.toString()
+        }
+    }
+
+    /**
+     * Points the engine's own camera and renders one frame into [into].
+     *
+     * @return true when the file was written. The engine reports errors in the
+     *   reply rather than throwing, so a failed render costs a frame instead of
+     *   the connection.
+     */
+    fun renderPreview(camera: ModellingCamera, width: Int, height: Int, into: File): Boolean {
+        val eye = camera.eyeOffset()
+        val up = camera.upVector()
+        val script = PREVIEW_SCRIPT
+            .replace("__TARGET__", "${camera.targetX}, ${camera.targetY}, ${camera.targetZ}")
+            .replace("__EYE__", "${eye[0]}, ${eye[1]}, ${eye[2]}")
+            .replace("__UP__", "${up[0]}, ${up[1]}, ${up[2]}")
+            .replace("__FOV__", "${camera.fovDeg}")
+            .replace("__WIDTH__", width.toString())
+            .replace("__HEIGHT__", height.toString())
+            .replace("__PATH__", into.absolutePath)
+        val reply = command("execute_code", JSONObject().put("code", script))
+        return reply.optString("status") == "success" && into.isFile
+    }
+
+    /**
+     * The engine's own scene bounds: `[centreX, centreY, centreZ, radius]`.
+     *
+     * The app asks rather than deriving it from the mesh it happens to hold.
+     * The engine is the scene, so its bounds are the right thing to orbit and to
+     * frame - and they are in the same coordinates the agent's renders use,
+     * which is the mistake that aimed the first agent render at the print bed
+     * instead of at the model.
+     */
+    fun sceneBounds(): FloatArray? {
+        val reply = command("execute_code", JSONObject().put("code", BOUNDS_SCRIPT))
+        if (reply.optString("status") != "success") return null
+        val text = reply.optJSONObject("result")?.optString("result").orEmpty().trim()
+        val parts = text.split(" ").mapNotNull { it.toFloatOrNull() }
+        return if (parts.size == 4) parts.toFloatArray() else null
+    }
+
+    /** Reads the frame [renderPreview] wrote. Null when it is unreadable. */
+    fun readPreview(file: File): Bitmap? = runCatching {
+        if (!file.isFile) null else BitmapFactory.decodeFile(file.absolutePath)
+    }
+        .onFailure { Log.w(TAG, "preview decode failed", it) }
+        .getOrNull()
+
+    override fun close() {
+        discardSocket()
+    }
+
+    companion object {
+        private const val TAG = "EnginePreview"
+        const val DEFAULT_PORT = 9876
+        private const val CONNECT_TIMEOUT_MS = 2_000
+        private const val READ_TIMEOUT_MS = 20_000
+
+        /**
+         * Places the camera the same way the shared-camera skill documents, then
+         * renders with Workbench.
+         *
+         * Workbench rather than Cycles because it needs no lights and no
+         * sampling: about 10 ms a frame against Cycles' 50 ms, which is the
+         * difference between a view that updates under your finger and one that
+         * does not.
+         */
+        private val BOUNDS_SCRIPT = """
+import bpy
+from mathutils import Vector
+lo = Vector((1e18, 1e18, 1e18))
+hi = Vector((-1e18, -1e18, -1e18))
+found = False
+for o in bpy.context.scene.objects:
+    if o.type != 'MESH':
+        continue
+    for corner in o.bound_box:
+        w = o.matrix_world @ Vector(corner)
+        lo = Vector((min(lo.x, w.x), min(lo.y, w.y), min(lo.z, w.z)))
+        hi = Vector((max(hi.x, w.x), max(hi.y, w.y), max(hi.z, w.z)))
+        found = True
+if found:
+    c = (lo + hi) * 0.5
+    print('%f %f %f %f' % (c.x, c.y, c.z, (hi - lo).length * 0.5))
+else:
+    print('')
+""".trimIndent()
+
+        private val PREVIEW_SCRIPT = """
+import bpy, math
+from mathutils import Matrix, Vector
+scene = bpy.context.scene
+cam = scene.camera
+if cam is None:
+    cam = bpy.data.objects.new('look', bpy.data.cameras.new('look'))
+    scene.collection.objects.link(cam)
+    scene.camera = cam
+target = Vector((__TARGET__))
+loc = target + Vector((__EYE__))
+fwd = (target - loc).normalized()
+up = Vector((__UP__)).normalized()
+right = fwd.cross(up).normalized()
+up2 = right.cross(fwd)
+cam.matrix_world = Matrix.Translation(loc) @ Matrix((right, up2, -fwd)).transposed().to_4x4()
+cam.data.angle = math.radians(__FOV__)
+cam.data.clip_start = 0.01
+cam.data.clip_end = 100000.0
+scene.render.engine = 'BLENDER_WORKBENCH'
+scene.render.resolution_x = __WIDTH__
+scene.render.resolution_y = __HEIGHT__
+scene.render.resolution_percentage = 100
+scene.render.image_settings.file_format = 'PNG'
+scene.render.filepath = r'__PATH__'
+bpy.ops.render.render(write_still=True)
+print('preview %dx__HEIGHT__')
+""".trimIndent()
+    }
+}

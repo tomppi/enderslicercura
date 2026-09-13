@@ -484,37 +484,24 @@ fun EnderSlicerApp(
     }
 
     /** Publishes the camera the user is looking through, so the agent can adopt it. */
-    fun publishModellingCamera(orientation: ViewerOrientation, distanceMm: Float) {
-        val bounds = state.mesh?.bounds
-        val targetX = bounds?.centerX ?: 0f
-        val targetY = bounds?.centerY ?: 0f
-        val targetZ = bounds?.centerZ ?: 0f
-        // The agent writes this file too, and bumps the same counter. Republishing
-        // an unchanged camera - which `setMesh` does on every recomposition -
-        // burns a revision number that the agent may be about to use, and one of
-        // the two cameras is then silently ignored by the other side.
+    fun publishModellingCamera(camera: ModellingCamera) {
+        // The agent writes this file too and bumps the same counter, so an
+        // unchanged camera must not burn a revision number the agent is about to
+        // use - with two writers on one counter, one side's camera is silently
+        // ignored by the other.
         val current = modellingCamera
         if (current != null &&
             current.owner == modellingOwner &&
-            kotlin.math.abs(current.yawDeg - orientation.yawDegrees) < 0.01f &&
-            kotlin.math.abs(current.pitchDeg - orientation.pitchDegrees) < 0.01f &&
-            kotlin.math.abs(current.distanceMm - distanceMm) < 0.01f &&
-            kotlin.math.abs(current.targetX - targetX) < 0.01f &&
-            kotlin.math.abs(current.targetY - targetY) < 0.01f &&
-            kotlin.math.abs(current.targetZ - targetZ) < 0.01f
+            kotlin.math.abs(current.yawDeg - camera.yawDeg) < 0.01f &&
+            kotlin.math.abs(current.pitchDeg - camera.pitchDeg) < 0.01f &&
+            kotlin.math.abs(current.distanceMm - camera.distanceMm) < 0.01f &&
+            kotlin.math.abs(current.targetX - camera.targetX) < 0.01f &&
+            kotlin.math.abs(current.targetY - camera.targetY) < 0.01f &&
+            kotlin.math.abs(current.targetZ - camera.targetZ) < 0.01f
         ) {
             return
         }
-        val next = ModellingCamera(
-            yawDeg = orientation.yawDegrees,
-            pitchDeg = orientation.pitchDegrees,
-            distanceMm = distanceMm,
-            targetX = targetX,
-            targetY = targetY,
-            targetZ = targetZ,
-            owner = modellingOwner,
-            rev = modellingCameraRev + 1,
-        )
+        val next = camera.copy(owner = modellingOwner, rev = modellingCameraRev + 1)
         modellingCameraRev = next.rev
         modellingCamera = next
         ModellingCameraStore.write(blenderDir, next)
@@ -918,6 +905,7 @@ fun EnderSlicerApp(
                 onHandBackCamera = { setModellingOwner(CameraOwner.AGENT) },
                 onCameraMoved = ::publishModellingCamera,
                 incomingCamera = modellingCamera,
+                blenderDir = blenderDir,
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(padding),

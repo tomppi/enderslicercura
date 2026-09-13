@@ -1,6 +1,5 @@
 package com.tomppi.enderslicer.ui
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -19,7 +18,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -29,7 +27,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -37,16 +34,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
-import kotlinx.coroutines.delay
-import com.tomppi.enderslicer.model.PrinterDefinition
-import com.tomppi.enderslicer.model.withSettings
 import com.tomppi.enderslicer.modelling.CameraOwner
 import com.tomppi.enderslicer.modelling.ModellingCamera
-import com.tomppi.enderslicer.viewer.ModelSurfaceView
-import com.tomppi.enderslicer.viewer.ViewerOrientation
+import java.io.File
 
-private const val CameraEchoGuardMs = 350L
 private val ChatHeight = 260.dp
 private val BarPadding = 10.dp
 
@@ -55,14 +46,12 @@ private val BarPadding = 10.dp
  *
  * Deliberately not the floating [AiChatOverlay]. That one has to stay out of the
  * way because the user paints on the model to aim the agent; here the agent and
- * the user are looking at the same object through the same camera, so the model
- * gets the room and the chat sits under it.
+ * the user look at the same object through the same camera, so the model gets
+ * the room and the chat sits under it.
  *
- * @param incomingCamera the agent's camera, or null. Applied only while the
- *   agent owns the camera - otherwise the user's orbit would be yanked away
- *   mid-inspection, which is the one thing the pause exists to prevent.
- * @param onCameraMoved the user moved the camera; carries the whole shared
- *   state, because yaw and pitch alone do not say how close the eye is.
+ * The view is [ModellingPreview] - the engine's own render - rather than the
+ * app's GL viewport. One camera, no translation, and the user sees exactly what
+ * the agent sees.
  */
 @Composable
 fun ModellingScreen(
@@ -73,36 +62,15 @@ fun ModellingScreen(
     owner: CameraOwner,
     /** False while the agent is working: the camera is the agent's until it stops. */
     canTakeCamera: Boolean,
+    blenderDir: File,
     onSend: (String) -> Unit,
     onExit: () -> Unit,
     onTakeCamera: () -> Unit,
     onHandBackCamera: () -> Unit,
-    onCameraMoved: (ViewerOrientation, Float) -> Unit,
+    onCameraMoved: (ModellingCamera) -> Unit,
     incomingCamera: ModellingCamera?,
     modifier: Modifier = Modifier,
 ) {
-    val effectivePrinter: PrinterDefinition = state.printer.withSettings(state.settings)
-    var modelView by remember(effectivePrinter) { mutableStateOf<ModelSurfaceView?>(null) }
-    val camera = incomingCamera
-    // While the agent's camera is being applied the view reports the change
-    // straight back; without this the app would echo it as a user move and take
-    // ownership of a camera the agent had just set.
-    var applyingRemote by remember { mutableStateOf(false) }
-
-    LaunchedEffect(camera?.rev) {
-        val view = modelView ?: return@LaunchedEffect
-        if (camera == null || owner != CameraOwner.AGENT) return@LaunchedEffect
-        applyingRemote = true
-        view.restoreOrientation(ViewerOrientation(camera.yawDeg, camera.pitchDeg))
-        view.restoreDistanceMm(camera.distanceMm)
-        // Both restores are queued onto the GL thread and report back through
-        // onOrientationChanged a frame later. Clearing the flag immediately
-        // would let that report be published as a user move, echoing the
-        // agent's own camera back at it with a new revision.
-        delay(CameraEchoGuardMs)
-        applyingRemote = false
-    }
-
     Column(modifier = modifier.fillMaxSize()) {
         Surface(tonalElevation = 3.dp) {
             Row(
@@ -117,10 +85,7 @@ fun ModellingScreen(
                     Text("Exit")
                 }
                 Spacer(Modifier.weight(1f))
-                Text(
-                    text = "Modelling",
-                    style = MaterialTheme.typography.titleSmall,
-                )
+                Text(text = "Modelling", style = MaterialTheme.typography.titleSmall)
                 Spacer(Modifier.weight(1f))
                 TextButton(
                     onClick = { if (owner == CameraOwner.USER) onHandBackCamera() else onTakeCamera() },
@@ -131,19 +96,14 @@ fun ModellingScreen(
             }
         }
 
-        AndroidView(
+        ModellingPreview(
+            blenderDir = blenderDir,
+            initialCamera = incomingCamera,
+            interactive = owner == CameraOwner.USER,
+            onCameraChanged = onCameraMoved,
             modifier = Modifier
                 .fillMaxWidth()
-                .weight(1f)
-                .background(MaterialTheme.colorScheme.surfaceVariant),
-            factory = { context -> ModelSurfaceView(context, effectivePrinter).also { modelView = it } },
-            update = { view ->
-                view.setMesh(state.mesh)
-                view.cameraInteractive = owner == CameraOwner.USER
-                view.onOrientationChanged = { orientation ->
-                    if (!applyingRemote) onCameraMoved(orientation, view.currentDistanceMm())
-                }
-            },
+                .weight(1f),
         )
 
         Surface(tonalElevation = 6.dp) {
