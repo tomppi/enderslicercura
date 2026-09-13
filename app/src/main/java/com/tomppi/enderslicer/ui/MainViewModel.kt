@@ -2012,25 +2012,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     // may have been reclaimed while the app was in the background.
                     BlenderEngine.ensureStarted(app)
                     BlenderEngineService.start(app)
-                    BlenderModelHandoff.publish(
+                    val target = BlenderModelHandoff.publish(
                         blenderRoot = File(app.filesDir, "blender"),
                         source = File(path),
                     )
+                    // Copying a file into the import directory is not the same
+                    // as opening it: the engine went on holding whatever it had,
+                    // and the modelling view - which shows the engine's own
+                    // scene - quite correctly kept showing the default cube
+                    // after a model had been sent. Load it.
+                    //
+                    // Inside withContext(IO) deliberately. On the main thread
+                    // this is a NetworkOnMainThreadException, which runCatching
+                    // then swallows: the import failed silently, which is how it
+                    // behaved the first time.
+                    val loaded = runCatching {
+                        EnginePreviewClient().use { it.importModelWhenReady(target) }
+                    }.getOrDefault(false)
+                    target to loaded
                 }
-            }.onSuccess { target ->
-                // Copying a file into the import directory is not the same as
-                // opening it: the engine went on holding whatever it had - its
-                // default cube - and the modelling view, which shows the
-                // engine's own scene, quite correctly kept showing a cube after
-                // the user had uploaded a model. Load it.
-                val loaded = runCatching {
-                    EnginePreviewClient().use { it.importModel(target) }
-                }.getOrDefault(false)
+            }.onSuccess { (target, loaded) ->
                 _uiState.update {
                     it.copy(
                         statusMessage = "Sent " + File(path).name +
                             " to Blender (" + target.parentFile?.name + "/" + target.name + ")" +
-                            if (loaded) ", loaded into the engine" else "",
+                            if (loaded) ", loaded into the engine" else " - engine did not load it",
                     )
                 }
             }.onFailure(::showOperationFailure)

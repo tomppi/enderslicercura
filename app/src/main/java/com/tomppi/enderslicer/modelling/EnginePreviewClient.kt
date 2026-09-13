@@ -40,7 +40,11 @@ class EnginePreviewClient(
      * on beyond "read until it parses".
      */
     @Synchronized
-    private fun command(type: String, params: JSONObject): JSONObject {
+    private fun command(
+        type: String,
+        params: JSONObject,
+        timeoutMs: Int = READ_TIMEOUT_MS,
+    ): JSONObject {
         val payload = JSONObject()
             .put("type", type)
             .put("params", params)
@@ -48,7 +52,7 @@ class EnginePreviewClient(
             .toByteArray(Charsets.UTF_8)
 
         repeat(2) { attempt ->
-            val active = ensureSocket()
+            val active = ensureSocket(timeoutMs)
             try {
                 active.getOutputStream().apply { write(payload); flush() }
                 return JSONObject(readJson(active))
@@ -62,14 +66,14 @@ class EnginePreviewClient(
         error("unreachable")
     }
 
-    private fun ensureSocket(): Socket {
+    private fun ensureSocket(timeoutMs: Int): Socket {
         socket?.let { if (!it.isClosed && it.isConnected) return it }
         val created = Socket()
         created.tcpNoDelay = true
         created.connect(InetSocketAddress(host, port), CONNECT_TIMEOUT_MS)
         // Generous: the first GPU render of a process compiles the Workbench
         // shaders and can take a few hundred milliseconds.
-        created.soTimeout = READ_TIMEOUT_MS
+        created.soTimeout = timeoutMs
         socket = created
         return created
     }
@@ -141,8 +145,44 @@ class EnginePreviewClient(
      */
     fun importModel(model: File): Boolean {
         val script = IMPORT_SCRIPT.replace("__PATH__", model.absolutePath)
-        val reply = command("execute_code", JSONObject().put("code", script))
-        return reply.optString("status") == "success"
+        val reply = command("execute_code", JSONObject().put("code", script), IMPORT_TIMEOUT_MS)
+        val ok = reply.optString("status") == "success"
+        Log.i(TAG, "import " + model.name + " -> " + (if (ok) "ok" else reply.toString().take(160)))
+        return ok
+    }
+
+    /**
+     * Loads [model], waiting for the engine to answer.
+     *
+     * The engine is started by the same action that publishes the handoff and
+     * takes tens of seconds to boot, so a single attempt is a race the model
+     * usually loses - and losing it is silent. Importing a 125 MB STL took 14.6
+     * seconds on the device, which is also well past a render's patience.
+     */
+    fun importModelWhenReady(model: File, timeoutMs: Long = IMPORT_WAIT_MS): Boolean {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (true) {
+            val ok = runCatching { importModel(model) }.getOrDefault(false)
+            if (ok) return true
+            if (System.currentTimeMillis() >= deadline) {
+                Log.w(TAG, "import gave up after " + timeoutMs + " ms")
+                return false
+            }
+            Thread.sleep(1_000)
+        }
+    }
+
+    /**
+     * True while the engine is still on the scene it boots with.
+     *
+     * Used to decide whether a published handoff should be loaded on the way in:
+     * anything the agent has built means a real mesh is present, and re-importing
+     * over that would throw its work away.
+     */
+    fun isOnDefaultScene(): Boolean {
+        val reply = command("execute_code", JSONObject().put("code", DEFAULT_SCENE_SCRIPT))
+        if (reply.optString("status") != "success") return false
+        return reply.optJSONObject("result")?.optString("result").orEmpty().trim() == "default"
     }
 
     /** Reads the frame [renderPreview] wrote. Null when it is unreadable. */
@@ -161,6 +201,10 @@ class EnginePreviewClient(
         const val DEFAULT_PORT = 9876
         private const val CONNECT_TIMEOUT_MS = 2_000
         private const val READ_TIMEOUT_MS = 20_000
+        /** A 125 MB STL took 14.6 s to import on the device; leave real room. */
+        private const val IMPORT_TIMEOUT_MS = 180_000
+        /** How long to keep trying while the engine boots. */
+        private const val IMPORT_WAIT_MS = 120_000L
 
         /**
          * Places the camera the same way the shared-camera skill documents, then
@@ -171,6 +215,14 @@ class EnginePreviewClient(
          * difference between a view that updates under your finger and one that
          * does not.
          */
+        private val DEFAULT_SCENE_SCRIPT = """
+import bpy
+meshes = [o for o in bpy.context.scene.objects if o.type == 'MESH']
+untouched = (len(meshes) == 1 and meshes[0].name == 'Cube'
+             and len(meshes[0].data.vertices) == 8)
+print('default' if untouched else 'custom')
+""".trimIndent()
+
         private val IMPORT_SCRIPT = """
 import bpy
 path = r'__PATH__'

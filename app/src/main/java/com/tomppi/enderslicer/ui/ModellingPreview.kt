@@ -134,6 +134,24 @@ fun ModellingPreview(
     // Ask the engine what it is holding, once, and frame that. The app does not
     // derive this from the mesh it happens to have: the engine is the scene.
     LaunchedEffect(client) {
+        // The engine boots on its default scene, which is a cube. If a model has
+        // been sent to it and it is still holding that cube, load the model now:
+        // showing a cube after the user has sent one reads as a bug, and the
+        // engine cannot tell them apart on its own. Anything the agent has built
+        // means a real mesh is present, and that is never overwritten.
+        val handoff = File(blenderDir, "imports/current.stl")
+        if (handoff.isFile) {
+            val untouched = withContext(Dispatchers.IO) {
+                runCatching { client.isOnDefaultScene() }.getOrDefault(false)
+            }
+            if (untouched) {
+                status = "Loading your model into the engine..."
+                val loaded = withContext(Dispatchers.IO) {
+                    runCatching { client.importModel(handoff) }.getOrDefault(false)
+                }
+                if (!loaded) status = "Could not load the model into the engine"
+            }
+        }
         val bounds = withContext(Dispatchers.IO) {
             runCatching { client.sceneBounds() }.getOrNull()
         }
