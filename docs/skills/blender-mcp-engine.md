@@ -75,27 +75,57 @@ Errors: `{"status": "error", "message": "<exc>"}`. A command run in `blender -b`
 
 **Looking at your model is a required part of this job, not a nicety and not something to ration.** This works in the engine - see the Cycles recipe below - and a view costs well under a second. Modification is iterative: change the mesh, look at it, decide, change it again. An agent that edits blind produces confident, plausible, wrong geometry - the sawtooth, the wall with no vertices in it. Render as often as you need, from as many angles as you need, and do not hesitate over the cost.
 
-### Render with CYCLES - the GPU engines kill the process
+### Looking at the model: WORKBENCH first, CYCLES when you need light
 
-**Cycles CPU renders fine, in the engine, on the device.** Verified on the default scene:
+**Both engines now render in the engine, on the device.** The GPU path was
+repaired in this engine build (see `native/blender/patches/README.md`), so the
+old "never set a GPU engine" rule is gone.
 
-| resolution | samples | time |
+| engine | resolution | time |
 |---|---|---|
-| 128 | 8 | **0.17 s** |
-| 256 | 16 | **0.43 s** |
-| 512 | 32 | **2.5 s** |
+| **WORKBENCH** | 128x128 | **~10 ms** (34 ms on the very first render, compiling shaders) |
+| **WORKBENCH** | 256x256 | **~22 ms** |
+| CYCLES CPU | 128x128 @ 8 | ~50 ms |
+| CYCLES CPU | 512x512 @ 32 | ~2.5 s |
+| EEVEE | 128x128 @ 64 | ~2.3 s (mostly first-run shader compilation) |
 
-It needs no GPU context, which is exactly why it works.
+All three engines render now. EEVEE works but is not a preview engine: it
+accumulates TAA samples on the GPU and its first render pays a ~2 s shader
+compile. Use it only when you specifically want EEVEE's look.
 
-**`BLENDER_WORKBENCH` and `EEVEE` terminate the process.** Both are GPU rasterisers that need an OpenGL context, and this is a no-GPU build of Blender running headless inside the app. `bpy.ops.render.render()` then kills the app outright - dead in ~150 ms, no reply, no log line, no tombstone, no crash report. Blender runs in-process, so the whole app goes with it and the foreground service has to restart it. That cost ten app deaths in one afternoon. Never set a GPU engine.
+**Use WORKBENCH for the routine look-at-it loop.** It is a solid-shading
+rasteriser: no lights needed, no noise, no sampling, and at ~10 ms a view you can
+afford to render from ten angles to check a shape. It shows geometry and nothing
+else, which is usually exactly what you want to judge.
 
-**The assignment gives you no warning, which is what makes it a trap.** `scene.render.engine = 'BLENDER_WORKBENCH'` returns success and even reads back as `BLENDER_WORKBENCH` afterwards; nothing at all happens until you call `render.render()`, and by then the process is already gone. Do not read "the engine accepted it" as "the engine can do it". The render-engine list this build reports is not trustworthy either - it offers one name, `BLENDER_EEVEE`, while `CYCLES` (the only engine that actually works) does not appear in it at all.
-
-`bpy.ops.render.opengl()` is safe - it reports the same condition cleanly - but it cannot render anything:
-
-```text
-Error: Cannot use OpenGL render in background mode (no OpenGL context)
+```python
+scene.render.engine = 'BLENDER_WORKBENCH'
+# Optional, and worth it: cavity + outline make edges and shallow steps read.
+scene.display.shading.light = 'STUDIO'
+scene.display.shading.show_cavity = True
+scene.display.shading.cavity_type = 'BOTH'
+scene.display.shading.show_object_outline = True
+scene.render.resolution_x = scene.render.resolution_y = 256
+bpy.ops.render.render(write_still=True)
 ```
+
+**Use CYCLES when materials, lighting or shadow shape matter** - a lit render
+shows form that flat shading hides, and it is the second opinion on whether a
+surface really is smooth. It costs ~5x more per view.
+
+```python
+scene.render.engine = 'CYCLES'
+scene.cycles.device = 'CPU'
+scene.cycles.samples = 16
+scene.cycles.use_denoising = False
+```
+
+**The first GPU render of a process costs about 34 ms instead of 10** while the
+Workbench shaders compile. That is not a hang, and it happens once.
+
+Note that this engine build is patched; a stock epai build of the same sources
+still dies here. The skill and the engine go together - if renders start killing
+the app again, the engine binary is not the patched one.
 
 ```python
 import bpy
@@ -122,7 +152,7 @@ light.data.energy = 3.0
 scene.collection.objects.link(light)
 light.rotation_euler = (0.9, 0.2, 0.6)
 
-scene.render.engine = 'CYCLES'        # NOT workbench, NOT eevee
+scene.render.engine = 'CYCLES'        # or WORKBENCH for a ~10 ms geometry check
 scene.cycles.device = 'CPU'
 scene.cycles.samples = 16
 scene.cycles.use_denoising = False
@@ -166,17 +196,32 @@ os.dup2(fd, 1); os.dup2(fd, 2)   # catches Blender's C-level output, which bypas
 faulthandler.enable()            # catches the segfault and dumps every thread
 ```
 
-Read it back with `su -c 'cat /data/user/0/com.tomppi.enderslicercura/files/blender-home/gpu-crash.log'`. Blender also writes `cache/blender.crash.txt`, but this is a release build with no symbols, so its backtrace is always empty. There is no tombstone either: Blender installs its own signal handler and exits, so Android never sees the crash.
+Read it back with `su -c 'cat /data/user/0/com.tomppi.enderslicercura/files/blender-home/gpu-crash.log'`.
 
-### Why the GPU engines segfault - and why it cannot be configured away
+**For a C-level backtrace you need a tombstone, and two things get in the way.**
+Blender installs its own SIGSEGV handler which writes `cache/blender.crash.txt` -
+always with an **empty** backtrace on this port, because its unwinder does not
+work under Android - and then exits, so debuggerd never sees the signal and no
+tombstone is written. `blender_exec.cpp` therefore passes
+`--disable-crash-handler`, which hands the fault to the platform. Then read:
 
-Blender is started as `blender -b` (see `native/blender/blender_exec.cpp`), and background mode has no GPU. The binary does contain the machinery - `GHOST_SystemAndroid`, `GHOST_ContextEGL`, `GHOST_SystemHeadless::createOffscreenContext`, the Workbench GLSL - but nothing initialises a GPU backend in background mode, and `GHOST_SystemHeadless` is upstream's stub that creates no context. Blender's own API says so plainly:
-
-```text
-SystemError: GPU API is not available in background mode
+```sh
+T=$(ls -t /data/tombstones/tombstone_*[0-9] | head -1)
+sed -n '/^backtrace:/,/^$/p' "$T"
 ```
 
-`bpy.ops.render.render()` does not go through that guarded API, so with `BLENDER_WORKBENCH` it dereferences an uninitialised GPU backend and dies by SIGSEGV. Making it work means changing the engine build itself - not a setting, and nothing the app or the addon can reach from the outside.
+Symbols matter: build with `llvm-strip --strip-debug` (125 MB, all 238,773
+symbols kept) rather than `--strip-unneeded` (96 MB, none). debuggerd prints
+demangled C++ frames when they are present, which is what turned "the app dies on
+any GPU render" into a named function in one step.
+
+Do **not** enable `faulthandler` when you are chasing a tombstone: it handles the
+signal itself and the process never reaches debuggerd.
+
+`bpy.app` still reports `SystemError: GPU API is not available in background
+mode` for the Python `gpu` module, and `render.opengl()` still refuses. That is a
+Python-level guard, not the render path: `bpy.ops.render.render()` with
+`BLENDER_WORKBENCH` now works.
 
 ## 6. The modelling session (model from scratch)
 

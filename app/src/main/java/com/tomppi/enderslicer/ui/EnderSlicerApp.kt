@@ -442,8 +442,9 @@ fun EnderSlicerApp(
         append("directory: it carries the camera we share (target, eye, up, fov). Place the render ")
         append("camera from those values so your render and my view agree. Its \"owner\" field says ")
         append("who has the camera - while it says user I am looking at something and you must not ")
-        append("move it. Render with CYCLES and cycles.device = 'CPU'; the GPU engines kill the ")
-        append("process on this device. Look at your work with renders as you go, and export to ")
+        append("move it. Render with BLENDER_WORKBENCH for geometry checks - about 10 ms a view - ")
+        append("and CYCLES with cycles.device = 'CPU' when materials or lighting matter. Both work ")
+        append("in this engine build. Look at your work with renders as you go, and export to ")
         append("files/blender/exports/ whenever there is something worth looking at.")
     }
 

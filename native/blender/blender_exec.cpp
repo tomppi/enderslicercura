@@ -51,12 +51,18 @@ static void blender_thread(std::string home, std::string config,
     strcpy(strConfigPath, config.c_str());
 
     std::string start_script = scripts + "/startup/start_blender_mcp.py";
+    // --disable-crash-handler: Blender's own handler writes a crash file whose
+    // backtrace is always empty on this port (its unwinder does not work under
+    // Android) and then exits, so Android's debuggerd never sees the signal and
+    // no tombstone is produced either. Leaving the fault to the platform is the
+    // only way to find out where a crash actually happened.
     const char *argv[] = {
         "blender",
         "-b",
+        "--disable-crash-handler",
         "--python", start_script.c_str(),
     };
-    void *ctx = mainBlenderInitial(4, argv);
+    void *ctx = mainBlenderInitial(5, argv);
     // mainBlenderInitial returns when the python server loop ends (shutdown).
     (void)ctx;
     g_running = false;
