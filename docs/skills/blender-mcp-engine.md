@@ -73,24 +73,32 @@ Errors: `{"status": "error", "message": "<exc>"}`. A command run in `blender -b`
 
 ## 4. Look at your model - required, and do it freely
 
-**Rendering is a required part of this job, not a nicety and not something to ration.** Modification is iterative: change the mesh, look at it, decide, change it again. An agent that edits blind produces confident, plausible, wrong geometry - the sawtooth, the wall with no vertices in it. Render as often as you need, from as many angles as you need, and do not hesitate over the cost.
+**Looking at your model is a required part of this job, not a nicety and not something to ration.** Modification is iterative: change the mesh, look at it, decide, change it again. An agent that edits blind produces confident, plausible, wrong geometry - the sawtooth, the wall with no vertices in it. Render as often as you need, from as many angles as you need, and do not hesitate over the cost.
 
-**Use the Workbench engine.** It is Blender's solid-shading renderer - no ray tracing, no lights, no global illumination - which is exactly what inspecting geometry wants, and it costs a fraction of the memory:
+### Rendering inside the engine is FATAL - do not do it
 
-```python
-import bpy
-scene = bpy.context.scene
-scene.render.engine = 'BLENDER_WORKBENCH'      # NOT Cycles
-scene.render.resolution_x = scene.render.resolution_y = 512
-scene.render.resolution_percentage = 100
-scene.render.image_settings.file_format = 'PNG'
-scene.render.filepath = "/data/data/com.tomppi.enderslicercura/files/blender/exports/look-iso.png"
-bpy.ops.render.render(write_still=True)
+**`bpy.ops.render.render()` kills the process.** Measured on a default 6-face cube at 256x256 with Workbench: the engine dies in **143 ms** with no reply, no log line, no tombstone and no crash report. Blender runs in-process, so the whole app goes with it, and the foreground service has to bring it back. It is not memory, not the mesh and not the engine choice - the call itself is fatal in this build. Ten app deaths in one afternoon were exactly this.
+
+`bpy.ops.render.opengl()` does not crash, but it cannot help either - it returns cleanly with:
+
+```text
+Error: Cannot use OpenGL render in background mode (no OpenGL context)
 ```
 
-Fit a camera to the object's bounding box for the angle you want (front, side, top, iso, and a low tilt to inspect a wall), and reuse one camera-fitting block rather than rewriting it each time.
+The engine is headless with no GL context. `render.render()` terminates on the same condition instead of reporting it.
 
-**Cycles is what has crashed this engine on device, even on a decimated mesh** - it needs far more memory than the device has free. If Workbench also fails, report the exact error and the face count, and stop; do not look for another way to see the screen.
+### Render outside the engine instead
+
+Take the geometry out and draw it on the PC - the approach `render_numpy.py` already uses:
+
+1. **Export the mesh** with `export_stl` (or `_mesh_to_binary_stl`) into `files/blender/exports/`.
+2. **Pull it** to the PC.
+3. **Render it there** - `render_numpy.py <file.stl> <prefix>` writes front/side/top/iso PNGs from the vertices and faces, no GL involved.
+4. **Read the PNGs** and look.
+
+Pull a **decimated copy** rather than the full mesh when you only need to see the shape: `execute_code` can decimate in bpy and export that, which keeps a check to a few megabytes instead of seventy.
+
+Inspect from as many angles as you need, as often as you need - this is the required part, and it is cheap. The only thing that is off limits is the user's screen.
 
 Write the PNG into `files/blender/exports/`. The poller only watches `.stl`, so an image there is inert - it will not be imported. Pull it back and read it.
 
