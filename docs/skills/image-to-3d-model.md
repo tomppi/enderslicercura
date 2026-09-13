@@ -178,11 +178,15 @@ Expect **watertight**, with 0 degenerate / open / over edges. A model that fails
 
 The app must be **running** for the import to dispatch — check for its pid before delivering rather than after, and remember the adb server does not survive between shell invocations, so connect and use it in one command.
 
+**Stage through `/sdcard/Download/dsh-agent/`, never the Download root.** That folder is the device's drop box for agent files, and it carries a `.nomedia` so screenshots pushed there stay out of the gallery. The rule covers **everything** you send to the device - models, probe scripts, screenshots - not just the STL.
+
+**Leave models there; take your scaffolding back out.** The staged STL is the copy the user can actually find, because the app's own export directory is transient and gets cleared from the UI - so it stays. One-off probe scripts, log dumps and screenshots have no value once they have run, and a folder of them is what the user has to clean up by hand.
+
 The app hot-loads from its own private directory, so the file must be copied in there — the sdcard alone is not enough:
 
 ```powershell
-adb push final.stl /sdcard/Download/<unique-name>.stl
-adb shell "su -c 'cp /sdcard/Download/<unique-name>.stl /data/data/com.tomppi.enderslicercura/files/blender/exports/'"
+adb push final.stl /sdcard/Download/dsh-agent/<unique-name>.stl
+adb shell "su -c 'cp /sdcard/Download/dsh-agent/<unique-name>.stl /data/data/com.tomppi.enderslicercura/files/blender/exports/'"
 ```
 
 **The filename must be new every time.** The app dedupes by path + size + mtime and dispatches each revision exactly once, so reusing a name can be silently ignored. Include a timestamp: `model-<epoch>.stl`.

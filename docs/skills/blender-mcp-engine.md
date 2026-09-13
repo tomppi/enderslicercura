@@ -11,6 +11,7 @@ The app bundle (package `com.tomppi.enderslicercura`) runs Blender 3.6 **inside 
 ## 1. Connect
 
 - Device: `192.0.2.20:5555` (`adb -s 192.0.2.20:5555 ...`); root shell via `su -c`.
+- **Drop box: anything you push to the device goes in `/sdcard/Download/dsh-agent/`, never the Download root.** Models stay there - it is the copy the user can find; probe scripts and screenshots are scaffolding and come back out.
 - Forward (required): `adb -s 192.0.2.20:5555 forward tcp:9876 tcp:9876`. The MCP socket MUST bind `localhost` (the addon's default; app passes `BLENDER_MCP_HOST` via the C++ wrapper). **Do NOT bind the Tailscale/CGNAT IP** (100.64.0.0/10): Tailscale Android does not deliver inbound TCP to app sockets (SYN times out / ports RST from tailscaled's userspace stack; verified 2026-09-09), so a tailnet-bound socket breaks the adb-forward loopback path and is unreachable anyway.
 - The engine lives only while the app process runs. Relaunch: `adb shell am start -n com.tomppi.enderslicercura/com.tomppi.enderslicer.MainActivity`. First launch after an install can hit a transient wrapper/zygote race ("start timeout", signal 9) — just launch again.
 - Quick liveness: `adb shell su -c 'ss -tlnp | grep 9876'` (owner pid should be the app).
