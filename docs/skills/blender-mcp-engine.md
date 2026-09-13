@@ -87,7 +87,9 @@ Errors: `{"status": "error", "message": "<exc>"}`. A command run in `blender -b`
 
 It needs no GPU context, which is exactly why it works.
 
-**`BLENDER_WORKBENCH` and `EEVEE` terminate the process.** They require an OpenGL context a headless engine does not have, and `bpy.ops.render.render()` then kills the app outright - dead in ~150 ms, no reply, no log line, no tombstone, no crash report. Blender runs in-process, so the whole app goes with it and the foreground service has to restart it. That cost ten app deaths in one afternoon. Never set a GPU engine.
+**`BLENDER_WORKBENCH` and `EEVEE` terminate the process.** Both are GPU rasterisers that need an OpenGL context, and this is a no-GPU build of Blender running headless inside the app. `bpy.ops.render.render()` then kills the app outright - dead in ~150 ms, no reply, no log line, no tombstone, no crash report. Blender runs in-process, so the whole app goes with it and the foreground service has to restart it. That cost ten app deaths in one afternoon. Never set a GPU engine.
+
+**The assignment gives you no warning, which is what makes it a trap.** `scene.render.engine = 'BLENDER_WORKBENCH'` returns success and even reads back as `BLENDER_WORKBENCH` afterwards; nothing at all happens until you call `render.render()`, and by then the process is already gone. Do not read "the engine accepted it" as "the engine can do it". The render-engine list this build reports is not trustworthy either - it offers one name, `BLENDER_EEVEE`, while `CYCLES` (the only engine that actually works) does not appear in it at all.
 
 `bpy.ops.render.opengl()` is safe - it reports the same condition cleanly - but it cannot render anything:
 
