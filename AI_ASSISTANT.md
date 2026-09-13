@@ -4,7 +4,7 @@ DuoSlicer can host an AI assistant that talks to a **DeepSeek harness** running 
 
 This document explains what the pieces are, why the work is split the way it is, and the protocol details that are not guessable from the outside.
 
-> **Addresses here are documentation ranges** - `192.0.2.0/24` and `198.51.100.0/24` (RFC 5737), and `100.64.0.0/10` (Tailscale's CGNAT range). Substitute your own.
+> **Addresses here are placeholders that say what belongs there** - `<phone-tailscale-ip>`, `<gpu-box-lan-ip>` and so on, so you are told what to supply rather than handed an example that looks real and will not work. The full list is in [`docs/skills/README.md`](docs/skills/README.md). The one literal range is `100.64.0.0/10`, Tailscale's CGNAT space, named because the range itself is what matters.
 
 ## The shape of it
 

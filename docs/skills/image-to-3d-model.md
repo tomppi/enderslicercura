@@ -65,10 +65,10 @@ If the prompt does not arrive with an image attached, ask for one rather than gu
 
 | | where |
 |---|---|
-| GPU box `GPU box` | `192.0.2.30`, ssh `<user>`, venv `/home/<user>/img2mesh/venv` |
+| GPU box `GPU box` | `<gpu-box-lan-ip>`, ssh `<user>`, venv `/home/<user>/img2mesh/venv` |
 | Scripts (PC copy) | `C:\Users\<you>\Documents\img2mesh\blender-mcp\` |
 | Scripts (box copy) | `/home/<user>/img2mesh/`, Hunyuan clone at `/home/<user>/hy3d` |
-| Phone | `100.64.0.20:5555` - the tailnet address - via `C:\Android\platform-tools\adb.exe`. Works anywhere the tailnet is up; `192.0.2.20:5555` only on the same WiFi |
+| Phone | `<phone-tailscale-ip>:5555` - the tailnet address - via `C:\Android\platform-tools\adb.exe`. Works anywhere the tailnet is up; `<phone-lan-ip>:5555` only on the same WiFi |
 
 Transport is `box.py` — `--put`, `--get`, `--sudo`, credentials in `box-credentials.json`.
 

@@ -23,13 +23,19 @@ It reads the substitution map from `.dsh/publish-map.json` - itself gitignored, 
 
 ## Address conventions
 
-Substituted values use reserved ranges so they are recognisable as examples and can never collide with a real network:
+Substituted values say what belongs there rather than inventing an address, so a
+reader is told what to supply instead of being handed an example that looks real
+and will not work:
 
-| range | standard | used for |
-|---|---|---|
-| `192.0.2.0/24` | RFC 5737 (TEST-NET-1) | local network addresses |
-| `198.51.100.0/24` | RFC 5737 (TEST-NET-2) | the point-to-point link between the waking device and the GPU box |
-| `100.64.0.0/10` | RFC 6598 (shared address space) | tailnet addresses |
-| `02:00:5e:10:00:01` | locally administered | the wake-on-LAN target's MAC |
+| placeholder | what to put there |
+|---|---|
+| `<phone-lan-ip>` | the phone's address on your own network |
+| `<phone-tailscale-ip>` | the phone's tailnet address - the one that works anywhere |
+| `<gpu-box-lan-ip>`, `<gpu-box-tailscale-ip>` | the GPU box, on the LAN and on the tailnet |
+| `<pc-lan-ip>`, `<pc-tailscale-ip>` | the machine running the harness |
+| `<pi-lan-ip>`, `<pi-link-ip>` | the Raspberry Pi, on your network and on the point-to-point link |
+| `<gpu-box-link-ip>`, `<link-broadcast>` | the far end and broadcast address of that link |
+| `<lan-ip>`, `<windows-hotspot-ip>` | any local address, and one handed out by a Windows hotspot |
+| `<wake-target-mac>` | the MAC that wake-on-LAN is addressed to |
 
 Hostnames and logins appear as placeholders (`<user>`, `<you>`, `phone-host`, `<pi-password>`). The application's own package id is left as-is: it is public, and the commands that reference it would be useless without it.
