@@ -163,9 +163,16 @@ fun ModellingPreview(
         val halfHeight = (distance * tan(Math.toRadians(fov / 2.0))).toFloat()
         val halfWidth = halfHeight * (width.toFloat() / height)
 
+        // Measured from the middle of the view, which is where the camera is
+        // aimed. Using the raw position put the origin at the top-left corner
+        // instead, so a pinch asked to keep the wrong point still - the model's
+        // centre sits at the corner, not the middle, in those coordinates. Pan
+        // was unaffected because it passes a difference, where it cancels.
+        val dx = pixel.x - width / 2f
+        val dy = pixel.y - height / 2f
         // Screen y grows downwards; the view's up does not.
-        val right = (pixel.x / (width / 2f)) * halfWidth
-        val up = (-pixel.y / (height / 2f)) * halfHeight
+        val right = (dx / (width / 2f)) * halfWidth
+        val up = (-dy / (height / 2f)) * halfHeight
         return floatArrayOf(
             rx * right + ux * up,
             ry * right + uy * up,
@@ -198,7 +205,9 @@ fun ModellingPreview(
      * that is the point you asked to look at.
      */
     fun applyZoom(factor: Float, centroid: Offset) {
-        if (!factor.isFinite() || factor <= 0f || abs(factor - 1f) < 1e-4f) return
+        // Two fingers resting on glass still report a spread that drifts; below
+        // this the accumulated shift is noise, not intent.
+        if (!factor.isFinite() || factor <= 0f || abs(factor - 1f) < 2e-3f) return
         val world = worldOffsetOf(centroid)
         val shift = 1f - 1f / factor
         applyTarget(floatArrayOf(world[0] * shift, world[1] * shift, world[2] * shift))
@@ -312,12 +321,25 @@ fun ModellingPreview(
                     awaitFirstDown(requireUnconsumed = false)
                     var previous: Offset? = null
                     var previousSpread = 0f
+                    var previousCount = 0
                     while (true) {
                         val event = awaitPointerEvent()
                         val pressed = event.changes.filter { it.pressed }
                         if (pressed.isEmpty()) break
                         val centroid = pressed.fold(Offset.Zero) { sum, c -> sum + c.position } /
                             pressed.size.toFloat()
+
+                        if (pressed.size != previousCount) {
+                            // A finger arrived or left, so the centroid moved
+                            // without anything being dragged: from one finger to
+                            // the midpoint of two is half the distance between
+                            // them, in one frame. Treating that as a drag yanked
+                            // the camera across the model the moment a second
+                            // finger touched down.
+                            previous = null
+                            previousSpread = 0f
+                            previousCount = pressed.size
+                        }
 
                         if (pressed.size >= 2) {
                             val spread = (pressed[0].position - pressed[1].position).getDistance()
