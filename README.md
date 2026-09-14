@@ -78,6 +78,8 @@ Imported values are kept as a persistent baseline: they stay in effect until you
 <p align="center">
   <img src="docs/screenshots/modelling.jpg" width="300" alt="Modelling screen: the model filling the view, with the agent's report in the chat below it">
 </p>
+- **The engine itself is not in this repository.** `app/src/main/jniLibs/arm64-v8a/` and `app/src/main/assets/blender/` are gitignored: they hold the built `libblender_exec.so` (~125 MB), the CPython stdlib, Blender's scripts and the datafiles — some 500 MB of staged artifacts, *delivered* rather than source. A clean clone builds and runs the slicer, and has no Blender engine in it. What is here is the source that matters: the JNI wrapper, the creator glue and the engine patches under [`native/blender/`](native/blender/README.md)
+- **Anything edited under `assets/blender` is one clean clone away from not existing.** Edit it, and copy the change back to `native/blender/` so it is versioned — the startup script that turns on the modelling addons lives in both places for exactly that reason
 - Protocol, runbook and verification evidence: [`BLENDER_MCP_INTEGRATION.md`](BLENDER_MCP_INTEGRATION.md)
 - **Plate ▸ Blender ▸ Upload model to Blender** copies the loaded model into the engine's import directory so it can be opened and modified there; the result returns through the export handoff above. **Stop Blender engine** ends the engine and its keeper service deliberately
 
