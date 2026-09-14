@@ -26,7 +26,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Uploading a model to the engine only copied the file into the import directory, so the engine kept whatever it already held; it now loads it.
 - A restarted engine put back the file the user sent rather than the newest thing the engine produced, discarding everything done to it since.
 
-## [Unreleased]
+## [1.2.1] - 2026-09-14
 
 ### Fixed
 
