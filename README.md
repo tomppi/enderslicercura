@@ -159,6 +159,10 @@ scripts/build-curaengine-android.sh
 gradle :app:verifyDebugApkContents
 ```
 
+Debug builds are signed with the committed [`keystore/debug.keystore`](keystore/README.md):
+a sideload build has to keep one identity, or every release refuses to install over
+the last one.
+
 **From a clean clone: `./scripts/setup.sh`.** It checks the toolchain, stages all three engines from their own scripts, and assembles the debug APK — failing early with the name of the script to run rather than letting Gradle find the problem minutes in. All three now stage automatically — the Blender engine is fetched from this
 release's `blender-engine-arm64-<tag>.zip`, or from `BLENDER_ENGINE_DIR` if you
 have built one yourself.

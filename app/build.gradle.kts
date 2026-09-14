@@ -25,6 +25,21 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    // The debug key is committed on purpose. A sideload build has to keep one
+    // identity across local and CI builds: with the runner's throwaway debug key
+    // every release refuses to install over the last one
+    // (INSTALL_FAILED_UPDATE_INCOMPATIBLE), and the only way out is uninstalling,
+    // which takes the app's data with it. This is the key the 1.2.0 APK was
+    // published with, so upgrades continue to work in place.
+    signingConfigs {
+        getByName("debug") {
+            storeFile = rootProject.file("keystore/debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false

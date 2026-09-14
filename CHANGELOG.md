@@ -53,6 +53,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `jniLibs/`, the fetch script stages it (falling back to
   `native/blender/blender-jniLibs`), and both the fetch step and
   `verifyDebugApkContents` fail when the runtime libraries are missing.
+- **Builds were signed with a throwaway key.** AGP generates a debug key when
+  none is configured, so every CI run produced an APK that refused to install
+  over the last one (`INSTALL_FAILED_UPDATE_INCOMPATIBLE`) and left uninstalling -
+  and losing the app's data with it - as the only way forward. `keystore/debug.keystore`
+  is committed and wired into `signingConfigs`, so CI and local builds share the
+  key the 1.2.0 APK was published with and upgrades work in place.
 
 ## [1.1.0] - 2026-09-12
 
