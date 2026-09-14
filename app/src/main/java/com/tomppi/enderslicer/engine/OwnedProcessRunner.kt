@@ -34,7 +34,8 @@ internal object OwnedProcessRunner {
         }
     }
 
-    private fun terminate(process: Process, shutdownGraceMillis: Long) {
+    /** Stops [process] (destroy, grace, then force) for owners that reap it themselves. */
+    internal fun terminate(process: Process, shutdownGraceMillis: Long) {
         if (!process.isAlive) return
         process.destroy()
         try {

@@ -91,9 +91,24 @@ internal object CuraEnginePostProcessor {
             null
         }
 
+        // The AML block belongs to the retained base G-code: the layer-event
+        // publish path rebuilds the published file from base.gcode, so injecting
+        // after that copy silently dropped leveling from every layer-event edit.
+        // Injecting before validation also keeps the sanitizer summary and the
+        // layer preview describing the bytes that are actually published. The
+        // injector is idempotent, and the block always lands before the first
+        // layer marker, so the sanitizer accepts it as startup G-code.
+        val amlInjected = amlEnabled &&
+            AdaptiveBedMeshInjector.inject(outputFile, effectiveEnvelope, amlMarginMm, amlGridPoints)
+        val validatedTransport = if (amlInjected) {
+            "$effectiveTransport+adaptive-mesh-leveling"
+        } else {
+            effectiveTransport
+        }
+
         val baseSummary = GcodeSanitizer.validateAndRepair(
             file = outputFile,
-            settingsTransport = effectiveTransport,
+            settingsTransport = validatedTransport,
             printerEnvelope = effectiveEnvelope,
         )
         outputFile.copyTo(baseGcodeFile, overwrite = true)
@@ -107,9 +122,6 @@ internal object CuraEnginePostProcessor {
             layerEvents.filter { it.layerNumber in validLayerNumbers },
         )
 
-        if (amlEnabled) {
-            AdaptiveBedMeshInjector.inject(outputFile, effectiveEnvelope, amlMarginMm, amlGridPoints)
-        }
         if (resolvedEvents.isEmpty()) {
             return Result(
                 summary = baseSummary,
@@ -125,13 +137,10 @@ internal object CuraEnginePostProcessor {
         GcodeLayerEventProcessor.materialize(baseGcodeFile, outputFile, resolvedEvents, firmware)
         val summary = GcodeSanitizer.validateAndRepair(
             file = outputFile,
-            settingsTransport = "$effectiveTransport+layer-events",
+            settingsTransport = "$validatedTransport+layer-events",
             printerEnvelope = effectiveEnvelope,
         )
         val previewResult = runCatching { GcodeLayerPreviewParser.parse(outputFile) }
-        if (amlEnabled) {
-            AdaptiveBedMeshInjector.inject(outputFile, effectiveEnvelope, amlMarginMm, amlGridPoints)
-        }
         return Result(
             summary = summary,
             layerPreview = previewResult.getOrNull(),

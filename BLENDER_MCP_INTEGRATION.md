@@ -115,9 +115,10 @@ They ship inside `blender-engine-arm64-<tag>.zip` as `jniLibs/*.so`, and
 copy is needed — and none would survive a clean clone, which is why the package
 carries them.
 
-`verifyDebugApkContents` fails when `libcpython.so`, `libopenvdb.so`,
-`libavcodec.so`, `libOpenImageDenoise_core.so` or `libc++_shared.so` is missing
-from the APK: the check that the release shipping without them went past.
+`verifyDebugApkEngines` (Cura + Prusa + Blender APK checks; `verifyDebugApkContents`
+is the Cura-only one) fails when `libcpython.so`, `libopenvdb.so`, `libavcodec.so`,
+`libOpenImageDenoise_core.so` or `libc++_shared.so` is missing from the APK: the
+check that the release shipping without them went past.
 
 ### 3.2 First-run asset extraction
 
@@ -148,7 +149,14 @@ Call sites, as built:
   well as the generator, so the app wants it ready when the screen opens.
 - On service/process death, the engine dies with the process - start() again
   next time (it's idempotent: guards on `nativeBlenderIsRunning()`).
-- Stop on app exit: `BlenderBridge.stop()` (graceful addon shutdown).
+- Stop is a socket `shutdown` (`BlenderEngine.shutdown`). The engine then parks
+  inside the process rather than returning from its start script: returning ends
+  Blender's background main and Blender's teardown calls `exit()`, which kills the
+  app. `nativeBlenderStop`'s flag is read by nothing and exists for symmetry only.
+- The socket needs the token the app writes next to the addon
+  (`scripts/startup/blender_mcp_token.txt`). Without it any co-installed app could
+  reach 127.0.0.1:9876 and run Python as this app's uid. An engine started by hand
+  with no token file stays open, which is the development path.
 
 Example:
 

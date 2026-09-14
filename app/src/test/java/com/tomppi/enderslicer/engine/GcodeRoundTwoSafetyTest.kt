@@ -93,6 +93,30 @@ class GcodeRoundTwoSafetyTest {
     }
 
     @Test
+    fun acceptsThePrusaM74LayerMarkerInGrams() {
+        // PrusaSlicer sends M74 W[extruded_weight_total], i.e. the extruded
+        // filament WEIGHT in grams, so an ordinary 1 kg print reaches W1000 and
+        // the old 0..100 "percent" bound rejected the slice after the engine had
+        // already spent minutes slicing it.
+        listOf("M74 W0", "M74 W25.4", "M74 W100", "M74 W1000", "M74 W12500.5").forEach { line ->
+            GcodeCommandPolicy.requirePublishedSafe(
+                requireNotNull(GcodeCommand.parse(line)),
+                currentLayer = 3,
+                lineNumber = 7,
+            )
+        }
+
+        val failure = runCatching {
+            GcodeCommandPolicy.requirePublishedSafe(
+                requireNotNull(GcodeCommand.parse("M74 W100001")),
+                currentLayer = 3,
+                lineNumber = 7,
+            )
+        }.exceptionOrNull()
+        assertTrue(failure is IllegalArgumentException)
+    }
+
+    @Test
     fun incompleteArtifactsCannotAcquireANoopLease() {
         val directory = Files.createTempDirectory("incomplete-artifact").toFile()
         try {

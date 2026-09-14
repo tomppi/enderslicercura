@@ -7,6 +7,10 @@ local.properties
 .DS_Store
 build/
 **/build/
+# CI engine snapshots and build logs (.github/workflows/prusa-engine-android.yml):
+# they are published as workflow artifacts, never committed - the 2.9.6 engine
+# that used to live here is 90 MB that nothing in the tree reads.
+.build-artifacts/
 .externalNativeBuild/
 .cxx/
 .build/

@@ -82,15 +82,54 @@ jobs:
         run: |
           chmod +x scripts/fetch-cura-resources.sh
           scripts/fetch-cura-resources.sh
-          grep -q 'Cura resources: 5.14.0-alpha.0' app/src/main/assets/cura/definitions/version.txt
-          for name in \
-            fdmprinter \
-            fdmextruder \
-            creality_base \
-            creality_base_extruder_0 \
-            creality_ender3; do
-            test -s "app/src/main/assets/cura/definitions/$name.def.json"
-          done
+          # version.txt is written from a heredoc by the fetch script, so asserting
+          # its contents only ever asserts the script's own text. These assertions
+          # read the downloaded definitions instead: the pinned Cura metadata, and
+          # a digest over the complete fetched chain.
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import pathlib
+
+          root = pathlib.Path("app/src/main/assets/cura/definitions")
+          names = [
+              "fdmprinter",
+              "fdmextruder",
+              "creality_base",
+              "creality_base_extruder_0",
+              "creality_ender3",
+          ]
+          # The chain the embedded engine and the definition tests are verified
+          # against. It moves only when the Cura resources move, and then the
+          # engine build, the definition tests and this digest move together.
+          expected_digest = "e67b91190f6168edcf9b74386bb8790e5d897846a171fedeacf77772fc1c6a0b"
+
+          missing = [name for name in names if not (root / (name + ".def.json")).is_file()]
+          if missing:
+              raise SystemExit("Cura definitions were not fetched: " + ", ".join(missing))
+
+          fdmprinter = json.loads((root / "fdmprinter.def.json").read_text(encoding="utf-8"))
+          setting_version = fdmprinter.get("metadata", {}).get("setting_version")
+          if fdmprinter.get("version") != 2 or setting_version != 27:
+              raise SystemExit(
+                  "fdmprinter.def.json is not the pinned Cura definition "
+                  "(file version {}, setting version {})".format(fdmprinter.get("version"), setting_version)
+              )
+
+          digest = hashlib.sha256()
+          for path in sorted(root.glob("*.def.json")):
+              digest.update(path.name.encode())
+              digest.update(b"\0")
+              digest.update(path.read_bytes())
+          if digest.hexdigest() != expected_digest:
+              raise SystemExit(
+                  "The fetched Cura definition chain changed (sha256 {}). Review the new "
+                  "resources, re-run the definition tests, then update expected_digest "
+                  "in .github/workflows/build.yml.".format(digest.hexdigest())
+              )
+          print("Validated {} Cura definitions, setting version {}, sha256 {}".format(
+              len(names), setting_version, digest.hexdigest()))
+          PY
 
       - name: Prepare and validate pinned BumpMesh workspace
         run: |
@@ -268,7 +307,7 @@ jobs:
       - name: Build debug APK
         run: |
           set -o pipefail
-          gradle :app:verifyDebugApkContents --stacktrace 2>&1 | tee apk-build.log
+          gradle :app:verifyDebugApkEngines --stacktrace 2>&1 | tee apk-build.log
           unzip -l app/build/outputs/apk/debug/app-debug.apk | tee apk-contents.log
           sha256sum app/build/outputs/apk/debug/app-debug.apk | tee apk-sha256.log
           grep -q 'lib/arm64-v8a/libcuraengine_exec.so' apk-contents.log

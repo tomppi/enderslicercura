@@ -59,6 +59,108 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and losing the app's data with it - as the only way forward. `keystore/debug.keystore`
   is committed and wired into `signingConfigs`, so CI and local builds share the
   key the 1.2.0 APK was published with and upgrades work in place.
+- **A `shutdown` command - or a port already in use - killed the whole app.** The
+  MCP addon runs as `blender -b --python`, so *returning* from that script ends
+  Blender's background main, and Blender's teardown calls `exit()`. Sending the
+  documented `shutdown` (reproduced on the device) or starting the engine while
+  9876 was held took the app process with it, losing whatever was unsaved; Android
+  restarted the keeper service, which made it look like a restart rather than a
+  death. The addon now parks instead of returning, records a failed bind in a
+  status file, and serves again when the app asks through
+  `blender_mcp_restart.txt`.
+- **`native/blender/assets/startup/blender_mcp_slim.py` was never in the
+  repository.** The MCP server that ships inside the app existed only in the
+  delivery tree and the release archive, so nothing in git described what the
+  engine actually runs - and a fix could not have reached a clone or CI. Both
+  startup scripts are tracked now, and the fetch script lays them over the
+  package's copies.
+- **"Stop Blender engine" did nothing.** It set a native flag nothing read, so the
+  engine thread, its socket and the loaded scene kept running while the UI said
+  otherwise. Stop now sends the socket `shutdown`, cancels the exports watcher and
+  logs what actually happened; the engine's memory is released when the app exits,
+  which is the only thing that can release an in-process engine.
+- **The engine's socket was open to every app on the device.** Any co-installed app
+  could reach 127.0.0.1:9876 and run Python as this app's uid - reading the harness
+  token and chat state out of the app's private files was one request away. The app
+  now generates a token, writes it next to the addon and sends it with every
+  request; the engine refuses everything else. An engine started by hand with no
+  token file stays open, which is the development path.
+- The MCP server only understood one request per read: two requests arriving
+  together were never parsed, never answered and never dropped, and the receive
+  buffer had no ceiling. Requests are now newline-delimited as well as
+  unterminated, the buffer is bounded, and a request that arrives while a command
+  has been running for more than ten seconds is told the engine is busy instead of
+  waiting out its own timeout.
+- **The preview never returned to full size.** After a gesture - or a rotation, or
+  collapsing the chat - the picture stayed at the 512-pixel interactive frame: the
+  re-render wrote an equal camera back into snapshot state, which is not a change,
+  and the render loop waits for a change. The render trigger is now its own state,
+  so `Copy`-equal writes cannot swallow it.
+- The published handoff was never imported if the engine was still booting when
+  Modelling opened: a failed `isOnDefaultScene` read as "the scene has content",
+  and the import was single-shot. The question now has three answers - yes, no,
+  could not ask - and the import waits for the engine in the third case.
+- An engine restart re-imported the export it had already handed over (replacing
+  the model the user had just sent) and left another poller and FileObserver
+  running: the newest export is claimed like any other, the watcher is cancelled
+  and replaced, and the poller is owned by a job that can be cancelled.
+- An export that arrived while the app was busy was claimed and then dropped, so
+  the model was lost with no message. The newest one is now taken as soon as the
+  running operation finishes.
+- Camera writes ran on the UI thread, one file write and rename per pointer event,
+  and an agent camera write could be adopted mid-drag, cancelling the gesture and
+  jumping the view. Writes go to a serialised background dispatcher, and the agent's
+  camera is adopted between gestures.
+- A socket kept the timeout it was created with, so an import could be cut off at
+  20 s or a render left blocking for 180 s; a reply split across a read boundary
+  decoded into U+FFFD. Both are fixed at the connection.
+- One transient engine-start failure disabled the engine for the life of the
+  process, with no retry and nothing said; startup failures now re-arm.
+- **PrusaSlicer prints over ~100 g were rejected after slicing.** The G-code policy
+  bounded `M74 W` to 0..100 as a percent, but PrusaSlicer emits filament weight in
+  grams (`GCode.cpp` `w = volume * density * 0.001`, and the shipped profile emits
+  `M74 W[extruded_weight_total]`), so the app's own sanitizer threw on its own
+  output.
+- **Adaptive bed mesh was lost after any layer-event edit.** The base G-code was
+  copied out before the AML block was injected, and re-applying layer events rebuilt
+  the published file from that base, so the `C29` region quietly disappeared.
+- **"All settings" values were ignored whenever an imported profile was active.**
+  Only the standalone settings transport accepted them; the resolved-profile
+  transport dropped them silently while the UI listed them as used by every slice.
+- "Interface thickness" did nothing without an imported profile: the standalone
+  transport overwrote the user's value with `layer height x 4`.
+- The Prusa nozzle-path preview kept every move of a large print instead of
+  sampling to the cap the Cura twin honours, and labelled the result as sampled.
+- An extra "all settings" value was never validated: one blank or malformed entry
+  was persisted and re-sent on every later slice, failing them all with a generic
+  engine error.
+- `PrusaConfigWriter.MANAGED_KEYS` had no reader and disagreed with the list the UI
+  annotates from, so the "(managed by the app)" hint was wrong on both sides.
+- A failure between starting PrusaSlicer and opening its log sink leaked the child
+  process while its workspace was deleted underneath it.
+- `scripts/setup.sh` - the advertised clean-clone path - built CuraEngine without
+  `APP_JNILIBS_DIR` (so nothing was staged) and never fetched the Cura definitions
+  (which are not in the repository at all), so it could not produce a working APK.
+- The Gradle APK checks were orphaned: `verifyDebugApkContents` verifies CuraEngine
+  only, and the Prusa and Blender checks that hang off it are run by nothing - while
+  the README and CI present that command as the three-engine check.
+- `fetch-prusa-engine-android.sh` died on an unset `ANDROID_NDK_HOME` halfway
+  through a local staging run, and never recorded which run or branch its engine
+  came from.
+- The PrusaSlicer dependency cache was keyed on a static string, so a change to the
+  deps build silently reused the old bundle (the workflow asked a human to bump a
+  `-vN` suffix by hand).
+- `.build-artifacts/prusa-engine/` (92 MB of a 2.9.6 engine) was committed to the
+  repository and read by nothing; the workflow that wrote it now uploads an
+  artifact instead.
+- The Cura-resource version check in CI could not fail - the fetch script writes
+  the file it greps - and the skills publish script only looked for addresses it
+  already knew, reported "clean" for anything new, and printed the address it
+  found into the log.
+- Stale documentation: the front page still said 1.1.0, BumpMesh/filaSim were said
+  to be prepared before `preBuild` (they hang off `mergeDebugAssets`), the notices
+  pointed at an untracked directory and claimed a trademark licence that does not
+  ship, and two runbooks described menu paths the 1.1.0 redesign removed.
 
 ## [1.1.0] - 2026-09-12
 

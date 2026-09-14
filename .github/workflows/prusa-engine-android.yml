@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 240
     permissions:
-      contents: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -54,34 +54,12 @@ jobs:
           name: prusa-build-log
           if-no-files-found: ignore
           path: prusa-android-build.log
-      - name: Save build log into repo on failure
-        if: failure()
-        run: |
-          [ -f prusa-android-build.log ] || { echo lost > prusa-android-build.log; }
-          python3 - <<'PY'
-          import base64, json, os, time, pathlib, urllib.request
-          p = pathlib.Path('prusa-android-build.log')
-          b64 = base64.b64encode(p.read_bytes()).decode()
-          name = '.build-artifacts/prusa-ci-log-%d.txt' % int(time.time())
-          payload = json.dumps({
-            'message': 'ci: snapshot of failed Prusa engine build log',
-            'content': b64,
-            'branch': 'feature/prusa-engine-android',
-          }).encode()
-          req = urllib.request.Request(
-            'https://api.github.com/repos/%s/contents/%s' % (os.environ['GITHUB_REPOSITORY'], name),
-            data=payload, method='PUT',
-            headers={'Authorization': 'Bearer ' + os.environ['GITHUB_TOKEN'],
-                     'Accept': 'application/vnd.github+json',
-                     'Content-Type': 'application/json'})
-          try:
-              with urllib.request.urlopen(req) as resp:
-                  print(resp.status, name)
-          except Exception as exc:
-              print('SNAPSHOT-FAILED:', type(exc).__name__, str(exc)[:300])
-              raise
-          PY
-      - name: Publish stripped engine into the repo
+      # The stripped console and the resources tarball are published as a
+      # workflow artifact. They used to be committed to
+      # .build-artifacts/prusa-engine/ on every push to this branch, which put
+      # 90 MB of a 2.9.6 engine that nothing in the tree reads into the
+      # repository (and into every clone) for good.
+      - name: Package the stripped engine
         run: |
           set -euo pipefail
           DEST="${GITHUB_WORKSPACE}/.build-artifacts/prusa-engine"
@@ -100,23 +78,11 @@ jobs:
           [ -x "$STRIP" ] || { echo "llvm-strip not found for the engine binary"; exit 1; }
           "$STRIP" -s "$BIN" -o "$DEST/prusa-slicer"
           ( cd "${GITHUB_WORKSPACE}/prusa-build/out" && tar -czf "$DEST/resources.tar.gz" resources )
-          python3 - <<'PY'
-          import base64, json, os, urllib.request
-          for name in ('prusa-slicer', 'resources.tar.gz'):
-              path = '.build-artifacts/prusa-engine/' + name
-              data = open(path, 'rb').read()
-              print(name, len(data), 'bytes')
-              payload = json.dumps({
-                'message': 'ci: prusa engine artifact refresh (' + name + ')',
-                'content': base64.b64encode(data).decode(),
-                'branch': 'feature/prusa-engine-android',
-              }).encode()
-              req = urllib.request.Request(
-                'https://api.github.com/repos/%s/contents/%s' % (os.environ['GITHUB_REPOSITORY'], path),
-                data=payload, method='PUT',
-                headers={'Authorization': 'Bearer ' + os.environ['GITHUB_TOKEN'],
-                         'Accept': 'application/vnd.github+json',
-                         'Content-Type': 'application/json'})
-              with urllib.request.urlopen(req) as resp:
-                  print(resp.status, path)
-          PY
+          ls -la "$DEST"
+      - name: Upload the packaged PrusaSlicer 2.9.6 engine
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: PrusaSlicer-2.9.6-android-arm64-packaged
+          if-no-files-found: ignore
+          path: .build-artifacts/prusa-engine/**

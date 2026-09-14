@@ -4,6 +4,8 @@ import android.content.Context
 import com.tomppi.enderslicer.conical.ConicalPreparations
 import com.tomppi.enderslicer.conical.ConicalRuntime
 import com.tomppi.enderslicer.mesh.MeshTriangleLimits
+import com.tomppi.enderslicer.model.AllSettingsCatalogs
+import com.tomppi.enderslicer.model.ExtraSettingSpec
 import com.tomppi.enderslicer.model.PrinterDefinition
 import com.tomppi.enderslicer.model.SlicerSettings
 import com.tomppi.enderslicer.model.withSettings
@@ -72,6 +74,16 @@ class CuraEngineRunner(private val context: Context) {
     private val nativeDirectory = File(context.applicationInfo.nativeLibraryDir)
     private val executable = File(nativeDirectory, ENGINE_LIBRARY_NAME)
     private val publisher = SliceArtifactPublisher(File(context.filesDir, "slice-results"))
+
+    /**
+     * The bundled Cura definitions double as the "all settings" catalogue, so
+     * parsing them once per process lets the command builder apply the catalogue
+     * value types without stalling the UI thread that restores the persisted
+     * extras. It is only touched from the slicing thread.
+     */
+    private val extraSettingsCatalog: List<ExtraSettingSpec> by lazy {
+        AllSettingsCatalogs.cura(context.assets)
+    }
 
     fun isAvailable(): Boolean = executable.isFile && executable.length() > 0L
 
@@ -234,6 +246,8 @@ class CuraEngineRunner(private val context: Context) {
                     definitions.directory.absolutePath,
                     workspace.resolvedSettings.absolutePath,
                     workspace.output.absolutePath,
+                    extraSettings = extraSettings,
+                    catalog = extraSettingsCatalog,
                 )
             } else {
                 CuraEngineCommand.build(
@@ -252,6 +266,7 @@ class CuraEngineRunner(private val context: Context) {
                     adaptiveWallModifiers = adaptiveWallModifiers,
                     supportPaintModifiers = supportPaintModifiers,
                     extraSettings = extraSettings,
+                    catalog = extraSettingsCatalog,
                 )
             }
             appendCommandLog(log, definitions, resolved, workspace.resolvedSettings, command)

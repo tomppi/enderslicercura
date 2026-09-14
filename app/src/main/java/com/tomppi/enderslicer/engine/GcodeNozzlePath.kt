@@ -210,7 +210,12 @@ object GcodeNozzlePathParser {
         )
     }
 
-    private fun countSpatialMoves(file: File, dialect: GcodeDialect, report: (Float) -> Unit = {}): Int {
+    /**
+     * Counts the spatial moves the preview would emit, reporting progress over
+     * the first half of the bar. Shared with [PrusaNozzlePathParser], which needs
+     * the same total before it can sample its own retained set identically.
+     */
+    internal fun countSpatialMoves(file: File, dialect: GcodeDialect, report: (Float) -> Unit = {}): Int {
         val totalBytes = file.length().coerceAtLeast(1L)
         val prusaRegion = PrusaPrintRegion(dialect)
         val modalState = GcodeModalState()
@@ -263,7 +268,12 @@ object GcodeNozzlePathParser {
         return sqrt(dx * dx + dy * dy + dz * dz) > MOTION_EPSILON
     }
 
-    private fun shouldRetain(index: Int, sourceCount: Int, limit: Int): Boolean {
+    /**
+     * Even sample over the whole print: the first and last move are always kept
+     * and the remaining budget is spread across the interior, so a capped preview
+     * still shows the shape of the part. Shared with [PrusaNozzlePathParser].
+     */
+    internal fun shouldRetain(index: Int, sourceCount: Int, limit: Int): Boolean {
         if (sourceCount <= limit) return true
         if (index == 0 || index == sourceCount - 1) return true
         val interiorLimit = limit - 2

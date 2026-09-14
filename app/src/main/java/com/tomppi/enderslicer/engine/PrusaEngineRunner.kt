@@ -151,7 +151,7 @@ private val datadir = File(context.filesDir, "prusa/datadir")
                     environment()["HOME"] = context.filesDir.absolutePath
                 }
 
-            val exitCode = runWithProgress(processBuilder, log, onProgress)
+            val exitCode = runWithProgress(processBuilder::start, log, onProgress)
 
             if (exitCode != 0) {
                 throw SliceException(
@@ -207,55 +207,6 @@ private val datadir = File(context.filesDir, "prusa/datadir")
             throw SliceException(error.message ?: "PrusaSlicer failed before slicing started", log, error)
         } finally {
             workspace.directory.deleteRecursively()
-        }
-    }
-
-    /**
-     * Starts the process, streams merged output into [log] while parsing
-     * PrusaSlicer progress lines ("NN => stage") into [onProgress], and applies
-     * the same timeout/kill semantics as the Cura path.
-     */
-    private fun runWithProgress(
-        processBuilder: ProcessBuilder,
-        log: File,
-        onProgress: (Int) -> Unit,
-    ): Int {
-        val process = processBuilder.start()
-        val logSink = log.bufferedWriter()
-        val readerThread = Thread {
-            try {
-                process.inputStream.bufferedReader().forEachLine { line ->
-                    if (line.isNotBlank()) {
-                        logSink.appendLine(line)
-                        logSink.flush()
-                    }
-                    progressFrom(line)?.let { percent -> onProgress(percent.coerceIn(0, 100)) }
-                }
-            } catch (_: Exception) {
-            } finally {
-                runCatching { logSink.close() }
-            }
-        }
-        readerThread.isDaemon = true
-        readerThread.start()
-        return try {
-            if (!process.waitFor(SLICE_TIMEOUT_MINUTES, TimeUnit.MINUTES)) {
-                process.destroy()
-                if (!process.waitFor(SHUTDOWN_GRACE_MILLIS, TimeUnit.MILLISECONDS)) {
-                    process.destroyForcibly()
-                }
-                throw InterruptedException("PrusaSlicer timed out after $SLICE_TIMEOUT_MINUTES minutes")
-            }
-            process.exitValue()
-        } catch (error: InterruptedException) {
-            // Always reap the child on cancellation too (mirrors OwnedProcessRunner).
-            process.destroy()
-            if (!process.waitFor(SHUTDOWN_GRACE_MILLIS, TimeUnit.MILLISECONDS)) {
-                process.destroyForcibly()
-            }
-            throw error
-        } finally {
-            readerThread.join(2000L)
         }
     }
 
@@ -390,6 +341,58 @@ private val datadir = File(context.filesDir, "prusa/datadir")
     }
 
     companion object {
+        /**
+         * Starts the process, streams merged output into [log] while parsing
+         * PrusaSlicer progress lines ("NN => stage") into [onProgress], and applies
+         * the same timeout/kill semantics as the Cura path.
+         *
+         * The child is owned from [start]: the log writer and the reader thread are
+         * created inside the same try/finally that reaps it, so a failure there can
+         * no longer leave a running PrusaSlicer behind with its workspace deleted
+         * (mirrors OwnedProcessRunner's shape).
+         */
+        internal fun runWithProgress(
+            start: () -> Process,
+            log: File,
+            onProgress: (Int) -> Unit,
+        ): Int {
+            var process: Process? = null
+            var readerThread: Thread? = null
+            try {
+                val started = start()
+                process = started
+                val logSink = log.bufferedWriter()
+                readerThread = Thread {
+                    try {
+                        started.inputStream.bufferedReader().forEachLine { line ->
+                            if (line.isNotBlank()) {
+                                logSink.appendLine(line)
+                                logSink.flush()
+                            }
+                            progressFrom(line)?.let { percent -> onProgress(percent.coerceIn(0, 100)) }
+                        }
+                    } catch (_: Exception) {
+                    } finally {
+                        runCatching { logSink.close() }
+                    }
+                }
+                readerThread.isDaemon = true
+                readerThread.start()
+                if (!started.waitFor(SLICE_TIMEOUT_MINUTES, TimeUnit.MINUTES)) {
+                    throw InterruptedException("PrusaSlicer timed out after $SLICE_TIMEOUT_MINUTES minutes")
+                }
+                return started.exitValue()
+            } finally {
+                // Reap on every path, including a throw before the wait loop started.
+                process?.let { OwnedProcessRunner.terminate(it, SHUTDOWN_GRACE_MILLIS) }
+                try {
+                    readerThread?.join(READER_JOIN_MILLIS)
+                } catch (_: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                }
+            }
+        }
+
         /** Accepts "10 => Processing triangulated mesh" style lines. */
         internal fun progressFrom(line: String): Int? {
             val trimmed = line.trimStart()
@@ -402,6 +405,7 @@ private val datadir = File(context.filesDir, "prusa/datadir")
         private const val RESOURCES_VERSION = "prusaslicer-3.0.0-alpha11-resources-v1"
         private const val SLICE_TIMEOUT_MINUTES = 60L
         private const val SHUTDOWN_GRACE_MILLIS = 3000L
+        private const val READER_JOIN_MILLIS = 2000L
         private const val STALE_WORKSPACE_AGE_MILLIS = 24L * 60 * 60 * 1000
         private const val MINIMUM_GCODE_BYTES = 256L
     }

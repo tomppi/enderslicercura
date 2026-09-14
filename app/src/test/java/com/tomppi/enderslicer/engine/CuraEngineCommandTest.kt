@@ -2,6 +2,7 @@ package com.tomppi.enderslicer.engine
 
 import com.tomppi.enderslicer.conical.ConicalRuntime
 import com.tomppi.enderslicer.conical.ConicalSettings
+import com.tomppi.enderslicer.model.ExtraSettingSpec
 import com.tomppi.enderslicer.model.PrinterDefinition
 import com.tomppi.enderslicer.model.SlicerSettings
 import com.tomppi.enderslicer.nonplanar.NonPlanarRuntime
@@ -68,6 +69,85 @@ class CuraEngineCommandTest {
         assertFalse(command.contains("-l"))
         assertFalse(command.contains("-j"))
         assertFalse(command.contains("-s"))
+    }
+
+    @Test
+    fun resolvedTransportAppliesUserExtrasAfterTheResolvedSettingsFile() {
+        val command = CuraEngineCommand.buildResolved(
+            executablePath = "/native/libcuraengine_exec.so",
+            definitionsDirectory = "/files/definitions",
+            resolvedSettingsPath = "/files/resolved-settings.json",
+            outputPath = "/files/current.gcode",
+            extraSettings = mapOf("speed_print" to "45", "infill_sparse_density" to "30"),
+            threadCount = 4,
+        )
+
+        assertEquals(
+            listOf(
+                "/native/libcuraengine_exec.so",
+                "slice",
+                "-m4",
+                "-d",
+                "/files/definitions",
+                "-r",
+                "/files/resolved-settings.json",
+                "-o",
+                "/files/current.gcode",
+                // CuraEngine applies -s in argv order after -r, so the user's
+                // extras are the last-wins override on this transport too.
+                "-s",
+                "infill_sparse_density=30",
+                "-s",
+                "speed_print=45",
+            ),
+            command,
+        )
+        assertTrue(command.indexOf("-r") < command.indexOf("-s"))
+    }
+
+    @Test
+    fun rejectsAnUnusableExtraSettingInsteadOfSendingItToTheEngine() {
+        val failure = runCatching {
+            CuraEngineCommand.buildResolved(
+                executablePath = "/native/libcuraengine_exec.so",
+                definitionsDirectory = "/files/definitions",
+                resolvedSettingsPath = "/files/resolved-settings.json",
+                outputPath = "/files/current.gcode",
+                extraSettings = mapOf("speed_print" to " "),
+            )
+        }.exceptionOrNull()
+
+        assertTrue(failure is IllegalArgumentException)
+        assertTrue(failure?.message.orEmpty().contains("speed_print"))
+    }
+
+    @Test
+    fun appliesCatalogueValueTypesWhenTheCallerSuppliesThem() {
+        val catalog = listOf(ExtraSettingSpec(key = "speed_print", label = "Print Speed", numeric = true))
+
+        val failure = runCatching {
+            CuraEngineCommand.buildResolved(
+                executablePath = "/native/libcuraengine_exec.so",
+                definitionsDirectory = "/files/definitions",
+                resolvedSettingsPath = "/files/resolved-settings.json",
+                outputPath = "/files/current.gcode",
+                extraSettings = mapOf("speed_print" to "fast"),
+                catalog = catalog,
+            )
+        }.exceptionOrNull()
+
+        assertTrue(failure is IllegalArgumentException)
+        assertTrue(failure?.message.orEmpty().contains("must be a number"))
+
+        val accepted = CuraEngineCommand.buildResolved(
+            executablePath = "/native/libcuraengine_exec.so",
+            definitionsDirectory = "/files/definitions",
+            resolvedSettingsPath = "/files/resolved-settings.json",
+            outputPath = "/files/current.gcode",
+            extraSettings = mapOf("speed_print" to "45"),
+            catalog = catalog,
+        )
+        assertEquals("speed_print=45", accepted[accepted.size - 1])
     }
 
     @Test

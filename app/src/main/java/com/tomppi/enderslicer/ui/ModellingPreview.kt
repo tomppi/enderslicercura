@@ -35,6 +35,7 @@ import com.tomppi.enderslicer.modelling.CameraOwner
 import com.tomppi.enderslicer.modelling.EnginePreviewClient
 import com.tomppi.enderslicer.modelling.ModellingCamera
 import com.tomppi.enderslicer.modelling.SceneSummary
+import com.tomppi.enderslicer.nativebridge.BlenderEngine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
@@ -106,7 +107,7 @@ fun ModellingPreview(
     onCameraChanged: (ModellingCamera) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val client = remember { EnginePreviewClient() }
+    val client = remember { EnginePreviewClient(tokenFile = BlenderEngine.tokenFile(blenderDir)) }
     DisposableEffect(client) { onDispose { client.close() } }
 
     var yaw by remember { mutableStateOf(initialCamera?.yawDeg ?: -28f) }
@@ -137,6 +138,11 @@ fun ModellingPreview(
     var status by remember { mutableStateOf<String?>("Looking at the engine's scene...") }
     var interacting by remember { mutableStateOf(false) }
     val lastGestureAt = remember { AtomicLong(0L) }
+    // Bumped when the picture must be rendered again at the same camera - the
+    // settle after a gesture, or a new view size. Writing an equal camera back
+    // into [requested] is invisible to snapshot state and to the render loop's
+    // own comparison, so both of those used to be no-ops.
+    var renderNonce by remember { mutableStateOf(0) }
 
     /** The frame the app renders at rest: what the agent is told to match. */
     fun settledSize(): Pair<Int, Int> = Pair(
@@ -287,13 +293,16 @@ fun ModellingPreview(
             else -> sent
         }
         if (handoff != null) {
-            val untouched = withContext(Dispatchers.IO) {
-                runCatching { client.isOnDefaultScene() }.getOrDefault(false)
-            }
-            if (untouched) {
+            // null means the engine could not be asked yet - it is still booting.
+            // Reading that as "the scene has content" is what silently skipped the
+            // import and left the default cube in the engine instead of the model.
+            val untouched = withContext(Dispatchers.IO) { client.isOnDefaultScene() }
+            if (untouched != false) {
                 status = "Loading " + handoff.name + " into the engine..."
                 val loaded = withContext(Dispatchers.IO) {
-                    runCatching { client.importModel(handoff, blenderDir) }.getOrDefault(false)
+                    // Waits for the engine when it is still coming up, which is the
+                    // case this used to lose.
+                    runCatching { client.importModelWhenReady(handoff, blenderDir) }.getOrDefault(false)
                 }
                 if (!loaded) status = "Could not load the model into the engine"
             }
@@ -353,7 +362,7 @@ fun ModellingPreview(
         if (width == renderWidth && height == renderHeight) return@LaunchedEffect
         renderWidth = width
         renderHeight = height
-        requested.value = requested.value?.copy()
+        renderNonce++
     }
 
     // When the finger lifts, ask once more at full size. This is what makes the
@@ -362,7 +371,7 @@ fun ModellingPreview(
         if (!interacting) return@LaunchedEffect
         while (System.currentTimeMillis() - lastGestureAt.get() < SettleMs) delay(40)
         interacting = false
-        requested.value = requested.value?.copy()
+        renderNonce++
     }
 
     // One render at a time, always the newest camera.
@@ -374,6 +383,7 @@ fun ModellingPreview(
                 delay(50)
                 continue
             }
+            val nonce = renderNonce
             val (width, height) = frameSize()
             val outcome = withContext(Dispatchers.IO) {
                 runCatching { client.renderPreview(camera, width, height, file) }
@@ -395,7 +405,10 @@ fun ModellingPreview(
             } else {
                 status = "The engine refused the render"
             }
-            snapshotFlow { requested.value }.first { it != camera }
+            // Either the camera moved, or the same camera has to be rendered again
+            // (settle to full size, new view size).
+            snapshotFlow { requested.value to renderNonce }
+                .first { (latest, latestNonce) -> latest != camera || latestNonce != nonce }
         }
     }
 

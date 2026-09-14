@@ -1,5 +1,7 @@
 package com.tomppi.enderslicer.engine
 
+import com.tomppi.enderslicer.model.ExtraSettingSpec
+import com.tomppi.enderslicer.model.ExtraSettingValidation
 import com.tomppi.enderslicer.model.PrinterDefinition
 import com.tomppi.enderslicer.model.SlicerSettings
 import com.tomppi.enderslicer.model.resolveEndGcode
@@ -21,6 +23,8 @@ object CuraEngineCommand {
         definitionsDirectory: String,
         resolvedSettingsPath: String,
         outputPath: String,
+        extraSettings: Map<String, String> = emptyMap(),
+        catalog: List<ExtraSettingSpec> = emptyList(),
         threadCount: Int = recommendedThreadCount(),
     ): List<String> {
         require(threadCount in 1..32) { "Invalid CuraEngine thread count: $threadCount" }
@@ -36,7 +40,7 @@ object CuraEngineCommand {
             resolvedSettingsPath,
             "-o",
             outputPath,
-        )
+        ) + extraArguments(extraSettings, catalog)
     }
 
     fun build(
@@ -55,6 +59,7 @@ object CuraEngineCommand {
         adaptiveWallModifiers: List<AdaptiveWallModifier> = emptyList(),
         supportPaintModifiers: List<SupportPaintModifier> = emptyList(),
         extraSettings: Map<String, String> = emptyMap(),
+        catalog: List<ExtraSettingSpec> = emptyList(),
         threadCount: Int = recommendedThreadCount(),
     ): List<String> {
         require(profile == null) {
@@ -236,7 +241,10 @@ object CuraEngineCommand {
         setting("machine_nozzle_size", effectivePrinter.nozzleSizeMm)
         setting("material_diameter", effectivePrinter.filamentDiameterMm)
 
-        val interfaceHeight = effectiveSettings.layerHeightMm * 4.0
+        // The user's interface thickness wins here: the standalone transport
+        // used to overwrite the value applied above with layerHeight * 4, which
+        // made the UI field do nothing on this transport.
+        val interfaceHeight = effectiveSettings.supportInterfaceHeightMm
         val density = effectiveSettings.supportInterfaceDensityPercent.coerceIn(0.0, 100.0)
         val lineDistance = if (density <= 0.0) 0.0 else effectiveSettings.lineWidthMm * 100.0 / density * 2.0
         setting("support_interface_extruder_nr", 0)
@@ -330,8 +338,31 @@ object CuraEngineCommand {
         command += listOf("-o", outputPath)
         // User-added extras are applied strictly after every app-controlled setting
         // so they win over defaults and app values alike (last wins).
-        extraSettings.toSortedMap().forEach { (key, value) -> setting(key, sanitizeExtraValue(value)) }
+        command += extraArguments(extraSettings, catalog)
         return command
+    }
+
+    /**
+     * Extra settings as `-s key=value` arguments, sorted for a stable log.
+     *
+     * CuraEngine applies `-s` values in argv order, so appending them after the
+     * settings source (-r resolved JSON, or every -s the standalone transport
+     * emits) makes the user's value the last-wins override on both transports.
+     * Values are validated here: a blank or malformed entry otherwise reaches the
+     * engine as an opaque argument and fails the whole slice with a generic
+     * engine error that never names the offending key. [catalog] supplies the
+     * engine's value types (numeric keys) when the caller has them.
+     */
+    private fun extraArguments(
+        extraSettings: Map<String, String>,
+        catalog: List<ExtraSettingSpec>,
+    ): List<String> {
+        val specs = catalog.associateBy(ExtraSettingSpec::key)
+        return extraSettings.toSortedMap().flatMap { (key, value) ->
+            require(ExtraSettingValidation.isValidKey(key)) { "Extra setting key \"$key\" is invalid" }
+            ExtraSettingValidation.requireValid(key, value, specs[key])
+            listOf("-s", "$key=$value")
+        }
     }
 
     private fun recommendedThreadCount(): Int = CpuTopology.detect().recommendedThreadCount
@@ -344,8 +375,4 @@ object CuraEngineCommand {
     private fun requireSafeArgument(value: String) {
         require('\u0000' !in value) { "CuraEngine argument contains a NUL character" }
     }
-
-    /** Extra values are single-line UI text; strip control characters and cap length. */
-    private fun sanitizeExtraValue(value: String): String =
-        value.replace("\r", "").replace("\n", " ").replace("\t", " ").take(500)
 }

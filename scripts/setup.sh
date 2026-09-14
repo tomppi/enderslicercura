@@ -7,6 +7,7 @@
 # the problem several minutes in. Each engine is staged by its own script, in the
 # same shape app/build.gradle.kts already expects:
 #
+#   Cura resources  fetched from the pinned tag  scripts/fetch-cura-resources.sh
 #   CuraEngine    built from source      scripts/build-curaengine-android.sh
 #   PrusaSlicer   fetched or built       scripts/fetch-prusa-engine-android.sh
 #   Blender       staged from a package  scripts/fetch-blender-engine-android.sh
@@ -36,6 +37,20 @@ echo
 echo "== engines =="
 JNI="app/src/main/jniLibs/arm64-v8a"
 mkdir -p "${JNI}" app/src/main/assets/blender
+
+# build-curaengine-android.sh only copies what it builds into the app package
+# when it is told where that package is; without the variable it leaves the
+# engine in .build/ and the APK ships with no CuraEngine at all.
+export APP_JNILIBS_DIR="${ROOT}/app/src/main/jniLibs"
+
+# The Cura definitions are gitignored, so a clean clone has none, and an engine
+# without them cannot resolve a single setting at slice time.
+if [ -s app/src/main/assets/cura/definitions/creality_ender3.def.json ]; then
+  echo "  Cura defs     already staged"
+else
+  echo "  Cura defs     fetching (scripts/fetch-cura-resources.sh)"
+  ./scripts/fetch-cura-resources.sh
+fi
 
 if [ -s "${JNI}/libcuraengine_exec.so" ]; then
   echo "  CuraEngine    already staged"
@@ -67,8 +82,46 @@ else
 fi
 
 echo
-echo "== assets =="
-echo "  BumpMesh and filaSim are pinned and unpacked by Gradle before preBuild"
+echo "== staged tree =="
+missing=""
+require_file() {
+  if [ -s "$1" ]; then
+    printf '  ok       %s\n' "$2"
+  else
+    printf '  MISSING  %s (%s)\n' "$2" "$1"
+    missing="yes"
+  fi
+}
+require_dir() {
+  if [ -d "$1" ]; then
+    printf '  ok       %s\n' "$2"
+  else
+    printf '  MISSING  %s (%s)\n' "$2" "$1"
+    missing="yes"
+  fi
+}
+
+# The APK is only as complete as this tree: CuraEngine needs its definitions and
+# the shared formulae library it records as NEEDED, PrusaSlicer needs its
+# resources, and Blender needs the 120 libraries beside its binary. Gradle would
+# happily package whatever is present, so the check belongs here, before the
+# build, where the message can still name the script to run.
+for name in fdmprinter fdmextruder creality_base creality_base_extruder_0 creality_ender3; do
+  require_file "app/src/main/assets/cura/definitions/$name.def.json" "Cura definition $name.def.json"
+done
+require_file "${JNI}/libcuraengine_exec.so" "CuraEngine executable"
+require_file "${JNI}/libcura-formulae-engine.so" "CuraEngine formulae library"
+require_file "${JNI}/libprusa_slicer_exec.so" "PrusaSlicer executable"
+require_file "app/src/main/assets/prusa/resources/presets/prusa-research-fff/PrusaResearch/vendor.yaml" "PrusaSlicer resources"
+require_file "app/src/main/assets/blender/scripts/startup/blender_mcp_slim.py" "Blender MCP addon"
+require_dir "app/src/main/assets/blender/python/lib/python3.11" "Blender CPython stdlib"
+if blender_staged; then
+  printf '  ok       %s\n' "Blender engine and its runtime libraries"
+else
+  printf '  MISSING  %s\n' "Blender engine and its runtime libraries"
+  missing="yes"
+fi
+[ -z "${missing}" ] || fail "the staged tree is incomplete; the APK would ship without one of the three engines"
 
 echo
 echo "== build =="

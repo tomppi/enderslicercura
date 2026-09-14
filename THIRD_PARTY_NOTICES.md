@@ -119,17 +119,23 @@ binary.
 | Zlib / libpng / MIT / BSL-1.0 / public domain | SDL2; libpng; Brotli, Expat, libxml2, OpenCOLLADA; Boost; SQLite |
 | PSF-2.0 / Unicode-3.0 | CPython (`libcpython`); ICU (`libicuc`) |
 
-Identical list in machine-readable form: `native/blender/blender-jniLibs/`.
+There is no tracked machine-readable copy of that list. It is read out of the
+staged `app/src/main/jniLibs/arm64-v8a/` tree, and both it and
+`native/blender/blender-jniLibs/` are gitignored build output, so a clean clone
+holds the licence texts below but not the library set itself.
 
 ### Licence texts
 
 **Shipped with the engine.** Blender's canonical set is in
-`assets/blender/licenses/blender/` — GPL-2.0, GPL-3.0, LGPL-2.1, Apache-2.0,
-BSD-2-Clause, BSD-3-Clause, MIT, Zlib, the logo and trademark licence, and the
-SPDX identifier list. Beside it, `assets/blender/licenses/deps/` carries 125
-per-dependency texts mirroring their source packages: Boost, CPython, FFTW,
-HarfBuzz, ICU, OpenAL, OpenBLAS, OpenCOLLADA, OpenImageIO, OpenPGL, OpenSubdiv,
-OpenUSD, OpenVDB, libpng, PugiXML, SDL, TBB, TIFF and zstd.
+`assets/blender/licenses/blender/` — eleven texts: GPL-2.0, GPL-3.0, LGPL-2.1,
+Apache-2.0, BSD-2-Clause, BSD-3-Clause, MIT, Zlib, the SPDX identifier list, the
+Blender License (BL) and the Blender Foundation member list. Blender's logo and
+trademark terms are **not** part of that set and do not ship with the engine;
+this repository carries no Blender logo asset either. Beside it,
+`assets/blender/licenses/deps/` carries 125 per-dependency texts mirroring
+their source packages: Boost, CPython, FFTW, HarfBuzz, ICU, OpenAL, OpenBLAS,
+OpenCOLLADA, OpenImageIO, OpenPGL, OpenSubdiv, OpenUSD, OpenVDB, libpng,
+PugiXML, SDL, TBB, TIFF and zstd.
 
 The tracked copies are at [`native/blender/assets/licenses/`](native/blender/assets/licenses).
 `app/src/main/assets/blender` is gitignored — it is delivery, not source — so

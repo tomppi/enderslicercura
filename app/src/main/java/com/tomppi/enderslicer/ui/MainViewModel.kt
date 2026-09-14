@@ -31,6 +31,8 @@ import com.tomppi.enderslicer.model.ModelPlacement
 import com.tomppi.enderslicer.model.PrusaConfigImporter
 import com.tomppi.enderslicer.model.PrusaSliceSettings
 import com.tomppi.enderslicer.model.AllSettingsCatalogs
+import com.tomppi.enderslicer.model.ExtraSettingSpec
+import com.tomppi.enderslicer.model.ExtraSettingValidation
 import com.tomppi.enderslicer.model.SlicerSettings
 import com.tomppi.enderslicer.model.withSettings
 import com.tomppi.enderslicer.nonplanar.NonPlanarRuntime
@@ -64,7 +66,9 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -196,6 +200,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     init {
         restorePersistedState()
         BlenderEngine.onStlExported = { file -> importBlenderStl(file) }
+        // An export the engine claimed while the app was busy is taken the moment
+        // whatever was running finishes, wherever in this class it finished.
+        viewModelScope.launch {
+            _uiState.map { it.isBusy }.distinctUntilChanged().collect { busy ->
+                if (!busy) drainPendingBlenderImport()
+            }
+        }
     }
 
     /**
@@ -396,7 +407,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun importBlenderStl(file: File) {
         if (deferUntilRestoreCompletes { importBlenderStl(file) }) return
-        if (!beginOperation("Importing Blender model…")) return
+        if (!beginOperation("Importing Blender model…")) {
+            // The engine has already claimed this export, so dropping it here loses
+            // the model for good. Keep the newest one and take it as soon as the
+            // running operation finishes.
+            pendingBlenderImport = file
+            return
+        }
         val stateSnapshot = _uiState.value
         val previousModelPath = stateSnapshot.modelPath
         viewModelScope.launch {
@@ -603,6 +620,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (engine != SlicerEngine.CURA && engine != SlicerEngine.PRUSA) return
         if (normalized.isEmpty() || !normalized.matches(Regex("[a-z][a-z0-9_]*"))) return
         if (normalized in blockedExtraKeys(engine)) return
+        // Refused here rather than at the slice: an unusable value was persisted and
+        // re-sent on every later slice, so one typo failed every print with a generic
+        // engine error and no clue which entry caused it.
+        ExtraSettingValidation.rejectReason(normalized, value, extraSettingSpec(engine, normalized))?.let { reason ->
+            _uiState.update { it.copy(statusMessage = reason) }
+            return
+        }
         _uiState.update { state ->
             if (engine == SlicerEngine.PRUSA) {
                 state.copy(extraPrusaSettings = state.extraPrusaSettings + (normalized to value))
@@ -611,6 +635,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         persistExtraSettings(engine)
+    }
+
+    // Catalogues carry the value types (Cura declares "type": float/int); they are
+    // parsed once per engine and cached, because this runs on the settings UI path.
+    private val curaExtraSpecs: List<ExtraSettingSpec> by lazy { AllSettingsCatalogs.cura(app.assets) }
+    private val prusaExtraSpecs: List<ExtraSettingSpec> by lazy { AllSettingsCatalogs.prusa(app.assets) }
+
+    private fun extraSettingSpec(engine: SlicerEngine, key: String): ExtraSettingSpec? {
+        val specs = if (engine == SlicerEngine.PRUSA) prusaExtraSpecs else curaExtraSpecs
+        return specs.firstOrNull { it.key == key }
     }
 
     /** Keys with dedicated editors or machine-envelope semantics must not be shadowed. */
@@ -1992,6 +2026,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         workspaceMutationGeneration.incrementAndGet()
         _uiState.update { it.copy(isBusy = true, statusMessage = message) }
         return true
+    }
+
+    /** An export that arrived while the app was busy; taken when it is free. */
+    private var pendingBlenderImport: File? = null
+
+    /** Called wherever an operation ends, so a claimed export is not lost. */
+    private fun drainPendingBlenderImport() {
+        val queued = pendingBlenderImport ?: return
+        pendingBlenderImport = null
+        importBlenderStl(queued)
     }
 
         /**

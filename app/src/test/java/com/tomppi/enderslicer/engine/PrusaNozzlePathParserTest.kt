@@ -64,6 +64,45 @@ class PrusaNozzlePathParserTest {
     }
 
     @Test
+    fun samplesLongPrintsToTheMoveCapKeepingTheFirstAndLastMove() {
+        val commands = buildString {
+            appendLine(";LAYER_CHANGE")
+            appendLine("G90")
+            appendLine("M83")
+            for (index in 1..100) {
+                appendLine("G1 X${index} Y${index * 2} Z0.2 E0.1 F1200")
+            }
+        }
+        val dir = kotlin.io.path.createTempDirectory("prusa-sampling-test").toFile()
+        val gcode = File(dir, "t.gcode").apply { writeText(commands) }
+        try {
+            val path = PrusaNozzlePathParser.parse(gcode, maxMoves = 10)
+
+            // The Cura preview samples to the cap; this one used to keep every
+            // move while only flagging truncated.
+            assertEquals(100, path.sourceMoveCount)
+            assertEquals(10, path.moveCount)
+            assertTrue(path.truncated)
+            assertEquals(0, path.sourceMoveIndices.first())
+            assertEquals(99, path.sourceMoveIndices.last())
+            var previousSource = -1
+            var previousX = Float.NEGATIVE_INFINITY
+            for (index in 0 until path.moveCount) {
+                val offset = index * PrusaNozzlePath.VALUES_PER_MOVE
+                val x = path.moves[offset + PrusaNozzlePath.X2]
+                val sourceIndex = path.sourceMoveIndices[index]
+                assertTrue("Sampled moves must remain in print order", x > previousX)
+                assertTrue("Source indices must remain in print order", sourceIndex > previousSource)
+                previousX = x
+                previousSource = sourceIndex
+            }
+            assertEquals(100f, previousX)
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
     fun markerWidthsTrackPrusa() {
         // Small synthetic gcode: verify width/height follow ;WIDTH:/;HEIGHT: markers.
         val dir = kotlin.io.path.createTempDirectory("prusa-marker-test").toFile()

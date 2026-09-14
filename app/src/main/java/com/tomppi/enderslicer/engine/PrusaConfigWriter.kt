@@ -1,5 +1,6 @@
 package com.tomppi.enderslicer.engine
 
+import com.tomppi.enderslicer.model.ExtraSettingValidation
 import com.tomppi.enderslicer.model.PrinterDefinition
 import com.tomppi.enderslicer.model.PrusaSliceSettings
 import java.io.File
@@ -24,26 +25,9 @@ import org.json.JSONObject
  * them in the shapes validated by PrusaSlicer's own ConfigLoad tests.
  */
 object PrusaConfigWriter {
-    /** Keys the app always writes; extras conflicting with these override them (last wins). */
-    val MANAGED_KEYS: Set<String> = setOf(
-        "layer_height", "first_layer_height", "perimeters", "top_solid_layers", "bottom_solid_layers",
-        "thin_walls", "external_perimeters_first", "fill_density", "fill_pattern", "skirts",
-        "skirt_height", "skirt_distance", "brim_width", "overhangs",
-        "first_layer_extrusion_width", "perimeter_extrusion_width", "external_perimeter_extrusion_width",
-        "infill_extrusion_width", "solid_infill_extrusion_width", "top_infill_extrusion_width",
-        "support_material", "support_material_threshold", "support_material_pattern",
-        "support_material_interface_layers",
-        "perimeter_speed", "external_perimeter_speed", "infill_speed", "first_layer_speed", "travel_speed",
-        "retract_length", "retract_speed", "retract_before_travel", "retract_lift",
-        "gcode_flavor", "start_gcode", "end_gcode",
-        "filament_type", "filament_diameter", "temperature", "first_layer_temperature",
-        "bed_temperature", "first_layer_bed_temperature", "max_fan_speed", "min_fan_speed",
-        "extrusion_multiplier", "printer_model", "bed_shape", "use_firmware_retraction",
-    )
-
-    /** Extra values are single-line UI text; strip control characters and cap length. */
-    private fun sanitizeExtraValue(value: String): String =
-        value.replace("\r", "").replace("\n", " ").replace("\t", " ").take(500)
+    // The "(managed by the app)" hint the All-settings sheet shows comes from
+    // AllSettingsCatalogs.PRUSA_MANAGED_KEYS; PrusaConfigWriterTest pins that
+    // list to the keys rendered below, so the two cannot drift apart.
 
     private fun put(bucket: JSONObject, key: String, value: Any) {
         bucket.put(key, value)
@@ -165,9 +149,12 @@ object PrusaConfigWriter {
 
         // --- extra catalog keys: rendered into print settings (flat, 3.x names) ---
         settings.extraKeys.toSortedMap().forEach { (key, value) ->
-            if (key.matches(Regex("[a-z][a-z0-9_]*"))) {
-                put(print, key, sanitizeExtraValue(value))
-            }
+            if (!ExtraSettingValidation.isValidKey(key)) return@forEach
+            // A blank or malformed value otherwise reaches the launcher as an
+            // unusable option and fails the slice with a generic engine error
+            // that never names the key; reject it here instead.
+            ExtraSettingValidation.requireValid(key, value)
+            put(print, key, value)
         }
 
         configuration.put("print_settings", print)

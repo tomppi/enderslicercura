@@ -5,9 +5,18 @@
 #
 # Port: env BLENDER_MCP_PORT, or DEFAULT_PORT (9876). Config file variant:
 #   <blender-home>/blender_mcp_port.txt containing the port number.
+#
+# Files the app reads and writes, all next to this script:
+#   blender_mcp_token.txt    shared secret, written by the app before start;
+#                            every request must carry it. Absent => open (dev).
+#   blender_mcp_status.json  last known server state, for the app to surface
+#   blender_mcp_restart.txt  the app touches this to ask for a new server
+#
+# This script never returns: see the serve loop at the bottom.
 
 import os
 import sys
+import time
 
 # Locate the addon source next to this startup script (assets/scripts/startup)
 _startup_dir = os.path.dirname(os.path.abspath(__file__))
@@ -64,6 +73,20 @@ def _port_setting() -> int:
     except ValueError:
         return 0
 
+def _read_token():
+    """The shared secret the app writes before it starts the engine.
+
+    None means there is no token file: a bare `blender -b --python` development
+    run, where the server stays open. The app always writes one."""
+    path = os.path.join(_startup_dir, "blender_mcp_token.txt")
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            token = handle.read().strip()
+    except OSError:
+        return None
+    return token or None
+
+
 def start() -> bool:
     """Start the MCP server; returns True if started fresh."""
     import bpy  # noqa: F401 -- startup scripts always run with bpy
@@ -100,26 +123,50 @@ def start() -> bool:
         spec.loader.exec_module(bm)
 
     global _server, _stopped
-    if _stopped:
-        return False
-    if _server is not None and _server.running:
-        return False
-    _server = bm.BlenderMCPServer(host=host, port=port)
-    try:
-        _server.start()
-    except Exception as e:
-        print(f"start_blender_mcp: start failed: {e}")
-        return False
-    print(f"start_blender_mcp: MCP server on {host}:{port} (background={bpy.app.background})")
-    if _server.headless_driver:
-        # Background mode (blender -b --python ...): the script runs
-        # synchronously on the bpy main thread, so keep Blender alive by
-        # draining MCP commands here. Exits when the client sends "shutdown".
-        print("start_blender_mcp: headless driver loop running")
-        _server.run_headless()
-        _stopped = True
-        print("start_blender_mcp: headless driver exiting")
-    return True
+    token = _read_token()
+    status_path = os.path.join(_startup_dir, "blender_mcp_status.json")
+    restart_file = os.path.join(_startup_dir, "blender_mcp_restart.txt")
+
+    # Serve, and never return.
+    #
+    # In `blender -b --python <file>` this script runs inside the engine's own
+    # main entry point, so *returning* ends Blender's background main - and
+    # Blender's teardown calls exit(), which kills the whole app process and
+    # everything unsaved in it. That is what a "shutdown" command used to do, and
+    # what a failed bind did too. Parking instead keeps the process (and the
+    # user's scene) alive; the app asks for a server again by touching the
+    # restart file, which costs nothing and keeps the scene intact.
+    while True:
+        try:
+            os.remove(restart_file)
+        except OSError:
+            pass
+        server = bm.BlenderMCPServer(host=host, port=port, token=token, status_path=status_path)
+        _server = server
+        try:
+            server.start()
+        except Exception as e:
+            print(f"start_blender_mcp: start failed: {e}")
+        if server.headless_driver:
+            # Background mode (blender -b --python ...): the script runs
+            # synchronously on the bpy main thread, so draining MCP commands
+            # here is what keeps the engine alive and answering.
+            print("start_blender_mcp: headless driver loop running")
+            server.run_headless()
+            print("start_blender_mcp: headless driver exiting")
+        else:
+            print("start_blender_mcp: no server running: "
+                  + (server.start_error or "server did not start"))
+        bm.write_status(status_path, {
+            "running": False,
+            "port": server.port,
+            "error": server.start_error,
+        })
+        print("start_blender_mcp: parked; touch " + restart_file + " to serve again")
+        while not _stopped and not os.path.exists(restart_file):
+            time.sleep(0.5)
+        if _stopped:
+            return False
 
 _server = None
 _stopped = False

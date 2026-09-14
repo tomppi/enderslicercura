@@ -90,6 +90,17 @@ stage() {
   mkdir -p "${ASSETS}/licenses"
   cp -R "${license_src}/." "${ASSETS}/licenses/"
 
+  # The startup scripts are OURS, not the engine build's: the serve loop that
+  # keeps the app process alive, the token check on the socket and the request
+  # framing all live in them. The tracked copies under native/blender/assets/
+  # are the source of truth, so they are laid over whatever the package shipped -
+  # otherwise a clone (and CI) would run the package's older addon.
+  if [ -d "${ROOT}/native/blender/assets/startup" ]; then
+    mkdir -p "${ASSETS}/scripts/startup"
+    cp -R "${ROOT}/native/blender/assets/startup/." "${ASSETS}/scripts/startup/"
+    echo "staged startup scripts from native/blender/assets/startup"
+  fi
+
   echo "staged assets: $(du -sh "${ASSETS}" | cut -f1)"
   echo
   echo "Next: ./gradlew :app:assembleDebug"

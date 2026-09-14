@@ -81,6 +81,17 @@ object BlenderBridge {
         Log.i(TAG, "started=$ok port=$port host=$host")
     }
 
+    /**
+     * True while the engine thread is alive.
+     *
+     * A parked engine - the addon waiting for a restart request after a
+     * `shutdown` - counts as alive: the thread is there, only its socket is
+     * closed, and starting again means asking it to serve rather than loading a
+     * second copy of Blender into the process.
+     */
+    fun isRunning(): Boolean =
+        runCatching { ensureLoaded() && nativeBlenderIsRunning() }.getOrDefault(false)
+
     fun stop() {
         if (!ensureLoaded()) return
         runCatching { nativeBlenderStop() }

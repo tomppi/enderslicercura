@@ -255,9 +255,12 @@ internal object GcodeCommandPolicy {
                 bounded('S', -1.0, 1.0)
             }
             74 -> {
-                // PrusaSlicer 3.x per-layer progress marker (M74 W<percent>).
+                // PrusaSlicer 3.x per-layer marker. W is the extruded filament
+                // WEIGHT in grams (GCode.cpp computes w = v * density * 0.001 and
+                // the shipped prusa3-base.json sends [extruded_weight_total]), not
+                // a percentage, so the bound has to clear any printable spool.
                 only('W')
-                bounded('W', 0.0, 100.0)
+                bounded('W', 0.0, 100_000.0)
             }
             73 -> {
                 // PrusaSlicer 3.x emits both M73 P/R (progress %, remaining

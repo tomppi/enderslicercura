@@ -117,6 +117,8 @@ import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 private enum class ViewerMode { MODEL, LAYERS, NOZZLE_PATH }
@@ -219,6 +221,11 @@ fun EnderSlicerApp(
     val harnessStore = remember(context) { HarnessConfigStore(context.applicationContext) }
     val harnessChat = remember { java.util.concurrent.atomic.AtomicReference<HarnessChat?>(null) }
     val aiScope = rememberCoroutineScope()
+    // Camera-file writes: their own scope and a single-threaded dispatcher, so a
+    // gesture's burst of publishes cannot interleave inside write-and-rename.
+    val cameraScope = rememberCoroutineScope()
+    val cameraWriteLock = remember { Mutex() }
+    var modellingCameraTouchedAt by remember { mutableStateOf(0L) }
 
     // Adopt a stored address on first composition, so an install that was
     // configured once comes up ready rather than asking again.
@@ -504,7 +511,13 @@ fun EnderSlicerApp(
         val next = camera.copy(owner = modellingOwner, rev = modellingCameraRev + 1)
         modellingCameraRev = next.rev
         modellingCamera = next
-        ModellingCameraStore.write(blenderDir, next)
+        // Written off the UI thread and serialised on one: this is called from the
+        // gesture loop, so the file write and rename used to run on the main thread
+        // several times per frame during every orbit, pan and pinch.
+        modellingCameraTouchedAt = System.currentTimeMillis()
+        cameraScope.launch(Dispatchers.IO) {
+            cameraWriteLock.withLock { ModellingCameraStore.write(blenderDir, next) }
+        }
     }
 
     fun openModelling() {
@@ -528,6 +541,12 @@ fun EnderSlicerApp(
             val onDisk = withContext(Dispatchers.IO) { ModellingCameraStore.read(blenderDir) }
                 ?: continue
             if (onDisk.rev <= modellingCameraRev) continue
+            // Never take the camera out of a hand that is holding it. While the user
+            // is mid-gesture our own publishes are still arriving; adopting the
+            // agent's camera here flipped the owner, cancelled the gesture and
+            // jumped the view. The agent's revision is still newer, so the next
+            // poll after the gesture picks it up.
+            if (System.currentTimeMillis() - modellingCameraTouchedAt < 500) continue
             modellingCameraRev = onDisk.rev
             modellingOwner = onDisk.owner
             if (onDisk.owner == CameraOwner.AGENT) modellingCamera = onDisk

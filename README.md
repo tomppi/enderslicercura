@@ -4,7 +4,7 @@
 
 # DuoSlicer
 
-DuoSlicer (formerly EnderSlicerCura) is an Android-first front end for **both CuraEngine and PrusaSlicer** - importing, preparing, slicing, previewing and sending 3D prints from a phone or foldable. It is **1.1.0**, targets Android 10+ on **ARM64**, and bundles the CuraEngine ARM64 binary with Cura resources from **5.14.0-alpha.0** plus a native **PrusaSlicer 3.0.0-alpha11** engine with its resources. Its most-tested baseline is a modified Creality Ender 3 V2.
+DuoSlicer (formerly EnderSlicerCura) is an Android-first front end for **both CuraEngine and PrusaSlicer** - importing, preparing, slicing, previewing and sending 3D prints from a phone or foldable. It is **1.2.0**, targets Android 10+ on **ARM64**, and bundles the CuraEngine ARM64 binary with Cura resources from **5.14.0-alpha.0** plus a native **PrusaSlicer 3.0.0-alpha11** engine with its resources. Its most-tested baseline is a modified Creality Ender 3 V2.
 
 > This is development software, not a complete Cura or PrusaSlicer replacement. Inspect every model, setting and generated G-code before printing.
 
@@ -156,19 +156,20 @@ export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358"
 export APP_JNILIBS_DIR="$PWD/app/src/main/jniLibs"
 scripts/build-curaengine-android.sh
 
-gradle :app:verifyDebugApkContents
+gradle :app:verifyDebugApkEngines
 ```
 
 Debug builds are signed with the committed [`keystore/debug.keystore`](keystore/README.md):
 a sideload build has to keep one identity, or every release refuses to install over
 the last one.
 
-**From a clean clone: `./scripts/setup.sh`.** It checks the toolchain, stages all
-three engines from their own scripts, and assembles the debug APK — failing early
-with the name of the script to run rather than letting Gradle find the problem
-minutes in. All three stage automatically: the Blender engine is fetched from this
-release's `blender-engine-arm64-<tag>.zip`, or from `BLENDER_ENGINE_DIR` if you
-have built one yourself.
+**From a clean clone: `./scripts/setup.sh`.** It checks the toolchain, fetches the
+pinned Cura definitions, stages all three engines from their own scripts, checks
+the staged tree really holds every engine, and assembles the debug APK — failing
+early with the name of the script to run rather than letting Gradle find the
+problem minutes in. All three stage automatically: the Blender engine is fetched
+from this release's `blender-engine-arm64-<tag>.zip`, or from
+`BLENDER_ENGINE_DIR` if you have built one yourself.
 
 **On Windows**, the staging scripts still run under Git Bash or WSL — they need
 only bash, curl and unzip — but `setup.sh` itself wants a Unix JDK and a POSIX SDK
@@ -183,9 +184,9 @@ yours to run, so it reports rather than assumes. Addresses come from the
 environment (`PHONE_TAILNET`, `PHONE_LAN`, `HARNESS_ORIGIN`, `GPU_BOX`) because
 none of them belong in a repository.
 
-`fetch-prusa-engine-android.sh` downloads the newest successful `PrusaSlicer-3.0.0-alpha11-android-arm64-v8a` artifact of the [`prusa-engine-3`](.github/workflows/prusa-engine-3.yml) workflow, which cross-compiles the alpha11 console from source; set `PRUSA_ENGINE_DIR` to a directory containing `prusa-slicer` and `resources` to package a local build instead.
+`fetch-prusa-engine-android.sh` downloads the newest successful `PrusaSlicer-3.0.0-alpha11-android-arm64-v8a` artifact of the [`prusa-engine-3`](.github/workflows/prusa-engine-3.yml) workflow on any branch, which cross-compiles the alpha11 console from source, and prints the branch and head SHA the engine came from so the provenance is in the log; pin one specific run with `PRUSA_ENGINE_RUN_ID`, or set `PRUSA_ENGINE_DIR` to a directory containing `prusa-slicer` and `resources` to package a local build instead.
 
-Gradle prepares the pinned offline BumpMesh and filaSim assets before `preBuild`; `verifyDebugApkContents` builds the debug APK and verifies the packaged ARM64 CuraEngine, PrusaSlicer and Blender engines — the Blender one including its 120 runtime libraries and the license texts the GPL requires to ship with the binary. GitHub Actions builds the WASM engine, runs the unit/regression and definition audits, verifies packaged assets and uploads the APK.
+Gradle prepares the pinned offline BumpMesh and filaSim assets before `mergeDebugAssets` / `mergeReleaseAssets`; `preBuild` is where the Blender engine is trimmed and its Android-unusable assets are pruned. `:app:verifyDebugApkEngines` builds the debug APK and verifies all three packaged engines — CuraEngine, PrusaSlicer and Blender — including the Blender runtime libraries, numpy assets and the licence texts the GPL requires to ship with the binary. The per-engine tasks stay individually runnable and each one also runs the checks it depends on: `:app:verifyDebugApkContents` verifies the packaged CuraEngine alone; `:app:verifyDebugApkPrusaContents` adds PrusaSlicer and its resources; `:app:verifyDebugApkBlenderContents` adds the Blender engine, its runtime libraries, its assets and its licences. GitHub Actions builds the WASM engine, runs the unit/regression and definition audits, verifies packaged assets and uploads the APK.
 
 ## Safety
 

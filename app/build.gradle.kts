@@ -175,9 +175,21 @@ val verifyDebugApkPrusaContents by tasks.registering {
             check(entry != null && entry.size > 0L) {
                 "Debug APK does not contain the ARM64 PrusaSlicer executable"
             }
-            val resources = zip.getEntry("assets/prusa/resources/profiles/Anker.ini")
+            // The shipped engine is 3.0.0-alpha11, whose resources live under
+            // presets/ - the profiles/Anker.ini this used to look for belongs to the
+            // 2.9.6 engine that is no longer packaged. Nothing caught that while this
+            // task was unreachable.
+            val resources = zip.getEntry(
+                "assets/prusa/resources/presets/prusa-research-fff/PrusaResearch/vendor.yaml",
+            )
             check(resources != null && resources.size > 0L) {
                 "Debug APK does not contain the PrusaSlicer resources"
+            }
+            val calibration = zip.getEntry(
+                "assets/prusa/resources/lua/com.prusa3d.slicer.calibration/manifest.json",
+            )
+            check(calibration != null && calibration.size > 0L) {
+                "Debug APK does not contain the PrusaSlicer calibration scripts"
             }
         }
     }
@@ -395,6 +407,20 @@ val verifyDebugApkBlenderContents by tasks.registering {
         }
     }
 }
+
+/**
+ * The complete package check. The per-engine tasks above stay individually
+ * runnable, but nothing reached the Blender one on its own, and the Blender one
+ * is the strongest: it carries the runtime libraries, numpy assets and licence
+ * texts an APK can be missing while still looking complete. This is the task CI
+ * and a release build call.
+ */
+val verifyDebugApkEngines by tasks.registering {
+    group = "verification"
+    description = "Builds the debug APK and verifies the packaged CuraEngine, PrusaSlicer and Blender engines"
+    dependsOn(verifyDebugApkContents, verifyDebugApkPrusaContents, verifyDebugApkBlenderContents)
+}
+
 val bumpMeshCommit = "a6ac179149b8a17c71a9469dd4cb6f866c0c01d1"
 val threeVersion = "r170"
 val fflateVersion = "0.8.2"
@@ -676,8 +702,11 @@ tasks.matching { it.name == "mergeDebugAssets" || it.name == "mergeReleaseAssets
     dependsOn(prepareBumpMeshAssets)
 }
 
+// Every variant packages all three engines from the same staged jniLibs, so a
+// missing CuraEngine or PrusaSlicer has to fail here, before packaging, rather
+// than produce an APK that is quietly short of an engine.
 tasks.matching { it.name.startsWith("assemble") || it.name == "bundleDebug" || it.name == "bundleRelease" }.configureEach {
-    dependsOn(verifyCuraEngineExecutable)
+    dependsOn(verifyCuraEngineExecutable, verifyPrusaEngineExecutable)
 }
 
 tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {

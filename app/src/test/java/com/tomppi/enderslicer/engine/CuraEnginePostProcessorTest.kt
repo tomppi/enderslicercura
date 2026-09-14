@@ -94,6 +94,72 @@ class CuraEnginePostProcessorTest {
     }
 
     @Test
+    fun adaptiveMeshLevelingSurvivesTheLayerEventRebuildOfTheBaseGcode() {
+        val directory = kotlin.io.path.createTempDirectory("enderslicer-postprocess-aml").toFile()
+        val output = File(directory, "output.gcode").apply { writeText(sampleGcode()) }
+        val base = File(directory, "base.gcode")
+        val event = LayerEvent(
+            id = "user-message",
+            layerNumber = 1,
+            zMm = 0.4f,
+            type = LayerEventType.MESSAGE,
+            text = "Second layer",
+        )
+
+        val result = CuraEnginePostProcessor.process(
+            outputFile = output,
+            baseGcodeFile = base,
+            settingsTransport = "resolved-json",
+            layerEvents = listOf(event),
+            printerEnvelope = envelope(),
+            amlEnabled = true,
+        )
+
+        // The events path republishes base.gcode, so the AML block has to live in
+        // it: injecting after the base copy lost leveling on every edited slice.
+        assertEquals(1, base.readLines().count { it == AdaptiveBedMeshInjector.MARKER })
+        assertEquals(1, output.readLines().count { it == AdaptiveBedMeshInjector.MARKER })
+        assertTrue(base.readText().contains("C29 L0 R15 F0 B5"))
+        assertTrue(output.readText().contains("C29 L0 R15 F0 B5"))
+        assertTrue(output.readText().contains(";ENDERSLICER_LAYER_EVENT:user-message:MESSAGE:USER"))
+        // The sanitizer and the preview ran on the published bytes, so the
+        // transport marker names the injection too.
+        assertTrue(
+            output.readText().contains(
+                ";ENDERSLICER_SETTINGS_TRANSPORT:resolved-json+adaptive-mesh-leveling+layer-events",
+            ),
+        )
+        assertFalse(result.usedZeroEventFastPath)
+        assertNotNull(result.layerPreview)
+        assertEquals(2, result.summary.layerCount)
+    }
+
+    @Test
+    fun adaptiveMeshLevelingRunsAfterTheBaseCopyWhenItIsTheOnlyPostProcessingStep() {
+        val directory = kotlin.io.path.createTempDirectory("enderslicer-postprocess-aml-fast").toFile()
+        val output = File(directory, "output.gcode").apply { writeText(sampleGcode()) }
+        val base = File(directory, "base.gcode")
+
+        val result = CuraEnginePostProcessor.process(
+            outputFile = output,
+            baseGcodeFile = base,
+            settingsTransport = "resolved-json",
+            layerEvents = emptyList(),
+            printerEnvelope = envelope(),
+            amlEnabled = true,
+        )
+
+        assertTrue(result.usedZeroEventFastPath)
+        assertArrayEquals(base.readBytes(), output.readBytes())
+        assertEquals(1, output.readLines().count { it == AdaptiveBedMeshInjector.MARKER })
+        assertTrue(
+            output.readText().contains(
+                ";ENDERSLICER_SETTINGS_TRANSPORT:resolved-json+adaptive-mesh-leveling",
+            ),
+        )
+    }
+
+    @Test
     fun failsLoudWhenNonPlanarGcodeHasNoSurfaceDataInsteadOfSilentlyGoingPlanar() {
         val directory = kotlin.io.path.createTempDirectory("enderslicer-postprocess-nonplanar-lost").toFile()
         val output = File(directory, "output.gcode").apply {

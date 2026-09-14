@@ -112,6 +112,33 @@ class CuraEngineCommandPrinterTest {
         assertEquals("0.2", values["support_bottom_distance"])
     }
 
+    @Test
+    fun standaloneFallbackKeepsTheUsersSupportInterfaceThickness() {
+        val settings = SlicerSettings(
+            machineWidthMm = 230.0,
+            machineDepthMm = 230.0,
+            originAtCenter = false,
+            supportsEnabled = true,
+            supportInterfaceEnabled = true,
+            supportInterfaceHeightMm = 0.6,
+            layerHeightMm = 0.2,
+            lineWidthMm = 0.4,
+        )
+
+        val values = commandSettings(build(printer(width = 230.0, depth = 230.0, originAtCenter = false), settings))
+
+        // layerHeight * 4 = 0.8 used to overwrite the value the UI field set.
+        assertEquals("0.6", values["support_interface_height"])
+        assertEquals("0.6", values["support_roof_height"])
+        assertEquals("0.6", values["support_bottom_height"])
+        // The hardcoded pattern/extruder/width settings stay as they are.
+        assertEquals("grid", values["support_interface_pattern"])
+        assertEquals("grid", values["support_roof_pattern"])
+        assertEquals("grid", values["support_bottom_pattern"])
+        assertEquals("0.4", values["support_roof_line_width"])
+        assertEquals("0.4", values["support_bottom_line_width"])
+    }
+
     private fun build(
         printer: PrinterDefinition,
         settings: SlicerSettings,

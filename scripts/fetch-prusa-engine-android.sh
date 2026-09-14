@@ -4,8 +4,10 @@
 #   CI:    downloads the newest successful "PrusaSlicer-3.0.0-alpha11-android-arm64-v8a"
 #          artifact of the prusa-engine-3 workflow, on any branch (main once the
 #          engine work is merged; the workflow also runs on
-#          feature/prusa-engine-android). Requires a GITHUB_TOKEN with
-#          actions:read for the repository.
+#          feature/prusa-engine-android), and prints the branch and head SHA the
+#          artifact came from. Set PRUSA_ENGINE_RUN_ID to pin one run instead of
+#          the newest. Requires a GITHUB_TOKEN with actions:read for the
+#          repository.
 #   Local: set PRUSA_ENGINE_DIR to a directory that contains the console and the
 #          resources:  <dir>/prusa-slicer  and  <dir>/resources
 #
@@ -30,14 +32,27 @@ if [ -n "${PRUSA_ENGINE_DIR:-}" ]; then
   echo "Using local Prusa engine directory: $PRUSA_ENGINE_DIR"
   SRC_DIR="$PRUSA_ENGINE_DIR"
 else
-  echo "Fetching the newest successful $ARTIFACT_NAME artifact of $WORKFLOW"
-  RUN_ID=$(api "https://api.github.com/repos/$REPO/actions/workflows/$WORKFLOW/runs?status=success&per_page=1" \
-    | python3 -c 'import json,sys; runs=json.load(sys.stdin)["workflow_runs"]; print(runs[0]["id"] if runs else "")')
-  if [ -z "$RUN_ID" ]; then
-    echo "::error::no successful $WORKFLOW run found"
+  if [ -n "${PRUSA_ENGINE_RUN_ID:-}" ]; then
+    echo "Using pinned $WORKFLOW run $PRUSA_ENGINE_RUN_ID"
+    RUN_ID="$PRUSA_ENGINE_RUN_ID"
+  else
+    echo "Fetching the newest successful $ARTIFACT_NAME artifact of $WORKFLOW"
+    RUN_ID=$(api "https://api.github.com/repos/$REPO/actions/workflows/$WORKFLOW/runs?status=success&per_page=1" \
+      | python3 -c 'import json,sys; runs=json.load(sys.stdin)["workflow_runs"]; print(runs[0]["id"] if runs else "")')
+    if [ -z "$RUN_ID" ]; then
+      echo "::error::no successful $WORKFLOW run found"
+      exit 1
+    fi
+  fi
+
+  # An artifact carries no provenance of its own, and the default picks whatever
+  # run succeeded last, so record the branch and commit it was built from.
+  if ! RUN_JSON=$(api "https://api.github.com/repos/$REPO/actions/runs/$RUN_ID"); then
+    echo "::error::no $WORKFLOW run with id $RUN_ID in $REPO"
     exit 1
   fi
-  echo "Using workflow run $RUN_ID"
+  read -r RUN_BRANCH RUN_SHA <<<"$(printf '%s' "$RUN_JSON" | python3 -c 'import json,sys; run=json.load(sys.stdin); print(run["head_branch"], run["head_sha"])')"
+  echo "Engine source: $WORKFLOW run $RUN_ID on branch $RUN_BRANCH at $RUN_SHA"
 
   # The name is passed as an argument: an env assignment on the left of a pipe
   # only applies to that command, so the reader would not see it.
@@ -68,7 +83,7 @@ cp "$SRC_DIR/prusa-slicer" "$APP_JNILIBS/libprusa_slicer_exec.so"
 
 # Strip with the NDK when available (CI installs it; local builds skip if missing).
 for CAND in \
-  "${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip" \
+  "${ANDROID_NDK_HOME:-}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip" \
   "${ANDROID_HOME:-}/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip"; do
   if [ -x "$CAND" ]; then
     cp "$APP_JNILIBS/libprusa_slicer_exec.so" "$APP_JNILIBS/.prusa-unstripped"

@@ -42,9 +42,16 @@ data class SceneSummary(
 class EnginePreviewClient(
     private val host: String = "127.0.0.1",
     private val port: Int = DEFAULT_PORT,
+    /** The engine's shared secret, written by [BlenderEngine] before it starts. */
+    private val tokenFile: File? = null,
 ) : Closeable {
 
     private var socket: Socket? = null
+    private var cachedToken: String? = null
+
+    private fun token(): String? = cachedToken ?: runCatching {
+        tokenFile?.takeIf { it.isFile }?.readText()?.trim()?.takeIf { it.isNotEmpty() }
+    }.getOrNull()?.also { cachedToken = it }
 
     /**
      * One command, one JSON reply.
@@ -59,11 +66,13 @@ class EnginePreviewClient(
         params: JSONObject,
         timeoutMs: Int = READ_TIMEOUT_MS,
     ): JSONObject {
-        val payload = JSONObject()
+        val body = JSONObject()
             .put("type", type)
             .put("params", params)
-            .toString()
-            .toByteArray(Charsets.UTF_8)
+        // The engine refuses anything but ping without it, so a co-installed app
+        // cannot reach this socket and run Python as us.
+        token()?.let { body.put("token", it) }
+        val payload = body.toString().toByteArray(Charsets.UTF_8)
 
         repeat(2) { attempt ->
             val active = ensureSocket(timeoutMs)
@@ -81,7 +90,15 @@ class EnginePreviewClient(
     }
 
     private fun ensureSocket(timeoutMs: Int): Socket {
-        socket?.let { if (!it.isClosed && it.isConnected) return it }
+        socket?.let {
+            if (!it.isClosed && it.isConnected) {
+                // Per command, not per socket: an import needs 180 s while a
+                // render needs 20, and whichever connected first used to fix the
+                // timeout for every later command on that connection.
+                it.soTimeout = timeoutMs
+                return it
+            }
+        }
         val created = Socket()
         created.tcpNoDelay = true
         created.connect(InetSocketAddress(host, port), CONNECT_TIMEOUT_MS)
@@ -99,17 +116,32 @@ class EnginePreviewClient(
 
     private fun readJson(active: Socket): String {
         val input = active.getInputStream()
-        val buffer = StringBuilder()
+        val buffer = java.io.ByteArrayOutputStream()
         val chunk = ByteArray(16 * 1024)
         while (true) {
             val read = input.read(chunk)
             if (read < 0) error("Engine closed the connection")
-            buffer.append(String(chunk, 0, read, Charsets.UTF_8))
+            buffer.write(chunk, 0, read)
+            // Decode the whole buffer each time. Decoding each chunk on its own
+            // split any character that straddled a 16 KB boundary into U+FFFD.
+            val text = String(buffer.toByteArray(), Charsets.UTF_8)
             // The reply is a complete JSON object with no terminator, so the
             // only way to know it has all arrived is that it parses.
-            if (runCatching { JSONObject(buffer.toString()) }.isSuccess) return buffer.toString()
+            if (runCatching { JSONObject(text) }.isSuccess) return text
         }
     }
+
+    /**
+     * Asks the engine to stop serving.
+     *
+     * The engine parks after this instead of returning from its start script:
+     * returning ends Blender's background main, and Blender's teardown calls
+     * exit(), which used to take the whole app process with it.
+     */
+    fun shutdownEngine(): Boolean = runCatching {
+        command("shutdown", JSONObject())
+        true
+    }.getOrDefault(false)
 
     /**
      * Points the engine's own camera and renders one frame into [into].
@@ -252,10 +284,16 @@ class EnginePreviewClient(
      * anything the agent has built means a real mesh is present, and re-importing
      * over that would throw its work away.
      */
-    fun isOnDefaultScene(): Boolean {
-        val reply = command("execute_code", JSONObject().put("code", DEFAULT_SCENE_SCRIPT))
-        if (reply.optString("status") != "success") return false
-        return reply.optJSONObject("result")?.optString("result").orEmpty().trim() == "default"
+    fun isOnDefaultScene(): Boolean? {
+        // Null is "could not ask", which is not the same as "no": reading a failed
+        // question as "the scene has content" is what stopped a handoff being
+        // imported while the engine was still booting.
+        val reply = runCatching {
+            command("execute_code", JSONObject().put("code", DEFAULT_SCENE_SCRIPT))
+        }.getOrNull() ?: return null
+        if (reply.optString("status") != "success") return null
+        val text = reply.optJSONObject("result")?.optString("result").orEmpty().trim()
+        return text == "default"
     }
 
     /** Reads the frame [renderPreview] wrote. Null when it is unreadable. */

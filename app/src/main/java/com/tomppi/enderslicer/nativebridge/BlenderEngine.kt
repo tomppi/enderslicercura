@@ -11,6 +11,7 @@ import com.tomppi.enderslicer.viewer.StlParser
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -39,7 +40,7 @@ import kotlinx.coroutines.withContext
  */
 object BlenderEngine {
     private const val TAG = "BlenderEngine"
-    private const val RESOURCES_VERSION = "blender-3.6-resources-v7"
+    private const val RESOURCES_VERSION = "blender-3.6-resources-v8"
     const val DEFAULT_MCP_PORT = 9876
 
     /** Scan cadence of the authoritative exports-dir poller. */
@@ -51,6 +52,13 @@ object BlenderEngine {
 
     @Volatile private var started = false
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    // Cancels the previous exports watcher when the engine is restarted:
+    // without this every stop/start pair left another poller and another
+    // FileObserver running for the life of the process.
+    private var watcherJob: Job? = null
+
+    private const val TOKEN_FILE = "blender_mcp_token.txt"
 
     /** Receives every completed STL handoff. Runs on a background scope. */
     @Volatile var onStlExported: ((File) -> Unit)? = null
@@ -87,6 +95,7 @@ object BlenderEngine {
         if (started) return
         started = true
         val app = context.applicationContext
+        appFilesDir = app.filesDir
         scope.launch {
             runCatching {
                 // ensureLoaded() performs the (one-time, background)
@@ -106,15 +115,30 @@ object BlenderEngine {
                 // breaks the adb-forward loopback path. Keep localhost.
                 val bindHost = "localhost"
                 Log.i(TAG, "MCP bind host: " + bindHost)
+                ensureToken(configDir)
+                val restart = restartFile(configDir)
+                restart.delete()
+                val parked = BlenderBridge.isRunning()
                 BlenderBridge.start(
                     home = app.filesDir.absolutePath + "/blender-home",
                     config = configDir.absolutePath,
                     port = DEFAULT_MCP_PORT,
                     host = bindHost,
                 )
+                if (parked) {
+                    // The thread is already there - either a first boot, or the parked
+                    // addon a previous "Stop Blender engine" left behind. Ask it to
+                    // serve again instead of trying to start a second Blender.
+                    Log.i(TAG, "engine thread already running; asking it to serve")
+                    restart.writeText("restart")
+                }
                 ensureWatcher(configDir)
             }.onFailure { error ->
+                // Re-arm. One transient failure (a full disk during extraction, a
+                // start race) used to disable the engine for the life of the
+                // process with no way back short of restarting the app.
                 Log.e(TAG, "Blender engine startup failed", error)
+                started = false
             }
         }
     }
@@ -127,8 +151,61 @@ object BlenderEngine {
      * [shutdown] is only reached on explicit finish).
      */
     fun shutdown() {
+        // The engine runs inside this process, so "stop" can only mean "stop
+        // serving": Blender's own teardown calls exit() and would take the app
+        // with it. Ask the addon over the socket - the native stop flag it used to
+        // set was read by nothing, so this control only appeared to work.
+        val stopped = runCatching { requestShutdown() }.getOrDefault(false)
+        Log.i(TAG, "engine shutdown requested over the socket: " + stopped)
         BlenderBridge.stop()
+        watcherJob?.cancel()
+        watcherJob = null
         started = false
+    }
+
+    /** The engine's shared secret: generated once, then reused for the install. */
+    fun ensureToken(configDir: File): String? = runCatching {
+        val file = tokenFile(configDir)
+        val existing = file.takeIf { it.isFile }?.readText()?.trim()
+        if (!existing.isNullOrEmpty()) {
+            existing
+        } else {
+            val created = java.util.UUID.randomUUID().toString().replace("-", "")
+            file.parentFile?.mkdirs()
+            file.writeText(created)
+            created
+        }
+    }.getOrNull()
+
+    fun tokenFile(configDir: File): File = File(configDir, "scripts/startup/" + TOKEN_FILE)
+
+    private fun restartFile(configDir: File): File =
+        File(configDir, "scripts/startup/blender_mcp_restart.txt")
+
+    private var appFilesDir: File = File("/")
+
+    /**
+     * Sends the MCP shutdown command directly: the addon replies, closes the
+     * socket and parks. Deliberately not routed through the modelling client,
+     * which the modelling screen owns.
+     */
+    private fun requestShutdown(): Boolean {
+        val token = tokenFile(File(appFilesDir, "blender"))
+        java.net.Socket().use { socket ->
+            socket.tcpNoDelay = true
+            socket.connect(java.net.InetSocketAddress("127.0.0.1", DEFAULT_MCP_PORT), 2_000)
+            socket.soTimeout = 5_000
+            val body = org.json.JSONObject()
+                .put("type", "shutdown")
+                .put("params", org.json.JSONObject())
+            token.takeIf { it.isFile }?.readText()?.trim()?.takeIf { it.isNotEmpty() }
+                ?.let { body.put("token", it) }
+            socket.getOutputStream().apply {
+                write(body.toString().toByteArray(Charsets.UTF_8))
+                flush()
+            }
+            return socket.getInputStream().read(ByteArray(4_096)) > 0
+        }
     }
 
     /**
@@ -178,8 +255,13 @@ object BlenderEngine {
     }
 
     private fun ensureWatcher(configDir: File) {
+        // One watcher per engine run. The previous one is cancelled here instead of
+        // being left to poll (and hold a FileObserver watch) for the life of the
+        // process every time the engine is stopped and started again.
+        watcherJob?.cancel()
         val exports = File(configDir, "exports")
         exports.mkdirs()
+        var newest: File? = null
         runCatching {
             // Everything already here is history from a previous run, not a new
             // arrival. [delivered] lives in memory, so without this the first
@@ -189,25 +271,14 @@ object BlenderEngine {
                 .listFiles { f -> f.isFile && f.name.endsWith(".stl", ignoreCase = true) }
                 ?.sortedBy { it.lastModified() }
                 .orEmpty()
-            val newest = existing.lastOrNull()
+            newest = existing.lastOrNull()
             synchronized(stateLock) {
-                existing.forEach { delivered.add(signatureOf(it)) }
-            }
-            // The newest still belongs to the UI: an export that finished while
-            // the app was dead is exactly the one being waited for. Handed over
-            // directly when a listener is attached, queued for the setter when
-            // it is not - the same replay the setter already implements.
-            newest?.let { file ->
-                val listener = onStlExported
-                if (listener == null) {
-                    synchronized(pendingExports) {
-                        if (pendingExports.none { it.absolutePath == file.absolutePath }) {
-                            pendingExports.add(file)
-                        }
-                    }
-                } else {
-                    listener.invoke(file)
-                }
+                // Everything already here is history from a previous run, not a new
+                // arrival - except the newest, which may be the export the user is
+                // still waiting for. That one is deliberately left unclaimed and
+                // goes through the same claim path as any other below, so a restart
+                // inside one process cannot hand the same model over twice.
+                existing.dropLast(1).forEach { delivered.add(signatureOf(it)) }
             }
             val observer = object : FileObserver(
                 exports.absolutePath,
@@ -222,7 +293,11 @@ object BlenderEngine {
             Log.i(TAG, "watching exports dir " + exports.absolutePath)
         }.onFailure { error -> Log.e(TAG, "export watch failed", error) }
 
-        scope.launch {
+        watcherJob = scope.launch {
+            // The export that was waiting when the engine came up is claimed and
+            // handed over exactly like a fresh one: directly or through the pending
+            // replay the listener setter already implements.
+            newest?.let { exportReady(it) }
             Log.i(TAG, "polling exports dir " + exports.absolutePath)
             while (isActive) {
                 try {

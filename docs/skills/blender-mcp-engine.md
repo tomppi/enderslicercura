@@ -19,7 +19,7 @@ The app bundle (package `com.tomppi.enderslicercura`) runs Blender 3.6 **inside 
   host on the same WiFi, so it disappears the moment either moves. Connect once with
   `adb connect <phone-tailscale-ip>:5555`, then address it as `adb -s <phone-tailscale-ip>:5555 ...`.
   (`<phone-lan-ip>:5555` still works on the LAN and is a fine fallback when the tailnet is down.)
-  Root shell via `su -c`. Verified: SM-F946B, shell context `u:r:shell:s0`.
+  Root shell via `su -c`. Verified: phone-host, shell context `u:r:shell:s0`.
 - **Never drive the device's UI.** No `input swipe`, `input tap`, `input keyevent`, no `screencap`. The phone is the user's; it is not an observation port. Looking at your model is section 4, and it happens inside Blender.
 - **Do not invent directories inside the app's private storage.** Two directories exist for handoff - `files/blender/imports/` (model into the engine) and `files/blender/exports/` (engine out to the app) - and nothing else belongs there. An agent once made up `files/blender/incoming/` with `su`, copied a 67 MB mesh into it and left it behind: a root-owned directory, in a place the app cannot write, that no code had ever heard of. If you need somewhere to put a file first, that is what the drop box is for.
 - **Drop box: anything you push to the device goes in `/sdcard/Download/dsh-agent/`, never the Download root.** Models stay there - it is the copy the user can find; probe scripts and screenshots are scaffolding and come back out.
@@ -29,15 +29,28 @@ The app bundle (package `com.tomppi.enderslicercura`) runs Blender 3.6 **inside 
 
 ## 2. Protocol
 
-Plain TCP, one JSON object per message (no framing beyond a single write per request; newline-free):
+Plain TCP, one JSON object per request. Either a single write with no terminator (what the app does) or newline-delimited requests are accepted; two requests in one write no longer hang the connection.
+
+**Every request needs the engine's token**, which the app generates on first run and the engine reads at startup:
+
+```bash
+adb -s <phone-tailscale-ip>:5555 shell su -c 'cat /data/user/0/com.tomppi.enderslicercura/files/blender/scripts/startup/blender_mcp_token.txt'
+```
+
+An engine started by hand (`blender -b --python start_blender_mcp.py`) has no token file and stays open, which is the development path only: without the token a co-installed app could run Python as this app's uid.
 
 ```text
 → {"type": "ping", "params": {}}
 ← {"status": "success", "result": {"pong": true}}
 
-→ {"type": "execute_code", "params": {"code": "..."}}
+→ {"type": "execute_code", "params": {"code": "..."}, "token": "<token>"}
 ← {"status": "success", "result": {"executed": true, "result": "<captured stdout>"}}
+
+→ {"type": "execute_code", "params": {"code": "..."}}
+← {"status": "error", "message": "unauthorized: send the token from blender_mcp_token.txt"}
 ```
+
+While one command is running nothing else can: a request that arrives while another has been running for more than ten seconds is answered `{"status": "error", "message": "engine busy in another command for Ns"}` instead of waiting out the client's own timeout.
 
 Commands (`params` are keyword args, so `{"type":"execute_code","code":...}` without `params` FAILS with "missing required positional argument"):
 
@@ -50,7 +63,7 @@ Commands (`params` are keyword args, so `{"type":"execute_code","code":...}` wit
 | `get_object_info` | `name` | + vertices/polygons for MESH |
 | `get_world_state_snapshot` | – | object names |
 | `get_addon_info` | – | name, version, headless_ready |
-| `shutdown` | – | drains queue, exits headless driver, Blender exits (app process keeps running) |
+| `shutdown` | – | drains the queue and closes the socket; the engine then **parks** inside the app process (the app survives - it used to exit and take the whole process with it). The next start request, or `touch blender_mcp_restart.txt` next to the addon, serves again. Only ending the app process frees its memory |
 
 Errors: `{"status": "error", "message": "<exc>"}`. A command run in `blender -b` (headless) is executed on the MCP addon's **main-thread driver loop** (`start_blender_mcp.py` calls `_server.run_headless()`); `bpy.data` access is safe there. New objects persist in the scene between commands; use `bpy.data.objects` to find them within `execute_code`.
 

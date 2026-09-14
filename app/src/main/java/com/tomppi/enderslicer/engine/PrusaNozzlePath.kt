@@ -71,9 +71,18 @@ object PrusaNozzlePathParser {
         require(file.isFile && file.length() > 0L) { "Generated G-code is not available for nozzle-path preview" }
         require(maxMoves > 1) { "Nozzle-path move limit must retain at least the first and final move" }
 
-        // First pass: collect every spatial move with its marker-driven width/height.
-        val accumulator = FloatAccumulator(PrusaNozzlePath.VALUES_PER_MOVE * 20_000)
-        val sourceIndices = ArrayList<Int>(20_000)
+        // The retained set is an even sample of the whole print, so the number of
+        // spatial moves has to be known before the first move is emitted. The Cura
+        // nozzle path counts first for the same reason; sharing its counter and
+        // its sampling keeps both previews identical (a print above the cap used
+        // to keep every move here while the Cura preview sampled to the cap).
+        val sourceMoveCount = GcodeNozzlePathParser.countSpatialMoves(file, GcodeDialect.PRUSA, progress)
+        require(sourceMoveCount > 0) { "No nozzle moves were found in the G-code" }
+        val retainedCount = if (sourceMoveCount <= maxMoves) sourceMoveCount else maxMoves
+
+        // Collect the sampled moves with their marker-driven width/height.
+        val accumulator = FloatAccumulator(PrusaNozzlePath.VALUES_PER_MOVE * retainedCount)
+        val sourceIndices = ArrayList<Int>(retainedCount)
         val modalState = GcodeModalState()
         var x = 0.0
         var y = 0.0
@@ -96,15 +105,18 @@ object PrusaNozzlePathParser {
         var linesRead = 0
 
         fun emit(kind: PrusaNozzlePath.Kind, sx: Double, sy: Double, sz: Double, ex: Double, ey: Double, ez: Double) {
-            val retained = sourceIndices.size == 0 && true // first move always kept below
+            val retainedIndex = sourceIndex
             sourceIndex++
+            // The bounds cover every source move, sampled or not, so the preview
+            // still frames the whole print.
             minX = minOf(minX, sx.toFloat(), ex.toFloat())
             minY = minOf(minY, sy.toFloat(), ey.toFloat())
             minZ = minOf(minZ, sz.toFloat(), ez.toFloat())
             maxX = maxOf(maxX, sx.toFloat(), ex.toFloat())
             maxY = maxOf(maxY, sy.toFloat(), ey.toFloat())
             maxZ = maxOf(maxZ, sz.toFloat(), ez.toFloat())
-            sourceIndices.add(sourceIndex - 1)
+            if (!GcodeNozzlePathParser.shouldRetain(retainedIndex, sourceMoveCount, maxMoves)) return
+            sourceIndices.add(retainedIndex)
             accumulator.add(
                 sx.toFloat(), sy.toFloat(), sz.toFloat(),
                 ex.toFloat(), ey.toFloat(), ez.toFloat(),
@@ -118,7 +130,8 @@ object PrusaNozzlePathParser {
 
         val totalBytes = file.length().coerceAtLeast(1L)
         progressReader(file) { bytes ->
-            progress((bytes.toDouble() / totalBytes).toFloat().coerceIn(0f, 1f))
+            // The count pass already reported 0..0.5, so this pass finishes the bar.
+            progress((0.5 + bytes.toDouble() / totalBytes * 0.5).toFloat().coerceIn(0f, 1f))
         }.useLines { lines ->
             lines.forEach { rawLine ->
                 linesRead++
@@ -182,10 +195,8 @@ object PrusaNozzlePathParser {
             }
         }
 
-        require(accumulator.size > 0) { "No nozzle moves were found in the G-code" }
+        require(accumulator.size > 0) { "No nozzle moves remained after preview sampling" }
         progress(1f)
-        val totalMoves = accumulator.size / PrusaNozzlePath.VALUES_PER_MOVE
-        val truncated = sourceIndex > maxMoves
         return PrusaNozzlePath(
             moves = accumulator.toArray(),
             sourceMoveIndices = sourceIndices.toIntArray(),
@@ -193,9 +204,9 @@ object PrusaNozzlePathParser {
             maxX = maxX, maxY = maxY, maxZ = maxZ,
             extrusionMoveCount = extrusionMoves,
             travelMoveCount = travelMoves,
-            sourceMoveCount = sourceIndex,
+            sourceMoveCount = sourceMoveCount,
             layerCount = layerCount,
-            truncated = truncated,
+            truncated = sourceMoveCount > maxMoves,
         )
     }
 }

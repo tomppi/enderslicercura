@@ -9,7 +9,7 @@ Printer dimensions, nozzle size, G-code flavor, printhead geometry and custom st
 
 ## Using presets
 
-Open **Profiles & filament** from the persistent action above the OctoPrint control. Select **Print profiles** or **Filaments** and then:
+Open **Profiles & filament** from the **More** tab (the first row of *Configuration*). Select **Print profiles** or **Filaments** and then:
 
 1. Adjust the normal slicer settings.
 2. Select **Save current as…**.

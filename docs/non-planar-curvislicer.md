@@ -1,6 +1,6 @@
 # Non-planar CurviSlicer
 
-EnderSlicerCura includes an Android-native non-planar pipeline inspired by the CurviSlicer research method. It is available under **Menu → Advanced → Experimental tools → CurviSlicer options** and is disabled by default.
+EnderSlicerCura includes an Android-native non-planar pipeline inspired by the CurviSlicer research method. It is available under **More → Experimental → Non-planar slicing** and is disabled by default.
 
 ## Pipeline
 
@@ -59,7 +59,7 @@ After slicing, the preview selector contains three independent modes:
 - **Layers** — the existing cumulative Cura layer preview.
 - **Path** — the ordered nozzle journey from the first spatial move to the last.
 
-The Path view includes both travel and extrusion. Travel is gray. Extrusion is colored from blue at low Z to red at high Z, which makes continuously changing non-planar height visible. Playback, the slider, **Previous**, **Next** and **Restart** follow print order rather than layer order.
+The Path view includes both travel and extrusion. Travel is grey; extrusion is coloured by print speed, cyan slow to orange fast (the single nozzle-path colour mode), with a subtle per-layer tint so stacked beads stay readable. Playback, the slider, **Previous**, **Next** and **Restart** follow print order rather than layer order.
 
 For files with at most 120,000 spatial moves, every move is retained and the controls step exact source moves. Larger files use an evenly distributed bounded preview that always retains the first and final move and records each retained source index. The UI labels these entries as **Preview segments** and states the corresponding source move number; Previous and Next then step between retained preview segments rather than claiming exact full-file stepping.
 

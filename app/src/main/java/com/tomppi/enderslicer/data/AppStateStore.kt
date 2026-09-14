@@ -1,6 +1,7 @@
 package com.tomppi.enderslicer.data
 
 import android.content.Context
+import com.tomppi.enderslicer.model.ExtraSettingValidation
 import com.tomppi.enderslicer.model.PrusaSliceSettings
 import com.tomppi.enderslicer.model.SlicerSettings
 import org.json.JSONArray
@@ -214,14 +215,23 @@ class AppStateStore(context: Context) {
         return PrusaSliceSettingsJson.deserialize(encoded) ?: PrusaSliceSettings()
     }
 
+    /**
+     * Extra settings are persisted and re-sent on every later slice as
+     * `-s key=value` / JSON, so an unusable entry is refused here instead of
+     * being stored: the caller sees the failed write. Catalogue value types are
+     * deliberately not consulted on this path (parsing the engine definitions
+     * would stall app start on restore) - the engine command builders apply the
+     * remaining type rules when the slice runs.
+     */
     fun saveExtraCuraSettings(values: Map<String, String>): Boolean =
-        preferences.edit().putString(KEY_EXTRA_CURA, mapToJson(values)).commit()
+        saveExtraSettings(KEY_EXTRA_CURA, values)
 
+    /** Restores the stored extras, dropping entries an older build persisted unusably. */
     fun restoreExtraCuraSettings(): Map<String, String> =
-        jsonToMap(preferences.getString(KEY_EXTRA_CURA, null))
+        ExtraSettingValidation.validOnly(jsonToMap(preferences.getString(KEY_EXTRA_CURA, null)))
 
     fun saveExtraPrusaSettings(values: Map<String, String>): Boolean =
-        preferences.edit().putString(KEY_EXTRA_PRUSA, mapToJson(values)).commit()
+        saveExtraSettings(KEY_EXTRA_PRUSA, values)
 
     fun savePrusaGcode(start: String, end: String): Boolean =
         preferences.edit().putString(KEY_PRUSA_START, start).putString(KEY_PRUSA_END, end).commit()
@@ -229,8 +239,16 @@ class AppStateStore(context: Context) {
     fun restorePrusaGcode(): Pair<String, String> =
         (preferences.getString(KEY_PRUSA_START, "") ?: "") to (preferences.getString(KEY_PRUSA_END, "") ?: "")
 
+    /** Restores the stored extras, dropping entries an older build persisted unusably. */
     fun restoreExtraPrusaSettings(): Map<String, String> =
-        jsonToMap(preferences.getString(KEY_EXTRA_PRUSA, null))
+        ExtraSettingValidation.validOnly(jsonToMap(preferences.getString(KEY_EXTRA_PRUSA, null)))
+
+    /** Returns false without writing when any entry cannot be sent to the engine. */
+    private fun saveExtraSettings(key: String, values: Map<String, String>): Boolean {
+        val valid = ExtraSettingValidation.validOnly(values)
+        if (valid.size != values.size) return false
+        return preferences.edit().putString(key, mapToJson(valid)).commit()
+    }
 
     private fun mapToJson(values: Map<String, String>): String {
         val json = JSONObject()

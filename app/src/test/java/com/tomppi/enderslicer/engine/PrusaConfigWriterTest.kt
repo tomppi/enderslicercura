@@ -1,5 +1,6 @@
 package com.tomppi.enderslicer.engine
 
+import com.tomppi.enderslicer.model.AllSettingsCatalogs
 import com.tomppi.enderslicer.model.PrinterDefinition
 import com.tomppi.enderslicer.model.PrusaSliceSettings
 import java.io.File
@@ -140,6 +141,48 @@ class PrusaConfigWriterTest {
         val print = printBucket(cfg)
         assertEquals("0.9", print.getString("top_solid_infill_flow_ratio"))
         assertEquals("nearest", print.getString("seam_position"))
+    }
+
+    @Test
+    fun managedKeyHintMatchesTheKeysTheWriterReallyWrites() {
+        // The All-settings sheet marks AllSettingsCatalogs.PRUSA_MANAGED_KEYS as
+        // "(managed by the app)". Rendering against an empty base config leaves
+        // exactly the keys this writer writes, so the hint cannot drift from it.
+        val withWidths = settings.copy(
+            firstLayerExtrusionWidthMm = 0.45,
+            perimeterExtrusionWidthMm = 0.45,
+            externalPerimeterExtrusionWidthMm = 0.4,
+            infillExtrusionWidthMm = 0.45,
+            solidInfillExtrusionWidthMm = 0.45,
+            topInfillExtrusionWidthMm = 0.45,
+        )
+        val cfg = JSONObject(
+            PrusaConfigWriter.render(withWidths, printer, "G28", "M84", "{\"configuration\":{}}"),
+        )
+
+        val written = linkedSetOf<String>()
+        val configuration = cfg.getJSONObject("configuration")
+        listOf("print_settings", "printer_settings", "filament_settings").forEach { bucket ->
+            val keys = configuration.getJSONObject(bucket).keys()
+            while (keys.hasNext()) written += keys.next()
+        }
+
+        assertEquals(AllSettingsCatalogs.PRUSA_MANAGED_KEYS, written)
+    }
+
+    @Test
+    fun rejectsAnExtraSettingValueTheLauncherCannotUse() {
+        val withExtras = PrusaSliceSettings(
+            layerHeightMm = 0.2,
+            extraKeys = mapOf("seam_position" to " "),
+        )
+
+        val failure = runCatching {
+            PrusaConfigWriter.render(withExtras, printer, "G28", "M84", baseConfig)
+        }.exceptionOrNull()
+
+        assertTrue(failure is IllegalArgumentException)
+        assertTrue(failure?.message.orEmpty().contains("seam_position"))
     }
 
     @Test
