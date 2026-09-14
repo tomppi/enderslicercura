@@ -213,6 +213,21 @@ jobs:
           ! grep -qE 'libc\+\+_shared|libz\.so|libz3\.so|libstdc\+\+\.so|libTK' prusa-needed.log
           test -s app/src/main/assets/prusa/resources/presets/prusa-research-fff/PrusaResearch/vendor.yaml
 
+      - name: Fetch and validate the embedded Blender engine
+        run: |
+          chmod +x scripts/fetch-blender-engine-android.sh
+          scripts/fetch-blender-engine-android.sh 2>&1 | tee blender-engine-fetch.log
+          test -s app/src/main/jniLibs/arm64-v8a/libblender_exec.so
+          file app/src/main/jniLibs/arm64-v8a/libblender_exec.so
+          # The runtime assets are what the engine cannot boot without: CPython's
+          # stdlib, Blender's scripts (including the MCP addon) and the datafiles.
+          test -d app/src/main/assets/blender/python/lib/python3.11
+          test -f app/src/main/assets/blender/scripts/startup/blender_mcp_slim.py
+          test -f app/src/main/assets/blender/3.6/config/datafiles
+          # The licence texts ship with the binary, not beside the download.
+          test -f app/src/main/assets/blender/licenses/blender/GPL-license.txt
+          test -d app/src/main/assets/blender/licenses/deps
+
       - name: Build pinned host CuraEngine fixture binary
         run: |
           chmod +x scripts/build-curaengine-host-tests.sh
