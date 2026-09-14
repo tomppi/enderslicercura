@@ -100,22 +100,24 @@ This is the core UX. Everyone (you, the AI session, the engine) has one role:
 - **arm64-v8a only** for the engine (the app's other engines are arm64 too;
   the x86_64 emulator will not run the Blender engine — use a real device).
 
-## 3. What YOU must do (the entire work list)
+## 3. The app-side work list (implemented — kept as the contract it was checked against)
 
-### 3.1 Copy the runtime shared libs into jniLibs (CRITICAL — not done yet)
+### 3.1 The runtime shared libs (done, and now enforced)
 
-`libblender_exec.so` is already in `app/src/main/jniLibs/arm64-v8a/`, but the
-**120 runtime shared libs it depends on** are still staged at
-`native/blender/blender-jniLibs/*.so`. They must land in
-`app/src/main/jniLibs/arm64-v8a/` too, or dlopen will fail:
+`libblender_exec.so` loads the **120 runtime shared libs it depends on**
+(Alembic, OpenImageIO, OpenColorIO, libcpython, boost, ffmpeg, TBB, USD, draco,
+... — identical to what the OBlender app ships). Without them beside it in
+`app/src/main/jniLibs/arm64-v8a/` the load fails outright.
 
-```
-copy native/blender/blender-jniLibs/*.so  ->  app/src/main/jniLibs/arm64-v8a/
-```
+They ship inside `blender-engine-arm64-<tag>.zip` as `jniLibs/*.so`, and
+`scripts/fetch-blender-engine-android.sh` stages them, falling back to
+`native/blender/blender-jniLibs/` for an engine built on this machine. No manual
+copy is needed — and none would survive a clean clone, which is why the package
+carries them.
 
-(These are the engine's prebuilt deps: Alembic, OpenImageIO, OpenColorIO,
-libcpython.so, boost, ffmpeg, TBB, USD, draco, ... — 120 files, identical to
-what the OBlender app ships.)
+`verifyDebugApkContents` fails when `libcpython.so`, `libopenvdb.so`,
+`libavcodec.so`, `libOpenImageDenoise_core.so` or `libc++_shared.so` is missing
+from the APK: the check that the release shipping without them went past.
 
 ### 3.2 First-run asset extraction
 
@@ -139,10 +141,12 @@ Already written: `app/src/main/java/com/tomppi/enderslicer/nativebridge/BlenderB
 (`System.loadLibrary("blender_exec")`, `start(home, config, port)`,
 `stop()`, `nativeBlenderIsRunning()`).
 
-Suggested call sites:
-- Start when the app's model-generation UI/AI chat is first used (or at app
-  startup — the engine takes ~10-20 s to boot the first time; prefer lazy).
-- On service/process death, the engine dies with the process — start() again
+Call sites, as built:
+- `EnderSlicerApplication.onCreate` boots it (`BlenderEngine.ensureStarted`),
+  and `BlenderEngineService` keeps the process alive so the OS does not cull a
+  generation mid-turn. It is not lazy: the engine is the modelling viewport as
+  well as the generator, so the app wants it ready when the screen opens.
+- On service/process death, the engine dies with the process - start() again
   next time (it's idempotent: guards on `nativeBlenderIsRunning()`).
 - Stop on app exit: `BlenderBridge.stop()` (graceful addon shutdown).
 
@@ -180,8 +184,8 @@ it; keep the old model until replaced. That is the entire UI contract.
   - `pruneBlenderAssets` drops data that cannot be used on Android: the
     CUDA/PTX/OptiX/HIP kernels in `scripts/addons/cycles/lib` (they target
     desktop NVIDIA/AMD GPUs; Cycles keeps rendering through its CPU kernels),
-    the CPython `venv`/`ensurepip` scaffolding and the numpy test suites:
-    537 MB -> 178 MB.
+    the CPython `venv`/`ensurepip` scaffolding, the numpy test suites and every
+    `__pycache__`: 537 MB -> 178 MB.
   Run `./gradlew :app:trimBlenderEngine :app:pruneBlenderAssets` after staging
   a fresh engine; pass `-PblenderKeepGpuKernels=true` to keep the GPU kernels.
 - The packaged engine drops from ~1.9 GB to ~0.3 GB. If the build still chokes on
@@ -223,9 +227,12 @@ it; keep the old model until replaced. That is the entire UI contract.
 - Wrapper: full link + symbol check (`nm -D` shows all 3 JNI exports +
   `mainBlenderInitial`), staged at the paths in 3.1/3.2.
 
-## 6. Open questions for you (non-blocking)
+## 6. Open questions (both answered in the build)
 
-- Asset unpack: do you already have a first-run extraction helper that we
-  should reuse (instead of a new one)?
-- Should the engine start on app launch or lazily on first generation?
-  (Recommendation: lazy — it costs ~1 GB RAM when running.)
+- **Asset unpack:** `AssetTreeExtractor` copies `assets/blender/{python,scripts}`
+  into `files/blender/` on first run, keyed by `.resources-version`
+  (`RESOURCES_VERSION` in `BlenderEngine.kt`). Bump that string whenever the
+  staged assets change, or an existing install keeps the tree it already has.
+- **Launch or lazy:** at launch, plus `BlenderEngineService` to keep the process
+  alive across screen-off. The engine is the modelling viewport, so "first
+  generation" is too late.

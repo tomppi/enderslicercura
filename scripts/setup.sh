@@ -51,7 +51,15 @@ else
   ./scripts/fetch-prusa-engine-android.sh
 fi
 
-if [ -s "${JNI}/libblender_exec.so" ]; then
+# Not just the engine binary: libblender_exec.so loads the 120 libraries beside
+# it, so a tree holding only the binary would sail past this check and fail in
+# Gradle minutes later.
+blender_staged() {
+  [ -s "${JNI}/libblender_exec.so" ] || return 1
+  [ "$(find "${JNI}" -maxdepth 1 -name '*.so' | wc -l)" -ge 121 ] || return 1
+}
+
+if blender_staged; then
   echo "  Blender       already staged"
 else
   echo "  Blender       staging (scripts/fetch-blender-engine-android.sh)"

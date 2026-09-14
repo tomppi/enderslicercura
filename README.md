@@ -78,7 +78,7 @@ Imported values are kept as a persistent baseline: they stay in effect until you
 <p align="center">
   <img src="docs/screenshots/modelling.jpg" width="300" alt="Modelling screen: the model filling the view, with the agent's report in the chat below it">
 </p>
-- **The engine itself is not in this repository.** `app/src/main/jniLibs/arm64-v8a/` and `app/src/main/assets/blender/` are gitignored: they hold the built `libblender_exec.so` (~125 MB), the CPython stdlib, Blender's scripts and the datafiles — some 500 MB of staged artifacts, *delivered* rather than source. A clean clone builds and runs the slicer, and has no Blender engine in it. What is here is the source that matters: the JNI wrapper, the creator glue and the engine patches under [`native/blender/`](native/blender/README.md)
+- **The engine itself is not in this repository.** `app/src/main/jniLibs/arm64-v8a/` and `app/src/main/assets/blender/` are gitignored: they hold the built `libblender_exec.so` (~125 MB), the 120 shared libraries it loads (~260 MB), the CPython stdlib, Blender's scripts and the datafiles — some 600 MB of staged artifacts, *delivered* rather than source. A clean clone builds and runs the slicer, and has no Blender engine in it; `scripts/fetch-blender-engine-android.sh` stages all of it from this release's `blender-engine-arm64-<tag>.zip`, or from `BLENDER_ENGINE_DIR`. What is here is the source that matters: the JNI wrapper, the creator glue and the engine patches under [`native/blender/`](native/blender/README.md)
 - **Anything edited under `assets/blender` is one clean clone away from not existing.** Edit it, and copy the change back to `native/blender/` so it is versioned — the startup script that turns on the modelling addons lives in both places for exactly that reason
 - Protocol, runbook and verification evidence: [`BLENDER_MCP_INTEGRATION.md`](BLENDER_MCP_INTEGRATION.md)
 - **Plate ▸ Blender ▸ Upload model to Blender** copies the loaded model into the engine's import directory so it can be opened and modified there; the result returns through the export handoff above. **Stop Blender engine** ends the engine and its keeper service deliberately
@@ -163,9 +163,17 @@ Debug builds are signed with the committed [`keystore/debug.keystore`](keystore/
 a sideload build has to keep one identity, or every release refuses to install over
 the last one.
 
-**From a clean clone: `./scripts/setup.sh`.** It checks the toolchain, stages all three engines from their own scripts, and assembles the debug APK — failing early with the name of the script to run rather than letting Gradle find the problem minutes in. All three now stage automatically — the Blender engine is fetched from this
+**From a clean clone: `./scripts/setup.sh`.** It checks the toolchain, stages all
+three engines from their own scripts, and assembles the debug APK — failing early
+with the name of the script to run rather than letting Gradle find the problem
+minutes in. All three stage automatically: the Blender engine is fetched from this
 release's `blender-engine-arm64-<tag>.zip`, or from `BLENDER_ENGINE_DIR` if you
 have built one yourself.
+
+**On Windows**, the staging scripts still run under Git Bash or WSL — they need
+only bash, curl and unzip — but `setup.sh` itself wants a Unix JDK and a POSIX SDK
+path, which is what CI has: build with `gradlew.bat` and the commands above
+instead, and hand `env-setup.sh` the Windows adb (`ADB=adb.exe`).
 
 **`./scripts/env-setup.sh` checks everything *around* the app** — the build
 toolchain, the phone over adb, the harness, the GPU box — and prints what is

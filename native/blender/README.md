@@ -13,8 +13,9 @@ CuraEngine/Prusa exec wrappers (one shared lib + JNI + assets).
 - `blender-gensrc/` — generated DNA/RNA headers from the harness build
   (dna.c, dna_type_offsets.h, rna_*_gen.c, RNA_*.h).
 - `blender-jniLibs/` — the engine's runtime shared libs (120 `.so`,
-  Alembic/OIIO/cpython/boost/ffmpeg…) — copied into the app's jniLibs at
-  install time.
+  Alembic/OIIO/cpython/boost/ffmpeg…) — staged into the app's jniLibs by
+  `scripts/fetch-blender-engine-android.sh`, which prefers the copy inside the
+  engine package. The engine cannot be loaded without them.
 - `blender-libs/` *(optional vendored copy of the 148 static libs)*.
 
 ## Building (verified: 1.34 GB arm64 .so, exports OK)
@@ -44,7 +45,7 @@ Result: `libblender_exec.so` — copy to `app/src/main/jniLibs/arm64-v8a/`
 ## The release asset the app fetches
 `scripts/fetch-blender-engine-android.sh` downloads
 `blender-engine-arm64-<tag>.zip` from this repository's releases and reads it
-as a directory named `blender-engine-arm64` holding exactly the five things the
+as a directory named `blender-engine-arm64` holding exactly the six things the
 app packages:
 
     blender-engine-arm64/libblender_exec.so   the engine, linked and stripped
