@@ -338,6 +338,10 @@ val verifyDebugApkBlenderContents by tasks.registering {
             check(addon != null && addon.size > 0L) {
                 "Debug APK does not contain the Blender MCP addon"
             }
+            val license = zip.getEntry("assets/blender/licenses/blender/GPL-license.txt")
+            check(license != null && license.size > 0L) {
+                "Debug APK does not contain the Blender license texts"
+            }
         }
     }
 }

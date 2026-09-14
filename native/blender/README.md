@@ -37,6 +37,9 @@ Result: `libblender_exec.so` — copy to `app/src/main/jniLibs/arm64-v8a/`
 - `assets/blender/scripts/` — Blender scripts + `startup/{start_blender_mcp.py,
   blender_mcp_slim.py}` — auto-boots the MCP addon.
 - `assets/blender/3.6/config/datafiles/` — OCIO + locale datafiles.
+- `assets/blender/licenses/` — GPL and third-party license texts. The engine
+  package carries them; the tracked copy lives in this directory and
+  `scripts/fetch-blender-engine-android.sh` falls back to it.
 
 ## MCP server (external, per user decision 2026-09-09)
 `blender-mcp-slim/server.py` (FastMCP, 5 tools) runs wherever the AI session

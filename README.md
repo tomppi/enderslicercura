@@ -146,9 +146,11 @@ Requirements: JDK 17, Android SDK 36 + NDK `28.2.13676358`, CMake `3.22.1` / `3.
 From a clean checkout:
 
 ```bash
-chmod +x scripts/fetch-cura-resources.sh scripts/build-curaengine-android.sh scripts/fetch-prusa-engine-android.sh
+chmod +x scripts/fetch-cura-resources.sh scripts/build-curaengine-android.sh \
+         scripts/fetch-prusa-engine-android.sh scripts/fetch-blender-engine-android.sh
 scripts/fetch-cura-resources.sh
 scripts/fetch-prusa-engine-android.sh
+scripts/fetch-blender-engine-android.sh   # ~105 MB release asset: the engine binary + assets
 
 export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358"
 export APP_JNILIBS_DIR="$PWD/app/src/main/jniLibs"
@@ -171,7 +173,7 @@ none of them belong in a repository.
 
 `fetch-prusa-engine-android.sh` downloads the newest successful `PrusaSlicer-3.0.0-alpha11-android-arm64-v8a` artifact of the [`prusa-engine-3`](.github/workflows/prusa-engine-3.yml) workflow, which cross-compiles the alpha11 console from source; set `PRUSA_ENGINE_DIR` to a directory containing `prusa-slicer` and `resources` to package a local build instead.
 
-Gradle prepares the pinned offline BumpMesh and filaSim assets before `preBuild`; `verifyDebugApkContents` builds the debug APK and verifies the packaged ARM64 CuraEngine and PrusaSlicer engine. GitHub Actions builds the WASM engine, runs the unit/regression and definition audits, verifies packaged assets and uploads the APK.
+Gradle prepares the pinned offline BumpMesh and filaSim assets before `preBuild`; `verifyDebugApkContents` builds the debug APK and verifies the packaged ARM64 CuraEngine, PrusaSlicer and Blender engines, including the Blender license texts the GPL requires to ship with the binary. GitHub Actions builds the WASM engine, runs the unit/regression and definition audits, verifies packaged assets and uploads the APK.
 
 ## Safety
 

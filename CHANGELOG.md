@@ -28,24 +28,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-### Added
+### Fixed
 
-- Modelling from scratch: a full-screen destination reached from the Plate
-  menu's Blender menu, showing the model, a chat window and an exit button and
-  nothing else. It runs its own harness conversation with its own session, so
-  modelling a part no longer shares a transcript with turning a photograph into
-  one. The engine starts on its default scene, so a first visit asks the agent
-  to export the default cube through the usual handoff.
-- A camera shared with the modelling agent. `files/blender/camera.json` carries
-  the orbit, the eye distance and the model centre, resolved into an eye/up pair
-  in the model's own frame, so the agent's Cycles render and the user's viewport
-  agree. The camera belongs to the agent; the user takes it with a button that
-  is locked while the agent is working, and sending a message hands it back.
-
-### Changed
-
-- `HarnessConfigStore` keeps a second session id for the modelling
-  conversation, separate from the image-to-model chat.
+- The Blender engine fetch staged the binary, the Python stdlib, the Blender
+  scripts and the datafiles but not the license texts, so a build from the
+  released `blender-engine-arm64-v1.2.0.zip` produced an APK without the GPL
+  texts and CI's own asset check failed on them. The script now stages them
+  from the engine package, falling back to the tracked copy in
+  `native/blender/assets/licenses`, and fails loudly when neither exists;
+  `verifyDebugApkContents` checks they reach the APK.
 
 ## [1.1.0] - 2026-09-12
 

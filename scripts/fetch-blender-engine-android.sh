@@ -18,10 +18,10 @@
 #   <dir>/python/                      CPython 3.11.4 stdlib
 #   <dir>/scripts/                     Blender scripts, including our MCP addon
 #   <dir>/3.6/config/datafiles/        OCIO and locale datafiles
+#   <dir>/licenses/                    GPL and third-party license texts
 #
-# The tag form downloads that package from this repository's releases. No such
-# asset is published yet - this script fails with that message rather than
-# pretending otherwise.
+# The tag form downloads that package from this repository's releases
+# (blender-engine-arm64-<tag>.zip); set BLENDER_ENGINE_TAG to pick another tag.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -49,6 +49,22 @@ stage() {
     [ -d "${dir}/${part}" ] && cp -R "${dir}/${part}" "${ASSETS}/"
   done
   [ -d "${dir}/3.6" ] && { mkdir -p "${ASSETS}/3.6"; cp -R "${dir}/3.6/." "${ASSETS}/3.6/"; }
+
+  # The license texts ship with the binary: the GPL requires them to travel with
+  # it. The engine package carries a copy, and native/blender/assets/licenses is
+  # the tracked copy for engines built from a tree that has not staged them.
+  local license_src=""
+  if [ -d "${dir}/licenses" ]; then
+    license_src="${dir}/licenses"
+  elif [ -d "${ROOT}/native/blender/assets/licenses" ]; then
+    license_src="${ROOT}/native/blender/assets/licenses"
+  fi
+  if [ -z "${license_src}" ]; then
+    echo "no license texts: neither ${dir}/licenses nor native/blender/assets/licenses exists" >&2
+    exit 1
+  fi
+  mkdir -p "${ASSETS}/licenses"
+  cp -R "${license_src}/." "${ASSETS}/licenses/"
 
   echo "staged assets: $(du -sh "${ASSETS}" | cut -f1)"
   echo
