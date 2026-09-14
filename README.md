@@ -150,7 +150,7 @@ chmod +x scripts/fetch-cura-resources.sh scripts/build-curaengine-android.sh \
          scripts/fetch-prusa-engine-android.sh scripts/fetch-blender-engine-android.sh
 scripts/fetch-cura-resources.sh
 scripts/fetch-prusa-engine-android.sh
-scripts/fetch-blender-engine-android.sh   # ~105 MB release asset: the engine binary + assets
+scripts/fetch-blender-engine-android.sh   # ~185 MB release asset: engine, runtime libs, assets
 
 export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358"
 export APP_JNILIBS_DIR="$PWD/app/src/main/jniLibs"

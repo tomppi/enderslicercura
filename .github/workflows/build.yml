@@ -219,6 +219,19 @@ jobs:
           scripts/fetch-blender-engine-android.sh 2>&1 | tee blender-engine-fetch.log
           test -s app/src/main/jniLibs/arm64-v8a/libblender_exec.so
           file app/src/main/jniLibs/arm64-v8a/libblender_exec.so
+          # It is one library among 121: without the bundled cpython, ffmpeg,
+          # OpenVDB, USD and OpenImageDenoise beside it the engine cannot load.
+          for lib in \
+            libcpython.so \
+            libopenvdb.so \
+            libavcodec.so \
+            libOpenImageDenoise_core.so \
+            libc++_shared.so; do
+            [ -s "app/src/main/jniLibs/arm64-v8a/$lib" ] || { echo "Blender engine runtime library missing: $lib" >&2; exit 1; }
+          done
+          lib_count=$(find app/src/main/jniLibs/arm64-v8a -maxdepth 1 -name '*.so' | wc -l)
+          [ "$lib_count" -ge 120 ] || { echo "expected at least 120 native libraries, found $lib_count" >&2; exit 1; }
+          echo "native libraries staged: $lib_count"
           # The runtime assets are what the engine cannot boot without: CPython's
           # stdlib, Blender's scripts (including the MCP addon) and the datafiles.
           for dir in \
@@ -262,6 +275,10 @@ jobs:
           grep -q 'lib/arm64-v8a/libcura-formulae-engine.so' apk-contents.log
           grep -q 'lib/arm64-v8a/libprusa_slicer_exec.so' apk-contents.log
           grep -q 'lib/arm64-v8a/libblender_exec.so' apk-contents.log
+          grep -q 'lib/arm64-v8a/libcpython.so' apk-contents.log
+          grep -q 'lib/arm64-v8a/libopenvdb.so' apk-contents.log
+          grep -q 'lib/arm64-v8a/libavcodec.so' apk-contents.log
+          grep -q 'lib/arm64-v8a/libOpenImageDenoise_core.so' apk-contents.log
           grep -q 'assets/blender/scripts/startup/blender_mcp_slim.py' apk-contents.log
           grep -q 'assets/blender/licenses/blender/GPL-license.txt' apk-contents.log
           grep -q 'assets/cura/definitions/version.txt' apk-contents.log

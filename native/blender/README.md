@@ -48,6 +48,7 @@ as a directory named `blender-engine-arm64` holding exactly the five things the
 app packages:
 
     blender-engine-arm64/libblender_exec.so   the engine, linked and stripped
+    blender-engine-arm64/jniLibs/*.so         the 120 libraries it loads
     blender-engine-arm64/python/              CPython 3.11.4 stdlib
     blender-engine-arm64/scripts/             Blender scripts + the MCP addon
     blender-engine-arm64/3.6/                 config/datafiles (OCIO, locale)

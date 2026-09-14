@@ -44,6 +44,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   text with it. The packaged assets now keep `_`-prefixed directories; dotfiles
   and VCS metadata are still ignored, `__pycache__` is pruned rather than
   shipped, and the APK check covers both the recovered package and the license.
+- **The engine package shipped the engine without the libraries it loads.**
+  `blender-engine-arm64-v1.2.0.zip` carried `libblender_exec.so` and the assets
+  but none of the 120 runtime libraries beside it (bundled CPython, ffmpeg,
+  OpenVDB, USD, OpenImageDenoise), and `app/src/main/jniLibs` is delivery rather
+  than source - so a build from the release, the CI one included, produced an APK
+  whose Blender engine could not be loaded at all. The package now carries
+  `jniLibs/`, the fetch script stages it (falling back to
+  `native/blender/blender-jniLibs`), and both the fetch step and
+  `verifyDebugApkContents` fail when the runtime libraries are missing.
 
 ## [1.1.0] - 2026-09-12
 

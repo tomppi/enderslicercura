@@ -14,6 +14,7 @@
 # The directory form expects the layout native/blender/README.md describes:
 #
 #   <dir>/blender                      the arm64 ELF the build links from
+#   <dir>/jniLibs/*.so                 the 120 runtime libraries it loads
 #   <dir>/libs/*.a                     the 148 static libraries
 #   <dir>/python/                      CPython 3.11.4 stdlib
 #   <dir>/scripts/                     Blender scripts, including our MCP addon
@@ -44,6 +45,29 @@ stage() {
     echo "no engine binary in $dir (expected blender or libblender_exec.so)" >&2
     exit 1
   fi
+
+  # The engine is one shared library among 121: libblender_exec.so needs the
+  # bundled cpython, ffmpeg, OpenVDB, USD and OpenImageDenoise next to it, so
+  # the app cannot load it without them. The package carries them in jniLibs/,
+  # and native/blender/blender-jniLibs is the tracked-in-place copy for engines
+  # built on this machine.
+  local libs_src=""
+  if [ -d "${dir}/jniLibs" ]; then
+    libs_src="${dir}/jniLibs"
+  elif [ -d "${ROOT}/native/blender/blender-jniLibs" ]; then
+    libs_src="${ROOT}/native/blender/blender-jniLibs"
+  fi
+  if [ -z "${libs_src}" ]; then
+    echo "no engine runtime libraries: neither ${dir}/jniLibs nor native/blender/blender-jniLibs exists" >&2
+    exit 1
+  fi
+  local libs_count=0
+  for lib in "${libs_src}"/*.so; do
+    [ -f "${lib}" ] || continue
+    cp "${lib}" "${JNI}/"
+    libs_count=$((libs_count + 1))
+  done
+  echo "staged ${libs_count} engine runtime libraries"
 
   for part in python scripts; do
     [ -d "${dir}/${part}" ] && cp -R "${dir}/${part}" "${ASSETS}/"

@@ -344,6 +344,16 @@ val verifyDebugApkBlenderContents by tasks.registering {
             check(engine != null && engine.size > 40L * 1024 * 1024) {
                 "Debug APK does not contain the ARM64 Blender engine (" + (engine?.size ?: 0L) + " bytes)"
             }
+            // libblender_exec.so is one library among 121: without the bundled
+            // cpython, ffmpeg, OpenVDB, USD and OpenImageDenoise beside it the
+            // engine cannot be loaded at all, and an APK missing them still looks
+            // complete from the outside.
+            for (lib in listOf("libcpython.so", "libopenvdb.so", "libavcodec.so", "libOpenImageDenoise_core.so", "libc++_shared.so")) {
+                val runtime = zip.getEntry("lib/arm64-v8a/$lib")
+                check(runtime != null && runtime.size > 0L) {
+                    "Debug APK does not contain the Blender engine runtime libraries (missing $lib)"
+                }
+            }
             val pythonCount = zip.entries().asSequence().count { it.name.startsWith("assets/blender/python/lib/python3.11/") }
             check(pythonCount > 1000) {
                 "Debug APK does not contain the Blender python assets (found $pythonCount entries)"
