@@ -63,34 +63,31 @@ if [ -n "${BLENDER_ENGINE_DIR:-}" ]; then
 fi
 
 TAG="${BLENDER_ENGINE_TAG:-v1.2.0}"
-URL="https://github.com/tomppi/enderslicercura/releases/download/${TAG}/blender-engine-arm64-${TAG}.tar.zst"
+ASSET="blender-engine-arm64-${TAG}.zip"
+URL="https://github.com/tomppi/enderslicercura/releases/download/${TAG}/${ASSET}"
 
-if ! command -v gh >/dev/null 2>&1; then
-  echo "gh is not installed, and no BLENDER_ENGINE_DIR was given." >&2
-  echo "Either install gh, or point BLENDER_ENGINE_DIR at a built engine package." >&2
-  exit 1
-fi
+WORK="$(mktemp -d)"
+trap 'rm -rf "${WORK}"' EXIT
 
-if ! gh release view "${TAG}" >/dev/null 2>&1; then
-  echo "release ${TAG} not found" >&2; exit 1
-fi
-
-if ! gh release view "${TAG}" --json assets --jq '.assets[].name' | grep -qx "blender-engine-arm64-${TAG}.tar.zst"; then
+echo "downloading ${ASSET} (${TAG})"
+if ! curl -fL --progress-bar "${URL}" -o "${WORK}/engine.zip"; then
   cat >&2 <<'EOF'
-No engine asset is published for this release yet.
 
-The engine is built from the epai/APP-android_arm64 port and patched, which is a
-build of its own rather than a download - see native/blender/README.md and
-native/blender/patches/. Until that asset is published, build it locally and run
-this script with BLENDER_ENGINE_DIR.
+Could not download the engine package.
+
+It is published as a release asset so that a clone can build without owning a
+built engine. If the download fails, either the tag has no asset (check the
+release page), or you have no network - in which case build the engine locally
+per native/blender/README.md and run this script with BLENDER_ENGINE_DIR.
 EOF
   exit 1
 fi
 
-WORK="$(mktemp -d)"
-trap 'rm -rf "${WORK}"' EXIT
-echo "downloading ${URL}"
-curl -fL --progress-bar "${URL}" -o "${WORK}/engine.tar.zst"
-command -v zstd >/dev/null 2>&1 || { echo "zstd is required to unpack the engine" >&2; exit 1; }
-tar --zstd -xf "${WORK}/engine.tar.zst" -C "${WORK}"
+if command -v unzip >/dev/null 2>&1; then
+  unzip -q "${WORK}/engine.zip" -d "${WORK}"
+else
+  # bsdtar, shipped with Windows 10+ and macOS, reads zip.
+  tar -xf "${WORK}/engine.zip" -C "${WORK}"
+fi
+
 stage "${WORK}/blender-engine-arm64"
