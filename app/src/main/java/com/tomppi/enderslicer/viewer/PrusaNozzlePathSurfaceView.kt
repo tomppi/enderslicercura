@@ -18,7 +18,6 @@ import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sqrt
-import kotlin.math.tan
 
 /**
  * GPU-backed nozzle-path renderer for PrusaSlicer output.
@@ -325,8 +324,10 @@ internal class PrusaNozzlePathRenderer : GLSurfaceView.Renderer {
 
     fun panPixels(deltaX: Float, deltaY: Float) {
         if (!deltaX.isFinite() || !deltaY.isFinite()) return
-        val visibleHeight = 2f * cameraDistance() * PrusaNozzlePathViewDefaults.CAMERA_EYE_DISTANCE_SCALE *
-            tan(Math.toRadians(PrusaNozzlePathViewDefaults.FIELD_OF_VIEW / 2.0)).toFloat()
+        val visibleHeight = NozzlePathViewCamera.visibleHeightAtPivot(
+            cameraDistance(),
+            PrusaNozzlePathViewDefaults.FIELD_OF_VIEW,
+        )
         val worldPerPixel = visibleHeight / max(viewportHeight, 1)
         panX += deltaX * worldPerPixel
         panY -= deltaY * worldPerPixel
@@ -864,7 +865,13 @@ internal class PrusaNozzlePathRenderer : GLSurfaceView.Renderer {
         val nearPlane = max(0.05f, distance - radius * 1.6f)
         val farPlane = max(nearPlane + 100f, distance + radius * 2.8f + 100f)
         if (orthographic) {
-            val halfHeight = distance * tan(Math.toRadians((PrusaNozzlePathViewDefaults.FIELD_OF_VIEW / 2.0f).toDouble())).toFloat()
+            // Orthographic measurement mode: the half-height comes from the
+            // eye distance the pan and the perspective view use, or the part
+            // jumps in apparent size when the toggle flips.
+            val halfHeight = NozzlePathViewCamera.orthographicHalfHeight(
+                distance,
+                PrusaNozzlePathViewDefaults.FIELD_OF_VIEW,
+            )
             val halfWidth = halfHeight * aspect
             Matrix.orthoM(projection, 0, -halfWidth, halfWidth, -halfHeight, halfHeight, nearPlane, farPlane)
         } else {
@@ -1067,11 +1074,6 @@ internal object PrusaNozzlePathViewDefaults {
     const val MIN_ZOOM = 0.25f
     const val MAX_ZOOM = 60f
     const val FIELD_OF_VIEW = 42f
-    /**
-     * Eye sits at (0, -distance, 0.62*distance), so its true distance is
-     * distance * sqrt(1 + 0.62^2); two-finger panning scales by that.
-     */
-    const val CAMERA_EYE_DISTANCE_SCALE = 1.17666f
     const val TRAVEL_WIDTH = 1.5f
     const val TOP_AMBIENT = 0.98f
     const val SIDE_TOP_AMBIENT = 0.94f

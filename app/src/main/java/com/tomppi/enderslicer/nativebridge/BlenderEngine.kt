@@ -53,6 +53,9 @@ object BlenderEngine {
     @Volatile private var started = false
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+    /** Kept so the keeper's wake-lock lease can be re-armed while the engine works. */
+    @Volatile private var appContext: Context? = null
+
     // Cancels the previous exports watcher when the engine is restarted:
     // without this every stop/start pair left another poller and another
     // FileObserver running for the life of the process.
@@ -101,6 +104,7 @@ object BlenderEngine {
         started = true
         val app = context.applicationContext
         appFilesDir = app.filesDir
+        appContext = app
         scope.launch {
             runCatching {
                 // ensureLoaded() performs the (one-time, background)
@@ -201,6 +205,17 @@ object BlenderEngine {
                 .takeIf { it.isFile }?.readText()
         }.getOrNull()?.let { Log.w(TAG, "engine status: " + it.take(200)) }
         return false
+    }
+
+    /**
+     * Tells the keeper the engine is about to work, which re-arms its wake-lock
+     * lease. The service has no other view of engine activity - its command loop
+     * runs on the engine's own thread - so without this the lease could lapse
+     * under a command that arrived after it.
+     */
+    fun keepAwake() {
+        val app = appContext ?: return
+        runCatching { BlenderEngineService.start(app) }
     }
 
     /** The engine's shared secret: generated once, then reused for the install. */

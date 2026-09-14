@@ -1,6 +1,9 @@
 package com.tomppi.enderslicer.conical
 
 import android.content.Context
+import com.tomppi.enderslicer.engine.SliceArtifactPublisher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.io.File
 import kotlin.math.cos
 import kotlin.math.sin
@@ -116,7 +119,13 @@ class ConicalSettingsStore(context: Context) {
         pauseAfterProbe = preferences.getBoolean(KEY_PAUSE_AFTER_PROBE, false),
     ).validated().also(ConicalRuntime::activate)
 
-    fun save(settings: ConicalSettings) {
+    /**
+     * Persists the settings and reports whether that invalidated published slices.
+     *
+     * The removal itself is [invalidatePublishedSlices], a separate suspending
+     * step, so that whoever saves decides where that work runs.
+     */
+    fun save(settings: ConicalSettings): Boolean {
         val safe = settings.validated()
         val changed = ConicalRuntime.current() != safe
         preferences.edit()
@@ -130,19 +139,53 @@ class ConicalSettingsStore(context: Context) {
             .putBoolean(KEY_PAUSE_AFTER_PROBE, safe.pauseAfterProbe)
             .commit()
         ConicalRuntime.activate(safe)
-        if (changed) invalidatePublishedSlices()
+        return changed
     }
 
-    private fun invalidatePublishedSlices() {
-        val root = File(appContext.filesDir, "slice-results")
-        if (!root.exists()) return
-        check(root.deleteRecursively()) {
-            "Unable to invalidate G-code created with previous conical slicing settings"
-        }
-        check(root.mkdirs() || root.isDirectory) {
-            "Unable to recreate the slice artifact directory"
-        }
+    /**
+     * Removes every published slice, so G-code built with the previous conical
+     * settings cannot be exported.
+     *
+     * Suspending and non-throwing on purpose. It runs off the main thread because
+     * the tree can hold hundreds of megabytes, and it answers with a message
+     * rather than raising one: the settings are already saved by the time this
+     * runs - the Save button has closed its sheet - so a crash here would read as
+     * a failed save.
+     *
+     * The removal goes through the publisher's own [SliceArtifactPublisher.release]:
+     * that takes the lock the publisher holds while it renames a finished slice
+     * into place, so a slice being published right now is never torn down, and one
+     * another part of the app is reading through a lease is marked for deletion
+     * instead of pulled from under it.
+     */
+    suspend fun invalidatePublishedSlices(): String? = withContext(Dispatchers.IO) {
+        val root = File(appContext.filesDir, SLICE_RESULTS_DIRECTORY)
+        runCatching {
+            val publisher = SliceArtifactPublisher(root)
+            val published = root.listFiles().orEmpty().filter(::isPublishedSlice).map(File::getName)
+            published.forEach(publisher::release)
+            published.map { name -> File(root, name) }.filter(::isPublishedSlice)
+        }.fold(
+            onSuccess = { stuck ->
+                // A directory can also survive on purpose: release() marks one that
+                // a reader still holds a lease on, and deletes it when the lease
+                // closes. Either way the old G-code is still there to be exported.
+                if (stuck.isEmpty()) null
+                else "Previous G-code is still on disk; slice again before exporting"
+            },
+            onFailure = { error ->
+                "Previous G-code could not be removed (" + (error.message ?: error::class.java.simpleName) +
+                    "); slice again before exporting"
+            },
+        )
     }
+
+    /** True for a directory the publisher has finished renaming into place. */
+    private fun isPublishedSlice(directory: File): Boolean = directory.isDirectory &&
+        SliceArtifactPublisher.isCompleteGcode(
+            File(directory, SliceArtifactPublisher.GCODE_FILE_NAME),
+            directory.name,
+        )
 
     private fun number(key: String, fallback: Double): Double =
         preferences.getString(key, null)?.toDoubleOrNull()?.takeIf(Double::isFinite) ?: fallback
@@ -152,6 +195,7 @@ class ConicalSettingsStore(context: Context) {
         const val BACKEND_VERSION = 1
 
         private const val PREFERENCES = "enderslicer-conical-v1"
+        private const val SLICE_RESULTS_DIRECTORY = "slice-results"
         private const val KEY_ENABLED = "enabled"
         private const val KEY_CONE_ANGLE = "cone-angle-degrees"
         private const val KEY_REFINEMENT = "refinement-iterations"

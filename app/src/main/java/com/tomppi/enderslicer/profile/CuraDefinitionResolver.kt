@@ -65,7 +65,8 @@ internal object CuraDefinitionResolver {
         val lockedGlobal = mutableSetOf<String>()
         val lockedExtruder = mutableSetOf<String>()
 
-        applyOverrides(globalOverrides, globalValues, globalExpressions, lockedGlobal)
+        val overrideProblems = linkedMapOf<String, String>()
+        applyOverrides(globalOverrides, globalValues, globalExpressions, lockedGlobal, overrideProblems)
 
         // Cura's extruder stack inherits the selected global machine/quality
         // stack before applying extruder-specific containers. Re-apply those
@@ -73,8 +74,12 @@ internal object CuraDefinitionResolver {
         // unrelated definition defaults. This is especially important for tree
         // support: support_infill_rate depends on the globally selected
         // support_enable/support_structure values.
-        applyOverrides(globalOverrides, extruderValues, extruderExpressions, lockedExtruder)
-        applyOverrides(extruderOverrides, extruderValues, extruderExpressions, lockedExtruder)
+        applyOverrides(globalOverrides, extruderValues, extruderExpressions, lockedExtruder, overrideProblems)
+        applyOverrides(extruderOverrides, extruderValues, extruderExpressions, lockedExtruder, overrideProblems)
+        // A rejected formula would otherwise leave its setting at the default
+        // while the rest of the profile resolved, which later reads as a
+        // generic slice failure far from the profile that caused it.
+        check(overrideProblems.isEmpty()) { reportedProblems(overrideProblems) }
 
         var passes = 0
         var changed: Boolean
@@ -121,12 +126,7 @@ internal object CuraDefinitionResolver {
             extruderValues = extruderValues,
             output = unresolved,
         )
-        check(unresolved.isEmpty()) {
-            unresolved.entries.take(MAX_REPORTED_UNRESOLVED).joinToString(
-                prefix = "Unable to resolve Cura definition expressions: ",
-                separator = "; ",
-            ) { (key, reason) -> "$key ($reason)" }
-        }
+        check(unresolved.isEmpty()) { reportedProblems(unresolved) }
 
         validateResolvedScope("global", machineDefinitions, globalValues)
         validateResolvedScope("extruder", combinedExtruderDefinitions, extruderValues)
@@ -380,17 +380,32 @@ internal object CuraDefinitionResolver {
         }
     }
 
+    /**
+     * Applies one scope's explicit values.
+     *
+     * A formula that will not parse is collected in [problems] instead of being
+     * thrown from here: it came with the profile, and reporting it by name -
+     * with the setting it belongs to - is what turns "the import swallowed a
+     * stack overflow" into a slice that says which formula it refused.
+     */
     private fun applyOverrides(
         overrides: Map<String, String>,
         values: MutableMap<String, Any?>,
         expressions: MutableMap<String, CuraExpression>,
         locked: MutableSet<String>,
+        problems: MutableMap<String, String>,
     ) {
         overrides.forEach { (key, rawValue) ->
             val value = rawValue.trim()
             if (value.startsWith("=")) {
-                expressions[key] = CuraValueExpressionParser.parse(value.removePrefix("=").trim())
-                locked.remove(key)
+                runCatching { CuraValueExpressionParser.parse(value.removePrefix("=").trim()) }
+                    .onSuccess { expression ->
+                        expressions[key] = expression
+                        locked.remove(key)
+                    }
+                    .onFailure { error ->
+                        problems[key] = error.message ?: error::class.java.simpleName
+                    }
             } else {
                 values[key] = normalize(rawValue)
                 expressions.remove(key)
@@ -440,6 +455,13 @@ internal object CuraDefinitionResolver {
                 .onFailure { error -> output["$scope.$key"] = error.message ?: error::class.java.simpleName }
         }
     }
+
+    /** One message for the settings that could not be resolved, whichever stage refused them. */
+    private fun reportedProblems(problems: Map<String, String>): String =
+        problems.entries.take(MAX_REPORTED_UNRESOLVED).joinToString(
+            prefix = "Unable to resolve Cura definition expressions: ",
+            separator = "; ",
+        ) { (key, reason) -> "$key ($reason)" }
 
     private fun validateResolvedScope(
         scope: String,

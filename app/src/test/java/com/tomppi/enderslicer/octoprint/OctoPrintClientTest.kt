@@ -1,5 +1,7 @@
 package com.tomppi.enderslicer.octoprint
 
+import java.net.URI
+import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -418,5 +420,68 @@ class OctoPrintClientTest {
 
         val modern = JSONObject("{\"name\":\"tester\",\"groups\":[\"users\"],\"permissions\":[\"STATUS\",\"CONNECTION\"]}")
         assertFalse(OctoPrintJson.parseServerInfo(version, modern).userIsAdmin)
+    }
+
+    @Test
+    fun flatteningRefusesAHostileFolderNestWithItsOwnMessage() {
+        // A server can nest folders until the recursion overflows the stack, and
+        // the caller then reported a bare StackOverflowError with no file list.
+        var node = JSONObject().put("type", "folder").put("path", "bottom")
+        for (level in 1..40) {
+            node = JSONObject()
+                .put("type", "folder")
+                .put("path", "level-" + level)
+                .put("children", JSONArray().put(node))
+        }
+
+        val error = runCatching {
+            OctoPrintJson.parseFiles(JSONObject().put("files", JSONArray().put(node)))
+        }.exceptionOrNull()
+
+        assertTrue(error is IllegalStateException)
+        assertTrue(error?.message.orEmpty().contains("nests more than 32 folders deep"))
+    }
+
+    @Test
+    fun flatteningStillReadsAFolderTreeOfOrdinaryDepth() {
+        val child = JSONObject().put("type", "machinecode").put("path", "folder/cube.gcode")
+        val folder = JSONObject()
+            .put("type", "folder")
+            .put("path", "folder")
+            .put("children", JSONArray().put(child))
+
+        val (files, freeBytes) = OctoPrintJson.parseFiles(JSONObject().put("files", JSONArray().put(folder)))
+
+        assertEquals(listOf("folder", "folder/cube.gcode"), files.map { it.path })
+        assertNull(freeBytes)
+    }
+
+    @Test
+    fun treatsOnlyTheDocumentedApiRejectionAsAnInvalidKey() {
+        val client = OctoPrintClient("http://octopi.local", "stored-key")
+        val rejection = JSONObject().put("error", "Invalid API key")
+
+        assertTrue(client.isApiKeyRejection(URI("http://octopi.local/api/printer"), 403, rejection))
+
+        // Every one of these used to erase the stored key, because the old check
+        // only searched the peer's message text for "api key".
+        assertFalse(client.isApiKeyRejection(URI("http://elsewhere.example/api/printer"), 403, rejection))
+        assertFalse(client.isApiKeyRejection(URI("http://octopi.local/webcam/?action=snapshot"), 403, rejection))
+        assertFalse(client.isApiKeyRejection(URI("http://octopi.local/api/printer"), 403, null))
+        assertFalse(client.isApiKeyRejection(URI("http://octopi.local/api/printer"), 401, rejection))
+        // OctoPrint turns any aborted API route into a JSON error, so a
+        // permission 403 (a valid key whose user may not read the endpoint) has
+        // this shape and must not be read as a rejected key.
+        assertFalse(
+            client.isApiKeyRejection(
+                URI("http://octopi.local/api/settings"),
+                403,
+                JSONObject().put(
+                    "error",
+                    "You don't have the permission to access the requested resource. " +
+                        "It is either read-protected or not readable by the server.",
+                ),
+            ),
+        )
     }
 }

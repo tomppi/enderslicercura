@@ -5,4 +5,17 @@
     <exclude domain="sharedpref" path="octoprint_client.xml" />
     <exclude domain="sharedpref" path="harness_config.xml" />
     <exclude domain="file" path="smart-infill/" />
+    <!-- Everything else the app writes under files/ as well: the engine tree
+         (blender/, ~480 MB, MCP token included), the imported and staged models
+         (models/), the sliced G-code (slice-results/), the thermal FEA reports
+         (thermal-fea/) and the imported Cura project bundle
+         (persistent-state/, up to 128 MiB) are all regenerated on the new
+         device - blender-home/, the engine's own scratch HOME, included - and
+         they are far past the 25 MB an Auto Backup gets. -->
+    <exclude domain="file" path="blender/" />
+    <exclude domain="file" path="blender-home/" />
+    <exclude domain="file" path="models/" />
+    <exclude domain="file" path="slice-results/" />
+    <exclude domain="file" path="thermal-fea/" />
+    <exclude domain="file" path="persistent-state/" />
 </full-backup-content>

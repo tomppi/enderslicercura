@@ -1,6 +1,7 @@
 package com.tomppi.enderslicer.profile
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import kotlin.math.E
 import kotlin.math.PI
@@ -36,5 +37,33 @@ class CuraValueExpressionTest {
     fun resolvesMathConstants() {
         assertEquals(PI, eval("math.pi") as Double, 1e-9)
         assertEquals(E, eval("math.e") as Double, 1e-9)
+    }
+
+    @Test
+    fun refusesAnExpressionNestedPastTheParserLimit() {
+        // The source is a Cura profile's own formula, so its nesting is
+        // peer-authored: recursing without a limit overflowed the stack, and the
+        // importer swallowed that as a warning and kept a half-resolved profile.
+        val error = runCatching {
+            eval("(".repeat(10_000) + "1" + ")".repeat(10_000))
+        }.exceptionOrNull()
+
+        assertTrue(error is IllegalStateException)
+        assertTrue(error?.message.orEmpty().contains("nests deeper than"))
+    }
+
+    @Test
+    fun refusesAnUnaryChainNestedPastTheParserLimit() {
+        val error = runCatching { eval("-".repeat(10_000) + "1") }.exceptionOrNull()
+
+        assertTrue(error is IllegalStateException)
+        assertTrue(error?.message.orEmpty().contains("nests deeper than"))
+    }
+
+    @Test
+    fun resolvesTheNestingRealCuraFormulasUse() {
+        assertEquals(1.0, eval("(".repeat(20) + "1" + ")".repeat(20)) as Double, 1e-9)
+        assertEquals(2.0, eval("1 + " + "(".repeat(20) + "1" + ")".repeat(20)) as Double, 1e-9)
+        assertEquals(-1.0, eval("-".repeat(21) + "1") as Double, 1e-9)
     }
 }

@@ -219,6 +219,31 @@ class ModelPlacementTest {
         assertEquals(0.0, transformed.bounds.minZ.toDouble(), 1e-4)
     }
 
+    @Test
+    fun rejectsATransformWhoseFiniteScaleOverflowsTheRenderedYBounds() {
+        val mesh = triangleMesh(
+            floatArrayOf(
+                -4f, 8f, -2f,
+                6f, 8f, -2f,
+                -4f, 18f, 3f,
+            ),
+        )
+        // Finite in Double, infinite once the placement writes it as Float. The
+        // bounds check looked at X only, so this passed and surfaced much later
+        // as Infinity bounds (or an STL-writer failure).
+        val placement = ModelPlacement(
+            linear = listOf(1.0, 0.0, 0.0, 0.0, 1e300, 0.0, 0.0, 0.0, 1.0),
+            centerXmm = 115.0,
+            centerYmm = 115.0,
+            baseZmm = 0.0,
+        )
+
+        val error = runCatching { placement.transformed(mesh) }.exceptionOrNull()
+
+        assertTrue(error is IllegalArgumentException)
+        assertTrue(error?.message.orEmpty().contains("bounds"))
+    }
+
     private fun triangleMesh(positions: FloatArray): StlMesh {
         require(positions.size == 9)
         val interleaved = FloatArray(18)

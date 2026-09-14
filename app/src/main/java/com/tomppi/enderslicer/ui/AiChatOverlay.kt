@@ -238,6 +238,22 @@ fun AiChatOverlay(
                             keyboardActions = KeyboardActions(onDone = { setup.onConnect() }),
                             modifier = Modifier.fillMaxWidth(),
                         )
+                        // Everything this chat sends - the session cookie, and any
+                        // photo uploaded with a prompt - travels in the clear over
+                        // plain HTTP. The address is still accepted, because a LAN or
+                        // Tailscale harness is a legitimate answer, but choosing it
+                        // should not be silent.
+                        if (setup.address.isNotBlank() &&
+                            !setup.address.trim().startsWith("https://", true)
+                        ) {
+                            Text(
+                                "This address is not HTTPS: the session cookie and any " +
+                                    "photo you send travel unencrypted. Use it only on a " +
+                                    "trusted local network.",
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
                         OutlinedTextField(
                             value = setup.workspace,
                             onValueChange = setup.onWorkspaceChange,

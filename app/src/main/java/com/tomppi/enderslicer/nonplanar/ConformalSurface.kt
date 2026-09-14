@@ -287,6 +287,8 @@ internal object ConformalSurfaceBuilder {
     const val MIN_REGION_AREA_MM2 = 20.0
     private const val GRID_CELL_MM = 1.0
     private const val VERTEX_QUANTUM_MM = 1e-3
+    /** The 21 bits each quantised axis occupies in the packed weld key. */
+    private const val FIELD_MASK = 0x1FFFFFL
 
     fun build(mesh: StlMesh, settings: NonPlanarSettings): ConformalSurface {
         val safe = settings.validated()
@@ -524,7 +526,8 @@ internal object ConformalSurfaceBuilder {
         )
     }
 
-    private fun packVertex(x: Double, y: Double, z: Double): Long {
+    /** Injective weld key for one quantised vertex; visible so tests can pin it. */
+    internal fun packVertex(x: Double, y: Double, z: Double): Long {
         // Printer-scale coordinates: 21 bits per axis covers ±1048.576 mm at
         // the 1e-3 weld quantum, far beyond any build plate.
         val qx = (x / VERTEX_QUANTUM_MM).toLong()
@@ -533,7 +536,13 @@ internal object ConformalSurfaceBuilder {
         require(qx in -0x100000..0xFFFFF && qy in -0x100000..0xFFFFF && qz in -0x100000..0xFFFFF) {
             "Model coordinate out of range for the conformal surface search: (" + x + ", " + y + ", " + z + ")"
         }
-        return (qx shl 42) or (qy shl 21) or qz
+        // Each field is masked to its 21 bits before the shift. Without the
+        // masks a negative y or z sign-extends into every field above it, so
+        // points that differ only in x - any mesh whose displayed coordinates
+        // cross the bed centre - packed to one id. Those ids are the builder's
+        // only connectivity input, so the welds silently fused unrelated
+        // facets into one region and measured the wrong boundary.
+        return ((qx and FIELD_MASK) shl 42) or ((qy and FIELD_MASK) shl 21) or (qz and FIELD_MASK)
     }
 
     // Injective packing: two Int ids cannot collide regardless of their

@@ -201,8 +201,7 @@ class HarnessClient(private val baseUrl: String) {
         val connection = open(path, "GET")
         return try {
             val code = connection.responseCode
-            val text = (if (code in 200..299) connection.inputStream else connection.errorStream)
-                ?.use { readAll(it) }.orEmpty()
+            val text = readBody(connection, success = code in 200..299)
             if (code !in 200..299) throw HarnessException("Harness HTTP $code for $path", "http-$code")
             text
         } finally {
@@ -218,8 +217,7 @@ class HarnessClient(private val baseUrl: String) {
             connection.setFixedLengthStreamingMode(bytes.size)
             connection.outputStream.use { it.write(bytes) }
             val code = connection.responseCode
-            val text = (if (code in 200..299) connection.inputStream else connection.errorStream)
-                ?.use { readAll(it) }.orEmpty()
+            val text = readBody(connection, success = code in 200..299)
             if (code !in 200..299) {
                 throw HarnessException("Harness HTTP $code for $path: " + text.take(200), "http-$code")
             }
@@ -256,16 +254,55 @@ class HarnessClient(private val baseUrl: String) {
             ?.firstOrNull()
             ?.substringBefore(';')
 
-    private fun readAll(stream: java.io.InputStream): String {
+    /**
+     * One response body, refusing anything past [MAX_RESPONSE_BYTES].
+     *
+     * The declared Content-Length is checked first so an oversized body is
+     * refused before a byte is buffered, but it is not trusted on its own: a
+     * chunked or lying sender is what the capped read below is for.
+     */
+    private fun readBody(connection: HttpURLConnection, success: Boolean): String {
+        val declared = connection.contentLengthLong
+        if (declared > MAX_RESPONSE_BYTES) {
+            throw responseTooLarge("it declares $declared bytes")
+        }
+        val stream = (if (success) connection.inputStream else connection.errorStream) ?: return ""
+        return stream.use { readAll(it) }
+    }
+
+    /**
+     * Reads a stream into a string under a hard size cap.
+     *
+     * READ_TIMEOUT_MILLIS bounds idle time, not length, so a wrong host, a
+     * captive portal or a hostile server can keep a request answered forever,
+     * and buffering that is an OOM. OctoPrint's client caps the same read for
+     * the same reason.
+     */
+    internal fun readAll(stream: java.io.InputStream): String {
         val buffer = ByteArrayOutputStream()
         val chunk = ByteArray(8192)
+        var total = 0L
         while (true) {
             val read = stream.read(chunk)
             if (read <= 0) break
+            total += read
+            if (total > MAX_RESPONSE_BYTES) throw responseTooLarge("it reached $total bytes")
             buffer.write(chunk, 0, read)
         }
         return buffer.toString("UTF-8")
     }
+
+    /**
+     * The harness was not the one answering.
+     *
+     * The size is the evidence: an API reply is a JSON envelope, and the
+     * largest legitimate one is a page of long agent messages.
+     */
+    private fun responseTooLarge(detail: String): HarnessException = HarnessException(
+        "Harness response exceeded the ${MAX_RESPONSE_BYTES / (1024 * 1024)} MB limit ($detail); " +
+            "the address is not answering as the harness",
+        "http-response-too-large",
+    )
 
     private fun origin(): String {
         val url = URL(baseUrl.trimEnd('/'))
@@ -281,6 +318,15 @@ class HarnessClient(private val baseUrl: String) {
     companion object {
         private const val CONNECT_TIMEOUT_MILLIS = 10_000
         private const val READ_TIMEOUT_MILLIS = 60_000
+
+        /**
+         * Sixteen times the biggest reply the app asks for.
+         *
+         * A page of 120 long agent messages is a few megabytes; anything past
+         * 16 MiB is not a harness envelope, and buffering it on a phone heap is
+         * the failure this bound exists to prevent.
+         */
+        private const val MAX_RESPONSE_BYTES = 16L * 1024L * 1024L
 
         /**
          * The content blocks for one prompt: the attachment first, then the text.

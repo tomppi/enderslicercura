@@ -21,8 +21,15 @@ import com.tomppi.enderslicer.MainActivity
  * the moment the screen locks (or the activity goes to background), Android
  * culls it -> the engine (in-process libblender_exec) and its MCP socket die
  * mid-generation. This service pins the process to foreground priority with a
- * persistent notification and holds a partial wake lock for the CPU while the
- * engine is running, so generation continues with the screen off.
+ * persistent notification.
+ *
+ * The partial wake lock is not part of that pinning and is deliberately NOT
+ * held for the life of the service. It exists so the CPU stays awake for the
+ * engine's own work with the screen off, and that is a bounded lease: a start
+ * request arms it for [WAKE_LOCK_TIMEOUT_MS] and it lapses unless another one
+ * arrives. Holding it from onStartCommand to onDestroy - which is what it used
+ * to do - meant that one launch kept the CPU awake until the explicit Stop
+ * action, however idle the engine was in between.
  *
  * Started by [EnderSlicerApplication] / MainActivity alongside
  * [BlenderEngine.ensureStarted]; stopped via [stop] on engine shutdown.
@@ -45,8 +52,13 @@ class BlenderEngineService : Service() {
         } else {
             startForeground(NOTIF_ID, notification)
         }
+        // A start request is the only engine-use signal this service gets - the
+        // app's own, at launch, when a model is handed to Blender, and when the
+        // system restarts the culled service. It re-arms the bounded wake lock,
+        // so the engine start that request asks for is not raced by a CPU that
+        // is already on its way to suspending.
         acquireWakeLock()
-        Log.i(TAG, "engine keeper foreground, wakelock held")
+        Log.i(TAG, "engine keeper foreground, wake lock armed for " + WAKE_LOCK_TIMEOUT_MS / 60_000 + " min")
         return START_STICKY
     }
 
@@ -58,12 +70,24 @@ class BlenderEngineService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    /**
+     * Arms the partial wake lock for the next [WAKE_LOCK_TIMEOUT_MS].
+     *
+     * Bounded, because nothing here can see the engine's work: the command loop
+     * lives inside the engine's own thread and the service is only told when the
+     * app wants the engine, not what it is doing. An unbounded lock is therefore
+     * indistinguishable from a lock that never ends.
+     */
     private fun acquireWakeLock() {
-        if (wakeLock?.isHeld == true) return
+        // Released before it is taken again: a non-reference-counted wake lock
+        // ignores a repeat acquire and keeps the expiry of the first one, which
+        // would leave the lock running out underneath the request that just
+        // refreshed it.
+        releaseWakeLock()
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
-        wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "enderslicercura:blender-engine").apply {
+        wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, WAKE_LOCK_TAG).apply {
             setReferenceCounted(false)
-            acquire()
+            acquire(WAKE_LOCK_TIMEOUT_MS)
         }
     }
 
@@ -76,6 +100,16 @@ class BlenderEngineService : Service() {
         private const val TAG = "BlenderEngineService"
         private const val CHANNEL_ID = "blender-engine"
         private const val NOTIF_ID = 0x6C61
+        private const val WAKE_LOCK_TAG = "enderslicercura:blender-engine"
+
+        /**
+         * How long one request to the engine keeps the CPU awake: long enough
+         * for the engine start it asked for (the first one extracts ~480 MB of
+         * assets and loads a 1.3 GB library) and for the generation that follows
+         * it, short enough that an engine nobody is working with stops pinning
+         * the CPU to the end of the process's life.
+         */
+        private const val WAKE_LOCK_TIMEOUT_MS = 10L * 60L * 1_000L
 
         /** Idempotent start; safe to call before the app is foregrounded. */
         fun start(context: Context) {

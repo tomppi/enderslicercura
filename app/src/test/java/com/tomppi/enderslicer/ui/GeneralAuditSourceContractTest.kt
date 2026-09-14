@@ -22,7 +22,10 @@ class GeneralAuditSourceContractTest {
         val integrated = source("ui/IntegratedEnderSlicerApp.kt")
         assertTrue(viewModel.contains("deferUntilRestoreCompletes"))
         assertTrue(viewModel.contains("pendingExportStore.begin(uri)"))
-        assertTrue(viewModel.contains("pendingExportStore.fail(app.contentResolver, uri)"))
+        // The destination survives a failed export - it may already hold every byte -
+        // so the failure path only clears the record the store keeps.
+        assertTrue(viewModel.contains("pendingExportStore.fail(uri)"))
+        assertTrue(viewModel.contains("pendingExportStore.recover()"))
         assertTrue(integrated.contains("processSmartInfillResult"))
     }
 

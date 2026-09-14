@@ -180,12 +180,19 @@ object CuraEngineCommand {
 
             val lineWidth = activeSmartInfill?.lineWidthMm ?: effectiveSettings.lineWidthMm
             val pattern = curaPattern.lowercase()
+            // fdmprinter.def.json's own infill_line_distance factors: the
+            // engine spaces its lines from infill_line_distance alone and never
+            // re-derives it from the density, so a wrong factor is silent.
+            // Honeycomb and octagon are the only patterns whose factor depends
+            // on the density itself - their lines overlap, so the spacing has
+            // to close up as the density rises.
             val patternFactor = when (pattern) {
                 "grid" -> 2.0
                 "triangles", "trihexagon", "cubic", "cubicsubdiv" -> 3.0
                 "tetrahedral", "quarter_cubic" -> 2.0
                 "cross", "cross_3d" -> 1.0
                 "lightning" -> 1.6
+                "honeycomb", "octagon" -> 4.0 / 3.0 - densityPercent / 300.0
                 else -> 1.0
             }
             val regionalLineDistance = if (densityPercent <= 0.0) {

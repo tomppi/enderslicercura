@@ -306,15 +306,35 @@ object GcodeSanitizer {
         )
     }
 
-    /** Parses "; estimated printing time (normal mode) = 1h 23m 37s" into seconds. */
+    /**
+     * Parses "; estimated printing time (normal mode) = 1h 23m 37s" into seconds.
+     *
+     * The clock fields are G-code text from whichever engine wrote the file, so
+     * an absurd digit run must not throw: a NumberFormatException escaping here
+     * fails an otherwise successful slice with the one exception type the
+     * callers do not document, over a comment that is only an estimate.
+     */
     private fun parseElapsedClock(line: String): Double? {
         val value = line.substringAfter('=').trim()
         val match = PRUSA_ELAPSED.find(value) ?: return null
         if (match.groupValues.drop(1).all { it.isEmpty() }) return null
-        val hours = match.groupValues[1].ifEmpty { "0" }.toInt()
-        val minutes = match.groupValues[2].ifEmpty { "0" }.toInt()
-        val seconds = match.groupValues[3].ifEmpty { "0" }.toInt()
+        val hours = clockComponent(match.groupValues[1])
+        val minutes = clockComponent(match.groupValues[2])
+        val seconds = clockComponent(match.groupValues[3])
         return (hours * 3600 + minutes * 60 + seconds).toDouble()
+    }
+
+    /**
+     * One clock field, clamped so a hostile comment cannot overflow.
+     *
+     * An absent field is zero and a field longer than Long can hold reads as the
+     * clamp. The clamp also keeps the total (at most 100,000 h) inside Int, so
+     * the estimate this feeds cannot saturate either. Shared with the Prusa
+     * runner, which parses the same comment for its own summary.
+     */
+    internal fun clockComponent(raw: String): Long {
+        if (raw.isEmpty()) return 0L
+        return (raw.toLongOrNull() ?: MAX_CLOCK_COMPONENT).coerceAtMost(MAX_CLOCK_COMPONENT)
     }
 
     private val PRUSA_MACHINE_LIMIT = Regex("^M20[1-5]\\s")
@@ -323,5 +343,7 @@ object GcodeSanitizer {
         """(?:([0-9]+)h)?\s*(?:([0-9]+)m)?\s*(?:([0-9]+)s)?$""",
     )
     private const val MINIMUM_ACTIVE_NOZZLE_C = 150.0
+    /** 100,000 h is over eleven years: past any print, and still inside Int seconds. */
+    private const val MAX_CLOCK_COMPONENT = 100_000L
     private const val PRINTER_LINE_ENDING = "\r\n"
 }

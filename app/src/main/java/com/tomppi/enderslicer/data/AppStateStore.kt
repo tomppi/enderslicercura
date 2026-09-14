@@ -1,6 +1,7 @@
 package com.tomppi.enderslicer.data
 
 import android.content.Context
+import com.tomppi.enderslicer.model.AllSettingsCatalogs
 import com.tomppi.enderslicer.model.ExtraSettingValidation
 import com.tomppi.enderslicer.model.PrusaSliceSettings
 import com.tomppi.enderslicer.model.SlicerSettings
@@ -239,9 +240,14 @@ class AppStateStore(context: Context) {
     fun saveExtraCuraSettings(values: Map<String, String>): ExtraSettingsSave =
         saveExtraSettings(KEY_EXTRA_CURA, values)
 
-    /** Restores the stored extras, dropping entries an older build persisted unusably. */
+    /**
+     * Restores the stored extras, dropping entries an older build persisted unusably
+     * and keys the app now derives itself (a stored infill_pattern would otherwise
+     * keep overriding the spacing computed for it).
+     */
     fun restoreExtraCuraSettings(): Map<String, String> =
         ExtraSettingValidation.validOnly(jsonToMap(preferences.getString(KEY_EXTRA_CURA, null)))
+            .filterKeys { it !in AllSettingsCatalogs.CURA_BLOCKED_KEYS }
 
     fun saveExtraPrusaSettings(values: Map<String, String>): ExtraSettingsSave =
         saveExtraSettings(KEY_EXTRA_PRUSA, values)

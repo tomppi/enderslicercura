@@ -83,6 +83,36 @@ class ConformalSurfaceBuilderTest {
     }
 
     @Test
+    fun vertexIdsStayDistinctAtNegativeCoordinates() {
+        // The weld key packs quantised x, y and z into one long. Before the
+        // fields were masked, a negative y (or z) sign-extended over the
+        // fields above it, so these points - which differ only in X at
+        // negative Y, or only in Y at negative Z - shared one id.
+        val ids = setOf(
+            ConformalSurfaceBuilder.packVertex(0.0, -30.0, 5.0),
+            ConformalSurfaceBuilder.packVertex(50.0, -30.0, 5.0),
+            ConformalSurfaceBuilder.packVertex(-50.0, -30.0, 5.0),
+            ConformalSurfaceBuilder.packVertex(0.0, 30.0, -5.0),
+            ConformalSurfaceBuilder.packVertex(0.0, -30.0, -5.0),
+        )
+        assertEquals(5, ids.size)
+    }
+
+    @Test
+    fun disconnectedTopsAtNegativeYAreNotWeldedIntoOneRegion() {
+        // Two 50 mm^2 triangles whose (y, z) pairs match but whose X differs.
+        // Shared ids are the builder's only connectivity input, so the old
+        // packing welded their matching edge and reported one region where the
+        // mesh has two - the normal case for a mesh placed on a centred bed.
+        val mesh = testMesh(
+            floatArrayOf(0f, -30f, 5f, 10f, -30f, 5f, 0f, -20f, 5f),
+            floatArrayOf(50f, -30f, 5f, 60f, -30f, 5f, 50f, -20f, 5f),
+        )
+        val surface = ConformalSurfaceBuilder.build(mesh, settings())
+        assertEquals(2, surface.regions.size)
+    }
+
+    @Test
     fun disconnectedFlatTopsBecomeSeparateRegions() {
         val two = testMesh(
             floatArrayOf(0f, 0f, 5f, 10f, 0f, 5f, 0f, 10f, 5f),

@@ -456,7 +456,7 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
 
     fun panPixels(deltaX: Float, deltaY: Float) {
         if (!deltaX.isFinite() || !deltaY.isFinite()) return
-        val visibleHeight = 2f * cameraDistance() * CAMERA_EYE_DISTANCE_SCALE * tan(Math.toRadians(FIELD_OF_VIEW / 2.0)).toFloat()
+        val visibleHeight = NozzlePathViewCamera.visibleHeightAtPivot(cameraDistance(), FIELD_OF_VIEW)
         val worldPerPixel = visibleHeight / max(viewportHeight, 1)
         panX += deltaX * worldPerPixel
         panY -= deltaY * worldPerPixel
@@ -513,8 +513,10 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         if (orthographic) {
             // True-width measurement mode: the projection is orthographic so
             // bead widths on screen match the physical path regardless of
-            // perspective foreshortening.
-            val halfHeight = distance * tan(Math.toRadians((FIELD_OF_VIEW / 2.0f).toDouble())).toFloat()
+            // perspective foreshortening. The half-height comes from the same
+            // eye distance as the pan and the perspective view, so flipping
+            // the toggle does not change the apparent size of the part.
+            val halfHeight = NozzlePathViewCamera.orthographicHalfHeight(distance, FIELD_OF_VIEW)
             val halfWidth = halfHeight * aspect
             Matrix.orthoM(projection, 0, -halfWidth, halfWidth, -halfHeight, halfHeight, nearPlane, farPlane)
         } else {
@@ -1288,9 +1290,6 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         private const val FINE_SIDE_TOP_AMBIENT = 0.95f
         // Odd layers render a touch darker so layers separate visually.
         private const val RIBBON_LAYER_TINT = 0.96f
-        // Eye sits at (0, -distance, 0.62*distance) - see computeCamera - so the true eye
-        // distance is distance * sqrt(1 + 0.62^2); panning scales by that, not by 1.
-        private const val CAMERA_EYE_DISTANCE_SCALE = 1.17666f
 
         private fun normalize3(x: Float, y: Float, z: Float): FloatArray {
             val length = sqrt(x * x + y * y + z * z)
@@ -1369,4 +1368,30 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
             }
         """
     }
+}
+
+/**
+ * Viewport scale shared by both nozzle-path renderers.
+ *
+ * The cameras look from (0, -distance, 0.62 * distance), so the eye sits
+ * [CAMERA_EYE_DISTANCE_SCALE] times the fitted distance away from the orbit
+ * pivot, and it is that eye distance - not the fitted distance - that sets both
+ * the perspective view's apparent size and the two-finger pan step. An
+ * orthographic projection has no eye of its own, so its half-height has to come
+ * from the same value: deriving it from the fitted distance alone drew the part
+ * 17.7% larger than the perspective view and moved it 17.7% further than the
+ * finger on a drag.
+ */
+internal object NozzlePathViewCamera {
+    /** Eye distance from the pivot when the look-at places the eye at [distance]. */
+    const val CAMERA_EYE_DISTANCE_SCALE = 1.17666f
+
+    /** World height the viewport spans at the orbit pivot; the pan step is this per viewport height. */
+    fun visibleHeightAtPivot(distance: Float, fieldOfViewDegrees: Float): Float =
+        2f * distance * CAMERA_EYE_DISTANCE_SCALE *
+            tan(Math.toRadians(fieldOfViewDegrees / 2.0)).toFloat()
+
+    /** Half-height of the orthographic projection: exactly half of [visibleHeightAtPivot]. */
+    fun orthographicHalfHeight(distance: Float, fieldOfViewDegrees: Float): Float =
+        0.5f * visibleHeightAtPivot(distance, fieldOfViewDegrees)
 }

@@ -983,8 +983,11 @@ class OctoPrintRepository(
     ) {
         if (!isCurrent(requestGeneration) || error is CancellationException) return
         val http = error as? OctoPrintClient.OctoPrintHttpException
-        val forbiddenIsInvalidKey = http?.statusCode == 403 && forbiddenMeansInvalidKey &&
-            http.message?.contains("api key", ignoreCase = true) == true
+        // A 403 is only proof when the client could see the documented rejection
+        // (a same-origin API response whose JSON error names the key). The old
+        // check searched the peer's message text, so a proxy or a captive portal
+        // could word a 403 well enough to make the app delete a valid key.
+        val forbiddenIsInvalidKey = forbiddenMeansInvalidKey && http?.apiKeyRejected == true
         if (http?.statusCode == 401 || forbiddenIsInvalidKey) {
             invalidateAuthorization(error.message ?: "OctoPrint authorization is no longer valid")
         } else {

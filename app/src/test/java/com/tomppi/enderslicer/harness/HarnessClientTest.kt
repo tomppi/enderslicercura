@@ -1,6 +1,8 @@
 package com.tomppi.enderslicer.harness
 
+import java.io.ByteArrayInputStream
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -40,5 +42,27 @@ class HarnessClientTest {
         // the whole prompt.
         assertEquals(1, HarnessClient.promptContent("build this", "").length())
         assertEquals(1, HarnessClient.promptContent("build this", "   ").length())
+    }
+
+    @Test
+    fun aResponseBodyPastTheLimitIsRefusedInsteadOfBuffered() {
+        // A wrong host, a captive portal or a hostile server can answer forever:
+        // the read timeout bounds idle time only, so the body needs its own cap.
+        val error = runCatching {
+            HarnessClient("http://127.0.0.1:1")
+                .readAll(ByteArrayInputStream(ByteArray(17 * 1024 * 1024)))
+        }.exceptionOrNull()
+
+        assertTrue(error is HarnessException)
+        assertEquals("http-response-too-large", (error as HarnessException).code)
+        assertTrue(error.message.orEmpty().contains("16 MB limit"))
+    }
+
+    @Test
+    fun aBodyWithinTheLimitIsReadWholeAndDecoded() {
+        val text = "{\"ok\":true,\"note\":\"caf\u00e9\"}"
+        val read = HarnessClient("http://127.0.0.1:1").readAll(text.toByteArray(Charsets.UTF_8).inputStream())
+
+        assertEquals(text, read)
     }
 }

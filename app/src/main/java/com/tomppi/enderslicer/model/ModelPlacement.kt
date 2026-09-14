@@ -296,7 +296,12 @@ data class ModelPlacement(
                 maxZ = maxOf(maxZ, tz)
                 offset += 6
             }
-            require(minX.isFinite()) { "Model bounds could not be calculated" }
+            // The same all-axis rule as the rendered accumulator below: a
+            // Double overflow in Y or Z is just as unusable as one in X.
+            require(
+                minX.isFinite() && minY.isFinite() && minZ.isFinite() &&
+                    maxX.isFinite() && maxY.isFinite() && maxZ.isFinite(),
+            ) { "Model bounds could not be calculated" }
             return BoundsDouble(minX, minY, minZ, maxX, maxY, maxZ)
         }
 
@@ -390,7 +395,14 @@ data class ModelPlacement(
             }
 
             fun finish(): MeshBounds {
-                require(minX.isFinite()) { "Transformed model bounds could not be calculated" }
+                // Every axis, not just X: a finite transform can still overflow
+                // Float on one axis (a 1e300 Y scale does exactly that), and the
+                // X-only check let Infinity bounds through to surface much later
+                // as an STL-writer failure or a non-finite placement.
+                require(
+                    minX.isFinite() && minY.isFinite() && minZ.isFinite() &&
+                        maxX.isFinite() && maxY.isFinite() && maxZ.isFinite(),
+                ) { "Transformed model bounds could not be calculated" }
                 return MeshBounds(minX, minY, minZ, maxX, maxY, maxZ)
             }
         }

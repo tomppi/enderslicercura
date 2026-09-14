@@ -509,10 +509,35 @@ fun EnderSlicerApp(
     }
 
     /**
+     * Writes one camera revision through the serialised, rev-guarded path.
+     *
+     * Every writer of the file has to go through here. A caller that wrote it
+     * directly - as [setModellingOwner] used to - could land on disk after a newer
+     * revision a gesture had already queued, leaving the agent reading an owner or
+     * a camera the user has moved away from; the lock and the revision guard only
+     * mean anything when they cover all of the writers.
+     */
+    fun writeModellingCamera(camera: ModellingCamera) {
+        cameraScope.launch(Dispatchers.IO) {
+            cameraWriteLock.withLock {
+                // The lock serialises the writes but not their order: a burst can
+                // reach a multi-threaded dispatcher out of order, and an older camera
+                // written last leaves the agent reading a stale one.
+                if (camera.rev >= cameraWrittenRev.get()) {
+                    ModellingCameraStore.write(blenderDir, camera)
+                    cameraWrittenRev.set(camera.rev)
+                }
+            }
+        }
+    }
+
+    /**
      * Moves the camera between the two owners.
      *
      * The file is the handover, not just a note: the agent reads `owner` to
-     * decide whether it may move the camera, so taking it has to be published.
+     * decide whether it may move the camera, so taking it has to be published -
+     * through the same path as a gesture, or a queued gesture write can land after
+     * it and leave the agent holding the previous owner.
      */
     fun setModellingOwner(owner: CameraOwner) {
         modellingOwner = owner
@@ -520,7 +545,7 @@ fun EnderSlicerApp(
         val next = current.copy(owner = owner, rev = modellingCameraRev + 1)
         modellingCameraRev = next.rev
         modellingCamera = next
-        ModellingCameraStore.write(blenderDir, next)
+        writeModellingCamera(next)
     }
 
     fun askModellingAgent(text: String) {
@@ -568,17 +593,7 @@ fun EnderSlicerApp(
         // gesture loop, so the file write and rename used to run on the main thread
         // several times per frame during every orbit, pan and pinch.
         modellingCameraTouchedAt = System.currentTimeMillis()
-        cameraScope.launch(Dispatchers.IO) {
-            cameraWriteLock.withLock {
-                // The lock serialises the writes but not their order: a burst can
-                // reach a multi-threaded dispatcher out of order, and an older camera
-                // written last leaves the agent reading a stale one.
-                if (next.rev >= cameraWrittenRev.get()) {
-                    ModellingCameraStore.write(blenderDir, next)
-                    cameraWrittenRev.set(next.rev)
-                }
-            }
-        }
+        writeModellingCamera(next)
     }
 
     fun openModelling() {
@@ -1311,14 +1326,23 @@ fun EnderSlicerApp(
                 nozzleDiameterMm = effectivePrinter.nozzleSizeMm,
                 onSave = { value ->
                     val safe = value.validated()
-                    val changed = safe != nonPlanarSettings
-                    nonPlanarStore.save(safe)
+                    // The store reports the change it saw, and that is also what
+                    // decides whether the published slices have to go.
+                    val changed = nonPlanarStore.save(safe)
                     nonPlanarSettings = safe
                     nonPlanarOpen = false
                     if (changed) {
                         viewerMode = ViewerMode.MODEL
                         selectedLayerIndex = 0
                         lastAutoSelectedResultId = null
+                        // Off the UI thread and after the sheet is gone: the
+                        // settings are saved whatever happens to the old G-code,
+                        // so the click must not wait on a directory walk.
+                        scope.launch {
+                            nonPlanarStore.invalidatePublishedSlices()?.let { message ->
+                                Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                            }
+                        }
                     }
                     Toast.makeText(
                         context,
@@ -1351,14 +1375,23 @@ fun EnderSlicerApp(
                 initial = conicalSettings,
                 onSave = { value ->
                     val safe = value.validated()
-                    val changed = safe != conicalSettings
-                    conicalStore.save(safe)
+                    // The store reports the change it saw, and that is also what
+                    // decides whether the published slices have to go.
+                    val changed = conicalStore.save(safe)
                     conicalSettings = safe
                     conicalOpen = false
                     if (changed) {
                         viewerMode = ViewerMode.MODEL
                         selectedLayerIndex = 0
                         lastAutoSelectedResultId = null
+                        // Off the UI thread and after the sheet is gone: the
+                        // settings are saved whatever happens to the old G-code,
+                        // so the click must not wait on a directory walk.
+                        scope.launch {
+                            conicalStore.invalidatePublishedSlices()?.let { message ->
+                                Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                            }
+                        }
                     }
                     Toast.makeText(
                         context,

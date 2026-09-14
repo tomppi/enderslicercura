@@ -19,7 +19,11 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
+import androidx.activity.enableEdgeToEdge
 import androidx.core.content.FileProvider
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.webkit.WebViewAssetLoader
 import com.tomppi.enderslicer.BuildConfig
 import com.tomppi.enderslicer.mesh.MeshTriangleLimits
@@ -39,6 +43,16 @@ class BumpMeshActivity : ComponentActivity() {
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // The strips the system bars sit over are this window's own black
+        // background inside a light app theme, so the light system-bar icons are
+        // the legible ones over them. targetSdk 36 has no edge-to-edge opt-out,
+        // which is why the theme's transparent bars are the whole story here:
+        // the insets applied at the end of onCreate keep the content out from
+        // under them.
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
+        )
         maxOutputTriangles = MeshTriangleLimits.initialize(this)
         pruneExportCache()
 
@@ -103,6 +117,12 @@ class BumpMeshActivity : ComponentActivity() {
             addJavascriptInterface(exportBridge, JS_BRIDGE_NAME)
             webViewClient = object : WebViewClient() {
                 override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest): WebResourceResponse? {
+                    // This callback sees the resource requests of every frame,
+                    // which is what makes it the place to hold the line: the
+                    // bridge above is injected into all frames, so a request
+                    // that is not this app's own asset origin is a document (or
+                    // a script) the bridge must never reach.
+                    if (isRemoteHttp(request.url)) return blocked()
                     return assetLoader.shouldInterceptRequest(request.url)
                 }
 
@@ -110,6 +130,11 @@ class BumpMeshActivity : ComponentActivity() {
                     val target = request.url
                     if (target.host == WebViewAssetLoader.DEFAULT_DOMAIN) return false
                     if (target.scheme == "about" || target.scheme == "blob") return true
+                    // The framework documents this callback as one that may
+                    // arrive for a subframe too, and a framed navigation is not
+                    // a user clicking a link: only the top frame may leave for
+                    // another app.
+                    if (!request.isForMainFrame) return true
                     openExternal(target)
                     return true
                 }
@@ -121,6 +146,19 @@ class BumpMeshActivity : ComponentActivity() {
         }
         WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG)
         root.addView(webView, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        // A plain LinearLayout applies no window insets by itself, so the 56 dp
+        // toolbar was drawn under the status bar and the bottom of the page
+        // under the navigation bar. Padding the root by the bars (and any
+        // display cutout) puts both inside the safe area and moves nothing
+        // else: the toolbar keeps its height and the page keeps the space
+        // between them.
+        ViewCompat.setOnApplyWindowInsetsListener(root) { view, windowInsets ->
+            val bars = windowInsets.getInsets(
+                WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout(),
+            )
+            view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+            WindowInsetsCompat.CONSUMED
+        }
         setContentView(root)
 
         webView.loadUrl(BUMPMESH_URL)
@@ -141,6 +179,27 @@ class BumpMeshActivity : ComponentActivity() {
         runCatching { startActivity(Intent(Intent.ACTION_VIEW, uri)) }
             .onFailure { Toast.makeText(this, "No app can open this link", Toast.LENGTH_SHORT).show() }
     }
+
+    /**
+     * True for an http(s) URL that is not this app's own asset origin.
+     *
+     * Non-http schemes are deliberately excluded: about:, blob: and data: are
+     * resolved inside the WebView (the bundled page's stylesheet uses data:
+     * URLs) and never reach the network stack.
+     */
+    private fun isRemoteHttp(uri: Uri): Boolean =
+        (uri.scheme == "http" || uri.scheme == "https") &&
+            uri.host != WebViewAssetLoader.DEFAULT_DOMAIN
+
+    /** What an off-origin request gets: no body, no scheme handler, no explanation. */
+    private fun blocked(): WebResourceResponse = WebResourceResponse(
+        "text/plain",
+        "utf-8",
+        403,
+        "Blocked: not the bundled app origin",
+        emptyMap<String, String>(),
+        ByteArray(0).inputStream(),
+    )
 
     private fun finishWithError(message: String) {
         Toast.makeText(this, message, Toast.LENGTH_LONG).show()

@@ -6,6 +6,7 @@ import android.util.Log
 import org.json.JSONObject
 import java.io.Closeable
 import java.io.File
+import java.io.InputStream
 import java.net.InetSocketAddress
 import java.net.Socket
 
@@ -83,6 +84,9 @@ class EnginePreviewClient(
         params: JSONObject,
         timeoutMs: Int = READ_TIMEOUT_MS,
     ): JSONObject {
+        // Every command the app sends is engine activity: re-arm the keeper's lease
+        // so a long import is not raced by a CPU that is suspending.
+        com.tomppi.enderslicer.nativebridge.BlenderEngine.keepAwake()
         val body = JSONObject()
             .put("type", type)
             .put("params", params)
@@ -131,14 +135,39 @@ class EnginePreviewClient(
         socket = null
     }
 
-    private fun readJson(active: Socket): String {
-        val input = active.getInputStream()
+    private fun readJson(active: Socket): String = readReply(active.getInputStream())
+
+    /**
+     * One reply, bounded, and decoded only once it can plausibly be complete.
+     *
+     * A reply is a JSON control message, not a payload - the pixels come back
+     * through a file - so a peer that holds the port open must not be able to
+     * grow this buffer without end. Re-decoding and re-parsing the whole buffer
+     * once per 16 KB chunk was also quadratic work for whoever streamed it, so
+     * the decode only runs when the last non-space byte can close the object.
+     *
+     * Kotlin-visible rather than private because a unit test drives this with a
+     * stream it can end; the engine's socket is not something a test can hold.
+     */
+    internal fun readReply(input: InputStream): String {
         val buffer = java.io.ByteArrayOutputStream()
         val chunk = ByteArray(16 * 1024)
+        var lastSignificant = 0.toByte()
         while (true) {
             val read = input.read(chunk)
             if (read < 0) error("Engine closed the connection")
             buffer.write(chunk, 0, read)
+            for (index in 0 until read) {
+                val byte = chunk[index]
+                if (byte !in JSON_WHITESPACE) lastSignificant = byte
+            }
+            if (buffer.size() > MAX_REPLY_BYTES) {
+                error(
+                    "Engine reply exceeded the $MAX_REPLY_BYTES byte limit; " +
+                        "the engine is not answering with a control message",
+                )
+            }
+            if (lastSignificant != CLOSING_BRACE) continue
             // Decode the whole buffer each time. Decoding each chunk on its own
             // split any character that straddled a 16 KB boundary into U+FFFD.
             val text = String(buffer.toByteArray(), Charsets.UTF_8)
@@ -336,6 +365,22 @@ class EnginePreviewClient(
         private const val IMPORT_TIMEOUT_MS = 180_000
         /** How long to keep trying while the engine boots. */
         private const val IMPORT_WAIT_MS = 120_000L
+
+        /**
+         * Far above the largest real reply and far below a phone heap.
+         *
+         * The biggest control reply is the scene summary, a few hundred bytes;
+         * a megabyte leaves room for a script's printed output while refusing a
+         * peer that just keeps streaming.
+         */
+        private const val MAX_REPLY_BYTES = 1024 * 1024
+        private val JSON_WHITESPACE = byteArrayOf(
+            ' '.code.toByte(),
+            '\n'.code.toByte(),
+            '\r'.code.toByte(),
+            '\t'.code.toByte(),
+        )
+        private val CLOSING_BRACE = '}'.code.toByte()
 
         /**
          * Places the camera the same way the shared-camera skill documents, then

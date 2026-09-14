@@ -128,12 +128,21 @@ object AllSettingsCatalogs {
         "extrusion_multiplier", "pressure_advance",
     )
 
-    /** Cura keys that must never be shadowed because they define the machine envelope. */
+    /**
+     * Cura keys that must never be shadowed. Either they define the machine
+     * envelope, or the app derives another setting from them while the extra
+     * only ever replaces the one key: infill_line_distance and
+     * support_line_distance are computed from the pattern the app wrote, so an
+     * extra applied later in the argument list swapped the pattern and left the
+     * spacing derived from the old one - a fraction of the requested density.
+     * Both patterns have dedicated editors.
+     */
     val CURA_BLOCKED_KEYS: Set<String> = setOf(
         "machine_width", "machine_depth", "machine_height", "gantry_height",
         "machine_head_with_fans_polygon", "machine_nozzle_offset_x", "machine_nozzle_offset_y",
         "machine_nozzle_tip_clearance", "machine_start_gcode", "machine_end_gcode",
         "machine_extruder_count", "machine_nozzle_size", "machine_heated_bed", "machine_center_is_zero",
+        "infill_pattern", "support_pattern",
     )
 
     /** Prusa keys that must never be shadowed (dedicated editors / machine envelope). */

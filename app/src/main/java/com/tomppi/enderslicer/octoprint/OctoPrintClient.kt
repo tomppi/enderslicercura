@@ -749,17 +749,49 @@ class OctoPrintClient(
     private fun httpError(connection: HttpURLConnection, code: Int): OctoPrintHttpException {
         val bytes = readBody(connection, success = false, MAX_ERROR_BODY_BYTES)
         val raw = bytes.toString(Charsets.UTF_8).trim()
-        val detail = runCatching {
-            JSONObject(raw).let { json ->
-                json.optString("error").takeIf(String::isNotBlank)
-                    ?: json.optString("message").takeIf(String::isNotBlank)
-            }
-        }.getOrNull() ?: raw.take(300).takeIf(String::isNotBlank)
+        val json = runCatching { JSONObject(raw) }.getOrNull()
+        val detail = json?.let { body ->
+            body.optString("error").takeIf(String::isNotBlank)
+                ?: body.optString("message").takeIf(String::isNotBlank)
+        } ?: raw.take(300).takeIf(String::isNotBlank)
         val message = buildString {
             append("OctoPrint returned HTTP $code")
             detail?.let { append(": $it") }
         }
-        return OctoPrintHttpException(code, message)
+        val url = runCatching { connection.url.toURI() }.getOrNull()
+        return OctoPrintHttpException(
+            code,
+            message,
+            apiKeyRejected = url != null && isApiKeyRejection(url, code, json),
+        )
+    }
+
+    /**
+     * True only for a rejection that names the key itself.
+     *
+     * The repository used to erase the stored API key whenever a 403 body
+     * mentioned "api key" anywhere, and that body comes from the peer: a wrong
+     * host, a proxy or a captive portal answering 403 could therefore destroy a
+     * credential OctoPrint never rejected. What is required here is the same
+     * signal read strictly - a 403 from this server's own API surface, in the
+     * JSON error shape OctoPrint's API handler produces, whose message names
+     * the key - because the shape alone cannot carry the meaning: OctoPrint
+     * answers a permission failure the same way (its HTTPException handler
+     * turns any aborted API route into `{"error": <description>}`), so a 403
+     * that does not name the key may well come from a key that is still valid.
+     * Such a 403 keeps the stored key and only surfaces the error, which leaves
+     * the user one step - authorising again - instead of a lost credential.
+     */
+    internal fun isApiKeyRejection(url: URI, code: Int, body: JSONObject?): Boolean {
+        if (code != 403 || body == null) return false
+        if (!isSameOrigin(url)) return false
+        // Only the API surface checks the key, so a webcam path or a proxied
+        // page answering 403 says nothing about it.
+        if (url.path?.split('/')?.any { it.equals("api", ignoreCase = true) } != true) return false
+        val detail = body.optString("error").takeIf(String::isNotBlank)
+            ?: body.optString("message").takeIf(String::isNotBlank)
+            ?: return false
+        return detail.contains("api key", ignoreCase = true)
     }
 
     private fun readBody(connection: HttpURLConnection, success: Boolean, limit: Long): ByteArray {
@@ -808,7 +840,15 @@ class OctoPrintClient(
         data class Granted(val apiKey: String) : AppKeyPollResult
     }
 
-    class OctoPrintHttpException(val statusCode: Int, message: String) : IOException(message)
+    /**
+     * @param apiKeyRejected true only for the documented rejection of the stored key, which is
+     *   the only evidence strong enough to erase it.
+     */
+    class OctoPrintHttpException(
+        val statusCode: Int,
+        message: String,
+        val apiKeyRejected: Boolean = false,
+    ) : IOException(message)
 
     private data class HttpResponse(
         val code: Int,

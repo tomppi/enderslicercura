@@ -1,6 +1,5 @@
 package com.tomppi.enderslicer.data
 
-import android.content.ContentResolver
 import android.content.Context
 import android.net.Uri
 
@@ -22,15 +21,31 @@ class PendingDocumentExportStore(context: Context) {
         }
     }
 
-    fun fail(resolver: ContentResolver, uri: Uri) {
-        runCatching { resolver.delete(uri, null, null) }
-        complete(uri)
+    /**
+     * Forgets a failed export without touching its destination.
+     *
+     * The failure can arrive after every byte was already flushed - the process
+     * was killed between the flush and the commit, or the commit itself failed -
+     * so the document is left in place: deleting it would take away something the
+     * user may already have received. Reporting the failure is the caller's job.
+     */
+    fun fail(uri: Uri) {
+        // A commit that fails here is not worth a second exception on a path that
+        // is already handling one; the record then survives to [recover].
+        runCatching { complete(uri) }
     }
 
-    fun recover(resolver: ContentResolver) {
-        val raw = preferences.getString(KEY_PENDING_URI, null) ?: return
-        runCatching { resolver.delete(Uri.parse(raw), null, null) }
+    /**
+     * Forgets an export a previous process never completed, and returns its
+     * destination for the caller to report.
+     *
+     * The document is deliberately not deleted for the same reason as [fail]: an
+     * interrupted process may have written all of it.
+     */
+    fun recover(): Uri? {
+        val raw = preferences.getString(KEY_PENDING_URI, null) ?: return null
         preferences.edit().remove(KEY_PENDING_URI).commit()
+        return Uri.parse(raw)
     }
 
     private companion object {

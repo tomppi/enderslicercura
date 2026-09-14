@@ -254,12 +254,25 @@ internal object OctoPrintJson {
         )
     }
 
+    /**
+     * Flattens the recursive `children` lists of OctoPrint's file API.
+     *
+     * The nesting is server-supplied, so it needs a ceiling: a hostile or
+     * broken server can nest folders until the recursion overflows the stack,
+     * and the StackOverflowError that produced reached the UI as a bare error
+     * with no hint of where it came from. Real file lists nest a handful of
+     * levels, so refusing past [MAX_FOLDER_DEPTH] costs nothing and says what
+     * happened.
+     */
     private fun flattenFiles(
         array: JSONArray,
         output: MutableList<OctoPrintFileEntry>,
         depth: Int,
         defaultOrigin: String,
     ) {
+        check(depth <= MAX_FOLDER_DEPTH) {
+            "OctoPrint file list nests more than $MAX_FOLDER_DEPTH folders deep; refusing to flatten it"
+        }
         for (index in 0 until array.length()) {
             val item = array.optJSONObject(index) ?: continue
             val type = item.optString("type")
@@ -329,6 +342,9 @@ internal object OctoPrintJson {
         target = root.optDoubleOrNull("target"),
         offset = root.optDoubleOrNull("offset"),
     )
+
+    /** Deeper than any real OctoPrint folder tree, shallow enough to recurse safely. */
+    private const val MAX_FOLDER_DEPTH = 32
 }
 
 internal fun JSONObject.optDoubleOrNull(name: String): Double? {

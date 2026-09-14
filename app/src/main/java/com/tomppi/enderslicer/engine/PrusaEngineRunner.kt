@@ -210,7 +210,13 @@ private val datadir = File(context.filesDir, "prusa/datadir")
         }
     }
 
-    /** Parses "; estimated printing time (normal mode) = 22m 46s" (or "4h 10m 3s"). */
+    /**
+     * Parses "; estimated printing time (normal mode) = 22m 46s" (or "4h 10m 3s").
+     *
+     * The fields are clamped rather than parsed as Int directly: the comment is
+     * read after PrusaSlicer has already succeeded, so an absurd digit run must
+     * not turn a finished slice into a NumberFormatException.
+     */
     private fun parsePrusaEstimateSeconds(file: File): Int? {
         file.bufferedReader().useLines { lines ->
             for (line in lines) {
@@ -218,10 +224,10 @@ private val datadir = File(context.filesDir, "prusa/datadir")
                 val value = line.substringAfter('=').trim()
                 val pattern = Regex("""(?:(\d+)h)?\s*(?:(\d+)m)?\s*(?:(\d+)s)?""")
                 val match = pattern.find(value) ?: return 0
-                val hours = match.groupValues[1].ifEmpty { "0" }.toInt()
-                val minutes = match.groupValues[2].ifEmpty { "0" }.toInt()
-                val seconds = match.groupValues[3].ifEmpty { "0" }.toInt()
-                return hours * 3600 + minutes * 60 + seconds
+                val hours = GcodeSanitizer.clockComponent(match.groupValues[1])
+                val minutes = GcodeSanitizer.clockComponent(match.groupValues[2])
+                val seconds = GcodeSanitizer.clockComponent(match.groupValues[3])
+                return (hours * 3600 + minutes * 60 + seconds).toInt()
             }
         }
         return null

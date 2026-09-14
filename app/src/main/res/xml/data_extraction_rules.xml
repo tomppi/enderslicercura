@@ -9,10 +9,40 @@
         <exclude domain="sharedpref" path="octoprint_client.xml" />
         <exclude domain="sharedpref" path="harness_config.xml" />
         <exclude domain="file" path="smart-infill/" />
+        <!-- Everything else the app writes under files/ stays behind too: none
+             of it is worth restoring on another device, and most of it is far
+             too big for a backup that is capped at 25 MB in total. blender/ is
+             the extracted engine tree (~480 MB, and it carries the MCP shared
+             secret in scripts/startup/blender_mcp_token.txt), models/ holds the
+             imported and staged STLs, slice-results/ the sliced G-code,
+             thermal-fea/ the FEA reports and persistent-state/ the imported
+             Cura project bundle (up to 128 MiB). One of them alone puts the
+             whole backup over quota, and an over-quota Auto Backup is not a
+             partial one: it fails, settings included, which is exactly what
+             this backup exists for. All of it is regenerated on the new
+             device, blender-home/ (the engine's own HOME: temp, cache and
+             generated config) included. -->
+        <exclude domain="file" path="blender/" />
+        <exclude domain="file" path="blender-home/" />
+        <exclude domain="file" path="models/" />
+        <exclude domain="file" path="slice-results/" />
+        <exclude domain="file" path="thermal-fea/" />
+        <exclude domain="file" path="persistent-state/" />
     </cloud-backup>
     <device-transfer>
+        <!-- As in the cloud-backup rules above: the OctoPrint credential is
+             device-bound and the harness state belongs to this device. -->
         <exclude domain="sharedpref" path="octoprint_client.xml" />
         <exclude domain="sharedpref" path="harness_config.xml" />
         <exclude domain="file" path="smart-infill/" />
+        <!-- And the same files/ directories: a replacement device has no use for
+             half a gigabyte of engine tree and its scratch home, models,
+             G-code or FEA reports it imports or generates itself. -->
+        <exclude domain="file" path="blender/" />
+        <exclude domain="file" path="blender-home/" />
+        <exclude domain="file" path="models/" />
+        <exclude domain="file" path="slice-results/" />
+        <exclude domain="file" path="thermal-fea/" />
+        <exclude domain="file" path="persistent-state/" />
     </device-transfer>
 </data-extraction-rules>

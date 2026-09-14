@@ -202,12 +202,22 @@ internal class CuraEvaluationContext(
     }
 }
 
+/**
+ * How deep a parsed formula may nest.
+ *
+ * Well above the deepest bundled Cura formula and far below what the JVM stack
+ * can take, so a peer-authored expression is rejected by name instead of
+ * overflowing the stack.
+ */
+private const val MAX_EXPRESSION_DEPTH = 64
+
 internal object CuraValueExpressionParser {
     fun parse(source: String): CuraExpression = Parser(Lexer(source).tokens()).parse()
 }
 
 private class Parser(private val tokens: List<Token>) {
     private var index = 0
+    private var depth = 0
 
     fun parse(): CuraExpression {
         val expression = parseConditional()
@@ -215,13 +225,35 @@ private class Parser(private val tokens: List<Token>) {
         return expression
     }
 
+    /**
+     * Counts one level of recursion, refusing anything past [MAX_EXPRESSION_DEPTH].
+     *
+     * The source is peer-authored - a Cura profile's own formulas arrive with
+     * it - so the nesting depth is attacker-controlled. Recursing without a
+     * limit overflows the stack, and the importer used to swallow that as a
+     * warning and carry on with a profile whose settings were never resolved.
+     * The limit counts grammar levels (a bracket, an argument, an else branch
+     * or a unary operator each take one), so it is far above any real formula.
+     */
+    private fun enterDepth() {
+        if (depth >= MAX_EXPRESSION_DEPTH) {
+            error("Cura expression nests deeper than $MAX_EXPRESSION_DEPTH levels")
+        }
+        depth++
+    }
+
     private fun parseConditional(): CuraExpression {
-        val whenTrue = parseOr()
-        if (!match(TokenType.IF)) return whenTrue
-        val condition = parseOr()
-        expect(TokenType.ELSE)
-        val whenFalse = parseConditional()
-        return ConditionalExpr(whenTrue, condition, whenFalse)
+        enterDepth()
+        try {
+            val whenTrue = parseOr()
+            if (!match(TokenType.IF)) return whenTrue
+            val condition = parseOr()
+            expect(TokenType.ELSE)
+            val whenFalse = parseConditional()
+            return ConditionalExpr(whenTrue, condition, whenFalse)
+        } finally {
+            depth--
+        }
     }
 
     private fun parseOr(): CuraExpression {
@@ -289,10 +321,15 @@ private class Parser(private val tokens: List<Token>) {
     }
 
     private fun parseUnary(): CuraExpression {
-        return when {
-            match(TokenType.PLUS) -> UnaryExpr(TokenType.PLUS, parseUnary())
-            match(TokenType.MINUS) -> UnaryExpr(TokenType.MINUS, parseUnary())
-            else -> parsePower()
+        enterDepth()
+        try {
+            return when {
+                match(TokenType.PLUS) -> UnaryExpr(TokenType.PLUS, parseUnary())
+                match(TokenType.MINUS) -> UnaryExpr(TokenType.MINUS, parseUnary())
+                else -> parsePower()
+            }
+        } finally {
+            depth--
         }
     }
 

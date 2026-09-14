@@ -73,6 +73,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicLong
@@ -81,6 +82,10 @@ private const val CONFIG_SNAPSHOT_FORMAT = "enderslicer-config-snapshot"
 private const val CONFIG_SNAPSHOT_VERSION = 1
 private const val PAINT_PERSIST_DEBOUNCE_MILLIS = 400L
 private const val EXTRAS_PERSIST_DEBOUNCE_MILLIS = 250L
+
+// A PrusaSlicer config is a few hundred kilobytes of INI text; the cap only
+// exists so a mistyped import cannot read a gigabyte into a String.
+private const val MAX_PRUSA_CONFIG_BYTES = 8L * 1024L * 1024L
 
 /** Engine-agnostic slice result shared by the Cura and Prusa runners. */
 private data class EngineSliceOutcome(
@@ -126,6 +131,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val profileName: String,
         val profileSource: String,
         val baselineSettings: SlicerSettings?,
+        /** Display name of an export a previous process interrupted, if there was one. */
+        val interruptedExportName: String?,
     )
 
     private data class RestoredWorkspace(
@@ -159,6 +166,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var sourceMesh: StlMesh? = null
     private var importedScene: CuraProjectScene? = null
     private var settingsPersistenceJob: Job? = null
+    private var prusaSettingsPersistenceJob: Job? = null
     private var paintPersistenceJob: Job? = null
     private var extraSettingsPersistenceJob: Job? = null
     private val workspaceMutationGeneration = AtomicLong(0L)
@@ -207,6 +215,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (!busy) drainPendingBlenderImport()
             }
         }
+        // The picker caches the mesh it last built a hierarchy for, and that cache
+        // holds off-heap vertex and BVH arrays. Watching the displayed mesh here -
+        // rather than at each place that swaps it - covers every import, restore
+        // and clear with one trigger, and only fires when the mesh actually changes.
+        viewModelScope.launch {
+            _uiState.map { it.mesh }.distinctUntilChanged().collect { MeshPicker.invalidate() }
+        }
     }
 
     /**
@@ -231,9 +246,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Explicitly ends the Blender engine and its keeper service. */
     fun stopBlenderEngine() {
-        BlenderEngine.shutdown()
-        BlenderEngineService.stop(app)
-        _uiState.update { it.copy(statusMessage = "Blender engine stopped") }
+        // Asked for exactly when the engine is busy - which is when it takes the
+        // longest to answer: two seconds to connect and five to read the reply.
+        // On the main thread that froze the menu for as long as the engine took,
+        // so the click only records the intent and the socket work happens here.
+        _uiState.update { it.copy(statusMessage = "Stopping the Blender engine…") }
+        viewModelScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    BlenderEngine.shutdown()
+                    BlenderEngineService.stop(app)
+                }
+            }.onSuccess {
+                _uiState.update { it.copy(statusMessage = "Blender engine stopped") }
+            }.onFailure(::showOperationFailure)
+        }
     }
 
     fun importStl(uri: Uri) {
@@ -567,11 +594,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             runCatching {
                 withContext(Dispatchers.IO) {
-                    val text = app.contentResolver.openInputStream(uri)
-                        ?.bufferedReader()
-                        ?.use { it.readText() }
-                        ?: error("Unable to open the selected PrusaSlicer config")
-                    PrusaConfigImporter.parse(text)
+                    val bytes = app.contentResolver.openInputStream(uri)?.use { input ->
+                        val collected = ByteArrayOutputStream()
+                        val buffer = ByteArray(64 * 1024)
+                        var total = 0L
+                        while (true) {
+                            val count = input.read(buffer)
+                            if (count < 0) break
+                            total += count
+                            require(total <= MAX_PRUSA_CONFIG_BYTES) {
+                                "The selected PrusaSlicer config exceeds the 8 MiB safety limit"
+                            }
+                            collected.write(buffer, 0, count)
+                        }
+                        collected.toByteArray()
+                    } ?: error("Unable to open the selected PrusaSlicer config")
+                    PrusaConfigImporter.parse(String(bytes, Charsets.UTF_8))
                 }
             }.onSuccess { imported ->
                 _uiState.update { state ->
@@ -736,7 +774,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun persistPrusaSettings(settings: PrusaSliceSettings) {
-        viewModelScope.launch(Dispatchers.IO) {
+        // The Prusa editors commit on every keystroke, so these writes overlap.
+        // Chaining each one onto the previous keeps the last snapshot written last
+        // on disk: on a shared IO dispatcher an older keystroke could otherwise
+        // finish after a newer one and silently revert the field.
+        val previousWrite = prusaSettingsPersistenceJob
+        prusaSettingsPersistenceJob = viewModelScope.launch(Dispatchers.IO) {
+            previousWrite?.join()
             stateStore.savePrusaSettings(settings)
         }
     }
@@ -1432,7 +1476,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         }
                         pendingExportStore.complete(uri)
                     } catch (error: Throwable) {
-                        pendingExportStore.fail(app.contentResolver, uri)
+                        pendingExportStore.fail(uri)
                         throw error
                     }
                 }
@@ -1459,7 +1503,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         check(written == bytes.size.toLong()) { "The configuration export was incomplete" }
                         pendingExportStore.complete(uri)
                     } catch (error: Throwable) {
-                        pendingExportStore.fail(app.contentResolver, uri)
+                        pendingExportStore.fail(uri)
                         throw error
                     }
                 }
@@ -1526,9 +1570,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private suspend fun commitSnapshotImport(pending: SnapshotImport) {
         val pendingSettingsWrite = settingsPersistenceJob
+        val pendingPrusaWrite = prusaSettingsPersistenceJob
         runCatching {
             withContext(Dispatchers.IO) {
                 pendingSettingsWrite?.join()
+                // The Prusa settings below are written straight from the snapshot,
+                // so a keystroke still in flight here would overwrite the imported
+                // ones with the values it is replacing.
+                pendingPrusaWrite?.join()
                 stateStore.clearImport()
                 stateStore.saveSnapshotBaseline(
                     AppStateStore.SnapshotBaseline(
@@ -1683,7 +1732,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val result = runCatching {
                 withContext(Dispatchers.IO) {
-                    pendingExportStore.recover(app.contentResolver)
+                    // The destination is kept: an interrupted export may already
+                    // hold the whole document, so it is reported rather than
+                    // deleted. Resolve its name here, where a content query is off
+                    // the main thread and a URI the process no longer holds a grant
+                    // for cannot fail the restore.
+                    val interruptedExportName = pendingExportStore.recover()?.let { destination ->
+                        runCatching { displayName(destination) }.getOrDefault("the selected file")
+                    }
                     val saved = stateStore.savedImport()
                     val config = saved?.let { persisted ->
                         val parsed = persisted.file.inputStream().use { input ->
@@ -1751,6 +1807,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         profileName = effectiveProfileName,
                         profileSource = effectiveProfileSource,
                         baselineSettings = snapshotBaseline?.settings,
+                        interruptedExportName = interruptedExportName,
                     )
                 }
             }
@@ -1786,6 +1843,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 }
                 restoreWorkspace(restored.workspace)
+                // Last, so the restore's own message cannot replace it: what the
+                // user has to check is whether that document is complete.
+                restored.interruptedExportName?.let { name ->
+                    _uiState.update {
+                        it.copy(statusMessage = "An export to $name did not finish; the file was kept")
+                    }
+                }
             }.onFailure { error ->
                 _uiState.update {
                     it.copy(

@@ -100,6 +100,45 @@ class CuraDefinitionResolverIntegrationTest {
         assertFalse(resolved.extruderValues.values.any { it.trim().startsWith("=") })
     }
 
+    @Test
+    fun anOverDeepOverrideFormulaIsReportedByName() {
+        // The formula arrives with the profile, so it must be refused with its
+        // setting named - not with a stack overflow the importer turns into a
+        // warning while every later slice of that profile fails generically.
+        val error = runCatching {
+            CuraDefinitionResolver.resolve(
+                definitionFiles = loadDefinitions(),
+                machineDefinitionFileName = "creality_ender3.def.json",
+                extruderDefinitionFileName = "creality_base_extruder_0.def.json",
+                globalOverrides = linkedMapOf(
+                    "wall_thickness" to "=" + "(".repeat(10_000) + "1" + ")".repeat(10_000),
+                ),
+                extruderOverrides = emptyMap(),
+            )
+        }.exceptionOrNull()
+
+        assertTrue(error is IllegalStateException)
+        assertTrue(error?.message.orEmpty().contains("wall_thickness"))
+        assertTrue(error?.message.orEmpty().contains("nests deeper than"))
+    }
+
+    @Test
+    fun anUnparsableOverrideFormulaIsReportedInsteadOfPoisoningTheProfile() {
+        val error = runCatching {
+            CuraDefinitionResolver.resolve(
+                definitionFiles = loadDefinitions(),
+                machineDefinitionFileName = "creality_ender3.def.json",
+                extruderDefinitionFileName = "creality_base_extruder_0.def.json",
+                globalOverrides = linkedMapOf("wall_thickness" to "=1 +"),
+                extruderOverrides = emptyMap(),
+            )
+        }.exceptionOrNull()
+
+        assertTrue(error is IllegalStateException)
+        assertTrue(error?.message.orEmpty().contains("wall_thickness"))
+        assertTrue(error?.message.orEmpty().contains("Unable to resolve Cura definition expressions"))
+    }
+
     private fun assertNumeric(values: Map<String, String>, key: String, expected: Double) {
         val raw = values[key] ?: error("Missing resolved setting: $key")
         val actual = raw.toDoubleOrNull() ?: error("Resolved setting is not numeric: $key=$raw")

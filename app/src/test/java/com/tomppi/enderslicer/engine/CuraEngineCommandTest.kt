@@ -398,6 +398,80 @@ class CuraEngineCommandTest {
         }
     }
 
+    @Test
+    fun infillLineDistanceFollowsTheDefinitionsPatternFactor() {
+        val directory = Files.createTempDirectory("cura-infill-pattern-factor").toFile()
+        try {
+            val model = File(directory, "model.stl")
+            writeTriangle(model, 100f, 100f, 0.2f)
+
+            fun commandFor(settings: SlicerSettings): List<String> = CuraEngineCommand.build(
+                executablePath = "/native/libcuraengine_exec.so",
+                definitionsDirectory = "/files/definitions",
+                machineDefinitionPath = "/files/definitions/creality_ender3.def.json",
+                extruderDefinitionPath = "/files/definitions/creality_base_extruder_0.def.json",
+                modelPath = model.absolutePath,
+                outputPath = File(directory, "current.gcode").absolutePath,
+                printer = printer,
+                settings = settings,
+                startGcode = "G28",
+                endGcode = "M104 S0",
+                threadCount = 4,
+            )
+
+            // fdmprinter.def.json's infill_line_distance at the default 10%
+            // density and 0.40 mm line width. The engine spaces its lines from
+            // infill_line_distance alone, so a factor that does not match the
+            // definition silently prints a different density.
+            val expectedLineDistance = mapOf(
+                "lines" to 4.0,
+                "grid" to 8.0,
+                "cubic" to 12.0,
+                "lightning" to 6.4,
+                // Honeycomb and octagon overlap their own lines: the only
+                // density-dependent branch, (4/3 - density/300) = 1.3 at 10%.
+                "honeycomb" to 5.2,
+                "octagon" to 5.2,
+            )
+            for ((pattern, lineDistance) in expectedLineDistance) {
+                val command = commandFor(SlicerSettings(infillPattern = pattern))
+                assertEquals(pattern, modelSetting(command, model, "infill_pattern"))
+                assertEquals(
+                    "infill_line_distance for $pattern",
+                    lineDistance,
+                    modelSetting(command, model, "infill_line_distance").toDouble(),
+                    1e-9,
+                )
+            }
+
+            // Same pattern, higher density: the factor falls to 1.16667, so the
+            // spacing is 0.9333 mm rather than the 0.8 mm a constant factor
+            // would give.
+            val halfDense = commandFor(SlicerSettings(infillPattern = "honeycomb", infillDensityPercent = 50.0))
+            assertEquals(
+                0.9333333333333333,
+                modelSetting(halfDense, model, "infill_line_distance").toDouble(),
+                1e-9,
+            )
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    /** Last value the command sends for [key] after [model] is loaded. */
+    private fun modelSetting(command: List<String>, model: File, key: String): String {
+        val start = command.indexOf(model.absolutePath)
+        assertTrue("Model was not loaded: ${model.name}", start >= 0)
+        // The single output argument is appended after the last mesh, so it
+        // closes the last mesh's setting block.
+        val end = command.lastIndexOf("-o")
+        assertTrue("Command has no output argument after the model", end > start)
+        return command.subList(start + 1, end)
+            .lastOrNull { it.startsWith("$key=") }
+            ?.substringAfter('=')
+            ?: error("Missing command setting: $key")
+    }
+
     private fun assertModifierShellNeutral(settings: List<String>) {
         SmartInfillCuraContract.modifierShellNeutralValues.forEach { (key, value) ->
             assertTrue("Missing modifier shell override $key=$value", settings.contains("$key=$value"))
