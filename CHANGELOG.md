@@ -80,8 +80,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   logs what actually happened; the engine's memory is released when the app exits,
   which is the only thing that can release an in-process engine.
 - **The engine's socket was open to every app on the device.** Any co-installed app
-  could reach 127.0.0.1:9876 and run Python as this app's uid - reading the harness
-  token and chat state out of the app's private files was one request away. The app
+  could reach 127.0.0.1:9876 and run Python as this app's uid - reading the app's
+  private files out of that socket was one request away. The app
   now generates a token, writes it next to the addon and sends it with every
   request; the engine refuses everything else. An engine started by hand with no
   token file stays open, which is the development path.
@@ -196,9 +196,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Plate tab while the Add button lives on the Settings tab.
 - The OctoPrint API key was deleted whenever a decrypt failed - a keystore that was
   briefly unavailable cost the user a credential only OctoPrint's web UI can
-  reissue; the harness config was included in cloud backup although its token can
-  never be decrypted on a restored device; and the harness token was stored without
-  ever being sent.
+  reissue; the harness config was included in cloud backup although it is this
+  device's business alone; and the harness launch token was stored, encrypted, for a
+  request path that never read it - it is not stored at all now, and a ciphertext or
+  Keystore key an earlier build left behind is deleted on the next save.
 - Chat prompts were paired to turns by position whenever the counts matched, so a
   turn with no user message next to one with two showed the wrong prompt above an
   answer and dropped another.
@@ -210,9 +211,103 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   ran, the "real CuraEngine tests ran" CI proof also matched all-skipped suites,
   and the Blender addon had no automated check at all - CI now compiles it and runs
   a stubbed test of the token, framing, busy and shutdown-socket paths.
-- `scripts/*.sh` were committed non-executable, so the documented clean-clone
-  `./scripts/setup.sh` could not run at all; release builds are now gated by the
-  same engine content checks as the debug APK.
+- **A failed engine start still ended the app process.** The park decision was read
+  off the server's own `headless_driver` flag, which is set only once the bind
+  succeeds - so a start that failed, a port still held most likely, looked like the
+  desktop case and returned from the startup script. That return is the one path
+  that ends Blender's background main, and Blender's teardown calls `exit()`, which
+  takes the app and everything unsaved in it. The branch now keys on
+  `bpy.app.background`, which is true whether or not the port was free.
+- **Send to Blender could never load the model.** The hand-off client was built
+  without the engine's token, so the engine refused the import and the retry loop
+  kept at it for its full two minutes before reporting that the engine would not
+  load it. The client carries the token now, so the import lands on the first
+  attempt.
+- **"Stop Blender engine" froze the menu.** Once a stop really reaches the engine it
+  does socket work - up to two seconds to connect and five to read the reply - and
+  that is longest exactly when the engine is busy, which is when a user reaches for
+  the button. It ran on the main thread; the click now records the intent and the
+  socket work runs off it. The keeper service no longer holds its wake-lock for the
+  life of the process either: it takes a ten-minute lease that every engine command
+  re-arms, so the engine keeps the CPU awake while it works and lets the device
+  sleep when it does not.
+- **"Octet" infill printed hollow parts.** The dropdown stored `octet`, which is
+  not a value Cura's `infill_pattern` knows: the engine maps an unknown pattern to
+  no infill at all and still reports a successful slice, so a part the user expected
+  to be filled came off the printer as walls and skins. Cura calls that pattern
+  `tetrahedral`, and that is what the dropdown stores now. Honeycomb and octagon
+  spacing also ignored Cura's density-dependent factor, so those two patterns
+  printed at a density of their own - and `infill_pattern` / `support_pattern`
+  could still be set from the "all settings" extras after the line distance had been
+  derived from them. They are refused there now, and a persisted value that
+  contradicts the derived distance is filtered out on restore.
+- **The geometry maths behind three features was wrong.** The conformal vertex key
+  packed three quantised axes into one integer without masking them, so a negative Y
+  sign-extended into the fields above it and two points that differed only in X
+  packed to the same id - and those ids are the builder's only connectivity input,
+  so unrelated facets were welded into one region and the wrong boundary measured,
+  on any mesh whose coordinates cross the bed centre. Each field is masked to its 21
+  bits now. The 3MF transform was checked on a single axis, so a
+  degenerate scale on either of the other two reached the plate placement; it is
+  checked on every axis. And the orthographic preview derived its pan scale and its
+  projection from two different half-heights, so a drag did not match the finger and
+  toggling Ortho/Persp rescaled the part under the user; both come from one shared
+  value.
+- **A save, an export and a slice could each lose work.** The debounced
+  support-paint workspace save ran on the main dispatcher, and the painted-mesh
+  descriptor has a hard size limit a large paint job reaches - an over-limit save
+  threw an uncaught `require()` and took the process with it, so the save runs on IO
+  and reports a failure like any other. An engine export that arrived after the UI
+  went away was claimed by the departing view model's listener and then dropped with
+  its scope; the listener is cleared with the view model now, which leaves the
+  export queued for the next one to replay. Saving non-planar or conical settings
+  deleted the published `slice-results/` directory on the UI thread, under a slice
+  that might be reading it; the eviction goes through the publisher's own lock on
+  IO. And a pending document export that failed deleted its file, which may well be
+  the only copy the user has - it keeps the file and says the export failed.
+- **UI state that did not stick, or stuck too long.** The Prusa setting writes were
+  not ordered, so an older snapshot could land after a newer keystroke and revert
+  it; they are chained now. Smart Infill's validation flag was owned by the package
+  id rather than by the run, so re-validating the same package after moving it could
+  clear the *new* run's flag and disable Slice; it belongs to the run. A failed
+  settings commit was silent - the values looked saved and vanished on the next
+  launch - and is reported now. `MeshPicker.invalidate` had no call site at all, so
+  a large off-heap mesh stayed alive after **Clear plate**. And the modelling
+  owner's camera write was the one publish that did not go through the serialised,
+  rev-guarded writer, which is the write that could land out of order.
+- **Nothing that arrives from outside is unbounded any more.** Harness responses
+  were read whole, with no ceiling and no check against `Content-Length`; they are
+  capped at 16 MiB now. The engine reply had no ceiling either, and was re-decoded
+  and re-parsed once per 16 KB chunk, which was quadratic work for a peer holding
+  the port open; it is capped at 1 MiB and parsed only once the last significant
+  byte can close the object. Cura formulas could nest without limit, and a rejected
+  one poisoned the whole profile instead of naming the setting; there is a depth
+  limit and the setting is named. The OctoPrint file list recursed into folders
+  without limit, the Prusa `.ini` read had no ceiling, and an absurd estimated-time
+  comment in imported G-code threw `NumberFormatException` out of the parse - all
+  three are bounded, and the comment is parsed defensively.
+- **The platform surface shipped more than it needed to.** Auto Backup and device
+  transfer carried the extracted engine tree (MCP token included), the models, the
+  sliced G-code, the FEA reports and the imported project bundle - hundreds of
+  megabytes against a 25 MB quota, all of it regenerated on the new device; they are
+  excluded now. The WebView hosts answered any `http(s)` request from anywhere,
+  subframes included, and handed any navigation to the browser; they 403 anything
+  off the asset origin and pass only main-frame navigations on. `ACCESS_NETWORK_STATE`
+  was requested and never used, so it is gone. And the WebView tools laid out under
+  the system bars, where the clock and the gesture bar are; they apply the insets
+  now.
+- **A bare 403 cost the user the OctoPrint API key.** Any 403 erased the stored
+  credential, including one from a proxy or a permission the key had nothing to do
+  with - and only OctoPrint's own web UI can reissue it. The key is erased only for
+  a same-origin API error that names it. The harness address also accepted a
+  cleartext URL in silence, though the session cookie and any photo sent with a
+  prompt travel in it; the chat says so now.
+- **The release APK had no gate that ran in CI.** `verifyReleaseApkEngines` existed
+  but CI called only the debug one, so the release variant was never assembled or
+  content-checked by a pipeline - and a hand-cut release is exactly the build that
+  ships. Running the gate also exposed that `assembleRelease` could not build at
+  all, because release lint read the assets directory without depending on whatever
+  prepares it. CI runs both gates now.
 
 ## [1.1.0] - 2026-09-12
 

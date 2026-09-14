@@ -81,7 +81,7 @@ Imported values are kept as a persistent baseline: they stay in effect until you
 - **The engine itself is not in this repository.** `app/src/main/jniLibs/arm64-v8a/` and `app/src/main/assets/blender/` are gitignored: they hold the built `libblender_exec.so` (~125 MB), the 120 shared libraries it loads (~260 MB), the CPython stdlib, Blender's scripts and the datafiles — some 600 MB of staged artifacts, *delivered* rather than source. A clean clone builds and runs the slicer, and has no Blender engine in it; `scripts/fetch-blender-engine-android.sh` stages all of it from this release's `blender-engine-arm64-<tag>.zip`, or from `BLENDER_ENGINE_DIR`. What is here is the source that matters: the JNI wrapper, the creator glue and the engine patches under [`native/blender/`](native/blender/README.md)
 - **Anything edited under `assets/blender` is one clean clone away from not existing.** Edit it, and copy the change back to `native/blender/` so it is versioned — the startup script that turns on the modelling addons lives in both places for exactly that reason
 - Protocol, runbook and verification evidence: [`BLENDER_MCP_INTEGRATION.md`](BLENDER_MCP_INTEGRATION.md)
-- **Plate ▸ Blender ▸ Upload model to Blender** copies the loaded model into the engine's import directory so it can be opened and modified there; the result returns through the export handoff above. **Stop Blender engine** ends the engine and its keeper service deliberately
+- **Plate ▸ Blender ▸ Upload model to Blender** copies the loaded model into the engine's import directory so it can be opened and modified there; the result returns through the export handoff above. **Stop Blender engine** stops the engine serving and stops its keeper service deliberately: the stopping is a socket `shutdown`, so the engine closes its listening port and stops answering while the engine thread and its loaded scene stay in the process — ending the process is the only thing that releases that memory, because Blender's own teardown calls `exit()`. Opening it again — **Upload model to Blender**, or opening **Modelling** — asks the parked engine to serve rather than loading a second copy of Blender
 
 <p align="center">
   <img src="docs/screenshots/blender-menu.jpg" width="260" alt="Plate menu showing the Blender section: Upload model to Blender and Stop Blender engine">
@@ -143,11 +143,10 @@ To persist across reboots, add the same `resetprop` lines to a Magisk boot scrip
 
 Requirements: JDK 17, Android SDK 36 + NDK `28.2.13676358`, CMake `3.22.1` / `3.31.6`, Gradle `9.4.1`, Python 3, Node.js `22.18.0+`, stable Rust (`wasm32-unknown-unknown`) and `wasm-pack 0.15.0`.
 
-From a clean checkout:
+From a clean checkout — the scripts are committed executable, and `.gitattributes`
+keeps them LF, so there is nothing to `chmod`:
 
 ```bash
-chmod +x scripts/fetch-cura-resources.sh scripts/build-curaengine-android.sh \
-         scripts/fetch-prusa-engine-android.sh scripts/fetch-blender-engine-android.sh
 scripts/fetch-cura-resources.sh
 scripts/fetch-prusa-engine-android.sh
 scripts/fetch-blender-engine-android.sh   # ~185 MB release asset: engine, runtime libs, assets

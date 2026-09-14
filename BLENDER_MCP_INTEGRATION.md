@@ -136,6 +136,12 @@ on first run (they cannot be imported in place):
 (If you already have a generic "copy assets to files dir" helper (you do for
 gcode/printers), reuse it for `blender/`.)
 
+The addon in `scripts/startup/` is ours, not the engine build's:
+`native/blender/assets/startup/*.py` is tracked, and
+`scripts/fetch-blender-engine-android.sh` lays those files over whatever the engine
+package shipped. A clone — and CI — therefore runs this repository's addon, not the
+older copy inside the package.
+
 ### 3.3 Wire BlenderBridge
 
 Already written: `app/src/main/java/com/tomppi/enderslicer/nativebridge/BlenderBridge.kt`
@@ -207,8 +213,12 @@ it; keep the old model until replaced. That is the entire UI contract.
 
 - `native/blender/*` source + `blender-gensrc/`: used to rebuild the wrapper
   only. You never need to recompile it.
-- The addon files in `assets/blender/scripts/startup/`: the engine boots them;
-  modify only if YOU are changing the MCP transport contract.
+- The addon in `app/src/main/assets/blender/scripts/startup/` is delivery, not
+  source. The tracked original is `native/blender/assets/startup/*.py`, and the
+  fetch script copies it over the package's copy — so change the tracked file, and
+  bump `RESOURCES_VERSION` in `BlenderEngine.kt` with it, or an existing install
+  keeps the tree it already extracted and goes on running the old addon. Modify only
+  if YOU are changing the MCP transport contract.
 - The engine static libs (`PrintShare/blender-engine-arm64/libs`): prebuilt.
 
 ## 4. Verifying it works (runbook, then hand to user/AI)
@@ -240,7 +250,9 @@ it; keep the old model until replaced. That is the entire UI contract.
 - **Asset unpack:** `AssetTreeExtractor` copies `assets/blender/{python,scripts}`
   into `files/blender/` on first run, keyed by `.resources-version`
   (`RESOURCES_VERSION` in `BlenderEngine.kt`). Bump that string whenever the
-  staged assets change, or an existing install keeps the tree it already has.
+  staged assets change — including `native/blender/assets/startup/*.py`, which the
+  fetch script layers in — or an existing install keeps the tree it already
+  extracted and runs the old addon. Forgetting this has cost two releases.
 - **Launch or lazy:** at launch, plus `BlenderEngineService` to keep the process
   alive across screen-off. The engine is the modelling viewport, so "first
   generation" is too late.

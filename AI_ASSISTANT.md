@@ -97,7 +97,7 @@ GET  <origin>/auth.json      public asset, no cookie
 GET  that token URL          303 -> Set-Cookie, valid 30 days
 ```
 
-The cookie outlives harness restarts. It is stored on the phone encrypted with an Android Keystore key (AES/GCM), the same treatment the OctoPrint API key gets.
+The cookie is valid for 30 days and outlives harness restarts, so the exchange runs once per app launch rather than once per call. It is **not** written to disk: the app keeps it in memory and redeems a fresh one from `auth.json` when it starts, which is one request and needs nothing from the user. Nothing about the harness is stored encrypted any more - the Keystore holds the OctoPrint API key and nothing else.
 
 **`auth.json` is not something the harness produces by itself.** The server mints a launch token and prints a `?token=` URL, but it writes nothing into its served directory - so a harness started directly leaves every client at a 401. The bridge is a small launcher that wraps the server start, catches the printed token and publishes one authenticated URL per authority: [`dsh-launch.ps1`](https://github.com/tomppi/webviewdp/blob/main/dsh-launch.ps1), kept beside the [webviewdp](https://github.com/tomppi/webviewdp) client because both apps consume the same file.
 
@@ -234,7 +234,7 @@ The likely cause is a hibernation image that does not fit its target cleanly: th
 # Security
 
 - **The harness is reachable only over the tailnet**, and the app addresses it by its tailnet name so the connection is TLS-validated.
-- **The launch token is a bearer credential** and is stored encrypted under an Android Keystore key, never in plain preferences.
+- **The launch token is never stored.** It is a bearer credential, so the app does not keep it at all: a pasted harness URL is reduced to its origin, dropping `?token=` and any fragment, and nothing would read a token back anyway - authentication is the `auth.json` exchange above, which redeems the token URL for a session cookie held in memory. The ciphertext and Keystore key a build that *did* persist the token left behind are deleted on the next save.
 - **Root is used on the phone for the export handoff only** - copying into the app's private directory and setting ownership.
 - **The harness host holds ssh credentials for the GPU box.** Anything that can drive the harness can drive the box; treat harness access as equivalent to shell access on both machines.
 - **Skills are executable instructions.** The agent follows the markdown in the workspace, so the skill directory is as sensitive as the credentials beside it.

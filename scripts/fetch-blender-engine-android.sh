@@ -3,8 +3,12 @@
 #
 # The engine is not in this repository and cannot be: libblender_exec.so is
 # ~125 MB and the runtime assets (CPython stdlib, Blender's scripts, datafiles)
-# are another ~400 MB, all of them built rather than source. Gradle will refuse
-# to assemble without them.
+# are another ~400 MB, all of them built rather than source. Nothing in Gradle
+# refuses to assemble without them: a plain assembleDebug packages whatever is
+# staged and builds either way. What fails is the content check - the
+# verifyDebugApkEngines / verifyReleaseApkEngines tasks reject an APK that is
+# missing the engine, its runtime libraries or its assets - and CI runs that
+# check, staging this package from the release asset before it assembles.
 #
 # Two ways to provide it:
 #

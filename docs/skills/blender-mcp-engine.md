@@ -52,6 +52,14 @@ An engine started by hand (`blender -b --python start_blender_mcp.py`) has no to
 
 While one command is running nothing else can: a request that arrives while another has been running for more than ten seconds is answered `{"status": "error", "message": "engine busy in another command for Ns"}` instead of waiting out the client's own timeout.
 
+**A reply is capped at 1 MiB.** A reply is a JSON control message, not a payload - the pixels and the STL bytes come back through files - so the app's engine client refuses a reply that grows past a megabyte instead of buffering whatever the peer sends. The command then fails outright, with:
+
+```text
+Engine reply exceeded the 1048576 byte limit; the engine is not answering with a control message
+```
+
+That is the app's client, not the socket, but the practical rule is the same either way: printing a whole mesh dump is a **failed command, not a slow one**. Keep `print()` to a summary and write anything large to a file in `exports/`.
+
 Commands (`params` are keyword args, so `{"type":"execute_code","code":...}` without `params` FAILS with "missing required positional argument"):
 
 | type | params | notes |
@@ -63,7 +71,7 @@ Commands (`params` are keyword args, so `{"type":"execute_code","code":...}` wit
 | `get_object_info` | `name` | + vertices/polygons for MESH |
 | `get_world_state_snapshot` | – | object names |
 | `get_addon_info` | – | name, version, headless_ready |
-| `shutdown` | – | drains the queue and closes the socket; the engine then **parks** inside the app process (the app survives - it used to exit and take the whole process with it). The next start request, or `touch blender_mcp_restart.txt` next to the addon, serves again. Only ending the app process frees its memory |
+| `shutdown` | – | drains the queue and closes its listening socket, so nothing answers on 9876; the engine then **parks** inside the app process, thread and loaded scene intact (the app survives - it used to exit and take the whole process with it). The next start request, or `touch blender_mcp_restart.txt` next to the addon, serves again. Stopping frees the socket but not the memory: **only ending the app process releases the engine** |
 
 Errors: `{"status": "error", "message": "<exc>"}`. A command run in `blender -b` (headless) is executed on the MCP addon's **main-thread driver loop** (`start_blender_mcp.py` calls `_server.run_headless()`); `bpy.data` access is safe there. New objects persist in the scene between commands; use `bpy.data.objects` to find them within `execute_code`.
 
