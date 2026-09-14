@@ -82,3 +82,59 @@ its upstream GitHub repository.
 ## Android Open Source Project and AndroidX
 
 The application uses Android platform APIs and AndroidX libraries under their respective licenses.
+
+## Blender engine (`libblender_exec.so`) and its bundled libraries
+
+The embedded engine is **Blender 3.6.22**, built for Android arm64 from the
+`epai` / `APP-android_arm64` port, then patched — see
+[`native/blender/patches/`](native/blender/patches/README.md), which publishes
+every modified file in full.
+
+**Blender is GPL-2.0-or-later.** Porting it produces a derivative work, so the
+port's modifications carry the same licence; nobody can relicense a port of
+Blender as their own. DuoSlicer is AGPL-3.0-or-later, and the two combine
+lawfully because Blender's "or later" allows it to be taken as GPLv3, which
+AGPLv3 section 13 permits linking with.
+
+**Corresponding source.** Blender's source is at
+<https://projects.blender.org/blender/blender>, the Android port at
+<https://github.com/dshawshank/APP-android_arm64>, and this project's
+modifications are published in full under `native/blender/patches/`.
+
+### Bundled libraries
+
+`libblender_exec.so` statically links, and the engine ships alongside, 120
+shared libraries. Most are permissive; the copyleft ones are all compatible with
+a GPL/AGPL whole, but they are copyleft and their notices must travel with a
+binary.
+
+| licence | libraries |
+|---|---|
+| GPL-2.0-or-later | Blender itself; FFTW (`libfftw3`); Potrace (`libpotrace`) |
+| LGPL-2.1-or-later | FFmpeg (`libav*`, `libsw*`) — **verify the build's configuration**, which decides LGPL vs GPL |
+| LGPL-2.0-or-later | OpenAL (`libopenal`); GMP (`libgmp`, `libgmpxx`) |
+| Apache-2.0 | Cycles; OpenImageIO; OpenImageDenoise; Embree; OpenUSD; oneDNN; Draco; OpenPGL; TBB; OpenSSL |
+| BSD-3-Clause | Alembic; OpenEXR and Imath (`libIex*`, `libIlmThread*`, `libImath*`); OpenColorIO; zstd |
+| MPL-2.0 | OpenVDB |
+| Zlib / libpng / MIT / BSL-1.0 / public domain | SDL2; libpng; Brotli, Expat, libxml2, OpenCOLLADA; Boost; SQLite |
+| PSF-2.0 / Unicode-3.0 | CPython (`libcpython`); ICU (`libicuc`) |
+
+Identical list in machine-readable form: `native/blender/blender-jniLibs/`.
+
+### What is not yet shipped, and must be before redistributing a built engine
+
+**The per-library licence texts are not currently packaged.** The engine's
+Python payload does carry its own — numpy, requests, Cython, pip and others keep
+their `LICENSE` files, and the studio-light matcaps have theirs — but no licence
+file is shipped for any of the 120 native libraries above. Redistributing a
+built engine without them would omit notices those licences require.
+
+The table above is an inventory to work from, not legal advice: several entries
+are dual-licensed and the **permissive option should be taken and recorded**,
+and the FFmpeg entry in particular depends on configuration that has not been
+checked. Collect the texts, ship them beside the engine, and correct anything
+here that the texts disagree with.
+
+Upstream Blender's own licence texts and dependency list are in its
+`doc/license/` directory.
+

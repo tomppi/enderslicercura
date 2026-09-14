@@ -157,6 +157,8 @@ scripts/build-curaengine-android.sh
 gradle :app:verifyDebugApkContents
 ```
 
+**From a clean clone: `./scripts/setup.sh`.** It checks the toolchain, stages all three engines from their own scripts, and assembles the debug APK — failing early with the name of the script to run rather than letting Gradle find the problem minutes in. It cannot stage the Blender engine for you yet: that one is built rather than fetched, and no engine package is published, so it stops with an explanation and takes `BLENDER_ENGINE_DIR` instead.
+
 `fetch-prusa-engine-android.sh` downloads the newest successful `PrusaSlicer-3.0.0-alpha11-android-arm64-v8a` artifact of the [`prusa-engine-3`](.github/workflows/prusa-engine-3.yml) workflow, which cross-compiles the alpha11 console from source; set `PRUSA_ENGINE_DIR` to a directory containing `prusa-slicer` and `resources` to package a local build instead.
 
 Gradle prepares the pinned offline BumpMesh and filaSim assets before `preBuild`; `verifyDebugApkContents` builds the debug APK and verifies the packaged ARM64 CuraEngine and PrusaSlicer engine. GitHub Actions builds the WASM engine, runs the unit/regression and definition audits, verifies packaged assets and uploads the APK.
