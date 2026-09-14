@@ -220,6 +220,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * Use [stopBlenderEngine] to end it deliberately.
      */
     override fun onCleared() {
+        // The engine outlives this view model on purpose, but this view model's
+        // listener must not: it belongs to a scope that is cancelled here, so an
+        // export arriving after the UI went away was claimed and then dropped. With
+        // no listener the engine queues it, and the next view model's setter replays
+        // the newest one.
+        if (BlenderEngine.onStlExported != null) BlenderEngine.onStlExported = null
         super.onCleared()
     }
 
@@ -1121,9 +1127,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun persistPaintSoon() {
         val snapshot = _uiState.value
         paintPersistenceJob?.cancel()
-        paintPersistenceJob = viewModelScope.launch {
+        paintPersistenceJob = viewModelScope.launch(Dispatchers.IO) {
             delay(PAINT_PERSIST_DEBOUNCE_MILLIS)
-            persistCurrentWorkspace(snapshot)
+            // IO, and guarded. The descriptor has a hard size limit and a painted
+            // mesh can reach it (every painted triangle index is written out), so an
+            // unguarded launch on the main dispatcher turned a big paint job into an
+            // uncaught require() - and a dead process - rather than a message.
+            runCatching { persistCurrentWorkspace(snapshot) }.onFailure(::showOperationFailure)
         }
     }
 
