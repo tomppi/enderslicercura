@@ -111,7 +111,7 @@ binary.
 | licence | libraries |
 |---|---|
 | GPL-2.0-or-later | Blender itself; FFTW (`libfftw3`); Potrace (`libpotrace`) |
-| LGPL-2.1-or-later | FFmpeg (`libav*`, `libsw*`) — **verify the build's configuration**, which decides LGPL vs GPL |
+| GPL-2.0-or-later | FFmpeg (`libav*`, `libsw*`, `libpostproc`) — confirmed from the binaries, see below |
 | LGPL-2.0-or-later | OpenAL (`libopenal`); GMP (`libgmp`, `libgmpxx`) |
 | Apache-2.0 | Cycles; OpenImageIO; OpenImageDenoise; Embree; OpenUSD; oneDNN; Draco; OpenPGL; TBB; OpenSSL |
 | BSD-3-Clause | Alembic; OpenEXR and Imath (`libIex*`, `libIlmThread*`, `libImath*`); OpenColorIO; zstd |
@@ -135,11 +135,29 @@ The tracked copies are at [`native/blender/assets/licenses/`](native/blender/ass
 `app/src/main/assets/blender` is gitignored — it is delivery, not source — so
 that directory is where they survive a clean clone.
 
-**Still missing: FFmpeg.** It is the one bundled library with no licence text
-anywhere in the source packages, and it is also the one whose obligations depend
-on how it was configured: LGPL-2.1-or-later built without `--enable-gpl`,
-GPL-2.0-or-later with it. **That configuration has not been checked**, and it
-should be before a built engine is redistributed.
+**FFmpeg: GPL-2.0-or-later — settled, read out of the binaries themselves.** No
+licence text for it exists anywhere in the source packages, so it was checked
+directly, three ways that agree:
+
+1. **`libpostproc` ships.** It is GPL-2.0-or-later only, and is built only when
+   `--enable-gpl` is given. Its presence alone decides the question.
+2. **The configuration string embedded in `libavutil`, `libavcodec` and
+   `libavformat`** reads `--enable-gpl ... --enable-libx264 --enable-libx265`,
+   alongside libaom, libbluray, libmp3lame, libopus, libspeex, libtwolame,
+   libvpx, libfreetype and libfribidi.
+3. **The libraries state it themselves:** "libavcodec license: GPL version 2 or
+   later", and the same for `libavutil` and `libavformat`.
+
+**`--enable-nonfree` is absent**, which matters more than the GPL flag does: that
+is the one that makes an FFmpeg build undistributable, and it is not there.
+
+Provenance, from the same string: built by **ffmpeg-android-maker-2.12**
+(`/home/dadw/ffmpeg-android-maker-2.12/build/external/arm64-v8a/lib`).
+
+The consequence is worth stating plainly: the engine's FFmpeg is **GPL, not
+LGPL**, so there is no licence ambiguity left anywhere in the engine. It is GPL
+throughout, consistent with Blender, and combinable with this app's
+AGPL-3.0-or-later through GPLv3.
 
 Libraries without a per-package text — OpenEXR and Imath, Alembic, Embree,
 OpenColorIO, OpenImageDenoise, oneDNN, Draco, OpenSSL and the rest — are covered
