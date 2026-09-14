@@ -121,20 +121,31 @@ binary.
 
 Identical list in machine-readable form: `native/blender/blender-jniLibs/`.
 
-### What is not yet shipped, and must be before redistributing a built engine
+### Licence texts
 
-**The per-library licence texts are not currently packaged.** The engine's
-Python payload does carry its own — numpy, requests, Cython, pip and others keep
-their `LICENSE` files, and the studio-light matcaps have theirs — but no licence
-file is shipped for any of the 120 native libraries above. Redistributing a
-built engine without them would omit notices those licences require.
+**Shipped with the engine.** Blender's canonical set is in
+`assets/blender/licenses/blender/` — GPL-2.0, GPL-3.0, LGPL-2.1, Apache-2.0,
+BSD-2-Clause, BSD-3-Clause, MIT, Zlib, the logo and trademark licence, and the
+SPDX identifier list. Beside it, `assets/blender/licenses/deps/` carries 125
+per-dependency texts mirroring their source packages: Boost, CPython, FFTW,
+HarfBuzz, ICU, OpenAL, OpenBLAS, OpenCOLLADA, OpenImageIO, OpenPGL, OpenSubdiv,
+OpenUSD, OpenVDB, libpng, PugiXML, SDL, TBB, TIFF and zstd.
 
-The table above is an inventory to work from, not legal advice: several entries
-are dual-licensed and the **permissive option should be taken and recorded**,
-and the FFmpeg entry in particular depends on configuration that has not been
-checked. Collect the texts, ship them beside the engine, and correct anything
-here that the texts disagree with.
+The tracked copies are at [`native/blender/assets/licenses/`](native/blender/assets/licenses).
+`app/src/main/assets/blender` is gitignored — it is delivery, not source — so
+that directory is where they survive a clean clone.
 
-Upstream Blender's own licence texts and dependency list are in its
-`doc/license/` directory.
+**Still missing: FFmpeg.** It is the one bundled library with no licence text
+anywhere in the source packages, and it is also the one whose obligations depend
+on how it was configured: LGPL-2.1-or-later built without `--enable-gpl`,
+GPL-2.0-or-later with it. **That configuration has not been checked**, and it
+should be before a built engine is redistributed.
 
+Libraries without a per-package text — OpenEXR and Imath, Alembic, Embree,
+OpenColorIO, OpenImageDenoise, oneDNN, Draco, OpenSSL and the rest — are covered
+by licence *type* in Blender's canonical set above, but a distributor should ship
+the per-library text, not rely on the type.
+
+The table above remains an inventory to work from rather than legal advice:
+several entries are dual-licensed, and where so, the permissive option should be
+taken and recorded.
