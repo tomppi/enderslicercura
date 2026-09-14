@@ -37,6 +37,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   from the engine package, falling back to the tracked copy in
   `native/blender/assets/licenses`, and fails loudly when neither exists;
   `verifyDebugApkContents` checks they reach the APK.
+- **AGP's default asset filter drops every directory whose name starts with
+  `_`.** In the embedded CPython tree that quietly removed `numpy/_typing`,
+  `numpy/testing/_private`, `setuptools/_distutils` and `pkg_resources/_vendor`,
+  so `import numpy.typing` failed inside the engine, and it took one license
+  text with it. The packaged assets now keep `_`-prefixed directories; dotfiles
+  and VCS metadata are still ignored, `__pycache__` is pruned rather than
+  shipped, and the APK check covers both the recovered package and the license.
 
 ## [1.1.0] - 2026-09-12
 

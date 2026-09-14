@@ -41,6 +41,22 @@ Result: `libblender_exec.so` — copy to `app/src/main/jniLibs/arm64-v8a/`
   package carries them; the tracked copy lives in this directory and
   `scripts/fetch-blender-engine-android.sh` falls back to it.
 
+## The release asset the app fetches
+`scripts/fetch-blender-engine-android.sh` downloads
+`blender-engine-arm64-<tag>.zip` from this repository's releases and reads it
+as a directory named `blender-engine-arm64` holding exactly the five things the
+app packages:
+
+    blender-engine-arm64/libblender_exec.so   the engine, linked and stripped
+    blender-engine-arm64/python/              CPython 3.11.4 stdlib
+    blender-engine-arm64/scripts/             Blender scripts + the MCP addon
+    blender-engine-arm64/3.6/                 config/datafiles (OCIO, locale)
+    blender-engine-arm64/licenses/            GPL + third-party texts
+
+Zip that directory with any tool and attach it to the release. Gradle prunes
+the unusable parts (CUDA kernels, ensurepip, venv, `__pycache__`) at build
+time, so the package is the unpruned tree.
+
 ## MCP server (external, per user decision 2026-09-09)
 `blender-mcp-slim/server.py` (FastMCP, 5 tools) runs wherever the AI session
 runs; connects via `BLENDER_HOST`/`BLENDER_PORT` (default localhost:9876).

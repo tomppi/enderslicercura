@@ -45,6 +45,17 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
+    // AGP's default ignore pattern drops every asset directory whose name begins
+    // with '_' (<dir>_*). The embedded CPython tree has several - numpy/_typing,
+    // numpy/testing/_private, setuptools/_distutils, pkg_resources/_vendor - so
+    // dropping them left `import numpy.typing` failing inside the engine, and one
+    // license text lives in such a directory as well
+    // (licenses/deps/cpython/include/Modules/_sha3/LICENSE). This is the same
+    // pattern without that single rule: dotfiles and VCS metadata stay out.
+    androidResources {
+        ignoreAssetsPattern = "!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~"
+    }
+
     packaging {
         resources {
             excludes += setOf("/META-INF/{AL2.0,LGPL2.1}")
@@ -290,6 +301,9 @@ val pruneBlenderAssets = tasks.register("pruneBlenderAssets") {
             File(assets, "python/lib/python3.11/venv"),
             File(assets, "python/lib/python3.11/ensurepip"),
         ).filter { it.exists() }
+        assets.walkTopDown()
+            .filter { it.isDirectory && it.name == "__pycache__" }
+            .forEach { targets += it }
         val numpyTests = File(assets, "python/lib/python3.11/site-packages/numpy")
         if (numpyTests.isDirectory) {
             numpyTests.walkTopDown().filter { it.isDirectory && it.name == "tests" }.forEach { targets += it }
@@ -341,6 +355,17 @@ val verifyDebugApkBlenderContents by tasks.registering {
             val license = zip.getEntry("assets/blender/licenses/blender/GPL-license.txt")
             check(license != null && license.size > 0L) {
                 "Debug APK does not contain the Blender license texts"
+            }
+            // Directories whose name starts with '_' are dropped by AGP's default
+            // asset ignore pattern; these two prove the override in androidResources
+            // is still in place.
+            val numpyTyping = zip.getEntry("assets/blender/python/lib/python3.11/site-packages/numpy/_typing/__init__.py")
+            check(numpyTyping != null && numpyTyping.size > 0L) {
+                "Debug APK does not contain numpy._typing: the '_'-prefixed asset directory was dropped"
+            }
+            val keccak = zip.getEntry("assets/blender/licenses/deps/cpython/include/Modules/_sha3/LICENSE")
+            check(keccak != null && keccak.size > 0L) {
+                "Debug APK does not contain the complete Blender license texts"
             }
         }
     }
