@@ -173,7 +173,11 @@ for category, settings in ENGINE_DRIFT_SETTINGS.items():
             children[name] = definition
             injected = True
 if injected:
-    files["fdmprinter"].write_text(json.dumps(fdmprinter, indent=4) + "\n", encoding="utf-8")
+    # newline="\n" explicitly: Path.write_text translates to the platform's line
+    # endings, so the same fetch produced CRLF on Windows and LF on the runner, and
+    # a digest over the chain could never be the same number in both places.
+    files["fdmprinter"].write_text(
+        json.dumps(fdmprinter, indent=4) + "\n", encoding="utf-8", newline="\n")
 
 print("Validated Cura definition closure: " + " -> ".join(sorted(seen)))
 PY

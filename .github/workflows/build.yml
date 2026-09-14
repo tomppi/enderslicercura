@@ -102,7 +102,11 @@ jobs:
           # The chain the embedded engine and the definition tests are verified
           # against. It moves only when the Cura resources move, and then the
           # engine build, the definition tests and this digest move together.
-          expected_digest = "e67b91190f6168edcf9b74386bb8790e5d897846a171fedeacf77772fc1c6a0b"
+          # Computed on Linux from the fetched chain. It also pins the line endings
+          # of the rewritten fdmprinter.def.json, which is why the fetch script now
+          # writes that file with newline="\n" instead of letting Windows turn it
+          # into CRLF and give the same resources a different digest.
+          expected_digest = "d0180f667b50e39e7d44dd9a9e13a211685008249dd46b54db19651cdb364a9a"
 
           missing = [name for name in names if not (root / (name + ".def.json")).is_file()]
           if missing:
