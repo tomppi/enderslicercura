@@ -217,7 +217,53 @@ Write the PNG into `files/blender/exports/`. The poller only watches `.stl`, so 
 | z extents of down-facing vs up-facing faces | is the base actually flat, and on the plate |
 | non-manifold and degenerate edges | the checks that matter before delivery |
 
-## 5. Debugging
+## 5. The tools are already there - check before you hand-roll
+
+**Seventeen bundled addons are enabled at engine startup.** They used to be off,
+and that produced a specific and expensive failure: an agent would reach for a
+tool it knew perfectly well - LoopTools, F2, Bool Tool - get
+`AttributeError: 'Mesh' object has no attribute 'looptools_bridge'` because a
+disabled addon's operators are never registered, read that as "this build does
+not have it", and hand-roll the equivalent in `bmesh`. Which works, slowly, and
+reinvents something with a decade of edge cases already handled.
+
+The operators are live now. **Prefer them to writing your own.**
+
+| the job | use | not |
+|---|---|---|
+| patch a hole | `bpy.ops.mesh.f2()` (a face from a vertex and its neighbours), `bpy.ops.mesh.fill()`, LoopTools **Bridge** | stitching `bmesh` faces by hand |
+| tidy a distorted patch | LoopTools **Relax**, **Flatten**, **Circle**, **GStretch** | smoothing vertices yourself |
+| cut one solid out of another | Bool Tool (`object_boolean_tools`), Carver, or a Boolean modifier | reimplementing CSG |
+| make a bolt, nut, gear, pipe, spring | `add_mesh_BoltFactory`, `add_mesh_extra_objects` | building primitives from coordinates |
+| intersect, extend or align precisely | tinyCAD (`mesh_tiny_cad`): **XAll**, **V2E**, **E2V** | computing intersections by hand |
+| check it is printable | `bpy.ops.mesh.print3d_check_all()` - solid, intersections, degenerate, thin, overhangs, sharp | counting boundary edges yourself |
+| light a Cycles render | Tri-lighting (`lighting_tri_lights`) | guessing three light positions |
+| trace a photograph | `io_import_images_as_planes`; CAD profiles via `io_import_dxf` | eyeballing proportions |
+
+```python
+import addon_utils, bpy
+print('looptools:', addon_utils.check('mesh_looptools')[1])
+print('operators:', [o for o in dir(bpy.ops.mesh) if 'print3d' in o or 'f2' in o])
+```
+
+If an operator you expect is missing, check whether the addon is on before
+concluding the engine cannot do it:
+
+```python
+import addon_utils
+addon_utils.enable('mesh_looptools', default_set=False, persistent=False)
+```
+
+Enabled: `mesh_looptools`, `mesh_f2`, `mesh_inset`, `mesh_tools`,
+`mesh_tiny_cad`, `mesh_snap_utilities_line`, `mesh_auto_mirror`, `mesh_tissue`,
+`object_boolean_tools`, `object_carver`, `add_mesh_extra_objects`,
+`add_mesh_BoltFactory`, `add_curve_extra_objects`, `curve_tools`,
+`lighting_tri_lights`, `io_import_images_as_planes`, `io_import_dxf` - plus
+`object_print3d_utils` and `measureit`. Blender bundles 104 and enables 11 by
+default; the rest are off because they want UI panels, which this engine has none
+of. The operators do not care.
+
+## 6. Debugging
 
 - App-side tags: `BlenderEngine` (resources materialization, watch/poll lines, export dispatch), `BlenderBridge` (`started=true port=9876`).
 - Engine-side: `adb logcat -d -v threadtime | grep app_process64` (works only when the wrap property is set; note the wrap wrapper occasionally causes a one-shot start race — relaunch to clear).
@@ -268,7 +314,7 @@ mode` for the Python `gpu` module, and `render.opengl()` still refuses. That is 
 Python-level guard, not the render path: `bpy.ops.render.render()` with
 `BLENDER_WORKBENCH` now works.
 
-## 6. The modelling session (model from scratch)
+## 7. The modelling session (model from scratch)
 
 When the user picks **Model from scratch** in the app's Blender menu they get a
 full-screen view of the model, a chat window, an exit button, and a **camera

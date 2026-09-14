@@ -39,7 +39,7 @@ import kotlinx.coroutines.withContext
  */
 object BlenderEngine {
     private const val TAG = "BlenderEngine"
-    private const val RESOURCES_VERSION = "blender-3.6-resources-v5"
+    private const val RESOURCES_VERSION = "blender-3.6-resources-v6"
     const val DEFAULT_MCP_PORT = 9876
 
     /** Scan cadence of the authoritative exports-dir poller. */
