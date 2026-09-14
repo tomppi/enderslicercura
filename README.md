@@ -157,7 +157,17 @@ scripts/build-curaengine-android.sh
 gradle :app:verifyDebugApkContents
 ```
 
-**From a clean clone: `./scripts/setup.sh`.** It checks the toolchain, stages all three engines from their own scripts, and assembles the debug APK — failing early with the name of the script to run rather than letting Gradle find the problem minutes in. It cannot stage the Blender engine for you yet: that one is built rather than fetched, and no engine package is published, so it stops with an explanation and takes `BLENDER_ENGINE_DIR` instead.
+**From a clean clone: `./scripts/setup.sh`.** It checks the toolchain, stages all three engines from their own scripts, and assembles the debug APK — failing early with the name of the script to run rather than letting Gradle find the problem minutes in. All three now stage automatically — the Blender engine is fetched from this
+release's `blender-engine-arm64-<tag>.zip`, or from `BLENDER_ENGINE_DIR` if you
+have built one yourself.
+
+**`./scripts/env-setup.sh` checks everything *around* the app** — the build
+toolchain, the phone over adb, the harness, the GPU box — and prints what is
+reachable, what is missing, and the command to fix each, exiting non-zero if
+anything is missing so it can gate CI. None of the three is bundled: they are
+yours to run, so it reports rather than assumes. Addresses come from the
+environment (`PHONE_TAILNET`, `PHONE_LAN`, `HARNESS_ORIGIN`, `GPU_BOX`) because
+none of them belong in a repository.
 
 `fetch-prusa-engine-android.sh` downloads the newest successful `PrusaSlicer-3.0.0-alpha11-android-arm64-v8a` artifact of the [`prusa-engine-3`](.github/workflows/prusa-engine-3.yml) workflow, which cross-compiles the alpha11 console from source; set `PRUSA_ENGINE_DIR` to a directory containing `prusa-slicer` and `resources` to package a local build instead.
 
