@@ -144,18 +144,64 @@ val verifyPrusaEngineExecutable by tasks.registering {
     }
 }
 
+/** The APK the debug tasks inspect. */
+fun debugApkFile(): File = layout.buildDirectory.file("outputs/apk/debug/app-debug.apk").get().asFile
+
+/**
+ * The APK a release build produces. The release type has no signing config, so
+ * AGP writes it unsigned - which is enough to inspect what was packaged.
+ */
+fun releaseApkFile(): File =
+    layout.buildDirectory.file("outputs/apk/release/app-release-unsigned.apk").get().asFile
+
+/**
+ * The engine content assertions, as functions of the APK they inspect.
+ *
+ * They were inline in the debug tasks only, so a release build ran none of them
+ * and could ship short of an engine runtime library with every task green.
+ */
+fun checkCuraEnginePackaged(apk: File, label: String) {
+    check(apk.isFile && apk.length() > 0L) { "$label APK was not created" }
+    ZipFile(apk).use { zip ->
+        val entry = zip.getEntry("lib/arm64-v8a/libcuraengine_exec.so")
+        check(entry != null && entry.size > 0L) {
+            "$label APK does not contain the ARM64 CuraEngine executable"
+        }
+    }
+}
+
 val verifyDebugApkContents by tasks.registering {
     group = "verification"
     description = "Builds the debug APK and verifies that CuraEngine is packaged"
     dependsOn("assembleDebug")
-    doLast {
-        val apk = layout.buildDirectory.file("outputs/apk/debug/app-debug.apk").get().asFile
-        check(apk.isFile && apk.length() > 0L) { "Debug APK was not created" }
-        ZipFile(apk).use { zip ->
-            val entry = zip.getEntry("lib/arm64-v8a/libcuraengine_exec.so")
-            check(entry != null && entry.size > 0L) {
-                "Debug APK does not contain the ARM64 CuraEngine executable"
-            }
+    doLast { checkCuraEnginePackaged(debugApkFile(), "Debug") }
+}
+
+fun checkPrusaSlicerPackaged(apk: File, label: String) {
+    check(prusaEngineExecutable.asFile.isFile) {
+        "PrusaSlicer ARM64 is missing. Run scripts/fetch-prusa-engine-android.sh before assembly."
+    }
+    check(apk.isFile && apk.length() > 0L) { "$label APK was not created" }
+    ZipFile(apk).use { zip ->
+        val entry = zip.getEntry("lib/arm64-v8a/libprusa_slicer_exec.so")
+        check(entry != null && entry.size > 0L) {
+            "$label APK does not contain the ARM64 PrusaSlicer executable"
+        }
+            // The shipped engine is 3.0.0-alpha11, whose resources live under
+            // presets/ - the profiles/Anker.ini this used to look for belongs to the
+            // 2.9.6 engine that is no longer packaged. Nothing caught that while this
+            // task was unreachable.
+        val resources = zip.getEntry(
+            "assets/prusa/resources/presets/prusa-research-fff/PrusaResearch/vendor.yaml",
+        )
+        check(resources != null && resources.size > 0L) {
+            "$label APK does not contain the PrusaSlicer resources"
+        }
+        val calibration = zip.getEntry(
+            "assets/prusa/resources/lua/com.prusa3d.slicer.calibration/manifest.json",
+        )
+        check(calibration != null && calibration.size > 0L) {
+            "$label APK does not contain the PrusaSlicer calibration scripts"
         }
     }
 }
@@ -164,35 +210,7 @@ val verifyDebugApkPrusaContents by tasks.registering {
     group = "verification"
     description = "Builds the debug APK and verifies that PrusaSlicer and its resources are packaged"
     dependsOn("verifyDebugApkContents")
-    doLast {
-        check(prusaEngineExecutable.asFile.isFile) {
-            "PrusaSlicer ARM64 is missing. Run scripts/fetch-prusa-engine-android.sh before assembly."
-        }
-        val apk = layout.buildDirectory.file("outputs/apk/debug/app-debug.apk").get().asFile
-        check(apk.isFile && apk.length() > 0L) { "Debug APK was not created" }
-        ZipFile(apk).use { zip ->
-            val entry = zip.getEntry("lib/arm64-v8a/libprusa_slicer_exec.so")
-            check(entry != null && entry.size > 0L) {
-                "Debug APK does not contain the ARM64 PrusaSlicer executable"
-            }
-            // The shipped engine is 3.0.0-alpha11, whose resources live under
-            // presets/ - the profiles/Anker.ini this used to look for belongs to the
-            // 2.9.6 engine that is no longer packaged. Nothing caught that while this
-            // task was unreachable.
-            val resources = zip.getEntry(
-                "assets/prusa/resources/presets/prusa-research-fff/PrusaResearch/vendor.yaml",
-            )
-            check(resources != null && resources.size > 0L) {
-                "Debug APK does not contain the PrusaSlicer resources"
-            }
-            val calibration = zip.getEntry(
-                "assets/prusa/resources/lua/com.prusa3d.slicer.calibration/manifest.json",
-            )
-            check(calibration != null && calibration.size > 0L) {
-                "Debug APK does not contain the PrusaSlicer calibration scripts"
-            }
-        }
-    }
+    doLast { checkPrusaSlicerPackaged(debugApkFile(), "Debug") }
 }
 
 fun localPropertiesSdkDir(): File? {
@@ -359,66 +377,88 @@ val pruneBlenderAssets = tasks.register("pruneBlenderAssets") {
 
 tasks.named("preBuild") { dependsOn(trimBlenderEngine, pruneBlenderAssets) }
 
-val verifyDebugApkBlenderContents by tasks.registering {
-    group = "verification"
-    description = "Builds the debug APK and verifies the Blender MCP engine lib + assets are packaged"
-    dependsOn("verifyDebugApkPrusaContents")
-    doLast {
-        val apk = layout.buildDirectory.file("outputs/apk/debug/app-debug.apk").get().asFile
-        check(apk.isFile && apk.length() > 0L) { "Debug APK was not created" }
-        ZipFile(apk).use { zip ->
-            val engine = zip.getEntry("lib/arm64-v8a/libblender_exec.so")
-            check(engine != null && engine.size > 40L * 1024 * 1024) {
-                "Debug APK does not contain the ARM64 Blender engine (" + (engine?.size ?: 0L) + " bytes)"
+fun checkBlenderPackaged(apk: File, label: String) {
+    check(apk.isFile && apk.length() > 0L) { "$label APK was not created" }
+    ZipFile(apk).use { zip ->
+        val engine = zip.getEntry("lib/arm64-v8a/libblender_exec.so")
+        check(engine != null && engine.size > 40L * 1024 * 1024) {
+            "$label APK does not contain the ARM64 Blender engine (" + (engine?.size ?: 0L) + " bytes)"
+        }
+        // libblender_exec.so is one library among 121: without the bundled
+        // cpython, ffmpeg, OpenVDB, USD and OpenImageDenoise beside it the
+        // engine cannot be loaded at all, and an APK missing them still looks
+        // complete from the outside.
+        for (lib in listOf("libcpython.so", "libopenvdb.so", "libavcodec.so", "libOpenImageDenoise_core.so", "libc++_shared.so")) {
+            val runtime = zip.getEntry("lib/arm64-v8a/$lib")
+            check(runtime != null && runtime.size > 0L) {
+                "$label APK does not contain the Blender engine runtime libraries (missing $lib)"
             }
-            // libblender_exec.so is one library among 121: without the bundled
-            // cpython, ffmpeg, OpenVDB, USD and OpenImageDenoise beside it the
-            // engine cannot be loaded at all, and an APK missing them still looks
-            // complete from the outside.
-            for (lib in listOf("libcpython.so", "libopenvdb.so", "libavcodec.so", "libOpenImageDenoise_core.so", "libc++_shared.so")) {
-                val runtime = zip.getEntry("lib/arm64-v8a/$lib")
-                check(runtime != null && runtime.size > 0L) {
-                    "Debug APK does not contain the Blender engine runtime libraries (missing $lib)"
-                }
-            }
-            val pythonCount = zip.entries().asSequence().count { it.name.startsWith("assets/blender/python/lib/python3.11/") }
-            check(pythonCount > 1000) {
-                "Debug APK does not contain the Blender python assets (found $pythonCount entries)"
-            }
-            val addon = zip.getEntry("assets/blender/scripts/startup/start_blender_mcp.py")
-            check(addon != null && addon.size > 0L) {
-                "Debug APK does not contain the Blender MCP addon"
-            }
-            val license = zip.getEntry("assets/blender/licenses/blender/GPL-license.txt")
-            check(license != null && license.size > 0L) {
-                "Debug APK does not contain the Blender license texts"
-            }
-            // Directories whose name starts with '_' are dropped by AGP's default
-            // asset ignore pattern; these two prove the override in androidResources
-            // is still in place.
-            val numpyTyping = zip.getEntry("assets/blender/python/lib/python3.11/site-packages/numpy/_typing/__init__.py")
-            check(numpyTyping != null && numpyTyping.size > 0L) {
-                "Debug APK does not contain numpy._typing: the '_'-prefixed asset directory was dropped"
-            }
-            val keccak = zip.getEntry("assets/blender/licenses/deps/cpython/include/Modules/_sha3/LICENSE")
-            check(keccak != null && keccak.size > 0L) {
-                "Debug APK does not contain the complete Blender license texts"
-            }
+        }
+        val pythonCount = zip.entries().asSequence().count { it.name.startsWith("assets/blender/python/lib/python3.11/") }
+        check(pythonCount > 1000) {
+            "$label APK does not contain the Blender python assets (found $pythonCount entries)"
+        }
+        val addon = zip.getEntry("assets/blender/scripts/startup/start_blender_mcp.py")
+        check(addon != null && addon.size > 0L) {
+            "$label APK does not contain the Blender MCP addon"
+        }
+        val license = zip.getEntry("assets/blender/licenses/blender/GPL-license.txt")
+        check(license != null && license.size > 0L) {
+            "$label APK does not contain the Blender license texts"
+        }
+        // Directories whose name starts with '_' are dropped by AGP's default
+        // asset ignore pattern; these two prove the override in androidResources
+        // is still in place.
+        val numpyTyping = zip.getEntry("assets/blender/python/lib/python3.11/site-packages/numpy/_typing/__init__.py")
+        check(numpyTyping != null && numpyTyping.size > 0L) {
+            "$label APK does not contain numpy._typing: the '_'-prefixed asset directory was dropped"
+        }
+        val keccak = zip.getEntry("assets/blender/licenses/deps/cpython/include/Modules/_sha3/LICENSE")
+        check(keccak != null && keccak.size > 0L) {
+            "$label APK does not contain the complete Blender license texts"
         }
     }
 }
 
+val verifyDebugApkBlenderContents by tasks.registering {
+    group = "verification"
+    description = "Builds the debug APK and verifies the Blender MCP engine lib + assets are packaged"
+    dependsOn("verifyDebugApkPrusaContents")
+    doLast { checkBlenderPackaged(debugApkFile(), "Debug") }
+}
+
 /**
- * The complete package check. The per-engine tasks above stay individually
- * runnable, but nothing reached the Blender one on its own, and the Blender one
- * is the strongest: it carries the runtime libraries, numpy assets and licence
- * texts an APK can be missing while still looking complete. This is the task CI
- * and a release build call.
+ * The complete package check for the debug APK. The per-engine tasks stay
+ * individually runnable; the Blender one is the strongest, because it carries the
+ * runtime libraries, numpy assets and licence texts an APK can be missing while
+ * still looking complete. This is the task CI calls.
  */
 val verifyDebugApkEngines by tasks.registering {
     group = "verification"
     description = "Builds the debug APK and verifies the packaged CuraEngine, PrusaSlicer and Blender engines"
     dependsOn(verifyDebugApkContents, verifyDebugApkPrusaContents, verifyDebugApkBlenderContents)
+}
+
+/**
+ * The same three checks against the release APK.
+ *
+ * They were debug-only, so `assembleRelease` could ship an APK short of an engine
+ * runtime library with every task green. This is deliberately NOT attached to
+ * `assembleRelease` - a verification task that depends on the assembly it verifies
+ * cannot also be one of its dependencies. Run it after a release build, the way CI
+ * runs the debug one: `gradle :app:verifyReleaseApkEngines`.
+ */
+val verifyReleaseApkEngines by tasks.registering {
+    group = "verification"
+    description = "Verifies the packaged CuraEngine, PrusaSlicer and Blender engines in the release APK"
+    dependsOn("assembleRelease")
+    doLast {
+        val apk = releaseApkFile()
+        checkCuraEnginePackaged(apk, "Release")
+        checkPrusaSlicerPackaged(apk, "Release")
+        checkBlenderPackaged(apk, "Release")
+        logger.lifecycle("Release APK carries all three engines: " + apk.name)
+    }
 }
 
 val bumpMeshCommit = "a6ac179149b8a17c71a9469dd4cb6f866c0c01d1"

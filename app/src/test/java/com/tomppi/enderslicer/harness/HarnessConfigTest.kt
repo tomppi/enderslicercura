@@ -7,8 +7,12 @@ import org.junit.Test
 
 /**
  * The user pastes whatever the harness printed, so parsing has to survive the
- * shapes that actually come out of it - a token, extra query parameters, a
- * fragment, or a bare address typed by hand.
+ * shapes that actually come out of it - a launch token, extra query parameters,
+ * a fragment, or a bare address typed by hand.
+ *
+ * The token itself is not kept anywhere: the client authenticates from the
+ * harness's own `auth.json`, so all parsing has to do with it is strip it off
+ * the address.
  */
 class HarnessConfigTest {
 
@@ -17,7 +21,6 @@ class HarnessConfigTest {
         val config = HarnessConfig.parseLaunchUrl("http://100.64.0.10:3080/?token=abc123")
 
         assertEquals("http://100.64.0.10:3080", config.baseUrl)
-        assertEquals("abc123", config.token)
         assertTrue(config.isConfigured)
     }
 
@@ -26,7 +29,6 @@ class HarnessConfigTest {
         val config = HarnessConfig.parseLaunchUrl("http://100.64.0.10:3080")
 
         assertEquals("http://100.64.0.10:3080", config.baseUrl)
-        assertEquals("", config.token)
         assertTrue(config.isConfigured)
     }
 
@@ -38,10 +40,12 @@ class HarnessConfigTest {
     }
 
     @Test
-    fun stopsTheTokenAtTheNextParameter() {
+    fun dropsTheWholeQueryNotJustTheToken() {
+        // The printed URL can carry more than the token, and none of it is part
+        // of the address: keeping "?token=abc&session=s1" would send every later
+        // request to a path the harness does not serve.
         val config = HarnessConfig.parseLaunchUrl("http://host:3080/?token=abc&session=s1")
 
-        assertEquals("abc", config.token)
         assertEquals("http://host:3080", config.baseUrl)
     }
 
@@ -49,7 +53,6 @@ class HarnessConfigTest {
     fun dropsTheFragment() {
         val config = HarnessConfig.parseLaunchUrl("http://host:3080/?token=abc#/chat")
 
-        assertEquals("abc", config.token)
         assertEquals("http://host:3080", config.baseUrl)
     }
 
@@ -58,7 +61,6 @@ class HarnessConfigTest {
         val config = HarnessConfig.parseLaunchUrl("  http://host:3080/?token=abc  ")
 
         assertEquals("http://host:3080", config.baseUrl)
-        assertEquals("abc", config.token)
     }
 
     @Test
@@ -68,45 +70,22 @@ class HarnessConfigTest {
     }
 
     @Test
-    fun mergingABareAddressKeepsTheStoredToken() {
-        // The address field is a bare URL and parses to an empty token, so
-        // saving the parsed value over the stored one silently drops the
-        // credential and forces another auth bootstrap on the next connect.
-        val stored = HarnessConfig(
-            baseUrl = "http://host:3080",
-            token = "from-auth-json",
-            workspace = "C:\\work",
-            sessionId = "session-1",
-        )
+    fun mergingATypedAddressReplacesTheStoredOne() {
+        val stored = HarnessConfig(baseUrl = "http://old:3080", workspace = "C:\\work", sessionId = "session-1")
 
         val merged = stored.mergedWith(
-            parsed = HarnessConfig.parseLaunchUrl("http://host:3080"),
+            parsed = HarnessConfig.parseLaunchUrl("http://host:3080/?token=abc"),
             workspace = "C:\\work",
             sessionId = "session-1",
         )
 
-        assertEquals("from-auth-json", merged.token)
         assertEquals("http://host:3080", merged.baseUrl)
-    }
-
-    @Test
-    fun mergingAPastedTokenReplacesTheStoredOne() {
-        val stored = HarnessConfig(baseUrl = "http://host:3080", token = "stale")
-
-        val merged = stored.mergedWith(
-            parsed = HarnessConfig.parseLaunchUrl("http://host:3080/?token=fresh"),
-            workspace = "",
-            sessionId = "",
-        )
-
-        assertEquals("fresh", merged.token)
     }
 
     @Test
     fun mergingAlwaysTakesTheWorkspaceAndSessionFromTheCaller() {
         val stored = HarnessConfig(
             baseUrl = "http://host:3080",
-            token = "kept",
             workspace = "C:\\old",
             sessionId = "session-old",
         )
@@ -123,7 +102,7 @@ class HarnessConfigTest {
 
     @Test
     fun mergingABlankAddressKeepsTheStoredOne() {
-        val stored = HarnessConfig(baseUrl = "http://host:3080", token = "kept")
+        val stored = HarnessConfig(baseUrl = "http://host:3080", workspace = "C:\\work", sessionId = "session-1")
 
         val merged = stored.mergedWith(
             parsed = HarnessConfig(),

@@ -49,6 +49,23 @@ class EnginePreviewClient(
     private var socket: Socket? = null
     private var cachedToken: String? = null
 
+    /**
+     * [value] as a Python string literal.
+     *
+     * The path used to be pasted into `r'__PATH__'`: the handoff file names come
+     * from the engine and the agent, so an apostrophe in one made every import a
+     * syntax error (which importModelWhenReady then retried for two minutes), and a
+     * crafted name was Python running in this process.
+     */
+    private fun pythonString(value: String): String {
+        val escaped = value
+            .replace("\\", "\\\\")
+            .replace("'", "\\'")
+            .replace("\n", "\\n")
+            .replace("\r", "\\r")
+        return "'" + escaped + "'"
+    }
+
     private fun token(): String? = cachedToken ?: runCatching {
         tokenFile?.takeIf { it.isFile }?.readText()?.trim()?.takeIf { it.isNotEmpty() }
     }.getOrNull()?.also { cachedToken = it }
@@ -160,7 +177,7 @@ class EnginePreviewClient(
             .replace("__FOV__", "${camera.fovDeg}")
             .replace("__WIDTH__", width.toString())
             .replace("__HEIGHT__", height.toString())
-            .replace("__PATH__", into.absolutePath)
+            .replace("__PATH__", pythonString(into.absolutePath))
         val reply = command("execute_code", JSONObject().put("code", script))
         return reply.optString("status") == "success" && into.isFile
     }
@@ -211,7 +228,7 @@ class EnginePreviewClient(
      * preview correctly showing a cube. Sending a model now loads it.
      */
     fun importModel(model: File, sceneDir: File? = null): Boolean {
-        val script = IMPORT_SCRIPT.replace("__PATH__", model.absolutePath)
+        val script = IMPORT_SCRIPT.replace("__PATH__", pythonString(model.absolutePath))
         val reply = command("execute_code", JSONObject().put("code", script), IMPORT_TIMEOUT_MS)
         val ok = reply.optString("status") == "success"
         Log.i(TAG, "import " + model.name + " -> " + (if (ok) "ok" else reply.toString().take(160)))
@@ -339,7 +356,7 @@ print('default' if untouched else 'custom')
 
         private val IMPORT_SCRIPT = """
 import bpy
-path = r'__PATH__'
+path = __PATH__
 for obj in list(bpy.data.objects):
     if obj.type == 'MESH':
         bpy.data.objects.remove(obj, do_unlink=True)
@@ -399,7 +416,7 @@ scene.render.resolution_x = __WIDTH__
 scene.render.resolution_y = __HEIGHT__
 scene.render.resolution_percentage = 100
 scene.render.image_settings.file_format = 'PNG'
-scene.render.filepath = r'__PATH__'
+scene.render.filepath = __PATH__
 bpy.ops.render.render(write_still=True)
 print('preview %dx__HEIGHT__')
 """.trimIndent()

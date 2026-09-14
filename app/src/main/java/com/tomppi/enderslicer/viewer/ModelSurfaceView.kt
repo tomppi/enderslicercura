@@ -7,6 +7,7 @@ import android.opengl.Matrix
 import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
+import android.view.SurfaceHolder
 import com.tomppi.enderslicer.annotation.AnnotationGesture
 import com.tomppi.enderslicer.annotation.Point3
 import com.tomppi.enderslicer.annotation.SegmentEnd
@@ -421,6 +422,20 @@ class ModelSurfaceView(
         }
     }
 
+    /**
+     * Frees the model's GPU buffers when the surface goes away.
+     *
+     * GLSurfaceView's renderer interface has no destroy callback, and the viewer
+     * keeps its EGL context across a pause, so without this a mesh-sized buffer
+     * would stay pinned while the app sits in the background. Queued before
+     * super: tearing the surface down is what eventually destroys the context,
+     * and the ids only mean anything while it is current.
+     */
+    override fun surfaceDestroyed(holder: SurfaceHolder) {
+        queueEvent { modelRenderer.releaseGpuBuffers() }
+        super.surfaceDestroyed(holder)
+    }
+
     override fun onDetachedFromWindow() {
         paintPickExecutor.shutdown()
         super.onDetachedFromWindow()
@@ -534,8 +549,11 @@ private class ModelRenderer(
             mesh.interleavedVertices.directOrNull()
                 ?: mesh.interleavedVertices.arrayOrNull()?.let(::floatBuffer)
         }
-        uploadedMesh = null
-        colorUploaded = false
+        // Every placement change (rotate, scale, move, lay flat, drop) hands in a
+        // fresh StlMesh, and the previous VBO is unreachable from here on: left
+        // behind, one mesh-sized buffer would leak per tap until the driver ran
+        // out of memory and the model silently stopped drawing.
+        releaseGpuBuffers()
         paintColors = null
         rebuildColorBuffer()
         if (isNewModel) resetCamera()
@@ -702,7 +720,9 @@ private class ModelRenderer(
         val widthRange = FloatArray(2)
         GLES20.glGetFloatv(GLES20.GL_ALIASED_LINE_WIDTH_RANGE, widthRange, 0)
         maxLineWidth = widthRange[1].takeIf { it.isFinite() && it > 0f } ?: 1f
-        // A new GL context invalidates old VBO ids.
+        // A new GL context invalidates old VBO ids: those buffers died with the
+        // previous context, so the ids are forgotten rather than deleted - the
+        // names are free to be handed to unrelated objects in this one.
         meshVbo = 0
         colorVbo = 0
         uploadedMesh = null
@@ -887,22 +907,76 @@ private class ModelRenderer(
      * model: afterwards the triangles live in GPU memory and every frame is a
      * pure GPU draw (the same way a game renders a static mesh), instead of
      * re-reading CPU memory through client-side pointers per frame.
+     *
+     * Whatever the previous model left behind is deleted first, so a placement
+     * change costs one mesh-sized buffer at a time rather than one per change.
      */
     private fun ensureMeshUpload(buffer: FloatBuffer) {
         if (meshVbo != 0 && uploadedMesh === mesh) return
+        releaseMeshBuffer()
         val ids = IntArray(1)
         GLES20.glGenBuffers(1, ids, 0)
         meshVbo = ids[0]
         if (meshVbo == 0) return
         GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, meshVbo)
+        val accepted = uploadMeshBuffer(buffer)
+        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, 0)
+        if (!accepted) {
+            // The driver refused the allocation, so the buffer holds nothing:
+            // drawing from it would blank the model. Dropping the id sends the
+            // next frame back to the CPU-side copy, which still renders, and the
+            // upload is retried from there.
+            releaseMeshBuffer()
+            return
+        }
+        uploadedMesh = mesh
+    }
+
+    /**
+     * Uploads [buffer] and reports whether the driver accepted it.
+     *
+     * glBufferData is the call that fails once a mesh outgrows the memory the
+     * driver will hand out, and a failed call is invisible in the id alone, so
+     * the error flag has to be read back.
+     */
+    private fun uploadMeshBuffer(buffer: FloatBuffer): Boolean {
+        // Draining what earlier frame work left behind keeps the check below
+        // about this upload alone.
+        while (GLES20.glGetError() != GLES20.GL_NO_ERROR) {
+            // The error flag is a queue: one glGetError clears one entry.
+        }
         GLES20.glBufferData(
             GLES20.GL_ARRAY_BUFFER,
             buffer.remaining() * Float.SIZE_BYTES,
             buffer,
             GLES20.GL_STATIC_DRAW,
         )
-        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, 0)
-        uploadedMesh = mesh
+        return GLES20.glGetError() == GLES20.GL_NO_ERROR
+    }
+
+    /**
+     * Deletes every buffer this renderer owns.
+     *
+     * The ids name objects inside one GL context, so this has to run on the GL
+     * thread while that context is current; see [ModelSurfaceView.surfaceDestroyed]
+     * for the teardown path.
+     */
+    fun releaseGpuBuffers() {
+        releaseMeshBuffer()
+        if (colorVbo != 0) {
+            GLES20.glDeleteBuffers(1, intArrayOf(colorVbo), 0)
+            colorVbo = 0
+        }
+        colorUploaded = false
+    }
+
+    /** Deletes the mesh buffer and forgets which model it held. */
+    private fun releaseMeshBuffer() {
+        if (meshVbo != 0) {
+            GLES20.glDeleteBuffers(1, intArrayOf(meshVbo), 0)
+            meshVbo = 0
+        }
+        uploadedMesh = null
     }
 
     private fun drawMesh() {

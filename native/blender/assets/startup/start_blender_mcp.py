@@ -155,8 +155,14 @@ def start() -> bool:
             server.run_headless()
             print("start_blender_mcp: headless driver exiting")
         else:
-            print("start_blender_mcp: no server running: "
-                  + (server.start_error or "server did not start"))
+            # Not blender -b: this is the desktop/GUI case, where Blender's own
+            # event loop drives the server through a bpy timer. Parking here would
+            # block Blender's startup for ever with nothing to answer requests, so
+            # hand control back and say what state the server is in.
+            print("start_blender_mcp: not headless; returning to Blender (server running: "
+                  + str(bool(server.running)) + ", error: "
+                  + (server.start_error or "none") + ")")
+            return True
         bm.write_status(status_path, {
             "running": False,
             "port": server.port,

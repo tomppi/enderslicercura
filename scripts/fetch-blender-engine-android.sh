@@ -97,7 +97,9 @@ stage() {
   # otherwise a clone (and CI) would run the package's older addon.
   if [ -d "${ROOT}/native/blender/assets/startup" ]; then
     mkdir -p "${ASSETS}/scripts/startup"
-    cp -R "${ROOT}/native/blender/assets/startup/." "${ASSETS}/scripts/startup/"
+    # *.py only: a __pycache__ left in that directory by a local test run would
+    # otherwise be copied into the APK as delivery.
+    cp "${ROOT}/native/blender/assets/startup"/*.py "${ASSETS}/scripts/startup/"
     echo "staged startup scripts from native/blender/assets/startup"
   fi
 

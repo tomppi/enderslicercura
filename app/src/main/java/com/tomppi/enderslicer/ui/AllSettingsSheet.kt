@@ -34,13 +34,17 @@ internal fun AllSettingsSheet(
     added: Map<String, String>,
     managedKeys: Set<String>,
     blockedKeys: Set<String>,
-    onAdd: (String, String) -> Unit,
+    /** Returns why the setting was refused, or null when it was added. */
+    onAdd: (String, String) -> String?,
     onRemove: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var query by remember { mutableStateOf("") }
     var editingKey by remember { mutableStateOf<String?>(null) }
     var editingValue by remember { mutableStateOf("") }
+    // Kept next to the editor that caused it: the status line that carries the
+    // same text is drawn on the Plate tab, not here.
+    var addError by remember { mutableStateOf<String?>(null) }
 
     val filtered = remember(query, specs) {
         val q = query.trim().lowercase()
@@ -97,16 +101,42 @@ internal fun AllSettingsSheet(
                         modifier = Modifier.fillMaxWidth(),
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = { onAdd(spec.key, editingValue); editingKey = null }) {
+                        OutlinedButton(
+                            onClick = {
+                                val reason = onAdd(spec.key, editingValue)
+                                if (reason == null) {
+                                    addError = null
+                                    editingKey = null
+                                } else {
+                                    // A refused setting stays open with its reason:
+                                    // closing the editor made the rejection look
+                                    // like a setting that silently did not stick.
+                                    addError = reason
+                                }
+                            },
+                        ) {
                             Text("Add")
                         }
-                        OutlinedButton(onClick = { editingKey = null }) { Text("Cancel") }
+                        OutlinedButton(
+                            onClick = {
+                                addError = null
+                                editingKey = null
+                            },
+                        ) { Text("Cancel") }
+                    }
+                    addError?.let { reason ->
+                        Text(
+                            reason,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
                     }
                 } else {
                     OutlinedButton(
                         onClick = {
                             editingKey = spec.key
                             editingValue = added[spec.key] ?: ""
+                            addError = null
                         },
                         enabled = spec.key !in blockedKeys,
                         modifier = Modifier.fillMaxWidth(),

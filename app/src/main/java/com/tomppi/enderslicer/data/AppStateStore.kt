@@ -216,21 +216,34 @@ class AppStateStore(context: Context) {
     }
 
     /**
-     * Extra settings are persisted and re-sent on every later slice as
-     * `-s key=value` / JSON, so an unusable entry is refused here instead of
-     * being stored: the caller sees the failed write. Catalogue value types are
-     * deliberately not consulted on this path (parsing the engine definitions
-     * would stall app start on restore) - the engine command builders apply the
-     * remaining type rules when the slice runs.
+     * What a save of extra settings did.
+     *
+     * @property rejectedKeys entries the engine would refuse, which were not
+     *   stored; empty when every entry was accepted.
+     * @property persisted false when the write itself failed, so an entry can
+     *   be missing from the next restore without having been rejected.
      */
-    fun saveExtraCuraSettings(values: Map<String, String>): Boolean =
+    data class ExtraSettingsSave(
+        val rejectedKeys: Set<String>,
+        val persisted: Boolean,
+    )
+
+    /**
+     * Extra settings are persisted and re-sent on every later slice as
+     * `-s key=value` / JSON, so an unusable entry is not stored: it is reported
+     * to the caller through [ExtraSettingsSave.rejectedKeys] instead. Catalogue
+     * value types are deliberately not consulted on this path (parsing the
+     * engine definitions would stall app start on restore) - the engine command
+     * builders apply the remaining type rules when the slice runs.
+     */
+    fun saveExtraCuraSettings(values: Map<String, String>): ExtraSettingsSave =
         saveExtraSettings(KEY_EXTRA_CURA, values)
 
     /** Restores the stored extras, dropping entries an older build persisted unusably. */
     fun restoreExtraCuraSettings(): Map<String, String> =
         ExtraSettingValidation.validOnly(jsonToMap(preferences.getString(KEY_EXTRA_CURA, null)))
 
-    fun saveExtraPrusaSettings(values: Map<String, String>): Boolean =
+    fun saveExtraPrusaSettings(values: Map<String, String>): ExtraSettingsSave =
         saveExtraSettings(KEY_EXTRA_PRUSA, values)
 
     fun savePrusaGcode(start: String, end: String): Boolean =
@@ -243,11 +256,21 @@ class AppStateStore(context: Context) {
     fun restoreExtraPrusaSettings(): Map<String, String> =
         ExtraSettingValidation.validOnly(jsonToMap(preferences.getString(KEY_EXTRA_PRUSA, null)))
 
-    /** Returns false without writing when any entry cannot be sent to the engine. */
-    private fun saveExtraSettings(key: String, values: Map<String, String>): Boolean {
+    /**
+     * Writes the entries the engine can transport and names the ones it cannot.
+     *
+     * A single unusable value used to abandon the whole map, while the caller
+     * installed everything in the UI state anyway: the entries that were fine
+     * were shown, never stored, and silently gone after a restart. Writing the
+     * valid subset keeps the user's other edits, and the rejected keys are
+     * returned so the caller can say which ones did not stick rather than
+     * leaving a value that fails at slice time.
+     */
+    private fun saveExtraSettings(key: String, values: Map<String, String>): ExtraSettingsSave {
         val valid = ExtraSettingValidation.validOnly(values)
-        if (valid.size != values.size) return false
-        return preferences.edit().putString(key, mapToJson(valid)).commit()
+        val rejected = values.keys - valid.keys
+        val persisted = preferences.edit().putString(key, mapToJson(valid)).commit()
+        return ExtraSettingsSave(rejectedKeys = rejected, persisted = persisted)
     }
 
     private fun mapToJson(values: Map<String, String>): String {

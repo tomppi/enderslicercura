@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <full-backup-content>
+    <!-- As in the cloud-backup rules: the OctoPrint credential is device-bound,
+         and the harness address and session ids are this device's business. -->
     <exclude domain="sharedpref" path="octoprint_client.xml" />
+    <exclude domain="sharedpref" path="harness_config.xml" />
     <exclude domain="file" path="smart-infill/" />
 </full-backup-content>

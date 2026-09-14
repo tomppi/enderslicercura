@@ -11,6 +11,26 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
+/** What reading the stored API key produced. */
+sealed interface ApiKeyLoad {
+    /** The stored credential, decrypted. */
+    data class Loaded(val apiKey: String) : ApiKeyLoad
+
+    /** No credential is stored for the configured origin. */
+    object Missing : ApiKeyLoad
+
+    /**
+     * Ciphertext is stored but cannot be turned back into a key right now.
+     *
+     * Deliberately not a "forget it" signal: the causes are transient or
+     * recoverable (a Keystore that is momentarily unavailable, a backup
+     * restored without the device-bound key), and the ciphertext is the only
+     * copy of a credential the user has to re-approve in OctoPrint's own web
+     * UI if it is thrown away.
+     */
+    data class Unreadable(val cause: Throwable) : ApiKeyLoad
+}
+
 class OctoPrintSecretStore(context: Context) {
     private val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
 
@@ -50,22 +70,32 @@ class OctoPrintSecretStore(context: Context) {
         ) { "Unable to atomically persist OctoPrint credentials" }
     }
 
-    fun hasApiKey(): Boolean = loadApiKey() != null
+    fun hasApiKey(): Boolean = loadApiKey() is ApiKeyLoad.Loaded
 
-    fun loadApiKey(): String? {
-        val encoded = preferences.getString(KEY_ENCRYPTED_API_KEY, null) ?: return null
+    /**
+     * Reads the stored API key.
+     *
+     * A decrypt failure no longer deletes anything. This runs from the
+     * repository's constructor, so every visit to the OctoPrint screen could
+     * destroy a credential over a Keystore that was momentarily unavailable, or
+     * over a ciphertext restored from backup without its device-bound key - and
+     * the user then had to re-approve the app in OctoPrint's web UI to get a new
+     * one. The failure is reported instead, and the ciphertext is removed only
+     * when the credential is explicitly cleared or its origin changes.
+     */
+    fun loadApiKey(): ApiKeyLoad {
+        val encoded = preferences.getString(KEY_ENCRYPTED_API_KEY, null) ?: return ApiKeyLoad.Missing
         val origin = preferences.getString(KEY_API_KEY_ORIGIN, null)
         val configuredOrigin = preferences.getString(KEY_BASE_URL, "").orEmpty()
         if (origin.isNullOrBlank() || origin != configuredOrigin) {
             preferences.edit().remove(KEY_ENCRYPTED_API_KEY).remove(KEY_API_KEY_ORIGIN).commit()
-            return null
+            return ApiKeyLoad.Missing
         }
-        return runCatching { decrypt(encoded) }
-            .onFailure {
-                preferences.edit().remove(KEY_ENCRYPTED_API_KEY).remove(KEY_API_KEY_ORIGIN).commit()
-            }
-            .getOrNull()
-            ?.takeIf(String::isNotBlank)
+        val decrypted = runCatching { decrypt(encoded) }
+            .getOrElse { return ApiKeyLoad.Unreadable(it) }
+        return decrypted.takeIf(String::isNotBlank)
+            ?.let { ApiKeyLoad.Loaded(it) }
+            ?: ApiKeyLoad.Missing
     }
 
     fun saveApiKey(apiKey: String) {

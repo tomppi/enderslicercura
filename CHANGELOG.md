@@ -161,6 +161,58 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   to be prepared before `preBuild` (they hang off `mergeDebugAssets`), the notices
   pointed at an untracked directory and claimed a trademark licence that does not
   ship, and two runbooks described menu paths the 1.1.0 redesign removed.
+- **The engine could still be left dead after a stop.** The addon cleared its
+  running flag on `shutdown` but never closed the listening socket, so the park
+  loop's rebind of the same port could fail with `EADDRINUSE` - and the app kept
+  `started = true`, so it never asked again. The socket is closed now, the app
+  waits for the engine to answer before believing it is back, and re-arms when it
+  does not.
+- A Blender export that arrived while the app was busy was stored from an IO thread
+  and cleared on the main thread with a check-then-null, which could drop it after
+  the engine had already claimed the revision.
+- The exports `FileObserver` was never stopped, so every engine restart left
+  another watch and thread behind, and camera publishes could reach the file out of
+  order, leaving the agent reading a stale camera.
+- **Model paths are escaped before they reach the engine.** They were pasted into
+  a Python raw string, so an apostrophe in an agent-named export made every import
+  a syntax error (and the retry loop then kept at it for two minutes), and a
+  crafted name was Python running inside the app process.
+- **The model VBO leaked on every placement change.** `glGenBuffers` ran on every
+  rotate, scale, move, lay-flat and import while nothing in the app ever called
+  `glDeleteBuffers`: a 200k-triangle model orphaned about 14 MB a tap, and once
+  `glBufferData` failed the viewer drew from an empty buffer and the model vanished
+  until restart.
+- Smart Infill's mismatch guard could never fire - it asked the runtime that had
+  just been cleared - so a stale package was never reported or dropped and later
+  slices silently lost its density modifiers; its validation flag could also stick
+  true and disable Slice until restart.
+- The modelling standing brief was never delivered: it was sent in the same frame
+  as the asynchronous connect, failed with "Connect to the harness first", and was
+  never retried. Rotating on the modelling screen also lost the transcript and any
+  in-flight reply.
+- The model position fields were unusable in comma-decimal locales (pre-filled
+  "12,5" and rejected as input), PrusaSlicer's "auto" extrusion width of 0 printed
+  "flow Infinity%", and a rejected "all settings" value explained itself only on the
+  Plate tab while the Add button lives on the Settings tab.
+- The OctoPrint API key was deleted whenever a decrypt failed - a keystore that was
+  briefly unavailable cost the user a credential only OctoPrint's web UI can
+  reissue; the harness config was included in cloud backup although its token can
+  never be decrypted on a restored device; and the harness token was stored without
+  ever being sent.
+- Chat prompts were paired to turns by position whenever the counts matched, so a
+  turn with no user message next to one with two showed the wrong prompt above an
+  answer and dropped another.
+- The webcam loopback guard tested an impossible byte pattern, so an address like
+  `http://[0:0:0:0:0:0:0:1]` was neither rejected nor rewritten and the app could
+  fetch its own loopback; the nozzle-path pan constants were about 2% off the eye
+  distance the renderers actually use.
+- A unit test covering the probe-points setting had no `@Test` annotation and never
+  ran, the "real CuraEngine tests ran" CI proof also matched all-skipped suites,
+  and the Blender addon had no automated check at all - CI now compiles it and runs
+  a stubbed test of the token, framing, busy and shutdown-socket paths.
+- `scripts/*.sh` were committed non-executable, so the documented clean-clone
+  `./scripts/setup.sh` could not run at all; release builds are now gated by the
+  same engine content checks as the debug APK.
 
 ## [1.1.0] - 2026-09-12
 

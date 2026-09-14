@@ -160,6 +160,113 @@ class HarnessChatTest {
     }
 
     @Test
+    fun fullPromptsAreUsedWhenEveryTurnAgreesWithTheLog() {
+        val turns = listOf(
+            HarnessChat.Turn(prompt = "Build a bracket that fits the…", response = "clipped", sequence = 1),
+        )
+        val full = "Build a bracket that fits the rail on the left side of the printer, with two M3 holes"
+
+        val messages = HarnessChat.transcript(
+            turns = turns,
+            prompts = listOf(full),
+            responses = mapOf(1 to "a much longer answer"),
+        )
+
+        assertEquals(
+            listOf(
+                ChatMessage(fromUser = true, text = full),
+                ChatMessage(fromUser = false, text = "a much longer answer"),
+            ),
+            messages,
+        )
+    }
+
+    @Test
+    fun aMultiLinePromptStillMatchesItsCollapsedPreview() {
+        // The projection joins a turn's text blocks and collapses whitespace
+        // before it clips, so a raw string comparison would call every long
+        // prompt a mismatch and quietly fall back to the clipped preview.
+        val turns = listOf(
+            HarnessChat.Turn(prompt = "Check the printer, then print the cube…", response = "done", sequence = 1),
+        )
+        val full = "Check the printer,\n\nthen print the cube and tell me when it is done"
+
+        val messages = HarnessChat.transcript(turns, listOf(full), emptyMap())
+
+        assertEquals(full, messages.single { it.fromUser }.text)
+    }
+
+    @Test
+    fun aTurnWithoutAPromptBesideATurnWithTwoDoesNotShiftTheTranscript() {
+        // The mixed case. A background-job notice starts a turn of its own and is
+        // filtered out of the prompt list; a queued STOP_INSTRUCTION adds a
+        // second prompt to the next turn. Both lists then have the same length
+        // with everything after the first shifted, and the old count-only
+        // pairing put the cube request above the notice's answer and the STOP
+        // above the cube's answer, dropping the request itself.
+        val turns = listOf(
+            HarnessChat.Turn(prompt = "", response = "Background job finished", sequence = 1),
+            HarnessChat.Turn(prompt = "Make a 20 mm cube", response = "Here is the cube", sequence = 2),
+        )
+        val prompts = listOf(
+            "Make a 20 mm cube",
+            "Stop. Do not continue the previous task and do not start a new one.",
+        )
+
+        val messages = HarnessChat.transcript(turns, prompts, emptyMap())
+
+        assertEquals(3, messages.size)
+        assertFalse(messages[0].fromUser)
+        assertEquals("Background job finished", messages[0].text)
+        assertTrue(messages[1].fromUser)
+        assertEquals("Make a 20 mm cube", messages[1].text)
+        assertFalse(messages[2].fromUser)
+        assertEquals("Here is the cube", messages[2].text)
+    }
+
+    @Test
+    fun aPromptThatDoesNotMatchItsTurnIsNotUsed() {
+        val turns = listOf(
+            HarnessChat.Turn(prompt = "the real prompt", response = "answer", sequence = 1),
+        )
+
+        val messages = HarnessChat.transcript(turns, listOf("somebody else's prompt"), emptyMap())
+
+        assertEquals("the real prompt", messages.first().text)
+        assertTrue(messages.first().fromUser)
+    }
+
+    @Test
+    fun anExtraPromptInTheLogMakesEveryTurnUseItsOwnPreview() {
+        val turns = listOf(
+            HarnessChat.Turn(prompt = "first", response = "one", sequence = 1),
+            HarnessChat.Turn(prompt = "second", response = "two", sequence = 2),
+        )
+
+        val messages = HarnessChat.transcript(
+            turns = turns,
+            prompts = listOf("first", "Stop. Do not continue the previous task.", "second"),
+            responses = emptyMap(),
+        )
+
+        assertEquals(listOf("first", "second"), messages.filter { it.fromUser }.map { it.text })
+    }
+
+    @Test
+    fun fullPromptsComeFromTheLogInOrderAndSkipPluginMessages() {
+        // The log holds other people's messages too - the harness writes
+        // plugin-sourced events into the same stream - and pairing one of those
+        // with a turn is the corruption this pairing rule exists to avoid.
+        val page = page(
+            userMessage(source = "user", text = "first"),
+            userMessage(source = "plugin", text = "a notice nobody typed"),
+            userMessage(source = "user", text = "second"),
+        )
+
+        assertEquals(listOf("first", "second"), HarnessChat.fullPromptsOf(page))
+    }
+
+    @Test
     fun aReplyIsNotInWhileTheProjectionStillShowsThePreviousTurn() {
         // The race that made the spinner and the Stop button vanish: right
         // after a prompt is accepted, the newest published turn is still the
@@ -232,6 +339,18 @@ class HarnessChatTest {
                     },
                 ),
             ),
+        )
+
+    private fun userMessage(source: String, text: String): JSONObject = JSONObject()
+        .put("type", "user/message")
+        .put(
+            "data",
+            JSONObject()
+                .put("source", JSONObject().put("kind", source))
+                .put(
+                    "content",
+                    JSONArray().put(JSONObject().put("type", "text").put("text", text)),
+                ),
         )
 
     @Test

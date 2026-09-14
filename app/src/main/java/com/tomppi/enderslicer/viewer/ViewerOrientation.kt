@@ -20,8 +20,8 @@ object ViewerOrientationMath {
     /** Camera elevation of the model view (eye z = 0.62 * distance). */
     const val MODEL_VIEW_ELEVATION = 0.62f
 
-    /** Camera elevation of the nozzle path view (eye z = 0.58 * distance). */
-    const val PATH_VIEW_ELEVATION = 0.58f
+    /** Camera elevation of the nozzle path view (eye z = 0.62 * distance). */
+    const val PATH_VIEW_ELEVATION = 0.62f
 
     /**
      * Returns the screen-space direction (foreshortened, length <= 1) of the

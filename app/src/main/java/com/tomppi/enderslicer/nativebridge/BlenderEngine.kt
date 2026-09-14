@@ -40,7 +40,7 @@ import kotlinx.coroutines.withContext
  */
 object BlenderEngine {
     private const val TAG = "BlenderEngine"
-    private const val RESOURCES_VERSION = "blender-3.6-resources-v8"
+    private const val RESOURCES_VERSION = "blender-3.6-resources-v10"
     const val DEFAULT_MCP_PORT = 9876
 
     /** Scan cadence of the authoritative exports-dir poller. */
@@ -57,6 +57,11 @@ object BlenderEngine {
     // without this every stop/start pair left another poller and another
     // FileObserver running for the life of the process.
     private var watcherJob: Job? = null
+
+    // Held so the inotify watch can be released: the accelerators were locals, so
+    // every engine restart left another observer (and its thread) watching a
+    // directory the poller already covers.
+    private var watcherObserver: FileObserver? = null
 
     private const val TOKEN_FILE = "blender_mcp_token.txt"
 
@@ -131,6 +136,13 @@ object BlenderEngine {
                     // serve again instead of trying to start a second Blender.
                     Log.i(TAG, "engine thread already running; asking it to serve")
                     restart.writeText("restart")
+                    if (!awaitServing(configDir)) {
+                        // The addon could not rebind (its port still held, say).
+                        // Re-arm rather than leave the engine silently dead behind a
+                        // started=true that nothing ever retries.
+                        Log.w(TAG, "engine did not come back; it will be asked again")
+                        started = false
+                    }
                 }
                 ensureWatcher(configDir)
             }.onFailure { error ->
@@ -160,7 +172,35 @@ object BlenderEngine {
         BlenderBridge.stop()
         watcherJob?.cancel()
         watcherJob = null
+        watcherObserver?.stopWatching()
+        watcherObserver = null
         started = false
+    }
+
+    /**
+     * Waits for the addon to serve again after a restart request.
+     *
+     * A connect is the only honest signal: the addon may have parked because a
+     * shutdown was asked for, and it answers nothing until its socket is back.
+     * A failure logs whatever the addon wrote to its status file.
+     */
+    private suspend fun awaitServing(configDir: File, timeoutMs: Long = 5_000): Boolean {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            val up = runCatching {
+                java.net.Socket().use { probe ->
+                    probe.connect(java.net.InetSocketAddress("127.0.0.1", DEFAULT_MCP_PORT), 500)
+                }
+                true
+            }.getOrDefault(false)
+            if (up) return true
+            delay(250)
+        }
+        runCatching {
+            File(configDir, "scripts/startup/blender_mcp_status.json")
+                .takeIf { it.isFile }?.readText()
+        }.getOrNull()?.let { Log.w(TAG, "engine status: " + it.take(200)) }
+        return false
     }
 
     /** The engine's shared secret: generated once, then reused for the install. */
@@ -259,6 +299,8 @@ object BlenderEngine {
         // being left to poll (and hold a FileObserver watch) for the life of the
         // process every time the engine is stopped and started again.
         watcherJob?.cancel()
+        watcherObserver?.stopWatching()
+        watcherObserver = null
         val exports = File(configDir, "exports")
         exports.mkdirs()
         var newest: File? = null
@@ -290,6 +332,7 @@ object BlenderEngine {
                 }
             }
             observer.startWatching()
+            watcherObserver = observer
             Log.i(TAG, "watching exports dir " + exports.absolutePath)
         }.onFailure { error -> Log.e(TAG, "export watch failed", error) }
 

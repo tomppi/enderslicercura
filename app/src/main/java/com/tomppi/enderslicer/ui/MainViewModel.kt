@@ -411,7 +411,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             // The engine has already claimed this export, so dropping it here loses
             // the model for good. Keep the newest one and take it as soon as the
             // running operation finishes.
-            pendingBlenderImport = file
+            queueBlenderImport(file)
             return
         }
         val stateSnapshot = _uiState.value
@@ -615,17 +615,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun setExtraSetting(engine: SlicerEngine, key: String, value: String) {
+    /**
+     * Adds an extra setting, or returns why it was refused.
+     *
+     * The reason is returned as well as put in the status line: the editor that
+     * calls this is in the all-settings sheet on the Settings tab, while the
+     * status line is only drawn on the Plate tab, so a refusal was invisible
+     * exactly where the entry was made.
+     */
+    fun setExtraSetting(engine: SlicerEngine, key: String, value: String): String? {
         val normalized = key.trim().lowercase()
-        if (engine != SlicerEngine.CURA && engine != SlicerEngine.PRUSA) return
-        if (normalized.isEmpty() || !normalized.matches(Regex("[a-z][a-z0-9_]*"))) return
-        if (normalized in blockedExtraKeys(engine)) return
+        if (engine != SlicerEngine.CURA && engine != SlicerEngine.PRUSA) return null
+        if (normalized.isEmpty() || !normalized.matches(Regex("[a-z][a-z0-9_]*"))) {
+            return "the key is not a valid setting name"
+        }
+        if (normalized in blockedExtraKeys(engine)) return "the app manages this setting"
         // Refused here rather than at the slice: an unusable value was persisted and
         // re-sent on every later slice, so one typo failed every print with a generic
         // engine error and no clue which entry caused it.
         ExtraSettingValidation.rejectReason(normalized, value, extraSettingSpec(engine, normalized))?.let { reason ->
             _uiState.update { it.copy(statusMessage = reason) }
-            return
+            return reason
         }
         _uiState.update { state ->
             if (engine == SlicerEngine.PRUSA) {
@@ -635,6 +645,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         persistExtraSettings(engine)
+        return null
     }
 
     // Catalogues carry the value types (Cura declares "type": float/int); they are
@@ -676,10 +687,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         extraSettingsPersistenceJob = viewModelScope.launch(Dispatchers.IO) {
             delay(EXTRAS_PERSIST_DEBOUNCE_MILLIS)
             val snapshot = _uiState.value
-            if (engine == SlicerEngine.PRUSA) {
+            val saved = if (engine == SlicerEngine.PRUSA) {
                 stateStore.saveExtraPrusaSettings(snapshot.extraPrusaSettings)
             } else {
                 stateStore.saveExtraCuraSettings(snapshot.extraCuraSettings)
+            }
+            // The store persists only what the engine can take, so an entry it
+            // refuses would otherwise look saved and then vanish on the next launch.
+            if (saved.rejectedKeys.isNotEmpty()) {
+                _uiState.update {
+                    it.copy(
+                        statusMessage = "Not saved - the engine cannot take " +
+                            saved.rejectedKeys.sorted().joinToString(", "),
+                    )
+                }
             }
         }
     }
@@ -1521,8 +1542,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (pending.prusaStartGcode != null && pending.prusaEndGcode != null) {
             stateStore.savePrusaGcode(pending.prusaStartGcode!!, pending.prusaEndGcode!!)
         }
-        if (pending.extraPrusaSettings != null) stateStore.saveExtraPrusaSettings(pending.extraPrusaSettings!!)
-        if (pending.extraCuraSettings != null) stateStore.saveExtraCuraSettings(pending.extraCuraSettings!!)
+        val rejectedExtras = buildList {
+            pending.extraPrusaSettings
+                ?.let { addAll(stateStore.saveExtraPrusaSettings(it).rejectedKeys) }
+            pending.extraCuraSettings
+                ?.let { addAll(stateStore.saveExtraCuraSettings(it).rejectedKeys) }
+        }
         _uiState.update { current ->
             current.copy(
                 settings = pending.settings,
@@ -1548,7 +1573,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 sliceLogPath = null,
                 sliceDurationMilliseconds = null,
                 isBusy = false,
-                statusMessage = "Imported ${pending.sourceName}; settings and custom G-code are active until overridden" + if (prusaSnapshot) "; Prusa state restored" else "",
+                statusMessage = "Imported ${pending.sourceName}; settings and custom G-code are active until overridden" +
+                    (if (prusaSnapshot) "; Prusa state restored" else "") +
+                    (if (rejectedExtras.isEmpty()) {
+                        ""
+                    } else {
+                        "; not saved (the engine cannot take " +
+                            rejectedExtras.sorted().joinToString(", ") + ")"
+                    }),
             )
         }
     }
@@ -2028,13 +2060,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         return true
     }
 
-    /** An export that arrived while the app was busy; taken when it is free. */
+    /**
+     * An export that arrived while the app was busy; taken when it is free.
+     *
+     * Written from BlenderEngine's IO callback and drained on the main thread, so
+     * the swap is guarded: a plain check-then-null dropped a write that landed
+     * between the two statements, and the engine had already claimed that export.
+     */
     private var pendingBlenderImport: File? = null
+    private val pendingBlenderImportLock = Any()
+
+    private fun queueBlenderImport(file: File) {
+        synchronized(pendingBlenderImportLock) { pendingBlenderImport = file }
+    }
 
     /** Called wherever an operation ends, so a claimed export is not lost. */
     private fun drainPendingBlenderImport() {
-        val queued = pendingBlenderImport ?: return
-        pendingBlenderImport = null
+        val queued = synchronized(pendingBlenderImportLock) {
+            val value = pendingBlenderImport
+            pendingBlenderImport = null
+            value
+        } ?: return
         importBlenderStl(queued)
     }
 

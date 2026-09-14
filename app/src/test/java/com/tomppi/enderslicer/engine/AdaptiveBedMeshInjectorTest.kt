@@ -266,7 +266,7 @@ class AdaptiveBedMeshInjectorTest {
         assertTrue(file.readText().contains("C29 L5 R175 F15 B65 X6 Y3 ; AML mesh area"))
     }
 
-
+    @Test
     fun chosenDensityIsFittedPerAxis() {
         val file = temporaryGcode(
             "G28\n" +

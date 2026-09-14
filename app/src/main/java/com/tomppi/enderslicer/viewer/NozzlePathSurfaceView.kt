@@ -1288,8 +1288,9 @@ private class NozzlePathRenderer : GLSurfaceView.Renderer {
         private const val FINE_SIDE_TOP_AMBIENT = 0.95f
         // Odd layers render a touch darker so layers separate visually.
         private const val RIBBON_LAYER_TINT = 0.96f
-        // Eye sits at (0, -distance, 0.58*distance); true eye distance is distance * sqrt(1 + 0.58^2).
-        private const val CAMERA_EYE_DISTANCE_SCALE = 1.1561f
+        // Eye sits at (0, -distance, 0.62*distance) - see computeCamera - so the true eye
+        // distance is distance * sqrt(1 + 0.62^2); panning scales by that, not by 1.
+        private const val CAMERA_EYE_DISTANCE_SCALE = 1.17666f
 
         private fun normalize3(x: Float, y: Float, z: Float): FloatArray {
             val length = sqrt(x * x + y * y + z * z)

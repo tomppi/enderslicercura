@@ -57,15 +57,20 @@ class OctoPrintRepository(
     private val initialConfig = store.loadConfig()
     private val initialApiKey = store.loadApiKey()
     @Volatile
-    private var cachedApiKey: String? = initialApiKey
+    private var cachedApiKey: String? = (initialApiKey as? ApiKeyLoad.Loaded)?.apiKey
     private val _state = MutableStateFlow(
         OctoPrintUiState(
             config = initialConfig,
-            hasApiKey = initialApiKey != null,
-            statusMessage = if (initialConfig.isConfigured && initialApiKey != null) {
-                "Connecting to OctoPrint…"
-            } else {
-                "Configure OctoPrint to begin"
+            hasApiKey = initialApiKey is ApiKeyLoad.Loaded,
+            statusMessage = when {
+                // A stored credential that cannot be decrypted is said out loud
+                // rather than treated as absent: the difference is a user who
+                // knows to re-enter a key and one who re-approves the app.
+                initialApiKey is ApiKeyLoad.Unreadable ->
+                    "The saved OctoPrint API key could not be read; enter it again to reconnect"
+                initialConfig.isConfigured && initialApiKey is ApiKeyLoad.Loaded ->
+                    "Connecting to OctoPrint…"
+                else -> "Configure OctoPrint to begin"
             },
         ),
     )

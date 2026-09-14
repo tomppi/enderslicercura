@@ -1,11 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <data-extraction-rules>
     <cloud-backup>
+        <!-- The OctoPrint file holds an API key encrypted with a Keystore key
+             that never leaves this device, so a restored copy is ciphertext
+             nothing can decrypt. The harness file holds the harness address,
+             workspace path and session ids: no secret, but this device's
+             business with a host that is not the restored device's. -->
         <exclude domain="sharedpref" path="octoprint_client.xml" />
+        <exclude domain="sharedpref" path="harness_config.xml" />
         <exclude domain="file" path="smart-infill/" />
     </cloud-backup>
     <device-transfer>
         <exclude domain="sharedpref" path="octoprint_client.xml" />
+        <exclude domain="sharedpref" path="harness_config.xml" />
         <exclude domain="file" path="smart-infill/" />
     </device-transfer>
 </data-extraction-rules>

@@ -104,9 +104,11 @@ fun ModelToolsSheet(
         }
         Button(
             onClick = {
-                val x = xText.toDoubleOrNull() ?: return@Button
-                val y = yText.toDoubleOrNull() ?: return@Button
-                val z = zText.toDoubleOrNull() ?: return@Button
+                // An empty field keeps the model where it already is on that axis
+                // rather than silently refusing the whole move.
+                val x = parsePosition(xText) ?: placement.centerXmm
+                val y = parsePosition(yText) ?: placement.centerYmm
+                val z = parsePosition(zText) ?: placement.baseZmm
                 onMove(x, y, z)
             },
             modifier = Modifier.fillMaxWidth(),
@@ -162,7 +164,7 @@ fun ModelToolsSheet(
             PositionField("Scale (%)", scaleText, { scaleText = it }, Modifier.weight(1f))
             Button(
                 onClick = {
-                    val percent = scaleText.toDoubleOrNull()
+                    val percent = parsePosition(scaleText)
                     if (percent == null || !percent.isFinite() || percent < 1.0 || percent > 1000.0) {
                         return@Button
                     }
@@ -193,7 +195,7 @@ fun ModelToolsSheet(
             PositionField("Brush radius (mm)", brushText, { brushText = it }, Modifier.weight(1f))
             Button(
                 onClick = {
-                    brushText.toDoubleOrNull()?.let(onBrushRadius)
+                    parsePosition(brushText)?.let(onBrushRadius)
                     onOpenSupportPaintUi()
                 },
                 modifier = Modifier.weight(1f),
@@ -269,7 +271,10 @@ private fun PositionField(
     OutlinedTextField(
         value = value,
         onValueChange = { candidate ->
-            if (candidate.length <= 16 && candidate.all { it.isDigit() || it in ".-+" }) {
+            // A comma is accepted as the decimal mark: these fields are typed on
+            // keyboards in locales that use one, and the value is normalised when
+            // it is parsed.
+            if (candidate.length <= 16 && candidate.all { it.isDigit() || it in ".-+," }) {
                 onValueChange(candidate)
             }
         },
@@ -279,8 +284,25 @@ private fun PositionField(
     )
 }
 
+/**
+ * Parses a position field, accepting a comma as the decimal mark.
+ *
+ * Returns null for an empty field, which the callers treat as "leave it alone"
+ * rather than as zero: a field the user has cleared must not move the model.
+ */
+private fun parsePosition(text: String): Double? =
+    text.trim().replace(',', '.').toDoubleOrNull()
+
+/**
+ * Formats a position for the field.
+ *
+ * Locale.ROOT, never the device locale: this text is parsed again by
+ * [parsePosition], and in a comma-decimal locale the prefill ("12,5") could not
+ * be edited at all - every keystroke that left the comma in place was rejected,
+ * and the parser would not read it either.
+ */
 private fun Double.formatPosition(): String =
-    java.text.NumberFormat.getNumberInstance().apply {
+    java.text.NumberFormat.getNumberInstance(java.util.Locale.ROOT).apply {
         minimumFractionDigits = 0
         maximumFractionDigits = 3
         isGroupingUsed = false

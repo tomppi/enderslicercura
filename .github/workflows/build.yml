@@ -289,6 +289,31 @@ jobs:
             app/src/main/assets/blender/licenses/blender/GPL-license.txt; do
             [ -s "$file" ] || { echo "Blender engine assets: missing or empty: $file" >&2; exit 1; }
           done
+          # The startup scripts are the one tracked piece laid over the fetched
+          # package, and nothing else compiles or exercises them: a syntax error
+          # or a transport regression would only surface on a device. Compile the
+          # tracked sources and the staged copies, keeping the bytecode cache in a
+          # temporary directory so no __pycache__ reaches the staged assets (and
+          # so the APK), then drive the server without Blender.
+          python3 - <<'PY'
+          import pathlib
+          import py_compile
+          import tempfile
+
+          files = [
+              "native/blender/assets/startup/blender_mcp_slim.py",
+              "native/blender/assets/startup/start_blender_mcp.py",
+              "app/src/main/assets/blender/scripts/startup/blender_mcp_slim.py",
+              "app/src/main/assets/blender/scripts/startup/start_blender_mcp.py",
+          ]
+          with tempfile.TemporaryDirectory() as cache:
+              for index, name in enumerate(files):
+                  if not pathlib.Path(name).is_file():
+                      raise SystemExit("missing Blender startup script: " + name)
+                  py_compile.compile(name, cfile=pathlib.Path(cache, "check-%d.pyc" % index), doraise=True)
+                  print("compiled", name)
+          PY
+          python3 scripts/test-blender-mcp-slim.py
 
       - name: Build pinned host CuraEngine fixture binary
         run: |
@@ -303,10 +328,12 @@ jobs:
           set -o pipefail
           gradle :app:testDebugUnitTest --stacktrace 2>&1 | tee unit-tests.log
           test -n "$CURAENGINE_HOST_BINARY"
-          grep -R -q 'SmartInfillCuraEngineIntegrationTest' app/build/test-results/testDebugUnitTest
-          grep -R -q 'SmartInfillModifierShellIntegrationTest' app/build/test-results/testDebugUnitTest
-          grep -R -q 'SmartInfillCuraContractTest' app/build/test-results/testDebugUnitTest
-          grep -R -q 'SmartInfillPatternCommandTest' app/build/test-results/testDebugUnitTest
+          # A bare grep for a class name also matches a testsuite whose cases
+          # all carry <skipped/>, which is what a self-skipping real-engine test
+          # looks like: the proof disappears and the build stays green. The
+          # results are parsed instead, and every class has to report tests that
+          # ran, with nothing failed and nothing skipped.
+          python3 scripts/verify-real-curaengine-tests.py app/build/test-results/testDebugUnitTest
 
       - name: Build debug APK
         run: |

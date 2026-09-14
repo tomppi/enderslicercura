@@ -1067,7 +1067,11 @@ internal object PrusaNozzlePathViewDefaults {
     const val MIN_ZOOM = 0.25f
     const val MAX_ZOOM = 60f
     const val FIELD_OF_VIEW = 42f
-    const val CAMERA_EYE_DISTANCE_SCALE = 1.1527f
+    /**
+     * Eye sits at (0, -distance, 0.62*distance), so its true distance is
+     * distance * sqrt(1 + 0.62^2); two-finger panning scales by that.
+     */
+    const val CAMERA_EYE_DISTANCE_SCALE = 1.17666f
     const val TRAVEL_WIDTH = 1.5f
     const val TOP_AMBIENT = 0.98f
     const val SIDE_TOP_AMBIENT = 0.94f

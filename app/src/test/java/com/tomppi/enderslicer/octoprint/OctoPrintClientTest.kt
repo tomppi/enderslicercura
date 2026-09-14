@@ -296,6 +296,39 @@ class OctoPrintClientTest {
     }
 
     @Test
+    fun rewritesEveryLoopbackSpellingToTheConfiguredServerHost() {
+        // Comparing the host against "::1" and "127.0.0.1" never matched an
+        // IPv6 literal (URI.getHost() keeps its brackets) and missed the rest of
+        // 127.0.0.0/8, so these URLs used to be fetched from the phone's own
+        // loopback instead of the configured OctoPrint host.
+        val client = OctoPrintClient("http://octopi.local")
+        for (loopback in listOf(
+            "http://[::1]:8080/webcam/?action=snapshot",
+            "http://[0:0:0:0:0:0:0:1]:8080/webcam/?action=snapshot",
+            "http://127.0.0.2:8080/webcam/?action=snapshot",
+            "http://[::ffff:127.0.0.1]:8080/webcam/?action=snapshot",
+        )) {
+            assertEquals(
+                "loopback spelling not rewritten: $loopback",
+                "http://octopi.local:8080/webcam/?action=snapshot",
+                client.resolveWebcamSnapshotUrl(loopback)?.toString(),
+            )
+        }
+    }
+
+    @Test
+    fun keepsALoopbackAddressedServerReachable() {
+        // A server the user configured as 127.0.0.1 is still the server: the
+        // rewrite sends the webcam URL there, and the guard must not refuse the
+        // result - that setup works today.
+        val client = OctoPrintClient("http://127.0.0.1:5000")
+        assertEquals(
+            "http://127.0.0.1/webcam/?action=snapshot",
+            client.resolveWebcamSnapshotUrl("http://localhost/webcam/?action=snapshot")?.toString(),
+        )
+    }
+
+    @Test
     fun webcamErrorIsExposedInUiState() {
         val state = OctoPrintUiState(webcamError = "Webcam snapshot failed: Connection refused")
         assertEquals("Webcam snapshot failed: Connection refused", state.webcamError)

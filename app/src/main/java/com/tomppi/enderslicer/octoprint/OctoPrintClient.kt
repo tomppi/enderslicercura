@@ -125,19 +125,35 @@ class OctoPrintClient(
         }.getOrNull() ?: uri
     }
 
+    /**
+     * True for every spelling of loopback, not just three literal strings.
+     *
+     * `URI.getHost()` keeps an IPv6 literal's brackets, so the old comparison
+     * against "::1" never matched `[::1]`; `127.0.0.2`, the full form
+     * `[0:0:0:0:0:0:0:1]` and IPv4-mapped addresses were missed as well, and a
+     * webcam URL spelled that way sent the app's own loopback a request. Asking
+     * the address is the check that covers all of them.
+     */
     private fun isLoopbackHost(host: String): Boolean =
-        host.equals("localhost", ignoreCase = true) || host == "127.0.0.1" || host == "::1"
+        host.equals("localhost", ignoreCase = true) || addressOf(host)?.isLoopbackAddress == true
+
+    private fun addressOf(host: String): InetAddress? =
+        runCatching { InetAddress.getByName(host.removeSurrounding("[", "]")) }.getOrNull()
 
     // Blocks SSRF to cloud metadata (169.254.169.254), link-local ranges and
     // IPv6 unique-local addresses; RFC1918 webcams on the LAN stay supported.
+    // Loopback is refused here too, as the belt to the rewrite's braces: a
+    // rewrite that failed leaves the original host in place, and that host must
+    // not be the app's own loopback. The OctoPrint host itself is exempt - a
+    // server the user configured as 127.0.0.1 is still the server.
     private fun isAllowedWebcamTarget(uri: URI): Boolean {
         val host = uri.host ?: return false
-        val address = runCatching { InetAddress.getByName(host) }.getOrNull() ?: return true
+        val address = addressOf(host) ?: return true
         val bytes = address.address ?: return true
         val linkLocalV4 = bytes.size == 4 && (bytes[0].toInt() and 0xFF) == 169 && (bytes[1].toInt() and 0xFF) == 254
         val uniqueLocalV6 = bytes.size == 16 && (bytes[0].toInt() and 0xFE) == 0xFC
-        val loopbackV6 = bytes.size == 16 && bytes.all { it == 0.toByte() } && bytes.last() == 1.toByte()
-        return !linkLocalV4 && !uniqueLocalV6 && !loopbackV6
+        val loopback = address.isLoopbackAddress && !host.equals(base.host, ignoreCase = true)
+        return !linkLocalV4 && !uniqueLocalV6 && !loopback
     }
 
     private fun fetchWebcamSnapshot(url: URI, redirectCount: Int): ByteArray {

@@ -161,26 +161,11 @@ class HarnessChat(
         val state = state()
         if (!state.exists) return emptyList()
         val page = pageOf(state, maxMessages)
-        val full = fullResponsesOf(page)
-        // The projection clips prompts as well as replies, and there is no full
-        // text for a prompt anywhere except the log. The log carries no turn
-        // number on a user message, so they are paired in order - and only when
-        // the counts agree, because a mis-paired prompt is worse than a clipped
-        // one.
-        val prompts = fullPromptsOf(page)
-        val promptsAlign = prompts.size == state.turns.size
-        return buildList {
-            state.turns.forEachIndexed { index, turn ->
-                val prompt = if (promptsAlign) prompts[index] else turn.prompt
-                if (prompt.isNotBlank()) add(ChatMessage(fromUser = true, text = prompt))
-                // Only answered turns get a reply line, so an in-flight turn
-                // does not show half a step's narration as if it were the
-                // answer.
-                if (!turn.isAnswered) return@forEachIndexed
-                val text = full[index + 1] ?: turn.response
-                if (text.isNotBlank()) add(ChatMessage(fromUser = false, text = text))
-            }
-        }
+        return transcript(
+            turns = state.turns,
+            prompts = fullPromptsOf(page),
+            responses = fullResponsesOf(page),
+        )
     }
 
     private fun pageOf(state: SessionState, maxMessages: Int): JSONObject? = try {
@@ -196,6 +181,71 @@ class HarnessChat(
     companion object {
         /** Messages pulled back from the log when a reply is rendered in full. */
         const val MESSAGE_PAGE_SIZE = 120
+
+        /** The projection's normalisation: whitespace runs collapse to one space. */
+        private val WHITESPACE_RUN = Regex("\\s+")
+
+        /**
+         * Builds the transcript from the projected turns plus whatever the log
+         * could add.
+         *
+         * The projection clips prompts as well as replies, and the only full
+         * prompt text lives in the log. That log carries no turn number on a
+         * user message, so prompts can only be paired by position - and position
+         * is sound only when the two lists really do run together. Equal lengths
+         * are not proof: a turn the agent started on its own (a background-job
+         * notice, which never enters the prompt list) beside a turn that queued
+         * a second prompt (a STOP_INSTRUCTION on top of the original) leaves both
+         * lists the same size with everything after the first shifted. Pairing
+         * then shows one message's words above another's answer and silently
+         * drops the rest.
+         *
+         * So every positional pair has to prove itself against the turn's own
+         * preview, and a list that fails anywhere is not used at all: each turn
+         * then shows its own clipped preview, which is at least the right turn's
+         * text.
+         */
+        fun transcript(
+            turns: List<Turn>,
+            prompts: List<String>,
+            responses: Map<Int, String>,
+        ): List<ChatMessage> {
+            val paired = prompts.takeIf { promptsMatchTurns(turns, it) }
+            return buildList {
+                turns.forEachIndexed { index, turn ->
+                    val prompt = paired?.get(index) ?: turn.prompt
+                    if (prompt.isNotBlank()) add(ChatMessage(fromUser = true, text = prompt))
+                    // Only answered turns get a reply line, so an in-flight turn
+                    // does not show half a step's narration as if it were the
+                    // answer.
+                    if (!turn.isAnswered) return@forEachIndexed
+                    val text = responses[index + 1] ?: turn.response
+                    if (text.isNotBlank()) add(ChatMessage(fromUser = false, text = text))
+                }
+            }
+        }
+
+        /**
+         * True when the log's prompts line up, in order, with the projected
+         * turns; see [transcript] for why a matching count is not enough.
+         */
+        private fun promptsMatchTurns(turns: List<Turn>, prompts: List<String>): Boolean =
+            prompts.size == turns.size && turns.indices.all { previewAgrees(prompts[it], turns[it].prompt) }
+
+        /**
+         * True when [preview] is the projection's own clipping of [full].
+         *
+         * The projection space-joins a turn's text blocks and collapses every
+         * whitespace run to one space before clipping at a line's worth of
+         * characters with a trailing ellipsis, so the two are only comparable
+         * after the same normalisation and with the marker removed.
+         */
+        private fun previewAgrees(full: String, preview: String): Boolean {
+            val clipped = collapse(preview).removeSuffix("…").trimEnd()
+            return clipped.isNotEmpty() && collapse(full).startsWith(clipped)
+        }
+
+        private fun collapse(value: String): String = WHITESPACE_RUN.replace(value, " ").trim()
 
         /**
          * True once the reply to a prompt is in.

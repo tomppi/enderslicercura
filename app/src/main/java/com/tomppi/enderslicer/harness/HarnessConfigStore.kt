@@ -1,20 +1,17 @@
 package com.tomppi.enderslicer.harness
 
 import android.content.Context
-import android.security.keystore.KeyGenParameterSpec
-import android.security.keystore.KeyProperties
-import android.util.Base64
-import java.nio.ByteBuffer
 import java.security.KeyStore
-import javax.crypto.Cipher
-import javax.crypto.KeyGenerator
-import javax.crypto.SecretKey
-import javax.crypto.spec.GCMParameterSpec
 
-/** Where the harness lives, and the launch token that proves we may talk to it. */
+/**
+ * Where the harness lives, and what this app keeps there.
+ *
+ * The launch token the harness prints in its URL is deliberately not part of
+ * this: every request authenticates from the harness's own `auth.json`, so a
+ * token would be a bearer credential held for a reader that does not exist.
+ */
 data class HarnessConfig(
     val baseUrl: String = "",
-    val token: String = "",
     /**
      * Working directory for sessions this app creates, on the harness host.
      *
@@ -38,46 +35,43 @@ data class HarnessConfig(
     /**
      * Folds a freshly parsed address into this configuration.
      *
-     * The address field holds a bare URL, and a bare URL parses to an *empty*
-     * token - so saving the parsed value over the stored one silently drops the
-     * credential the harness handed over from `auth.json`, and the next connect
-     * has to bootstrap again. Only a token the user actually pasted replaces
-     * the stored one.
+     * The address field holds a bare URL, so a pasted value that parses to an
+     * empty address - the field cleared, or a URL that was not an address at
+     * all - must not overwrite the stored one the chat is still using. The
+     * workspace and session always come from the caller, which is the code that
+     * just connected.
      */
     fun mergedWith(parsed: HarnessConfig, workspace: String, sessionId: String): HarnessConfig = copy(
         baseUrl = parsed.baseUrl.ifBlank { baseUrl },
-        token = parsed.token.ifBlank { token },
         workspace = workspace,
         sessionId = sessionId,
     )
 
     companion object {
         /**
-         * Splits what the user pastes into an address and a token.
+         * Splits what the user pastes into an address.
          *
          * The harness prints a URL carrying its launch token as `?token=…`, so
-         * the natural thing to paste is that whole URL. A bare address is also
-         * accepted, for a harness already authenticated by other means, and any
-         * fragment is dropped because it never identifies the server.
+         * the natural thing to paste is that whole URL. Everything from the
+         * query onwards is dropped - the token included, because no request
+         * path reads it - and so is any fragment, which never identifies the
+         * server either.
          */
         fun parseLaunchUrl(pasted: String): HarnessConfig {
             val withoutFragment = pasted.trim().substringBefore('#')
             if (withoutFragment.isEmpty()) return HarnessConfig()
-            val token = withoutFragment.substringAfter("token=", "").substringBefore('&')
-            return HarnessConfig(
-                baseUrl = withoutFragment.substringBefore('?').trimEnd('/'),
-                token = token,
-            )
+            return HarnessConfig(baseUrl = withoutFragment.substringBefore('?').trimEnd('/'))
         }
     }
 }
 
 /**
- * Persists the harness address and its launch token.
+ * Persists where the harness lives, and which conversations to resume.
  *
- * The token is a bearer credential - anyone holding it can drive the harness -
- * so it is encrypted with an Android Keystore key rather than written to
- * preferences in the clear, matching how the OctoPrint API key is handled.
+ * Nothing secret is written here any more. The launch token used to be
+ * encrypted with a device-bound Keystore key, but no request path ever read it
+ * back, so [save] drops what an earlier build left behind instead of carrying a
+ * credential forward.
  */
 class HarnessConfigStore(context: Context) {
 
@@ -85,7 +79,6 @@ class HarnessConfigStore(context: Context) {
 
     fun load(): HarnessConfig = HarnessConfig(
         baseUrl = preferences.getString(KEY_BASE_URL, "").orEmpty(),
-        token = loadEncrypted(KEY_ENCRYPTED_TOKEN),
         workspace = preferences.getString(KEY_WORKSPACE, "").orEmpty(),
         sessionId = preferences.getString(KEY_SESSION_ID, "").orEmpty(),
     )
@@ -94,11 +87,12 @@ class HarnessConfigStore(context: Context) {
         check(
             preferences.edit()
                 .putString(KEY_BASE_URL, config.baseUrl.trimEnd('/'))
-                .putString(KEY_ENCRYPTED_TOKEN, encrypt(config.token))
                 .putString(KEY_WORKSPACE, config.workspace.trim())
                 .putString(KEY_SESSION_ID, config.sessionId)
+                .remove(KEY_LEGACY_ENCRYPTED_TOKEN)
                 .commit(),
         ) { "Unable to persist the harness configuration" }
+        deleteLegacyTokenKey()
     }
 
     /**
@@ -121,61 +115,21 @@ class HarnessConfigStore(context: Context) {
 
     fun clear() {
         check(preferences.edit().clear().commit()) { "Unable to clear the harness configuration" }
-        runCatching { keyStore().deleteEntry(KEY_ALIAS) }
+        deleteLegacyTokenKey()
     }
 
-    private fun loadEncrypted(key: String): String {
-        val encoded = preferences.getString(key, null) ?: return ""
-        return runCatching { decrypt(encoded) }
-            .onFailure { preferences.edit().remove(key).commit() }
-            .getOrDefault("")
-            .takeIf(String::isNotBlank)
-            .orEmpty()
-    }
-
-    private fun encrypt(value: String): String {
-        if (value.isEmpty()) return ""
-        val cipher = Cipher.getInstance(TRANSFORMATION)
-        cipher.init(Cipher.ENCRYPT_MODE, getOrCreateKey())
-        val encrypted = cipher.doFinal(value.toByteArray(Charsets.UTF_8))
-        val payload = ByteBuffer.allocate(1 + cipher.iv.size + encrypted.size)
-            .put(cipher.iv.size.toByte())
-            .put(cipher.iv)
-            .put(encrypted)
-            .array()
-        return FORMAT_PREFIX + Base64.encodeToString(payload, Base64.NO_WRAP)
-    }
-
-    private fun decrypt(value: String): String {
-        require(value.startsWith(FORMAT_PREFIX)) { "Unsupported credential format" }
-        val payload = Base64.decode(value.removePrefix(FORMAT_PREFIX), Base64.NO_WRAP)
-        val buffer = ByteBuffer.wrap(payload)
-        val ivSize = buffer.get().toInt() and 0xff
-        require(ivSize in 12..32 && buffer.remaining() > ivSize) { "Corrupt encrypted credential" }
-        val iv = ByteArray(ivSize).also(buffer::get)
-        val encrypted = ByteArray(buffer.remaining()).also(buffer::get)
-        val cipher = Cipher.getInstance(TRANSFORMATION)
-        cipher.init(Cipher.DECRYPT_MODE, getOrCreateKey(), GCMParameterSpec(128, iv))
-        return cipher.doFinal(encrypted).toString(Charsets.UTF_8)
-    }
-
-    private fun keyStore(): KeyStore =
-        KeyStore.getInstance(ANDROID_KEY_STORE).apply { load(null) }
-
-    private fun getOrCreateKey(): SecretKey {
-        val store = keyStore()
-        (store.getKey(KEY_ALIAS, null) as? SecretKey)?.let { return it }
-        val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, ANDROID_KEY_STORE)
-        generator.init(
-            KeyGenParameterSpec.Builder(
-                KEY_ALIAS,
-                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT,
-            )
-                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
-                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
-                .build(),
-        )
-        return generator.generateKey()
+    /**
+     * Removes the Keystore key an earlier build encrypted the launch token with.
+     *
+     * Device-bound and unreadable from anywhere else, it now has nothing left to
+     * decrypt; leaving it behind would keep a credential's key alive for no
+     * reader. A device that never ran that build has no such entry, which
+     * [deleteEntry] treats as a no-op.
+     */
+    private fun deleteLegacyTokenKey() {
+        runCatching {
+            KeyStore.getInstance(ANDROID_KEY_STORE).apply { load(null) }.deleteEntry(LEGACY_TOKEN_KEY_ALIAS)
+        }
     }
 
     companion object {
@@ -183,11 +137,10 @@ class HarnessConfigStore(context: Context) {
         private const val KEY_BASE_URL = "base_url"
         private const val KEY_WORKSPACE = "workspace"
         private const val KEY_SESSION_ID = "session_id"
-    private const val KEY_MODELLING_SESSION_ID = "modelling_session_id"
-        private const val KEY_ENCRYPTED_TOKEN = "encrypted_token"
-        private const val KEY_ALIAS = "enderslicer_harness_token"
+        private const val KEY_MODELLING_SESSION_ID = "modelling_session_id"
+        /** Token ciphertext written by a build that stored the launch token; dropped by [save]. */
+        private const val KEY_LEGACY_ENCRYPTED_TOKEN = "encrypted_token"
+        private const val LEGACY_TOKEN_KEY_ALIAS = "enderslicer_harness_token"
         private const val ANDROID_KEY_STORE = "AndroidKeyStore"
-        private const val TRANSFORMATION = "AES/GCM/NoPadding"
-        private const val FORMAT_PREFIX = "v1:"
     }
 }

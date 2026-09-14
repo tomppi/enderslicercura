@@ -192,6 +192,13 @@ fun EnderSlicerApp(
     var modellingOwner by remember { mutableStateOf(CameraOwner.AGENT) }
     var modellingCamera by remember { mutableStateOf<ModellingCamera?>(null) }
     var modellingBootstrapped by remember { mutableStateOf(false) }
+    // The standing brief is owed from the first visit to the modelling screen,
+    // but the connection that screen starts in the same frame is asynchronous:
+    // the brief waits here until a chat exists to carry it.
+    var modellingIntroPending by remember { mutableStateOf(false) }
+    // True once a modelling chat has been adopted. Read only to know when the
+    // deferred brief can be delivered.
+    var modellingChatReady by remember { mutableStateOf(false) }
     val modellingChat = remember { java.util.concurrent.atomic.AtomicReference<HarnessChat?>(null) }
     // Revision this app last wrote or read. The file is the handover point, so
     // writes bump it and an adoption takes the agent's value verbatim.
@@ -225,6 +232,7 @@ fun EnderSlicerApp(
     // gesture's burst of publishes cannot interleave inside write-and-rename.
     val cameraScope = rememberCoroutineScope()
     val cameraWriteLock = remember { Mutex() }
+    val cameraWrittenRev = remember { java.util.concurrent.atomic.AtomicLong(0L) }
     var modellingCameraTouchedAt by remember { mutableStateOf(0L) }
 
     // Adopt a stored address on first composition, so an install that was
@@ -248,6 +256,8 @@ fun EnderSlicerApp(
         chat: HarnessChat,
         publish: (List<AiChatMessage>) -> Unit,
         report: (String?) -> Unit,
+        /** True when picking a turn up again that was already running. */
+        resumed: Boolean = false,
     ) {
         var attempts = 0
         var idle = 0
@@ -274,8 +284,11 @@ fun EnderSlicerApp(
                 }
                 // "Not running" is only meaningful once the new turn has been
                 // published. Before that the session may simply not have picked
-                // the prompt up yet.
-                if (state.running || !chat.hasNewTurn(state)) {
+                // the prompt up yet - except for a resumed poll, which has
+                // already seen the turn running, so the projection has published
+                // it and "not running" immediately means "ended".
+                val ended = if (resumed) !state.running else !state.running && chat.hasNewTurn(state)
+                if (!ended) {
                     idle = 0
                 } else if (++idle >= harnessSettlePolls) {
                     // Idle and never answered: the turn ended without a reply.
@@ -289,6 +302,33 @@ fun EnderSlicerApp(
             attempts++
         }
         report("Still running after 20 minutes — open the chat again to check")
+    }
+
+    /**
+     * Picks an in-flight turn up again after the activity was recreated.
+     *
+     * Rotation cancels the poll but not the turn: the harness carries on working,
+     * and nothing else ever reads that reply back, so the answer was lost and the
+     * next message started a second generation. Only a turn the harness still
+     * reports as running is resumed - picking up anything else would sit on a
+     * finished or failed session for the whole twenty-minute poll.
+     */
+    fun resumeReplyIfRunning(
+        chat: HarnessChat,
+        publish: (List<AiChatMessage>) -> Unit,
+        report: (String?) -> Unit,
+        setBusy: (Boolean) -> Unit,
+    ) {
+        aiScope.launch {
+            val state = withContext(Dispatchers.IO) { chat.state() }
+            if (!state.exists || !state.running) return@launch
+            setBusy(true)
+            try {
+                pollForReply(chat, publish, report, resumed = true)
+            } finally {
+                setBusy(false)
+            }
+        }
     }
 
     fun askHarness(text: String) {
@@ -379,17 +419,30 @@ fun EnderSlicerApp(
                     modelling.connect(harnessStore.loadModellingSession())
                 }
                 modellingChat.set(modelling)
+                // A modelling chat exists now, so the brief a first visit owed
+                // has somewhere to go.
+                modellingChatReady = true
                 harnessStore.saveModellingSession(adoptedModelling.sessionId)
                 modellingMessages = withContext(Dispatchers.IO) { modelling.messages() }
                     .map { AiChatMessage(fromUser = it.fromUser, text = it.text) }
-                // Merged over what was stored, never over what was typed: the
-                // address field is a bare URL, and saving its empty token would
-                // throw away the credential the harness just handed us.
+                // Merged over what was stored, never over what was typed: the address
+                // field is a bare URL here, so a blank one must not erase the stored
+                // address, workspace or session ids.
                 harnessStore.save(stored.mergedWith(parsed, workspace, adopted.sessionId))
                 aiConfigured = true
                 aiMessages = withContext(Dispatchers.IO) { chat.messages() }.map {
                     AiChatMessage(fromUser = it.fromUser, text = it.text)
                 }
+                // A turn that outlived the activity is still running on the
+                // harness, and nothing else reads its reply back: pick both
+                // conversations up again instead of losing the answers to a
+                // rotation and starting a second generation on the next send.
+                resumeReplyIfRunning(chat, { aiMessages = it }, { aiStatus = it }) { aiBusy = it }
+                resumeReplyIfRunning(
+                    modelling,
+                    { modellingMessages = it },
+                    { modellingStatus = it },
+                ) { modellingBusy = it }
                 aiStatus = when {
                     !adopted.reused -> "Started a new conversation"
                     workspace.isBlank() -> "No workspace set — the agent cannot see your skills"
@@ -516,18 +569,38 @@ fun EnderSlicerApp(
         // several times per frame during every orbit, pan and pinch.
         modellingCameraTouchedAt = System.currentTimeMillis()
         cameraScope.launch(Dispatchers.IO) {
-            cameraWriteLock.withLock { ModellingCameraStore.write(blenderDir, next) }
+            cameraWriteLock.withLock {
+                // The lock serialises the writes but not their order: a burst can
+                // reach a multi-threaded dispatcher out of order, and an older camera
+                // written last leaves the agent reading a stale one.
+                if (next.rev >= cameraWrittenRev.get()) {
+                    ModellingCameraStore.write(blenderDir, next)
+                    cameraWrittenRev.set(next.rev)
+                }
+            }
         }
     }
 
     fun openModelling() {
         modellingOpen = true
-        if (modellingChat.get() == null && aiConfigured) connectHarness()
+        if (modellingChat.get() == null) {
+            if (aiConfigured) {
+                connectHarness()
+            } else {
+                // There is no connect button on this screen, so the way to make
+                // it work has to be said here.
+                modellingStatus = "The harness is not set up yet - connect it in the AI chat " +
+                    "(Blender menu, Ask AI) first"
+            }
+        }
         // The engine starts on its default scene, so a first visit has nothing
-        // to show until the agent exports the cube it already has.
+        // to show until the agent exports the cube it already has. The brief is
+        // owed rather than sent: connecting is asynchronous, so asking in this
+        // frame handed the prompt to a chat that did not exist yet, and the agent
+        // never learned the camera, Workbench and export contract.
         if (!modellingBootstrapped && state.mesh == null) {
             modellingBootstrapped = true
-            askModellingAgent(modellingIntroPrompt)
+            modellingIntroPending = true
         }
     }
 
@@ -565,8 +638,21 @@ fun EnderSlicerApp(
     // Everything needed to recover is already persisted, so reconnect rather
     // than making the user do it. Declared here because a local function
     // cannot be called before it is defined.
-    LaunchedEffect(aiConfigured, aiChatOpen) {
-        if (aiConfigured && aiChatOpen && harnessChat.get() == null) connectHarness()
+    LaunchedEffect(aiConfigured, aiChatOpen, modellingOpen) {
+        // The modelling screen is a conversation too, and it has no connect UI of
+        // its own: without this a rotation left it empty and every send failed
+        // with "Connect to the harness first" and no way back.
+        val missingClient = (aiChatOpen && harnessChat.get() == null) ||
+            (modellingOpen && modellingChat.get() == null)
+        if (aiConfigured && missingClient) connectHarness()
+    }
+
+    // The standing brief waits for the connection its screen opened in the same
+    // frame, and is cleared before it is sent so it can only go once.
+    LaunchedEffect(modellingOpen, modellingChatReady, modellingIntroPending) {
+        if (!modellingOpen || !modellingChatReady || !modellingIntroPending) return@LaunchedEffect
+        modellingIntroPending = false
+        askModellingAgent(modellingIntroPrompt)
     }
 
     // Android-style back navigation: back closes any open layer instead of exiting.
@@ -1812,8 +1898,14 @@ private fun ViewerPanel(
             viewerMode == ViewerMode.NOZZLE_PATH && gcodeAvailable -> if (state.sliceEngine == SlicerEngine.PRUSA) {
                 PrusaNozzlePathView(
                     gcodePath = requireNotNull(state.gcodePath),
+                    // PrusaSlicer spells an "auto" extrusion width as 0 and the
+                    // importer stores that verbatim, so a non-positive width is an
+                    // unknown one: falling through to the next choice, and finally
+                    // to the Cura line width, is what keeps the flow readout from
+                    // dividing by zero and reporting "flow Infinity%".
                     beadLineWidthMm = state.prusaSettings.perimeterExtrusionWidthMm
-                        ?: state.prusaSettings.firstLayerExtrusionWidthMm
+                        ?.takeIf { it > 0.0 }
+                        ?: state.prusaSettings.firstLayerExtrusionWidthMm?.takeIf { it > 0.0 }
                         ?: state.settings.lineWidthMm,
                     modifier = Modifier.fillMaxSize(),
                 )

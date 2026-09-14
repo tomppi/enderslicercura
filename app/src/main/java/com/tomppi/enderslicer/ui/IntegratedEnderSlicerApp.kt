@@ -92,8 +92,15 @@ fun IntegratedEnderSlicerApp(
     // restores the workspace after process recreation. Keep the persisted
     // package until a concrete mesh exists, then validate its exact digest.
     LaunchedEffect(slicerState.mesh, smartInfillPackage?.id) {
-        val packageValue = smartInfillPackage ?: return@LaunchedEffect
-        val mesh = slicerState.mesh ?: return@LaunchedEffect
+        val packageValue = smartInfillPackage
+        val mesh = slicerState.mesh
+        if (packageValue == null || mesh == null) {
+            // Nothing is being validated for these keys, and Remove stays enabled
+            // while a validation runs, so the flag must never outlive the run that
+            // set it - refusing to clear it here left Slice blocked until restart.
+            smartInfillValidating = false
+            return@LaunchedEffect
+        }
         smartInfillValidating = true
         SmartInfillRuntime.activate(null)
         try {
@@ -114,8 +121,10 @@ fun IntegratedEnderSlicerApp(
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Throwable) {
-            // A canceled A validation must never clear a newer B package.
-            if (SmartInfillRuntime.current()?.id == packageValue.id) {
+            // A cancelled A validation must never clear a newer B package. The
+            // runtime was cleared at the top of this run, so it cannot say which
+            // package is current any more: the package state is what names it.
+            if (smartInfillPackage?.id == packageValue.id) {
                 smartInfillStore.clearActive()
                 SmartInfillRuntime.activate(null)
                 smartInfillPackage = null
@@ -126,6 +135,9 @@ fun IntegratedEnderSlicerApp(
                 ).show()
             }
         } finally {
+            // Only the run whose package is still current may clear the flag: a run
+            // replaced mid-validation would otherwise clear the flag of the run
+            // that replaced it while that newer validation is still going.
             if (smartInfillPackage == null || smartInfillPackage?.id == packageValue.id) {
                 smartInfillValidating = false
             }

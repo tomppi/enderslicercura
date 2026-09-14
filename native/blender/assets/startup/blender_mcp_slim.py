@@ -380,7 +380,11 @@ class BlenderMCPServer:
             print("BlenderMCP slim: shutdown requested; driver exiting")
             with self._busy_lock:
                 self._executing_since = None
-            self.running = False
+            # stop() closes the listening socket. Leaving it open and merely
+            # clearing [running] kept it in LISTEN - the server thread's reference
+            # cycle delays collection - so the park loop's rebind of the same port
+            # failed with EADDRINUSE and the engine never came back.
+            self.stop()
             write_status(self.status_path, {"running": False, "stopped": True, "port": self.port})
         return 0.05
 

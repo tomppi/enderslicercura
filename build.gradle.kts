@@ -77,9 +77,18 @@ project(":app") {
     }
 
     plugins.withId("com.android.application") {
-        tasks.matching { it.name == "mergeDebugAssets" || it.name == "mergeReleaseAssets" }.configureEach {
+        // Anything that reads the assets directory has to wait for the preparers,
+        // not just the packaging steps: Gradle rejects an undeclared
+        // producer/consumer pair, and the lint model is a consumer - which is what
+        // made `assembleRelease` fail with a task-configuration problem rather than
+        // build the APK.
+        tasks.matching {
+            it.name == "mergeDebugAssets" || it.name == "mergeReleaseAssets" ||
+                it.name.contains("Lint") || it.name.startsWith("lint")
+        }.configureEach {
             dependsOn(prepareFilaSimAssets)
             dependsOn(verifyBumpMeshAssets)
+            dependsOn("prepareBumpMeshAssets")
         }
     }
 }
