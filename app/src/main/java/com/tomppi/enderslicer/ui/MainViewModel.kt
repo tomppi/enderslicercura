@@ -693,15 +693,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 stateStore.saveExtraCuraSettings(snapshot.extraCuraSettings)
             }
             // The store persists only what the engine can take, so an entry it
-            // refuses would otherwise look saved and then vanish on the next launch.
-            if (saved.rejectedKeys.isNotEmpty()) {
-                _uiState.update {
-                    it.copy(
-                        statusMessage = "Not saved - the engine cannot take " +
-                            saved.rejectedKeys.sorted().joinToString(", "),
-                    )
-                }
+            // refuses - or a write that did not go through at all - would otherwise
+            // look saved and then vanish on the next launch.
+            val complaint = when {
+                saved.rejectedKeys.isNotEmpty() -> "Not saved - the engine cannot take " +
+                    saved.rejectedKeys.sorted().joinToString(", ")
+                !saved.persisted -> "Settings could not be saved; they will not survive a restart"
+                else -> null
             }
+            complaint?.let { message -> _uiState.update { it.copy(statusMessage = message) } }
         }
     }
 
@@ -2118,7 +2118,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     // behaved the first time.
                     val loaded = runCatching {
                         val blenderDir = File(app.filesDir, "blender")
-                        EnginePreviewClient().use { it.importModelWhenReady(target, blenderDir) }
+                        // The token file too: the engine refuses anything else, so a
+                        // client without it retried this import for two minutes and
+                        // then reported that the engine would not load the model.
+                        EnginePreviewClient(tokenFile = BlenderEngine.tokenFile(blenderDir))
+                            .use { it.importModelWhenReady(target, blenderDir) }
                     }.getOrDefault(false)
                     target to loaded
                 }

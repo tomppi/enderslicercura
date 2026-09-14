@@ -39,7 +39,7 @@ internal fun infillPatternLabel(pattern: String): String = when (pattern.lowerca
     "trihexagon" -> "Tri-hexagon"
     "cubic" -> "Cubic"
     "cubicsubdiv" -> "Cubic subdivision"
-    "octet" -> "Octet"
+    "tetrahedral" -> "Octet"
     "quarter_cubic" -> "Quarter cubic"
     "concentric" -> "Concentric"
     "zigzag" -> "Zig zag"
@@ -344,7 +344,10 @@ internal fun CategorizedSettingsSheet(
                     "trihexagon" to "Tri-hexagon",
                     "cubic" to "Cubic",
                     "cubicsubdiv" to "Cubic subdivision",
-                    "octet" to "Octet",
+                    // Cura's enum value for the pattern shown as "Octet" is tetrahedral. "octet"
+    // is not a value the engine knows, and it maps unknown patterns to no infill at
+    // all while still reporting a successful slice.
+    "tetrahedral" to "Octet",
                     "quarter_cubic" to "Quarter cubic",
                     "concentric" to "Concentric",
                     "zigzag" to "Zig zag",

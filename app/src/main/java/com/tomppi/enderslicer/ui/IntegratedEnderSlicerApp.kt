@@ -72,6 +72,10 @@ fun IntegratedEnderSlicerApp(
     val smartInfillLoadWarning = remember(smartInfillStore) { smartInfillStore.consumeLoadWarning() }
     var smartInfillImporting by remember { mutableStateOf(false) }
     var smartInfillValidating by remember { mutableStateOf(false) }
+    // Which validation run owns the flag. The package id cannot identify a run: a
+    // rotate or scale replaces the mesh, which restarts the effect with the SAME
+    // package, and the cancelled run would then clear the flag the new run set.
+    var smartInfillValidationRun by remember { mutableStateOf(0) }
     var smartInfillOpen by rememberSaveable { mutableStateOf(false) }
 
     fun deleteHandoff(uri: Uri) {
@@ -101,6 +105,8 @@ fun IntegratedEnderSlicerApp(
             smartInfillValidating = false
             return@LaunchedEffect
         }
+        val run = smartInfillValidationRun + 1
+        smartInfillValidationRun = run
         smartInfillValidating = true
         SmartInfillRuntime.activate(null)
         try {
@@ -135,10 +141,11 @@ fun IntegratedEnderSlicerApp(
                 ).show()
             }
         } finally {
-            // Only the run whose package is still current may clear the flag: a run
-            // replaced mid-validation would otherwise clear the flag of the run
-            // that replaced it while that newer validation is still going.
-            if (smartInfillPackage == null || smartInfillPackage?.id == packageValue.id) {
+            // Only the newest run may clear the flag. The package id is not enough:
+            // re-validating the same package (a move or scale) starts a new run, and
+            // the cancelled one would clear the flag while the new one is still
+            // hashing - which unblocked Slice with the runtime already cleared.
+            if (smartInfillValidationRun == run) {
                 smartInfillValidating = false
             }
         }

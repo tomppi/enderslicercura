@@ -147,6 +147,18 @@ def start() -> bool:
             server.start()
         except Exception as e:
             print(f"start_blender_mcp: start failed: {e}")
+        # Which mode this is must NOT be read off the server: headless_driver is
+        # only set once the bind succeeded, so a failed start under `blender -b`
+        # looked like the desktop case and returned from this script - which ends
+        # Blender's background main, and its teardown calls exit(), killing the app
+        # process. bpy.app.background is the honest signal.
+        if not bpy.app.background:
+            # Desktop/GUI: Blender's own event loop drives the server through a bpy
+            # timer, so parking here would block its startup for ever.
+            print("start_blender_mcp: not headless; returning to Blender (server running: "
+                  + str(bool(server.running)) + ", error: "
+                  + (server.start_error or "none") + ")")
+            return True
         if server.headless_driver:
             # Background mode (blender -b --python ...): the script runs
             # synchronously on the bpy main thread, so draining MCP commands
@@ -155,14 +167,11 @@ def start() -> bool:
             server.run_headless()
             print("start_blender_mcp: headless driver exiting")
         else:
-            # Not blender -b: this is the desktop/GUI case, where Blender's own
-            # event loop drives the server through a bpy timer. Parking here would
-            # block Blender's startup for ever with nothing to answer requests, so
-            # hand control back and say what state the server is in.
-            print("start_blender_mcp: not headless; returning to Blender (server running: "
-                  + str(bool(server.running)) + ", error: "
-                  + (server.start_error or "none") + ")")
-            return True
+            # Headless, and the server did not come up (a busy port, most likely).
+            # Park anyway: this script returning is what kills the process, and the
+            # app asks for a server again through the restart file.
+            print("start_blender_mcp: headless start failed: "
+                  + (server.start_error or "server did not start"))
         bm.write_status(status_path, {
             "running": False,
             "port": server.port,

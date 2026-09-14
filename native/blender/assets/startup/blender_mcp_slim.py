@@ -217,6 +217,13 @@ class BlenderMCPServer:
             pass
         if self.socket:
             try:
+                # shutdown() wakes a blocked accept() immediately where the
+                # platform supports it; close() alone can leave the port bound
+                # until that accept returns.
+                self.socket.shutdown(socket.SHUT_RDWR)
+            except Exception:
+                pass
+            try:
                 self.socket.close()
             except Exception:
                 pass
@@ -244,11 +251,17 @@ class BlenderMCPServer:
         print("BlenderMCP slim server stopped")
 
     def _server_loop(self):
-        self.socket.settimeout(1.0)
+        # A local reference, and a timeout, so this loop always reaches a point
+        # where it can see [running] go false: stop() closes the socket and clears
+        # the attribute from another thread, and on Linux a close() issued while an
+        # accept() is blocked does not release the port until that accept returns -
+        # which is what made a rebind fail with EADDRINUSE.
+        listener = self.socket
+        listener.settimeout(1.0)
         while self.running:
             try:
                 try:
-                    client, address = self.socket.accept()
+                    client, address = listener.accept()
                     print(f"BlenderMCP slim: client connected {address}")
                     t = threading.Thread(target=self._handle_client, args=(client,), daemon=True)
                     t.start()
@@ -264,6 +277,12 @@ class BlenderMCPServer:
                 if not self.running:
                     break
                 time.sleep(0.5)
+        # The loop is the last user of the listener, so it is what actually frees
+        # the port once accept() has returned.
+        try:
+            listener.close()
+        except Exception:
+            pass
         print("BlenderMCP slim: server loop stopped")
 
     def _reply(self, client, message):
@@ -337,7 +356,8 @@ class BlenderMCPServer:
                 except socket.timeout:
                     continue
                 except Exception as e:
-                    print(f"BlenderMCP slim: recv error {e}")
+                    if self.running:
+                        print(f"BlenderMCP slim: recv error {e}")
                     break
         finally:
             with self._clients_lock:

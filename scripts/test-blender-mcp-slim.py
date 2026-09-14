@@ -279,16 +279,22 @@ def main():
             still_open = True
         except OSError:
             still_open = False
-        probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        try:
-            probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            probe.bind(("127.0.0.1", harness.port))
-            probe.listen(1)
-            rebound = True
-        except OSError:
-            rebound = False
-        finally:
-            probe.close()
+        # The listener is released by the accept loop, which wakes on its own 1 s
+        # timeout: close() from another thread does not free the port on Linux until
+        # that accept returns. Bounded retry, not an instant demand.
+        rebound = False
+        deadline = time.time() + 5.0
+        while time.time() < deadline and not rebound:
+            probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            try:
+                probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                probe.bind(("127.0.0.1", harness.port))
+                probe.listen(1)
+                rebound = True
+            except OSError:
+                time.sleep(0.1)
+            finally:
+                probe.close()
         check(
             not still_open and rebound,
             "a shutdown closes the listening socket and frees the port",
